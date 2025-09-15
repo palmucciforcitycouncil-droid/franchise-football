@@ -1,1 +1,48 @@
-[build-system] 
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "franchise-football"
+version = "0.1.0"
+description = "Text-based American football management sim (Backend API skeleton)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "You" }]
+
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.4",
+  "sqlmodel>=0.0.21",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "httpx>=0.27",
+  "pytest-asyncio>=0.23",
+  "coverage[toml]>=7.6",
+  "ruff>=0.6",
+  "anyio>=4.4"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_empty = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-q"
+

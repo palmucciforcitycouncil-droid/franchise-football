@@ -1,0 +1,17 @@
+LICENSE
+README.md
+pyproject.toml
+app/__init__.py
+app/core/__init__.py
+app/core/config.py
+app/core/logging.py
+app/engine/__init__.py
+app/models/__init__.py
+app/services/__init__.py
+app/ui/__init__.py
+app/ui/api.py
+franchise_football.egg-info/PKG-INFO
+franchise_football.egg-info/SOURCES.txt
+franchise_football.egg-info/dependency_links.txt
+franchise_football.egg-info/requires.txt
+franchise_football.egg-info/top_level.txt
