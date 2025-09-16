@@ -1,7 +1,7 @@
 """
-Verify that every depth chart jersey exists on the same team's players list.
+Check CSVs for mismatches between depth_chart.csv and players.csv.
 
-Usage (Windows CMD):
+Usage:
   python scripts\check_depth_vs_players.py --path app\data\generated
 """
 
@@ -10,62 +10,69 @@ import csv
 from collections import defaultdict
 from pathlib import Path
 
+
+def load_players(path: Path):
+    players_by_team = defaultdict(set)  # team_key -> set(jerseys)
+    with (path / "players.csv").open(newline="", encoding="utf-8") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            team_key = row["team_key"].strip()
+            try:
+                jersey = int(str(row["jersey"]).strip())
+            except Exception:
+                continue
+            players_by_team[team_key].add(jersey)
+    return players_by_team
+
+
+def load_depth(path: Path):
+    depth_rows = []
+    with (path / "depth_chart.csv").open(newline="", encoding="utf-8") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            team_key = row["team_key"].strip()
+            pos = row["position"].strip()
+            try:
+                starter = int(str(row["starter_jersey"]).strip())
+            except Exception:
+                starter = None
+            backup_raw = (row.get("backup_jersey") or "").strip()
+            backup = int(backup_raw) if backup_raw.isdigit() else None
+            depth_rows.append((team_key, pos, starter, backup))
+    return depth_rows
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--path", required=True, help="Directory with teams.csv, players.csv, depth_chart.csv")
+    ap.add_argument("--path", required=True, help="Directory containing teams.csv, players.csv, depth_chart.csv")
     args = ap.parse_args()
 
     base = Path(args.path)
-    players_csv = base / "players.csv"
-    depth_csv = base / "depth_chart.csv"
-
-    if not players_csv.exists() or not depth_csv.exists():
-        print(f"ERROR: Missing CSVs under {base}. Expect players.csv and depth_chart.csv.")
-        return
-
-    with players_csv.open(newline="", encoding="utf-8") as f:
-        players_rows = list(csv.DictReader(f))
-    with depth_csv.open(newline="", encoding="utf-8") as f:
-        depth_rows = list(csv.DictReader(f))
-
-    team_jerseys = defaultdict(set)
-    for r in players_rows:
-        try:
-            team_jerseys[r["team_key"]].add(int(r["jersey"]))
-        except Exception:
-            print(f"WARNING: bad player row: {r}")
+    players_by_team = load_players(base)
+    depth_rows = load_depth(base)
 
     errors = []
-    for d in depth_rows:
-        tk = d["team_key"]
-        try:
-            s = int(d["starter_jersey"])
-        except ValueError:
-            errors.append((tk, d["position"], d["starter_jersey"], "starter (not an int)"))
-            continue
+    for team_key, pos, starter, backup in depth_rows:
+        roster = players_by_team.get(team_key, set())
+        if starter is None:
+            errors.append((team_key, pos, "starter", "<not an int>"))
+        elif starter not in roster:
+            errors.append((team_key, pos, "starter", starter))
+        if backup is not None and backup not in roster:
+            errors.append((team_key, pos, "backup", backup))
 
-        if s not in team_jerseys[tk]:
-            errors.append((tk, d["position"], s, "starter"))
+    if not errors:
+        print("✅ All depth chart jerseys are present in players.csv for their team_keys.")
+        return
 
-        b = (d.get("backup_jersey") or "").strip()
-        if b:
-            try:
-                b_int = int(b)
-            except ValueError:
-                errors.append((tk, d["position"], b, "backup (not an int)"))
-            else:
-                if b_int not in team_jerseys[tk]:
-                    errors.append((tk, d["position"], b_int, "backup"))
+    print("❌ Mismatches found between depth_chart.csv and players.csv:")
+    last_team = None
+    for team_key, pos, kind, jersey in errors:
+        if team_key != last_team:
+            print(f"\nTeam: {team_key}")
+            last_team = team_key
+        print(f"  - {pos}: {kind} jersey {jersey} not found in players.csv")
 
-    if errors:
-        print("MISMATCHES FOUND (team_key, position, jersey, kind):")
-        for e in errors[:50]:
-            print("  ", e)
-        if len(errors) > 50:
-            print(f"... and {len(errors) - 50} more")
-        raise SystemExit(1)
-    else:
-        print("OK: depth_chart jerseys all exist on their teams")
 
 if __name__ == "__main__":
     main()

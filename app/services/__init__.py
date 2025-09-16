@@ -1,2 +1,2 @@
-# service layer package
+"""Services package: business logic modules for Franchise Football."""
 

@@ -1,0 +1,6 @@
+first_name,last_name,position,jersey,age,salary,contract_years,team_key,speed,strength,agility,throw_power,throw_accuracy,catching,tackling,awareness,potential,stamina,injury_proneness,morale
+John,Doe,QB,12,24,850000,2,Arlington|Arrows,55,45,55,72,70,40,25,50,70,80,10,60
+Max,Runner,RB,22,23,650000,2,Arlington|Arrows,80,60,75,25,25,45,30,45,68,78,12,60
+Will,Hands,WR,11,25,700000,2,Arlington|Arrows,85,55,82,20,20,78,20,50,72,82,10,65
+Pat,Stopper,LB,50,26,700000,2,Arlington|Arrows,60,75,55,15,15,35,80,55,68,80,11,60
+Kelly,Leg,K,4,27,600000,1,Arlington|Arrows,45,40,45,10,10,20,20,40,60,70,8,70
