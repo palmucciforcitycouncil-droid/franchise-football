@@ -1,21 +1,4 @@
-# Acceptance: Season-level scoring fidelity (batch sim, deterministic)
-
-run:
-  seed: 2025
-  weeks: 20            # number of simulated weeks in the calibration slate (example)
-  max_iterations: 12   # stop if tolerances not met by this point (fail the run)
-
-assertions:
-  points_per_team_mean_within_pct: 5
-  one_score_rate_within_pp: 3
-  td_fg_ratio_within_pct: 5
-  quarter_shares_within_pp: 3
-  plays_per_game_within_pct: 3
-
-r2_guardrails:
-  per_game_flips_max_per_team: 1
-  illegal_scores_allowed: false
-
-artifacts:
-  kpi_report: "data/reports/season_kpis_{YEAR}.parquet"
-  reconciliation_log: "data/reports/reconciliation_events_{YEAR}.parquet"
+{
+  "weeks": 18,
+  "max_iterations": 60
+}

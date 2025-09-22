@@ -1,58 +1,35 @@
-# Contract: Calibration targets & tolerances the engine expects
-
-schema_version: 1
-
-window:
-  seasons: [2022, 2023, 2024]   # default window; update yearly
-
-targets:
-  points_per_team:
-    mean: 22.5          # example placeholder — replace with real computed value
-    stdev: 9.0          # placeholder
-  one_score_rate_pp: 49 # percentage points (e.g., 49 = 49%)
-  shutout_rate_pp: 3
-  blowout_rate_pp: 12
-  td_fg_ratio: 2.8
-  red_zone_td_rate_pp: 57
-  pat_make_pp: 94
-  two_point_attempt_pp: 5
-  two_point_make_pp: 51
-  fg_make_buckets_pp:
-    short_0_39: 92
-    mid_40_49: 84
-    long_50_plus: 63
-  turnover_rate_pp: 11
-  plays_per_game_mean: 124
-  quarter_shares_pp:
-    q1: 22
-    q2: 27
-    q3: 23
-    q4: 28
-
-tolerances:
-  points_per_team_mean_pct: 5
-  one_score_rate_pp: 3
-  td_fg_ratio_pct: 5
-  quarter_share_pp: 3
-  plays_per_game_pct: 3
-
-knob_bounds:
-  pace_factor: [0.90, 1.10]
-  red_zone_td_bias: [0.90, 1.10]
-  fg_make_bias_by_bucket:
-    short_0_39: [0.90, 1.10]
-    mid_40_49: [0.90, 1.10]
-    long_50_plus: [0.90, 1.10]
-  pat_make_bias: [0.90, 1.10]
-  two_point_attempt_bias: [0.90, 1.10]
-  two_point_make_bias: [0.90, 1.10]
-  turnover_bias: [0.90, 1.10]
-  quarter_shape:
-    q1: [0.90, 1.10]
-    q2: [0.90, 1.10]
-    q3: [0.90, 1.10]
-    q4: [0.90, 1.10]
-
-notes:
-  - Replace placeholder numbers under `targets` with values from your data exports.
-  - Keep bounds narrow to avoid oscillation; nudges are typically ≤1.5% per iteration.
+{
+  "targets": {
+    "points_per_team_mean": 23.0,
+    "one_score_rate_pp": 0.50,
+    "td_fg_ratio": 1.60,
+    "quarter_shares_pp": { "q1": 0.22, "q2": 0.28, "q3": 0.25, "q4": 0.25 },
+    "plays_per_game_mean": 120.0
+  },
+  "tolerances": {
+    "points_per_team_mean_pct": 0.03,
+    "one_score_rate_pp": 0.03,
+    "td_fg_ratio_pct": 0.05,
+    "quarter_share_pp": 0.02,
+    "plays_per_game_pct": 0.02
+  },
+  "knob_bounds": {
+    "pace_factor": [0.90, 1.10],
+    "red_zone_td_bias": [0.90, 1.10],
+    "fg_make_bias_by_bucket": {
+      "short": [0.90, 1.10],
+      "mid":   [0.90, 1.10],
+      "long":  [0.90, 1.10]
+    },
+    "pat_make_bias": [0.95, 1.05],
+    "two_point_attempt_bias": [0.90, 1.10],
+    "two_point_make_bias": [0.90, 1.10],
+    "turnover_bias": [0.90, 1.10],
+    "quarter_shape": {
+      "q1": [0.85, 1.15],
+      "q2": [0.85, 1.15],
+      "q3": [0.85, 1.15],
+      "q4": [0.85, 1.15]
+    }
+  }
+}
