@@ -11,3 +11,5 @@ franchise.db
 Thumbs.db
 .vscode/
 .idea/
+
+data/raw/pbp_csv/*.csv
