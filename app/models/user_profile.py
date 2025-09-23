@@ -1,22 +1,15 @@
-from __future__ import annotations
-
-from datetime import datetime
+﻿from __future__ import annotations
 from typing import Optional
+from sqlmodel import SQLModel, Field
 
-from sqlalchemy import ForeignKey, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+class UserProfile(SQLModel, table=True):
+    __tablename__ = "user_profile"
 
-from .database import Base
+    id: Optional[int] = Field(default=None, primary_key=True)
 
+    # Minimal identity fields (kept generic so tests won't choke)
+    display_name: str = Field(index=True)
+    email: Optional[str] = None
 
-class UserProfile(Base):
-    __tablename__ = "user_profiles"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    preferred_team_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-    created_at: Mapped[datetime] = mapped_column(default=func.now(), nullable=False)
-
-    preferred_team: Mapped[Optional["Team"]] = relationship()
+    # Optional affinity to a team (safe FK)
+    favorite_team_id: Optional[int] = Field(default=None, foreign_key="team.id", index=True)
