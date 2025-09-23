@@ -1,3 +1,4 @@
+﻿from app.core.seed import get_league_seed, make_rng
 # scripts/calibrate_score.py
 from __future__ import annotations
 
@@ -17,4 +18,5 @@ import pandas as pd
 from app.engine.targets import CalibrationTargets
 from app.engine.calibration import calibrate
 
-DEFAULT_SEED = 2025
+get_league_seed() = 2025
+

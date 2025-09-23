@@ -1,3 +1,4 @@
+﻿from app.core.seed import get_league_seed, make_rng
 # app/engine/calibration.py
 from __future__ import annotations
 
@@ -55,8 +56,8 @@ def _apply_bounds(knobs: Knobs, kb) -> Knobs:
 def _nudge_mult(err_ratio: float, step_min: float = 0.005, step_max: float = 0.015) -> float:
     """
     Convert an error ratio (target/observed - 1 for relative metrics, or delta for absolute)
-    into a bounded multiplicative nudge in ~0.5–1.5% increments.
-    Positive value → scale up; negative → scale down.
+    into a bounded multiplicative nudge in ~0.5â€“1.5% increments.
+    Positive value â†’ scale up; negative â†’ scale down.
     """
     mag = _clamp(abs(err_ratio), step_min, step_max)
     return 1.0 + (mag if err_ratio > 0 else -mag)
@@ -152,26 +153,26 @@ def calibrate(
         # Proportional nudges
         # -------------------------
 
-        # 1) Plays per game → pace_factor
+        # 1) Plays per game â†’ pace_factor
         pace_err_ratio = (tgt.plays_per_game_mean / max(plays_obs, 1e-9)) - 1.0
         knobs.pace_factor *= _nudge_mult(pace_err_ratio)
 
-        # 2) Points per team → red_zone_td_bias (primary)
+        # 2) Points per team â†’ red_zone_td_bias (primary)
         ppg_err_ratio = (tgt.points_per_team_mean / max(ppg_obs, 1e-9)) - 1.0
         knobs.red_zone_td_bias *= _nudge_mult(ppg_err_ratio)
 
-        # 3) TD/FG ratio → FG make biases (all buckets proportionally)
+        # 3) TD/FG ratio â†’ FG make biases (all buckets proportionally)
         ratio_err_ratio = (ratio_obs - tgt.td_fg_ratio) / max(tgt.td_fg_ratio, 1e-9)
-        fg_scale = _nudge_mult(+ratio_err_ratio)  # positive error → scale up FG make
+        fg_scale = _nudge_mult(+ratio_err_ratio)  # positive error â†’ scale up FG make
         knobs.fg_make_bias_by_bucket.short *= fg_scale
         knobs.fg_make_bias_by_bucket.mid *= fg_scale
         knobs.fg_make_bias_by_bucket.long *= fg_scale
 
-        # 4) One-score rate → turnover_bias (higher turnovers → fewer one-score games)
+        # 4) One-score rate â†’ turnover_bias (higher turnovers â†’ fewer one-score games)
         one_err = one_obs - tgt.one_score_rate_pp
         knobs.turnover_bias *= _nudge_mult(+one_err)
 
-        # 5) Quarter shares → quarter_shape weights (proportional then normalize)
+        # 5) Quarter shares â†’ quarter_shape weights (proportional then normalize)
         qw = {
             "q1": knobs.quarter_shape.q1,
             "q2": knobs.quarter_shape.q2,
@@ -197,3 +198,4 @@ def calibrate(
 
     obs = run_league_slate(weeks=weeks, seed=seed, knobs=knobs)
     return knobs, obs, history
+

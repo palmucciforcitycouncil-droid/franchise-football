@@ -1,3 +1,4 @@
+﻿from app.core.seed import get_league_seed, make_rng
 from app.core.random import SeededRNG
 
 def test_seeded_rng_reproducible():
@@ -8,6 +9,7 @@ def test_seeded_rng_reproducible():
     assert seq1 == seq2, "RNG with the same seed must be reproducible"
 
 def test_seed_default_config_smoke():
-    r = SeededRNG()  # uses DEFAULT_SEED from settings
+    r = SeededRNG()  # uses get_league_seed() from settings
     n = r.randint(1, 10)
     assert 1 <= n <= 10
+

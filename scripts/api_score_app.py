@@ -1,3 +1,4 @@
+﻿from app.core.seed import get_league_seed, make_rng
 # scripts/api_score_app.py
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from pydantic import BaseModel, Field
 from app.engine.targets import CalibrationTargets
 from app.engine.calibration import calibrate
 
-DEFAULT_SEED = 2025
+get_league_seed() = 2025
 
 app = FastAPI(title="Score Fidelity Calibration API", version="0.1.1")
 
@@ -60,7 +61,7 @@ def calibrate_score(req: CalibrateRequest):
     knobs, obs, hist = calibrate(
         targets=ct,
         weeks=weeks,
-        seed=DEFAULT_SEED,
+        seed=get_league_seed(),
         max_iterations=max_iterations,
         kpi_out_path=out_path,
     )
@@ -94,3 +95,4 @@ def calibrate_score(req: CalibrateRequest):
         "final_kpis": compact_obs,
         "final_knobs": knobs.model_dump(),
     }
+

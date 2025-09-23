@@ -1,3 +1,4 @@
+﻿from app.core.seed import get_league_seed, make_rng
 # tests/test_calibration_acceptance.py
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from app.engine.targets import CalibrationTargets
 from app.engine.calibration import calibrate
 
 # Deterministic seed for this project
-DEFAULT_SEED = 2025
+get_league_seed() = 2025
 
 # Resolve paths correctly:
 # - This file lives in ...\franchise-football\tests\
@@ -38,7 +39,7 @@ def _load_acceptance(path: Path) -> Dict[str, Any]:
 
 def test_calibration_acceptance_converges(tmp_path: Path):
     """
-    Acceptance: Using DEFAULT_SEED=2025, run the proportional-nudge calibration loop
+    Acceptance: Using get_league_seed()=2025, run the proportional-nudge calibration loop
     for N weeks and up to max_iterations. Assert all tolerances are satisfied.
     """
     assert ACCEPT_YAML.exists(), f"Missing acceptance spec: {ACCEPT_YAML}"
@@ -55,7 +56,7 @@ def test_calibration_acceptance_converges(tmp_path: Path):
     knobs, obs, history = calibrate(
         targets=targets,
         weeks=weeks,
-        seed=DEFAULT_SEED,
+        seed=get_league_seed(),
         max_iterations=max_iterations,
         kpi_out_path=REPORT_PATH,
     )
@@ -87,7 +88,7 @@ def test_calibration_acceptance_converges(tmp_path: Path):
         failures.append(f"points_per_team_mean obs={ppg:.3f} target={t.points_per_team_mean:.3f} tol={tol.points_per_team_mean_pct:.3f} (rel)")
 
     if not abs_ok(one, t.one_score_rate_pp, tol.one_score_rate_pp):
-        failures.append(f"one_score_rate obs={one:.3f} target={t.one_score_rate_pp:.3f} tol=±{tol.one_score_rate_pp:.3f} (abs pp)")
+        failures.append(f"one_score_rate obs={one:.3f} target={t.one_score_rate_pp:.3f} tol=Â±{tol.one_score_rate_pp:.3f} (abs pp)")
 
     if not rel_ok(ratio, t.td_fg_ratio, tol.td_fg_ratio_pct):
         failures.append(f"td_fg_ratio obs={ratio:.3f} target={t.td_fg_ratio:.3f} tol={tol.td_fg_ratio_pct:.3f} (rel)")
@@ -96,15 +97,16 @@ def test_calibration_acceptance_converges(tmp_path: Path):
         failures.append(f"plays_per_game obs={plays:.3f} target={t.plays_per_game_mean:.3f} tol={tol.plays_per_game_pct:.3f} (rel)")
 
     if not abs_ok(q1, t.quarter_shares_pp.q1, tol.quarter_share_pp):
-        failures.append(f"quarter_share q1 obs={q1:.3f} target={t.quarter_shares_pp.q1:.3f} tol=±{tol.quarter_share_pp:.3f}")
+        failures.append(f"quarter_share q1 obs={q1:.3f} target={t.quarter_shares_pp.q1:.3f} tol=Â±{tol.quarter_share_pp:.3f}")
     if not abs_ok(q2, t.quarter_shares_pp.q2, tol.quarter_share_pp):
-        failures.append(f"quarter_share q2 obs={q2:.3f} target={t.quarter_shares_pp.q2:.3f} tol=±{tol.quarter_share_pp:.3f}")
+        failures.append(f"quarter_share q2 obs={q2:.3f} target={t.quarter_shares_pp.q2:.3f} tol=Â±{tol.quarter_share_pp:.3f}")
     if not abs_ok(q3, t.quarter_shares_pp.q3, tol.quarter_share_pp):
-        failures.append(f"quarter_share q3 obs={q3:.3f} target={t.quarter_shares_pp.q3:.3f} tol=±{tol.quarter_share_pp:.3f}")
+        failures.append(f"quarter_share q3 obs={q3:.3f} target={t.quarter_shares_pp.q3:.3f} tol=Â±{tol.quarter_share_pp:.3f}")
     if not abs_ok(q4, t.quarter_shares_pp.q4, tol.quarter_share_pp):
-        failures.append(f"quarter_share q4 obs={q4:.3f} target={t.quarter_shares_pp.q4:.3f} tol=±{tol.quarter_share_pp:.3f}")
+        failures.append(f"quarter_share q4 obs={q4:.3f} target={t.quarter_shares_pp.q4:.3f} tol=Â±{tol.quarter_share_pp:.3f}")
 
     if failures:
         msg = "Calibration failed to meet acceptance tolerances:\n  - " + "\n  - ".join(failures) + \
               f"\n\nFinal knobs: {knobs.model_dump()}\nLast history row: {history[-1] if history else 'none'}"
         pytest.fail(msg)
+
