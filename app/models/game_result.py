@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Optional
 
@@ -9,6 +9,7 @@ from .database import Base
 
 
 class GameResult(Base):
+    model_config = {"arbitrary_types_allowed": True}
     __tablename__ = "game_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -51,3 +52,4 @@ def _game_result_before_flush(session: Session, flush_context, instances):
     for obj in list(session.new) + list(session.dirty):
         if isinstance(obj, GameResult):
             _validate_winner(obj)
+
