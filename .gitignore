@@ -21,3 +21,7 @@ coverage.xml
 .pytest_cache/
 __pycache__/
 
+__pycache__/
+*.py[cod]
+.venv/
+app/models/player.py.pre_*
