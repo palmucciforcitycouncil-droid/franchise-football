@@ -1,0 +1,35 @@
+{
+  "targets": {
+    "points_per_team_mean": 23.0,
+    "one_score_rate_pp": 0.50,
+    "td_fg_ratio": 1.60,
+    "quarter_shares_pp": { "q1": 0.22, "q2": 0.28, "q3": 0.25, "q4": 0.25 },
+    "plays_per_game_mean": 120.0
+  },
+  "tolerances": {
+    "points_per_team_mean_pct": 0.03,
+    "one_score_rate_pp": 0.03,
+    "td_fg_ratio_pct": 0.05,
+    "quarter_share_pp": 0.02,
+    "plays_per_game_pct": 0.02
+  },
+  "knob_bounds": {
+    "pace_factor": [0.90, 1.10],
+    "red_zone_td_bias": [0.90, 1.10],
+    "fg_make_bias_by_bucket": {
+      "short": [0.90, 1.10],
+      "mid":   [0.90, 1.10],
+      "long":  [0.90, 1.10]
+    },
+    "pat_make_bias": [0.95, 1.05],
+    "two_point_attempt_bias": [0.90, 1.10],
+    "two_point_make_bias": [0.90, 1.10],
+    "turnover_bias": [0.90, 1.10],
+    "quarter_shape": {
+      "q1": [0.85, 1.15],
+      "q2": [0.85, 1.15],
+      "q3": [0.85, 1.15],
+      "q4": [0.85, 1.15]
+    }
+  }
+}

@@ -11,3 +11,17 @@ franchise.db
 Thumbs.db
 .vscode/
 .idea/
+
+data/raw/pbp_csv/*.csv
+
+# Local env & coverage
+.venv/
+.coverage
+coverage.xml
+.pytest_cache/
+__pycache__/
+
+__pycache__/
+*.py[cod]
+.venv/
+app/models/player.py.pre_*

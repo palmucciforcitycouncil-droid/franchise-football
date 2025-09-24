@@ -1,13 +1,9 @@
-from __future__ import annotations
+﻿from enum import Enum
+from typing import Optional
 
-from datetime import datetime
-from enum import Enum
-from typing import List
-
-from sqlalchemy import CheckConstraint, Enum as SAEnum, Integer, String, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from .database import Base
+from sqlmodel import SQLModel, Field
+from sqlalchemy import Column, Integer
+from sqlalchemy.types import Enum as SQLEnum  # avoid name clash with Python Enum
 
 
 class Conference(str, Enum):
@@ -16,42 +12,36 @@ class Conference(str, Enum):
 
 
 class Division(str, Enum):
-    EAST = "East"
-    NORTH = "North"
-    SOUTH = "South"
-    WEST = "West"
+    EAST = "EAST"
+    NORTH = "NORTH"
+    SOUTH = "SOUTH"
+    WEST = "WEST"
 
 
-class Team(Base):
-    __tablename__ = "teams"
+class Team(SQLModel, table=True):
+    __tablename__ = "team"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    location_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    nickname: Mapped[str] = mapped_column(String(64), nullable=False, default="Generics")
-    conference: Mapped[Conference] = mapped_column(SAEnum(Conference, validate_strings=True), nullable=False)
-    division: Mapped[Division] = mapped_column(SAEnum(Division, validate_strings=True), nullable=False)
+    id: Optional[int] = Field(default=None, primary_key=True)
 
-    power_rating: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
-    cap_space: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # basic identity
+    location_name: str
+    nickname: Optional[str] = Field(default=None)
 
-    created_at: Mapped[datetime] = mapped_column(default=func.now(), nullable=False)
-
-    players: Mapped[List["Player"]] = relationship(
-        back_populates="team",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+    # IMPORTANT: Python names match tests; DB column names stay conf/div
+    conference: Conference = Field(
+        sa_column=Column("conf", SQLEnum(Conference), nullable=False)
+    )
+    division: Division = Field(
+        sa_column=Column("div", SQLEnum(Division), nullable=False)
     )
 
-    depth_charts: Mapped[List["DepthChart"]] = relationship(
-        back_populates="team",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    # standings + rating (keep existing DB column names)
+    wins: int = Field(default=0, sa_column=Column("w", Integer, nullable=False, server_default="0"))
+    losses: int = Field(default=0, sa_column=Column("l", Integer, nullable=False, server_default="0"))
+    points_for: int = Field(default=0, sa_column=Column("pf", Integer, nullable=False, server_default="0"))
+    points_against: int = Field(default=0, sa_column=Column("pa", Integer, nullable=False, server_default="0"))
+    elo: int = Field(default=1500, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("location_name", "nickname", name="uq_team_name"),
-        CheckConstraint("power_rating BETWEEN 0 AND 100", name="chk_team_power_rating"),
-    )
-
-    def __repr__(self) -> str:
-        return f"<Team id={self.id} {self.location_name} {self.nickname} {self.conference}-{self.division}>"
+    # accepted by constructor but not persisted (used by tests/DTOs)
+    power_rating: Optional[int] = Field(default=None, exclude=True)
+    cap_space: Optional[int] = Field(default=None, exclude=True)
