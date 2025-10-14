@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football - Minimal Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto p-8">
+        <h1 class="text-3xl font-bold mb-8">Franchise Football - Data Loading Test</h1>
+        
+        <div id="status" class="mb-4 p-4 bg-gray-800 rounded">
+            <p>Loading data...</p>
+        </div>
+        
+        <div id="teams-section" class="mb-4">
+            <h2 class="text-xl font-bold mb-2">Teams (${teams.length || 0})</h2>
+            <div id="teams-list" class="bg-gray-800 p-4 rounded">
+                Loading teams...
+            </div>
+        </div>
+        
+        <div id="players-section" class="mb-4">
+            <h2 class="text-xl font-bold mb-2">Players (${players.length || 0})</h2>
+            <div id="players-list" class="bg-gray-800 p-4 rounded">
+                Loading players...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+        let teams = [];
+        let players = [];
+        let coaches = [];
+        let standings = [];
+        let powerRankings = [];
+
+        async function loadData() {
+            try {
+                console.log('Loading data...');
+                document.getElementById('status').innerHTML = '<p>Loading data...</p>';
+                
+                const [teamsRes, playersRes, coachesRes, standingsRes, powerRes] = await Promise.all([
+                    fetch(`${API_BASE}/teams`),
+                    fetch(`${API_BASE}/players`),
+                    fetch(`${API_BASE}/coaches`),
+                    fetch(`${API_BASE}/season/standings`),
+                    fetch(`${API_BASE}/power-rankings`)
+                ]);
+                
+                teams = await teamsRes.json();
+                players = await playersRes.json();
+                coaches = await coachesRes.json();
+                standings = await standingsRes.json();
+                powerRankings = await powerRes.json();
+                
+                console.log(`Loaded: ${teams.length} teams, ${players.length} players, ${coaches.length} coaches`);
+                
+                // Update status
+                document.getElementById('status').innerHTML = `
+                    <p class="text-green-400">✅ Data loaded successfully!</p>
+                    <p>Teams: ${teams.length}, Players: ${players.length}, Coaches: ${coaches.length}</p>
+                `;
+                
+                // Update teams list
+                document.getElementById('teams-list').innerHTML = teams.slice(0, 5).map(team => 
+                    `<div class="mb-2 p-2 bg-gray-700 rounded">${team.location_name} (${team.conference})</div>`
+                ).join('');
+                
+                // Update players list
+                document.getElementById('players-list').innerHTML = players.slice(0, 5).map(player => 
+                    `<div class="mb-2 p-2 bg-gray-700 rounded">${player.first_name} ${player.last_name} - ${player.position}</div>`
+                ).join('');
+                
+            } catch (error) {
+                console.error('Failed to load data:', error);
+                document.getElementById('status').innerHTML = `
+                    <p class="text-red-400">❌ Failed to load data: ${error.message}</p>
+                `;
+            }
+        }
+
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

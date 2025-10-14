@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Main Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #111; color: #fff; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .debug-section { margin: 20px 0; padding: 20px; background: #222; border-radius: 5px; }
+        .error { background: #f44336; }
+        .success { background: #4CAF50; }
+        .info { background: #2196F3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Debug Main Page</h1>
+        
+        <div class="debug-section info">
+            <h2>JavaScript Loading Test</h2>
+            <div id="js-status">Testing...</div>
+        </div>
+        
+        <div class="debug-section info">
+            <h2>API Connection Test</h2>
+            <div id="api-status">Testing...</div>
+        </div>
+        
+        <div class="debug-section info">
+            <h2>PlayByPlayBox Test</h2>
+            <div id="pbp-container"></div>
+        </div>
+        
+        <div class="debug-section info">
+            <h2>Console Errors</h2>
+            <div id="console-errors">No errors detected</div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+        window.API_BASE = API_BASE;
+        
+        // Capture console errors
+        const originalError = console.error;
+        const errors = [];
+        console.error = function(...args) {
+            errors.push(args.join(' '));
+            originalError.apply(console, args);
+        };
+        
+        // Test JavaScript loading
+        document.getElementById('js-status').innerHTML = '✅ JavaScript is working';
+        
+        // Test API connection
+        async function testAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/teams`);
+                const data = await response.json();
+                document.getElementById('api-status').innerHTML = `✅ API working - ${data.length} teams loaded`;
+            } catch (error) {
+                document.getElementById('api-status').innerHTML = `❌ API error: ${error.message}`;
+            }
+        }
+        
+        // Test PlayByPlayBox
+        async function testPlayByPlayBox() {
+            try {
+                // Load PlayByPlayBox script
+                const script = document.createElement('script');
+                script.src = `${API_BASE}/js/PlayByPlayBox.js`;
+                script.onload = () => {
+                    document.getElementById('pbp-container').innerHTML = '✅ PlayByPlayBox script loaded successfully';
+                    
+                    // Try to create PlayByPlayBox instance
+                    try {
+                        const pbp = new PlayByPlayBox('pbp-container', { pollMs: 5000 });
+                        document.getElementById('pbp-container').innerHTML = '✅ PlayByPlayBox instance created successfully';
+                    } catch (error) {
+                        document.getElementById('pbp-container').innerHTML = `❌ PlayByPlayBox error: ${error.message}`;
+                    }
+                };
+                script.onerror = () => {
+                    document.getElementById('pbp-container').innerHTML = '❌ Failed to load PlayByPlayBox script';
+                };
+                document.head.appendChild(script);
+            } catch (error) {
+                document.getElementById('pbp-container').innerHTML = `❌ PlayByPlayBox test error: ${error.message}`;
+            }
+        }
+        
+        // Update console errors display
+        function updateConsoleErrors() {
+            if (errors.length > 0) {
+                document.getElementById('console-errors').innerHTML = errors.map(e => `<div style="color: #f44336;">❌ ${e}</div>`).join('');
+            } else {
+                document.getElementById('console-errors').innerHTML = '✅ No console errors detected';
+            }
+        }
+        
+        // Run tests
+        document.addEventListener('DOMContentLoaded', () => {
+            testAPI();
+            testPlayByPlayBox();
+            
+            // Update console errors every second
+            setInterval(updateConsoleErrors, 1000);
+        });
+    </script>
+</body>
+</html>
+
+

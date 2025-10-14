@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #111; color: #fff; }
+        .debug { margin: 10px 0; padding: 10px; background: #333; border-radius: 5px; }
+        .error { background: #600; }
+        .success { background: #060; }
+    </style>
+</head>
+<body>
+    <h1>Franchise Football Debug Page</h1>
+    
+    <div id="debug-output"></div>
+    
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+        const debugOutput = document.getElementById('debug-output');
+        
+        function addDebug(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `debug ${type}`;
+            div.textContent = message;
+            debugOutput.appendChild(div);
+            console.log(message);
+        }
+        
+        async function testAPI() {
+            addDebug('Starting API tests...');
+            
+            try {
+                addDebug('Testing teams endpoint...');
+                const teamsResponse = await fetch(`${API_BASE}/teams`);
+                if (teamsResponse.ok) {
+                    const teams = await teamsResponse.json();
+                    addDebug(`✅ Teams API: ${teams.length} teams loaded`, 'success');
+                } else {
+                    addDebug(`❌ Teams API failed: ${teamsResponse.status}`, 'error');
+                }
+                
+                addDebug('Testing players endpoint...');
+                const playersResponse = await fetch(`${API_BASE}/players`);
+                if (playersResponse.ok) {
+                    const players = await playersResponse.json();
+                    addDebug(`✅ Players API: ${players.length} players loaded`, 'success');
+                } else {
+                    addDebug(`❌ Players API failed: ${playersResponse.status}`, 'error');
+                }
+                
+                addDebug('Testing standings endpoint...');
+                const standingsResponse = await fetch(`${API_BASE}/season/standings`);
+                if (standingsResponse.ok) {
+                    const standings = await standingsResponse.json();
+                    addDebug(`✅ Standings API: ${standings.length} teams in standings`, 'success');
+                } else {
+                    addDebug(`❌ Standings API failed: ${standingsResponse.status}`, 'error');
+                }
+                
+            } catch (error) {
+                addDebug(`❌ API Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Run tests when page loads
+        document.addEventListener('DOMContentLoaded', testAPI);
+    </script>
+</body>
+</html>
+
+

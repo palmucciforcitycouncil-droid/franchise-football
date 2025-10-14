@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #111827; color: #E5E7EB; padding: 20px; }
+        .card { background-color: #1F2937; border: 1px solid #374151; border-radius: 8px; padding: 20px; margin: 10px 0; }
+        .error { color: #EF4444; }
+        .success { color: #10B981; }
+        button { background-color: #3B82F6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background-color: #2563EB; }
+    </style>
+</head>
+<body>
+    <h1>Franchise Football - Frontend Test</h1>
+    
+    <div class="card">
+        <h2>API Connection Test</h2>
+        <button onclick="testAPI()">Test API Connection</button>
+        <div id="apiResult"></div>
+    </div>
+    
+    <div class="card">
+        <h2>Data Loading Test</h2>
+        <button onclick="loadData()">Load All Data</button>
+        <div id="dataResult"></div>
+    </div>
+    
+    <div class="card">
+        <h2>Teams Data</h2>
+        <div id="teamsData"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8001';
+        
+        async function testAPI() {
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `<div class="success">✅ API Connection Successful! Status: ${data.status}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ API Error: ${response.status}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ Connection Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function loadData() {
+            const resultDiv = document.getElementById('dataResult');
+            const teamsDiv = document.getElementById('teamsData');
+            
+            resultDiv.innerHTML = 'Loading data...';
+            teamsDiv.innerHTML = '';
+            
+            try {
+                console.log('Testing API endpoints...');
+                
+                // Test teams endpoint
+                const teamsResponse = await fetch(`${API_BASE}/teams`);
+                console.log('Teams response status:', teamsResponse.status);
+                
+                if (teamsResponse.ok) {
+                    const teams = await teamsResponse.json();
+                    console.log('Teams loaded:', teams.length);
+                    
+                    resultDiv.innerHTML = `<div class="success">✅ Data loaded successfully! Found ${teams.length} teams</div>`;
+                    
+                    // Display first few teams
+                    teamsDiv.innerHTML = '<h3>Sample Teams:</h3>';
+                    teams.slice(0, 5).forEach(team => {
+                        teamsDiv.innerHTML += `<div>${team.location_name} ${team.team_name} (Power: ${team.power_rating || 'N/A'})</div>`;
+                    });
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ Teams endpoint error: ${teamsResponse.status}</div>`;
+                }
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                resultDiv.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+        
+        // Auto-test on page load
+        window.onload = function() {
+            console.log('Page loaded, testing API...');
+            testAPI();
+        };
+    </script>
+</body>
+</html>
+
+

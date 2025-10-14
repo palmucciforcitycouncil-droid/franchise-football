@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football - Simple v2</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #333;
+        }
+        
+        .status-bar {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+            font-weight: bold;
+        }
+        
+        .status-bar.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status-bar.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-bar.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .controls button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .controls button:hover {
+            background: #0056b3;
+        }
+        
+        .controls button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .info-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .info-card h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .teams-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .team-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .team-card h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .boxscore {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .boxscore h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .game-result {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 3px 0;
+            background: #f8f9fa;
+            border-radius: 3px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .game-result.winner {
+            border-left-color: #28a745;
+            background: #f8fff9;
+        }
+        
+        .game-result.loser {
+            border-left-color: #dc3545;
+            background: #fff8f8;
+        }
+        
+        .team-score {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .team-name {
+            font-weight: bold;
+        }
+        
+        .score {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        .vs {
+            color: #666;
+            font-weight: bold;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏈 Franchise Football - Simple v2</h1>
+            <p>Minimal deterministic simulation with visible results</p>
+        </div>
+        
+        <div id="status" class="status-bar"></div>
+        
+        <div class="controls">
+            <button onclick="loadTeams()">Load Teams</button>
+            <button onclick="simulateWeek()">Simulate Week</button>
+            <button onclick="loadStandings()">Show Standings</button>
+            <button onclick="loadRecentGames()">Show Recent Games</button>
+            <button onclick="clearBoxscore()">Clear Boxscore</button>
+            <button onclick="resetWeek()">Reset to Week 1</button>
+        </div>
+        
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>Current Week</h3>
+                <p id="current-week">Loading...</p>
+            </div>
+            <div class="info-card">
+                <h3>Games This Week</h3>
+                <p id="games-count">0</p>
+            </div>
+            <div class="info-card">
+                <h3>Simulation Engine</h3>
+                <p>Deterministic v2 (GDD Compliant)</p>
+            </div>
+        </div>
+        
+        <div class="boxscore">
+            <h3>📊 Game Results</h3>
+            <div id="boxscore-content">
+                <p>No games simulated yet. Click "Simulate Week" to see results.</p>
+            </div>
+        </div>
+        
+        <div class="boxscore">
+            <h3>🏆 Standings</h3>
+            <div id="standings-content">
+                <p>Click "Show Standings" to see current team rankings.</p>
+            </div>
+        </div>
+        
+        <div class="teams-grid" id="teams-grid">
+            <!-- Teams will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8001';
+        let currentWeek = 1;
+        let gameResults = [];
+        
+        // Show status message
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status-bar ${type}`;
+            statusEl.style.display = 'block';
+            
+            // Auto-hide after 5 seconds for success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        // Load teams
+        async function loadTeams() {
+            showStatus('Loading teams...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/teams`);
+                if (response.ok) {
+                    const teams = await response.json();
+                    displayTeams(teams);
+                    showStatus(`Loaded ${teams.length} teams successfully!`, 'success');
+                } else {
+                    showStatus(`Error loading teams: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display teams
+        function displayTeams(teams) {
+            const grid = document.getElementById('teams-grid');
+            grid.innerHTML = teams.map(team => `
+                <div class="team-card">
+                    <h3>${team.location_name} ${team.nickname || ''}</h3>
+                    <p>Power Rating: ${team.power_rating || 'N/A'}</p>
+                    <p>Division: ${team.division || 'N/A'}</p>
+                    <p>Conference: ${team.conference || 'N/A'}</p>
+                </div>
+            `).join('');
+        }
+        
+        // Simulate a week using the new deterministic engine
+        async function simulateWeek() {
+            showStatus(`Simulating Week ${currentWeek}...`, 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/season/simulate-week?season_year=2025`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Simulation result:', result);
+                    
+                    // Store game results (only if there are games)
+                    if (result.game_results && result.game_results.length > 0) {
+                        gameResults = gameResults.concat(result.game_results);
+                    }
+                    
+                    // Update UI
+                    document.getElementById('current-week').textContent = `Week ${currentWeek}`;
+                    document.getElementById('games-count').textContent = `${result.games_played || 0}`;
+                    
+                    // Display boxscore
+                    displayBoxscore(gameResults);
+                    
+                    // Advance week for next simulation
+                    currentWeek++;
+                    
+                    // Handle bye week message
+                    if (result.games_played === 0) {
+                        showStatus(`Week ${currentWeek - 1} is a bye week - no games scheduled`, 'info');
+                    } else {
+                        // Calculate some stats for regular weeks
+                        const totalHomePoints = gameResults.reduce((sum, game) => sum + game.home_team.score, 0);
+                        const totalAwayPoints = gameResults.reduce((sum, game) => sum + game.away_team.score, 0);
+                        const homeWins = gameResults.filter(game => game.home_team.score > game.away_team.score).length;
+                        const homeWinRate = result.games_played > 0 ? (homeWins / result.games_played * 100).toFixed(1) : 0;
+                        
+                        showStatus(`Week ${currentWeek - 1} simulated! ${result.games_played || 0} games, ${totalHomePoints + totalAwayPoints} total points, ${homeWinRate}% home win rate`, 'success');
+                    }
+                    
+                    // Refresh teams to show updated power ratings (skip for bye weeks)
+                    if (result.games_played > 0) {
+                        setTimeout(() => loadTeams(), 1000);
+                    }
+                    
+                } else {
+                    const errorText = await response.text();
+                    console.error('Simulation error:', errorText);
+                    showStatus(`Simulation failed: ${response.status} - ${errorText}`, 'error');
+                }
+            } catch (error) {
+                console.error('Exception in simulateWeek:', error);
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display boxscore
+        function displayBoxscore(results) {
+            const boxscoreContent = document.getElementById('boxscore-content');
+            
+            if (!results || results.length === 0) {
+                boxscoreContent.innerHTML = '<p>No games to display.</p>';
+                return;
+            }
+            
+            const html = results.map(game => {
+                const homeWon = game.home_team.score > game.away_team.score;
+                const awayWon = game.away_team.score > game.home_team.score;
+                
+                return `
+                <div class="game-result ${homeWon ? 'winner' : awayWon ? 'loser' : ''}">
+                    <div class="team-score">
+                        <span class="team-name">${game.home_team.name}</span>
+                        <span class="score">${game.home_team.score}</span>
+                    </div>
+                    <div class="vs">vs</div>
+                    <div class="team-score">
+                        <span class="score">${game.away_team.score}</span>
+                        <span class="team-name">${game.away_team.name}</span>
+                    </div>
+                </div>
+                <div style="font-size: 11px; color: #666; margin-bottom: 8px; padding: 0 12px;">
+                    ${game.summary} • ${game.home_team.name}: ${game.home_team.power_rating} → ${game.away_team.name}: ${game.away_team.power_rating}
+                    ${game.game_type ? ` • <span style="background: #e9ecef; padding: 2px 4px; border-radius: 3px; font-size: 10px;">${game.game_type}</span>` : ''}
+                </div>
+            `;
+            }).join('');
+            
+            boxscoreContent.innerHTML = html;
+        }
+        
+        // Load recent games (placeholder for future implementation)
+        function loadRecentGames() {
+            if (gameResults.length > 0) {
+                displayBoxscore(gameResults);
+                showStatus(`Displayed ${gameResults.length} recent games`, 'success');
+            } else {
+                showStatus('No games to display. Simulate a week first.', 'error');
+            }
+        }
+        
+        // Clear boxscore
+        function clearBoxscore() {
+            document.getElementById('boxscore-content').innerHTML = '<p>No games simulated yet. Click "Simulate Week" to see results.</p>';
+            gameResults = [];
+            showStatus('Boxscore cleared', 'success');
+        }
+        
+        // Reset to week 1
+        function resetWeek() {
+            currentWeek = 1;
+            document.getElementById('current-week').textContent = `Week ${currentWeek}`;
+            document.getElementById('games-count').textContent = '0';
+            clearBoxscore();
+            showStatus('Reset to Week 1', 'success');
+        }
+        
+        // Load standings
+        async function loadStandings() {
+            showStatus('Loading standings...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/season/standings?season=2025`);
+                if (response.ok) {
+                    const result = await response.json();
+                    displayStandings(result.standings);
+                    showStatus(`Loaded standings for ${result.standings.length} teams`, 'success');
+                } else {
+                    showStatus(`Error loading standings: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display standings
+        function displayStandings(standings) {
+            const standingsContent = document.getElementById('standings-content');
+            
+            if (!standings || standings.length === 0) {
+                standingsContent.innerHTML = '<p>No standings data available.</p>';
+                return;
+            }
+            
+            // Group by conference
+            const afcTeams = standings.filter(team => team.conference === 'AFC');
+            const nfcTeams = standings.filter(team => team.conference === 'NFC');
+            
+            const html = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h4 style="color: #d32f2f; margin-bottom: 10px;">🏈 AFC</h4>
+                        ${afcTeams.map((team, index) => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; margin: 2px 0; background: #f8f9fa; border-radius: 3px;">
+                                <span style="font-weight: bold;">${index + 1}. ${team.name}</span>
+                                <span style="color: #666;">${team.division} • ${team.power_rating}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div>
+                        <h4 style="color: #1976d2; margin-bottom: 10px;">🏈 NFC</h4>
+                        ${nfcTeams.map((team, index) => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; margin: 2px 0; background: #f8f9fa; border-radius: 3px;">
+                                <span style="font-weight: bold;">${index + 1}. ${team.name}</span>
+                                <span style="color: #666;">${team.division} • ${team.power_rating}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            
+            standingsContent.innerHTML = html;
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            showStatus('Ready! Click "Load Teams" to start.', 'success');
+            document.getElementById('current-week').textContent = `Week ${currentWeek}`;
+        });
+    </script>
+</body>
+</html>

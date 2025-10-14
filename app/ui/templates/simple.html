@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football - Simple</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #111827; 
+            color: #E5E7EB; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .card { 
+            background-color: #1F2937; 
+            border: 1px solid #374151; 
+            border-radius: 8px; 
+            padding: 20px; 
+            margin: 20px 0; 
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 30px; 
+        }
+        .nav { 
+            display: flex; 
+            gap: 10px; 
+            margin-bottom: 20px; 
+            flex-wrap: wrap; 
+        }
+        button { 
+            background-color: #3B82F6; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 14px; 
+        }
+        button:hover { 
+            background-color: #2563EB; 
+        }
+        button.active { 
+            background-color: #059669; 
+        }
+        .content { 
+            display: none; 
+        }
+        .content.active { 
+            display: block; 
+        }
+        .team-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+            gap: 15px; 
+        }
+        .team-card { 
+            background-color: #374151; 
+            padding: 15px; 
+            border-radius: 5px; 
+            border-left: 4px solid #3B82F6; 
+        }
+        .player-list { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+            gap: 10px; 
+        }
+        .player-card { 
+            background-color: #374151; 
+            padding: 10px; 
+            border-radius: 5px; 
+            font-size: 12px; 
+        }
+        .status { 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin: 10px 0; 
+        }
+        .success { 
+            background-color: #065F46; 
+            color: #D1FAE5; 
+        }
+        .error { 
+            background-color: #7F1D1D; 
+            color: #FEE2E2; 
+        }
+        .loading { 
+            background-color: #1E3A8A; 
+            color: #DBEAFE; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏈 Franchise Football</h1>
+            <p>Simple Interface</p>
+        </div>
+
+        <div class="nav">
+            <button onclick="showTab('teams')" id="btn-teams">Teams</button>
+            <button onclick="showTab('players')" id="btn-players">Players</button>
+            <button onclick="showTab('free-agents')" id="btn-free-agents">Free Agents</button>
+            <button onclick="showTab('season')" id="btn-season">Season</button>
+        </div>
+
+        <div id="status" class="status loading">Loading...</div>
+
+        <div id="teams" class="content active">
+            <h2>NFL Teams</h2>
+            <div id="teams-grid" class="team-grid"></div>
+        </div>
+
+        <div id="players" class="content">
+            <h2>Players</h2>
+            <div id="players-list" class="player-list"></div>
+        </div>
+
+        <div id="free-agents" class="content">
+            <h2>Free Agents</h2>
+            <div id="free-agents-list" class="player-list"></div>
+        </div>
+
+        <div id="season" class="content">
+            <h2>Season Management</h2>
+            <div class="card">
+                <h3>Current Season: 2025</h3>
+                <p id="season-status">Loading season status...</p>
+                <button id="sim-week-btn" onclick="simulateWeek()">Simulate Week</button>
+                <button id="process-offseason-btn" onclick="processOffseason()">Process Offseason</button>
+                <button id="start-season-btn" onclick="startNewSeason()">Start New Season</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8001';
+        let currentTab = 'teams';
+        
+        // Simple tab switching
+        function showTab(tabName) {
+            // Hide all content
+            document.querySelectorAll('.content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active from all buttons
+            document.querySelectorAll('.nav button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected content
+            document.getElementById(tabName).classList.add('active');
+            document.getElementById(`btn-${tabName}`).classList.add('active');
+            
+            currentTab = tabName;
+            
+            // Load data for the tab
+            switch(tabName) {
+                case 'teams':
+                    loadTeams();
+                    break;
+                case 'players':
+                    loadPlayers();
+                    break;
+                case 'free-agents':
+                    loadFreeAgents();
+                    break;
+                case 'season':
+                    loadSeasonStatus();
+                    break;
+            }
+        }
+        
+        // Status display
+        function showStatus(message, type = 'loading') {
+            console.log(`Status: ${message} (${type})`);
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            
+            // Make status more prominent
+            statusEl.style.fontSize = '16px';
+            statusEl.style.fontWeight = 'bold';
+            statusEl.style.padding = '15px';
+            statusEl.style.margin = '10px 0';
+            statusEl.style.borderRadius = '5px';
+            
+            // Color coding
+            if (type === 'success') {
+                statusEl.style.backgroundColor = '#d4edda';
+                statusEl.style.color = '#155724';
+                statusEl.style.border = '1px solid #c3e6cb';
+            } else if (type === 'error') {
+                statusEl.style.backgroundColor = '#f8d7da';
+                statusEl.style.color = '#721c24';
+                statusEl.style.border = '1px solid #f5c6cb';
+            } else if (type === 'loading') {
+                statusEl.style.backgroundColor = '#d1ecf1';
+                statusEl.style.color = '#0c5460';
+                statusEl.style.border = '1px solid #bee5eb';
+            }
+            
+            // Auto-hide after 5 seconds for success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 5000);
+            } else {
+                statusEl.style.display = 'block';
+            }
+        }
+        
+        function setButtonLoading(buttonId, loading = true) {
+            const btn = document.getElementById(buttonId);
+            if (loading) {
+                btn.disabled = true;
+                btn.textContent = 'Loading...';
+                btn.style.opacity = '0.6';
+            } else {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                // Reset button text based on ID
+                if (buttonId === 'sim-week-btn') btn.textContent = 'Simulate Week';
+                else if (buttonId === 'process-offseason-btn') btn.textContent = 'Process Offseason';
+                else if (buttonId === 'start-season-btn') btn.textContent = 'Start New Season';
+            }
+        }
+        
+        // Load teams
+        async function loadTeams() {
+            showStatus('Loading teams...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/teams`);
+                if (response.ok) {
+                    const teams = await response.json();
+                    displayTeams(teams);
+                    showStatus(`Loaded ${teams.length} teams successfully!`, 'success');
+                } else {
+                    showStatus(`Error loading teams: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display teams
+        function displayTeams(teams) {
+            const grid = document.getElementById('teams-grid');
+            grid.innerHTML = teams.map(team => `
+                <div class="team-card">
+                    <h3>${team.location_name} ${team.team_name || team.nickname || ''}</h3>
+                    <p>Power Rating: ${team.power_rating || 'N/A'}</p>
+                    <p>Division: ${team.division || 'N/A'}</p>
+                    <p>Conference: ${team.conference || 'N/A'}</p>
+                </div>
+            `).join('');
+        }
+        
+        // Load players
+        async function loadPlayers() {
+            showStatus('Loading players...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/players`);
+                if (response.ok) {
+                    const players = await response.json();
+                    displayPlayers(players.slice(0, 50)); // Show first 50
+                    showStatus(`Loaded ${players.length} players (showing first 50)`, 'success');
+                } else {
+                    showStatus(`Error loading players: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display players
+        function displayPlayers(players) {
+            const list = document.getElementById('players-list');
+            list.innerHTML = players.map(player => `
+                <div class="player-card">
+                    <strong>${player.first_name} ${player.last_name}</strong><br>
+                    ${player.position || 'N/A'} - ${player.team_name || 'Free Agent'}<br>
+                    Rating: ${player.overall_rating || 'N/A'}
+                </div>
+            `).join('');
+        }
+        
+        // Load free agents
+        async function loadFreeAgents() {
+            showStatus('Loading free agents...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/free-agents`);
+                if (response.ok) {
+                    const freeAgents = await response.json();
+                    displayFreeAgents(freeAgents);
+                    showStatus(`Loaded ${freeAgents.length} free agents`, 'success');
+                } else {
+                    showStatus(`Error loading free agents: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display free agents
+        function displayFreeAgents(freeAgents) {
+            const list = document.getElementById('free-agents-list');
+            list.innerHTML = freeAgents.map(player => `
+                <div class="player-card">
+                    <strong>${player.first_name} ${player.last_name}</strong><br>
+                    ${player.position || 'N/A'}<br>
+                    Rating: ${player.overall_rating || 'N/A'}
+                </div>
+            `).join('');
+        }
+        
+        // Load season status
+        async function loadSeasonStatus() {
+            showStatus('Loading season status...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/season/state?season_year=2025`);
+                if (response.ok) {
+                    const state = await response.json();
+                    document.getElementById('season-status').innerHTML = `
+                        <strong>Phase:</strong> ${state.current_phase}<br>
+                        <strong>Week:</strong> ${state.current_week}<br>
+                        <strong>Year:</strong> ${state.season_year}
+                    `;
+                    showStatus('Season status loaded', 'success');
+                } else {
+                    showStatus(`Error loading season status: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Season management functions
+        async function simulateWeek() {
+            console.log('simulateWeek() called');
+            setButtonLoading('sim-week-btn', true);
+            showStatus('Checking season phase...', 'loading');
+            
+            // Check current season phase first
+            try {
+                const statusResponse = await fetch(`${API_BASE}/season/state?season_year=2025`);
+                if (statusResponse.ok) {
+                    const status = await statusResponse.json();
+                    console.log('Current season status:', status);
+                    
+                    if (status.current_phase === 'offseason') {
+                        // If in offseason, check if it's complete or needs processing
+                        if (status.offseason_complete) {
+                            console.log('Offseason complete, starting new season...');
+                            showStatus('Offseason complete! Starting Season 2026...', 'loading');
+                            await startNewSeason();
+                            return;
+                        } else {
+                            console.log('Season is in offseason, calling processOffseason()');
+                            showStatus('Season is in offseason, processing offseason...', 'loading');
+                            await processOffseason();
+                            return;
+                        }
+                    } else if (status.current_phase === 'playoffs') {
+                        // If in playoffs, simulate playoff round
+                        console.log('Season is in playoffs, calling simulatePlayoffs()');
+                        showStatus('Season is in playoffs, simulating playoffs...', 'loading');
+                        await simulatePlayoffs();
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking season status:', error);
+                showStatus(`Error checking season status: ${error.message}`, 'error');
+                return;
+            }
+            
+            // Default: simulate regular season week
+            showStatus('Simulating week...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/season/simulate-week?season_year=2025`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    showStatus(`Week simulated! Phase: ${result.phase}`, 'success');
+                    loadSeasonStatus(); // Refresh status
+                } else {
+                    const errorText = await response.text();
+                    showStatus(`Error simulating week: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function simulatePlayoffs() {
+            showStatus('Simulating playoffs...', 'loading');
+            try {
+                const response = await fetch(`${API_BASE}/season/simulate-week?season_year=2025`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    showStatus(`Playoffs complete! ${result.message || 'Champion determined!'}`, 'success');
+                    loadSeasonStatus(); // Refresh status
+                } else {
+                    const errorText = await response.text();
+                    showStatus(`Error simulating playoffs: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading('sim-week-btn', false);
+            }
+        }
+        
+        async function processOffseason() {
+            console.log('processOffseason() called');
+            setButtonLoading('process-offseason-btn', true);
+            showStatus('Processing offseason...', 'loading');
+            try {
+                console.log('Calling offseason endpoint...');
+                const response = await fetch(`${API_BASE}/season/complete?season_year=2025`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                console.log('Response status:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Offseason result:', result);
+                    
+                    // Create detailed success message
+                    let successMsg = `✅ Offseason Processed Successfully!\n`;
+                    successMsg += `📊 ${result.message}\n`;
+                    if (result.activities) {
+                        successMsg += `🏆 Awards: ${result.activities.awards_count || 0}\n`;
+                        successMsg += `📈 Power Rankings Updated\n`;
+                        successMsg += `⚕️ Injuries Processed: ${result.activities.injuries_processed ? 'Yes' : 'No'}\n`;
+                    }
+                    successMsg += `\n🎉 Season 2025 is now complete!`;
+                    
+                    showStatus(successMsg, 'success');
+                    loadSeasonStatus();
+                    
+                    // Show next season button after a delay
+                    setTimeout(() => {
+                        showStatus('Ready to start Season 2026! Click "Start New Season" to continue.', 'success');
+                    }, 2000);
+                } else {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    showStatus(`Error processing offseason: ${response.status} - ${errorText}`, 'error');
+                }
+            } catch (error) {
+                console.error('Exception in processOffseason:', error);
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading('process-offseason-btn', false);
+            }
+        }
+        
+        async function startNewSeason() {
+            console.log('startNewSeason() called');
+            setButtonLoading('start-season-btn', true);
+            showStatus('Starting new season...', 'loading');
+            try {
+                console.log('Calling start-new-season endpoint...');
+                const response = await fetch(`${API_BASE}/season/start-new-season?new_season_year=2026`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                console.log('Response status:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('New season result:', result);
+                    
+                    let successMsg = `🎉 ${result.message}\n`;
+                    successMsg += `📅 Season ${result.season_year} is now in ${result.phase}\n`;
+                    successMsg += `🏈 Ready to simulate Week ${result.week + 1}!`;
+                    
+                    showStatus(successMsg, 'success');
+                    loadSeasonStatus();
+                } else {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    showStatus(`Error starting new season: ${response.status} - ${errorText}`, 'error');
+                }
+            } catch (error) {
+                console.error('Exception in startNewSeason:', error);
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading('start-season-btn', false);
+            }
+        }
+        
+        // Initialize
+        window.onload = function() {
+            console.log('Simple frontend loaded');
+            loadTeams(); // Load teams by default
+        };
+    </script>
+</body>
+</html>

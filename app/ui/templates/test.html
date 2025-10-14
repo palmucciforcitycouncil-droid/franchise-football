@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #111; color: #fff; }
+        .nav { background: #333; padding: 10px; margin-bottom: 20px; }
+        .nav a { color: #fff; text-decoration: none; margin-right: 20px; }
+        .content { padding: 20px; background: #222; border-radius: 5px; }
+        .loading { color: #ff0; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="#" onclick="showDashboard()">Dashboard</a>
+        <a href="#" onclick="showRoster()">Roster</a>
+        <a href="#" onclick="showStandings()">Standings</a>
+        <a href="#" onclick="showSimulation()">Simulation</a>
+    </div>
+    
+    <div class="content" id="main-content">
+        <h1>Franchise Football</h1>
+        <p class="loading">Loading...</p>
+    </div>
+    
+    <script src="js/PlayByPlayBox.js"></script>
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+        window.API_BASE = API_BASE; // Make available to PlayByPlayBox
+        let teams = [];
+        let players = [];
+        let standings = [];
+        let playByPlayBox = null;
+        
+        async function loadData() {
+            try {
+                console.log('Loading data...');
+                
+                const teamsRes = await fetch(`${API_BASE}/teams`);
+                teams = await teamsRes.json();
+                console.log('Teams loaded:', teams.length);
+                
+                const playersRes = await fetch(`${API_BASE}/players`);
+                players = await playersRes.json();
+                console.log('Players loaded:', players.length);
+                
+                const standingsRes = await fetch(`${API_BASE}/season/standings`);
+                standings = await standingsRes.json();
+                console.log('Standings loaded:', standings.length);
+                
+                showDashboard();
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('main-content').innerHTML = `
+                    <h1>Error Loading Data</h1>
+                    <p class="error">Failed to load data: ${error.message}</p>
+                `;
+            }
+        }
+        
+        function showDashboard() {
+            document.getElementById('main-content').innerHTML = `
+                <h1>Dashboard - Dynamic Data</h1>
+                <p class="success">✅ All data is loaded from the live API (not static)</p>
+                
+                <div style="background: #333; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center;">
+                    <button onclick="quickSimWeek()" style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer; margin-right: 10px;">
+                        🏈 Quick Sim Week
+                    </button>
+                    <button onclick="showSimulation()" style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
+                        ⚙️ Full Simulation Panel
+                    </button>
+                </div>
+                
+                <h2>Teams (${teams.length} total)</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                    ${teams.slice(0, 8).map(team => `
+                        <div style="background: #333; padding: 10px; border-radius: 5px;">
+                            <strong>${team.location_name} ${team.nickname}</strong><br>
+                            ${team.conference} ${team.division}<br>
+                            Power: ${team.power_rating}
+                        </div>
+                    `).join('')}
+                </div>
+                <p><em>Showing 8 of ${teams.length} teams</em></p>
+                
+                <h2>Recent Players (${players.length} total)</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px;">
+                    ${players.slice(0, 6).map(player => `
+                        <div style="background: #333; padding: 10px; border-radius: 5px;">
+                            <strong>${player.first_name} ${player.last_name}</strong><br>
+                            ${player.position} - Age: ${player.age}<br>
+                            Team: ${player.team_id || 'Free Agent'}
+                        </div>
+                    `).join('')}
+                </div>
+                <p><em>Showing 6 of ${players.length} players</em></p>
+                
+                <h2>Current Standings (${standings.length} teams)</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                    ${standings.slice(0, 8).map(team => `
+                        <div style="background: #333; padding: 10px; border-radius: 5px;">
+                            <strong>${team.team_name}</strong><br>
+                            Record: ${team.wins}-${team.losses}-${team.ties}<br>
+                            PF: ${team.points_for} | PA: ${team.points_against}
+                        </div>
+                    `).join('')}
+                </div>
+                <p><em>Showing 8 of ${standings.length} teams</em></p>
+                
+                <div style="margin-top: 30px;">
+                    <div id="play-by-play-container"></div>
+                </div>
+            `;
+            
+            // Initialize PlayByPlayBox after rendering
+            setTimeout(() => {
+                if (playByPlayBox) {
+                    playByPlayBox.destroy();
+                }
+                playByPlayBox = new PlayByPlayBox('play-by-play-container', { pollMs: 1000 });
+            }, 100);
+        }
+        
+        function showRoster() {
+            // Clean up PlayByPlayBox
+            if (playByPlayBox) {
+                playByPlayBox.destroy();
+                playByPlayBox = null;
+            }
+            
+            document.getElementById('main-content').innerHTML = `
+                <h1>Roster - Dynamic Player Data</h1>
+                <p class="success">✅ ${players.length} players loaded from live database</p>
+                
+                <h2>Players by Position</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
+                    ${players.slice(0, 12).map(player => `
+                        <div style="background: #333; padding: 15px; border-radius: 5px;">
+                            <h3>${player.first_name} ${player.last_name}</h3>
+                            <p><strong>Position:</strong> ${player.position}</p>
+                            <p><strong>Age:</strong> ${player.age} | <strong>Jersey:</strong> #${player.jersey}</p>
+                            <p><strong>Team:</strong> ${player.team_id || 'Free Agent'}</p>
+                            <p><strong>Speed:</strong> ${player.speed} | <strong>Strength:</strong> ${player.strength}</p>
+                        </div>
+                    `).join('')}
+                </div>
+                <p><em>Showing 12 of ${players.length} players</em></p>
+            `;
+        }
+        
+        function showStandings() {
+            // Clean up PlayByPlayBox
+            if (playByPlayBox) {
+                playByPlayBox.destroy();
+                playByPlayBox = null;
+            }
+            
+            document.getElementById('main-content').innerHTML = `
+                <h1>Standings - Live Season Data</h1>
+                <p class="success">✅ Current season standings with real game results</p>
+                
+                <h2>Full League Standings (${standings.length} teams)</h2>
+                <table border="1" style="border-collapse: collapse; width: 100%; background: #222; color: #fff;">
+                    <tr style="background: #444;">
+                        <th style="padding: 10px;">Team</th>
+                        <th style="padding: 10px;">Record</th>
+                        <th style="padding: 10px;">PF</th>
+                        <th style="padding: 10px;">PA</th>
+                        <th style="padding: 10px;">Division</th>
+                        <th style="padding: 10px;">Conference</th>
+                    </tr>
+                    ${standings.map(team => `
+                        <tr>
+                            <td style="padding: 8px;"><strong>${team.team_name}</strong></td>
+                            <td style="padding: 8px;">${team.wins}-${team.losses}-${team.ties}</td>
+                            <td style="padding: 8px;">${team.points_for || 0}</td>
+                            <td style="padding: 8px;">${team.points_against || 0}</td>
+                            <td style="padding: 8px;">${team.division}</td>
+                            <td style="padding: 8px;">${team.conference}</td>
+                        </tr>
+                    `).join('')}
+                </table>
+            `;
+        }
+        
+        async function showSimulation() {
+            // Clean up PlayByPlayBox
+            if (playByPlayBox) {
+                playByPlayBox.destroy();
+                playByPlayBox = null;
+            }
+            
+            document.getElementById('main-content').innerHTML = `
+                <h1>Game Simulation</h1>
+                <p class="success">✅ Simulate games and watch the season progress</p>
+                
+                <div style="background: #333; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                    <h2>Simulation Controls</h2>
+                    <button onclick="simulateWeek()" id="sim-btn" style="background: #4CAF50; color: white; padding: 15px 30px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer;">
+                        🏈 Simulate Week
+                    </button>
+                    <p id="sim-status" style="margin-top: 10px;"></p>
+                </div>
+                
+                <div id="sim-results" style="background: #222; padding: 15px; border-radius: 5px; margin: 20px 0; display: none;">
+                    <h3>Latest Simulation Results</h3>
+                    <div id="sim-content"></div>
+                </div>
+                
+                <div style="background: #333; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                    <h2>Current Season Status</h2>
+                    <p><strong>Total Teams:</strong> ${teams.length}</p>
+                    <p><strong>Total Players:</strong> ${players.length}</p>
+                    <p><strong>Season Standings:</strong> ${standings.length} teams with current records</p>
+                </div>
+            `;
+        }
+        
+        async function simulateWeek() {
+            const btn = document.getElementById('sim-btn');
+            const status = document.getElementById('sim-status');
+            const results = document.getElementById('sim-results');
+            const content = document.getElementById('sim-content');
+            
+            // Show loading state
+            btn.disabled = true;
+            btn.textContent = '⏳ Simulating...';
+            status.textContent = 'Running week simulation...';
+            status.style.color = '#ff0';
+            
+            try {
+                // Call the simulation API
+                const response = await fetch(`${API_BASE}/season/simulate-week`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                // Show success
+                status.textContent = '✅ Week simulated successfully!';
+                status.style.color = '#0f0';
+                
+                // Display results
+                content.innerHTML = `
+                    <div style="background: #444; padding: 15px; border-radius: 5px;">
+                        <h4>Simulation Complete</h4>
+                        <p><strong>Games Simulated:</strong> ${result.games_simulated || 'Multiple'}</p>
+                        <p><strong>Week:</strong> ${result.week || 'Current Week'}</p>
+                        <p><strong>Season:</strong> ${result.season || '2025'}</p>
+                        <p><strong>Status:</strong> ${result.message || 'Week completed successfully'}</p>
+                    </div>
+                `;
+                
+                results.style.display = 'block';
+                
+                // Refresh data
+                setTimeout(async () => {
+                    await loadData();
+                    showSimulation(); // Refresh the simulation page
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Simulation error:', error);
+                status.textContent = `❌ Error: ${error.message}`;
+                status.style.color = '#f00';
+            } finally {
+                // Reset button
+                btn.disabled = false;
+                btn.textContent = '🏈 Simulate Week';
+            }
+        }
+        
+        async function quickSimWeek() {
+            try {
+                const response = await fetch(`${API_BASE}/season/simulate-week`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                // Show quick success message
+                const statusDiv = document.createElement('div');
+                statusDiv.style.cssText = 'background: #4CAF50; color: white; padding: 10px; border-radius: 5px; margin: 10px 0; text-align: center;';
+                statusDiv.textContent = '✅ Week simulated successfully! Refreshing data...';
+                document.getElementById('main-content').insertBefore(statusDiv, document.getElementById('main-content').firstChild.nextSibling);
+                
+                // Refresh data and reload dashboard
+                setTimeout(async () => {
+                    await loadData();
+                    showDashboard();
+                }, 1500);
+                
+            } catch (error) {
+                console.error('Quick simulation error:', error);
+                const statusDiv = document.createElement('div');
+                statusDiv.style.cssText = 'background: #f44336; color: white; padding: 10px; border-radius: 5px; margin: 10px 0; text-align: center;';
+                statusDiv.textContent = `❌ Error: ${error.message}`;
+                document.getElementById('main-content').insertBefore(statusDiv, document.getElementById('main-content').firstChild.nextSibling);
+            }
+        }
+        
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

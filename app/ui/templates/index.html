@@ -1,0 +1,779 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
+    <!-- Runtime configuration -->
+    <script>
+        window.__APP_CONFIG__ = {
+            apiBase: "{{ request.scope.get('root_path','') or '' }}",
+            assetsVersion: "{{ assets_version }}"
+        };
+        
+        // Force demo mode initialization
+        window.addEventListener('DOMContentLoaded', function() {
+            console.log('Forcing demo mode initialization...');
+            
+            // Wait a bit for scripts to load
+            setTimeout(function() {
+                if (window.demoContext) {
+                    console.log('DemoContext found, enabling demo mode');
+                    window.demoContext.setEnabled(true);
+                } else {
+                    console.log('DemoContext not found, creating fallback');
+                    window.demoContext = {
+                        enabled: true,
+                        getTopLeague: function() {
+                            return {
+                                qb_rating: [{player: 'Demo QB', team_abbr: 'NE', value: 95.2}],
+                                pass_yds: [{player: 'Demo QB', team_abbr: 'NE', value: 3200}],
+                                rec: [{player: 'Demo WR', team_abbr: 'NE', value: 85}],
+                                rec_yds: [{player: 'Demo WR', team_abbr: 'NE', value: 1200}],
+                                rush_yds: [{player: 'Demo RB', team_abbr: 'NE', value: 1100}],
+                                tds: [{player: 'Demo RB', team_abbr: 'NE', value: 12}]
+                            };
+                        },
+                        getTopTeam: function() {
+                            return {
+                                qb: {name: 'Demo QB', abbr: 'NE', qbr: 95.2, yds: 3200, td: 28},
+                                rb: {name: 'Demo RB', abbr: 'NE', yds: 1100, td: 12},
+                                wr: {name: 'Demo WR', abbr: 'NE', rec: 85, yds: 1200, td: 8}
+                            };
+                        },
+                        getPbp: function() {
+                            return [
+                                {clock: '15:00', down_distance: '1st & 10', description: 'Demo play 1', scoring_delta_home: 0, scoring_delta_away: 0},
+                                {clock: '14:30', down_distance: '2nd & 8', description: 'Demo play 2', scoring_delta_home: 0, scoring_delta_away: 0},
+                                {clock: '14:00', down_distance: '3rd & 5', description: 'Demo play 3', scoring_delta_home: 0, scoring_delta_away: 0}
+                            ];
+                        },
+                        getLastGame: function() {
+                            return {
+                                game_id: 'demo-1',
+                                home_team_id: 1,
+                                away_team_id: 2,
+                                final_home: 24,
+                                final_away: 21,
+                                quarters: [[7,7], [10,7], [0,7], [7,0]]
+                            };
+                        }
+                    };
+                }
+                
+                // Set global demo functions
+                window.isDemoMode = function() { return true; };
+                window.getDemoTopLeague = function() { return window.demoContext.getTopLeague(); };
+                window.getDemoTopTeam = function() { return window.demoContext.getTopTeam(); };
+                window.getDemoPbp = function() { return window.demoContext.getPbp(); };
+                window.getDemoLastGame = function() { return window.demoContext.getLastGame(); };
+                
+                console.log('Demo mode force initialization complete');
+            }, 1000);
+        });
+    </script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/app.css?v={{ assets_version }}">
+    <link rel="stylesheet" href="/static/css/playoffs.css?v={{ assets_version }}&cb=24">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #E5E7EB; }
+        .card { background-color: #1F2937; border: 1px solid #374151; border-radius: 0.75rem; padding: 1.5rem; }
+        .team-color-accent { border-top: 4px solid #005A9C; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1F2937; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6B7280; }
+        
+        /* Tabular numbers for consistent alignment */
+        .tabular-nums { font-variant-numeric: tabular-nums; }
+        
+        /* Screen reader only content */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        
+        /* Horizontal scrollbar for ratings table */
+        .overflow-x-auto::-webkit-scrollbar {
+            height: 8px;
+        }
+        .overflow-x-auto::-webkit-scrollbar-track {
+            background: #1F2937;
+        }
+        .overflow-x-auto::-webkit-scrollbar-thumb {
+            background: #4B5563;
+            border-radius: 10px;
+        }
+        .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+            background: #6B7280;
+        }
+        
+        /* Frozen column styling */
+        .frozen-column {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background-color: #1F2937;
+        }
+        
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-content {
+            background-color: #1F2937;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #374151;
+            border-radius: 0.75rem;
+            width: 80%;
+            max-width: 600px;
+        }
+        
+        .close {
+            color: #9CA3AF;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #E5E7EB;
+        }
+        
+        /* Error message styling */
+        .error-message {
+            background-color: #7F1D1D;
+            border: 1px solid #DC2626;
+            color: #FECACA;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem 0;
+        }
+        
+        /* Dashboard layout */
+        .dashboard-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 1.5rem;
+            min-height: 600px;
+        }
+        
+        /* Test results styling */
+        .test-results {
+            font-family: 'Courier New', monospace;
+        }
+        
+        .test-result {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        
+        .test-result.passed {
+            background-color: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .test-result.failed {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .test-details {
+            font-size: 0.875rem;
+            color: #9CA3AF;
+            margin-top: 0.25rem;
+        }
+        
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .content {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .controls {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            background-color: #1F2937;
+            border-radius: 0.75rem;
+            border: 1px solid #374151;
+        }
+        
+        @media (max-width: 1024px) {
+            .dashboard-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="navbar">
+        <div class="brand" data-testid="navbar-brand">Franchise Football</div>
+        <nav class="navbar-nav" role="navigation" aria-label="Main navigation">
+            <a href="/" class="nav-link active" data-testid="nav-home" role="menuitem" tabindex="0">Home</a>
+            <a href="/roster" class="nav-link" data-testid="nav-roster" role="menuitem" tabindex="0">Roster</a>
+            <a href="/playoffs" class="nav-link" data-testid="nav-playoffs" role="menuitem" tabindex="0">Playoffs</a>
+            <a href="/stats" class="nav-link" data-testid="nav-stats" role="menuitem" tabindex="0">Stats</a>
+            <a href="/staff" class="nav-link" data-testid="nav-staff" role="menuitem" tabindex="0">Staff</a>
+            <a href="/gmdesk" class="nav-link" data-testid="nav-gmdesk" role="menuitem" tabindex="0">GM Desk</a>
+            <a href="/draft" class="nav-link" data-testid="nav-draft" role="menuitem" tabindex="0">Draft</a>
+            <a href="/hof" class="nav-link" data-testid="nav-hof" role="menuitem" tabindex="0">HOF</a>
+        </nav>
+        <div class="user-club">
+            <span id="user-team-name">New England Patriots</span>
+            <div id="page-demo-toggle-container"></div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content">
+        <!-- Dashboard Header -->
+        <div id="dashboard-header"></div>
+        
+        <!-- Main Content -->
+        <main class="content">
+                <div class="card panel controls">
+                    <button class="btn" data-testid="sim-week-button" id="sim-week-button">Sim Week</button>
+                    <span id="week-label" class="text-white font-medium ml-4">Week 1</span>
+                    <button class="btn" id="depth-chart-button">Depth Chart</button>
+                </div>
+                
+                <!-- Dashboard Layout v5: 3-Column Structure -->
+                <div class="grid gap-6 mb-4" style="grid-template-columns: 1fr 1fr 1fr;">
+                    <!-- C1: LEFT COLUMN -->
+                    <div class="flex flex-col gap-6">
+                        <!-- Standings -->
+                        <section class="card panel standings min-h-[360px]" data-testid="standings-side" id="standings-side">
+                            <h2 class="text-xl font-bold text-white mb-4">Standings</h2>
+                            <div class="space-y-1" id="side-division-standings">
+                                <div class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+
+                        <!-- League Power Rankings -->
+                        <section class="card panel min-h-[360px]" data-testid="power-rankings-panel" id="power-rankings-panel">
+                            <h2 class="text-xl font-bold text-white mb-4">Power Rankings</h2>
+                            <div id="power-rankings-content">
+                                <div class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+
+                        <!-- League Top Performers -->
+                        <section class="card panel min-h-[360px]" data-testid="league-top-performers-panel" id="league-top-performers-panel">
+                            <h2 class="text-xl font-bold text-white mb-4">League Top Performers <span id="league-top-note" class="text-sm text-gray-400"></span></h2>
+                            <div id="league-top-performers-content">
+                                <div class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- C2: MIDDLE COLUMN -->
+                    <div class="flex flex-col gap-6">
+                        <!-- Schedule (Full Season) -->
+                        <section class="card panel min-h-[360px]" data-testid="team-schedule-panel" id="team-schedule-panel">
+                            <h2 class="text-xl font-bold text-white mb-4">Schedule</h2>
+                            <div id="team-schedule-content">
+                                <div class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+
+                        <!-- Box Score -->
+                        <section class="card panel" data-testid="box-panel" id="box-panel">
+                            <h2 class="text-xl font-bold text-white mb-4">Box Score</h2>
+                            <div id="box-score-content">
+                                <div class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+
+                        <!-- Play-by-Play -->
+                        <section class="card panel" data-testid="pbp-panel" id="pbp-panel">
+                            <h2 class="text-xl font-bold text-white mb-4">Play-by-Play <span id="pbp-note" class="text-sm text-gray-400"></span></h2>
+                            <div id="pbp-content">
+                                <div id="pbp" class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- C3: RIGHT COLUMN -->
+                    <div class="flex flex-col gap-6">
+                        <!-- Scouting -->
+                        <section class="card panel min-h-[360px]" data-testid="scouting-box" id="scouting-box">
+                            <h2 class="text-xl font-bold text-white mb-4">Scouting</h2>
+                            <div id="scouting-box-content" class="overflow-y-auto max-h-96">
+                                <div class="text-gray-400 text-center text-sm">Loading scouting data...</div>
+                            </div>
+                        </section>
+
+                        <!-- Team Top Performers -->
+                        <section class="card panel" data-testid="team-top-performers-panel" id="team-top-performers-panel">
+                            <h2 class="text-xl font-bold text-white mb-4">Team Top Performers <span id="team-top-note" class="text-sm text-gray-400"></span></h2>
+                            <div id="team-top-performers-content">
+                                <div class="text-gray-400 text-center text-sm">Loading...</div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+                
+                <!-- Test Results (hidden by default, shown when ?test=1) -->
+                <section class="card panel" id="test-results-panel" style="display: none;">
+                    <h2 class="text-xl font-bold text-white mb-4">UI Tests</h2>
+                    <div id="test-results">
+                        <div class="text-gray-400 text-center text-sm">Running tests...</div>
+                    </div>
+                </section>
+            </main>
+        </div>
+        
+        <!-- Router content will be rendered here for other pages -->
+        <div id="router-content" style="display: none;">
+            <!-- Back to Dashboard Button -->
+            <div class="mb-6">
+                <button id="back-to-dashboard" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
+                    â† Back to Dashboard
+                </button>
+            </div>
+            
+            <!-- Depth Chart Page -->
+            <div id="depth-chart-page" style="display: none;">
+                <div class="card panel">
+                    <h1 class="text-2xl font-bold text-white mb-6">Team Depth Chart</h1>
+                    <div id="depth-chart-content">
+                        <div class="text-gray-400 text-center text-sm">Loading depth chart...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Roster Page -->
+            <div id="roster-page" style="display: none;"></div>
+            
+            <!-- Playoffs Page -->
+            <div id="playoffs-page" style="display: none;"></div>
+            
+            <!-- Stats Page -->
+            <div id="stats-page" style="display: none;"></div>
+            
+            <!-- Staff Page -->
+            <div id="staff-page" style="display: none;"></div>
+            
+            <!-- GM Desk Page -->
+            <div id="gmdesk-page" style="display: none;"></div>
+            
+            <!-- Draft Page -->
+            <div id="draft-page" style="display: none;"></div>
+            
+            <!-- HOF Page -->
+            <div id="hof-page" style="display: none;"></div>
+        </div>
+    </main>
+
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div id="modal-content"></div>
+        </div>
+    </div>
+
+    <!-- Script order and DOMContentLoaded listener -->
+    <script src="/static/js/config.js?v={{ assets_version }}"></script>
+    <script src="/static/js/util.js?v={{ assets_version }}&cb=3"></script>
+    <script src="/static/js/InlineError.js?v={{ assets_version }}"></script>
+    
+    <!-- MUST load ff-core.js BEFORE any stub/demo files to establish FF namespace -->
+    <script src="/static/js/ff-core.js?v={{ assets_version }}&cb=20"></script>
+    
+    <script src="/static/js/demoConfig.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/demoData.js?v={{ assets_version }}&cb=20&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/DemoContext.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/DemoToggle.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/teamLookup.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/dashboard-adapters.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/DashboardHeader.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/StandingsPanel.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/PowerRankingsPanel.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/LeagueTopPerformersPanel.js?v={{ assets_version }}&cb=10&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/TeamTopPerformersPanel.js?v={{ assets_version }}&cb=9&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/PBPClient.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/BoxPanel.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/TeamSchedulePanel.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/TopPerformersPanel.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/ScoutingBox.js?v={{ assets_version }}"></script>
+    <script src="/static/js/TeamPerformanceBars.js?v={{ assets_version }}"></script>
+    <script src="/static/js/GameLeadersPanel.js?v={{ assets_version }}"></script>
+    <script src="/static/js/DepthChartPanel.js?v=force-r1" defer></script>
+    <script src="/static/js/Dashboard.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/dashboard-tests.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/dashboard-layout-tests.js?v={{ assets_version }}" defer></script>
+    
+    <!-- MVP UI Finalization Pack Scripts -->
+    <script src="/static/js/components/common/PageShell.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/ComingSoon.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/BadgeDelta.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/SkeletonCard.js?v={{ assets_version }}&cb=12&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/hooks/usePersistedState.js?v={{ assets_version }}&cb=12&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/Toast.js?v={{ assets_version }}&cb=13&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/ErrorBoundary.js?v={{ assets_version }}&cb=13&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/performance.js?v={{ assets_version }}&cb=13&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/noSeedRand.js?v={{ assets_version }}&cb=19&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/dashboardGuard.js?v={{ assets_version }}&cb=18&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/verifyCleanup.js?v={{ assets_version }}&cb=20&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/overrides/PageDemo.js?v={{ assets_version }}&cb=14&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/PageDemoToggle.js?v={{ assets_version }}&cb=14&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/demoUtils.js?v={{ assets_version }}&cb=18&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/rosterStubs.js?v={{ assets_version }}&cb=23&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/playoffsStubs.js?v={{ assets_version }}&cb=21&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/statsStubs.js?v={{ assets_version }}&cb=21&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/adapters/roster.js?v={{ assets_version }}&cb=23&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/adapters/playoffs.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/adapters/stats.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/roster/StickyHScroll.js?v={{ assets_version }}&cb=23&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/roster/TeamRosterTable.js?v=rollback-v32" defer></script>
+    <script src="/static/js/depthChart.js?v=rollback-v32" defer></script>
+    <script src="/static/js/components/roster/DepthChartCard.js?v=rollback-v32" defer></script>
+    <script src="/static/js/components/playoffs/GameCard.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/InTheHuntPanel.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/Bracket.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/BracketGameModal.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/stats/AwardsRaceCard.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/stats/PositionalLeadersCarousel.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/stats/LeaguePlayerStatsTable.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/RosterPage.js?v=rollback-v32" defer></script>
+    <script src="/static/js/pages/PlayoffsPage.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/StatsPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/StaffPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/GMDeskPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/DraftPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/HOFPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/__tests__/ui/pages.test.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    
+    <!-- Dashboard initialization -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check if we're in test mode
+            const isTestMode = window.location.search.includes('test=1') || window.location.hash.includes('test');
+            
+            if (isTestMode) {
+                // Show test results panel in test mode
+                const testPanel = document.getElementById('test-results-panel');
+                if (testPanel) {
+                    testPanel.style.display = 'block';
+                }
+            }
+            
+            if (window.initDashboard) {
+                window.initDashboard();
+            }
+            
+            // Initialize depth chart navigation
+            const depthChartButton = document.getElementById('depth-chart-button');
+            const dashboardGrid = document.querySelector('.dashboard-grid');
+            const routerContent = document.getElementById('router-content');
+            const depthChartPage = document.getElementById('depth-chart-page');
+            
+            if (depthChartButton && dashboardGrid && routerContent && depthChartPage) {
+                depthChartButton.addEventListener('click', async () => {
+                    try {
+                        // Hide dashboard, show depth chart page
+                        dashboardGrid.style.display = 'none';
+                        routerContent.style.display = 'block';
+                        depthChartPage.style.display = 'block';
+                        
+                        // Initialize depth chart panel and wait for it to load
+                        if (window.DepthChartPanel) {
+                            const depthChart = new window.DepthChartPanel();
+                            const success = await depthChart.load(1); // Load for team 1 (Buffalo Bills)
+                            if (!success) {
+                                console.error('Failed to load depth chart');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error loading depth chart:', error);
+                    }
+                });
+            }
+            
+            // Add back button functionality (ESC key)
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && routerContent && routerContent.style.display === 'block') {
+                    routerContent.style.display = 'none';
+                    depthChartPage.style.display = 'none';
+                    dashboardGrid.style.display = 'grid';
+                }
+            });
+            
+            // Initialize page routing
+            window.router = {
+                currentPage: null,
+                
+                navigateTo: function(pageName) {
+                    console.log('Navigating to:', pageName);
+                    
+                    // Hide all pages
+                    const allPages = routerContent.querySelectorAll('[id$="-page"]');
+                    allPages.forEach(page => page.style.display = 'none');
+                    
+                    // Hide dashboard
+                    const dashboardGrid = document.querySelector('.grid.gap-6');
+                    if (dashboardGrid) dashboardGrid.style.display = 'none';
+                    
+                    // Show router content
+                    routerContent.style.display = 'block';
+                    
+                    // Show target page and initialize it
+                    const targetPage = document.getElementById(pageName + '-page');
+                    if (targetPage) {
+                        targetPage.style.display = 'block';
+                        this.currentPage = pageName;
+                        
+                        // Initialize the page component
+                        this.initializePage(pageName, targetPage);
+                    }
+                },
+                
+                initializePage: function(pageName, container) {
+                    const pageClass = pageName.charAt(0).toUpperCase() + pageName.slice(1) + 'Page';
+                    if (window[pageClass]) {
+                        const pageInstance = new window[pageClass](container.id);
+                        pageInstance.render();
+                    }
+                },
+                
+                goHome: function() {
+                    // Hide router content
+                    routerContent.style.display = 'none';
+                    
+                    // Show dashboard
+                    const dashboardGrid = document.querySelector('.grid.gap-6');
+                    if (dashboardGrid) dashboardGrid.style.display = 'grid';
+                    
+                    // Update active navigation state
+                    const navLinks = document.querySelectorAll('.nav-link');
+                    navLinks.forEach(l => l.classList.remove('active'));
+                    const homeLink = document.querySelector('.nav-link[href="/"]');
+                    if (homeLink) homeLink.classList.add('active');
+                    
+                    this.currentPage = null;
+                }
+            };
+            
+            // Add navigation event listeners to navbar links
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(link => {
+                const handleNavigation = (e) => {
+                    e.preventDefault();
+                    const href = link.getAttribute('href');
+                    
+                    // Update active states
+                    navLinks.forEach(l => l.classList.remove('active'));
+                    link.classList.add('active');
+                    
+                    if (href === '/') {
+                        window.router.goHome();
+                    } else if (href === '/roster') {
+                        window.router.navigateTo('roster');
+                    } else if (href === '/playoffs') {
+                        window.router.navigateTo('playoffs');
+                    } else if (href === '/stats') {
+                        window.router.navigateTo('stats');
+                    } else if (href === '/staff') {
+                        window.router.navigateTo('staff');
+                    } else if (href === '/gmdesk') {
+                        window.router.navigateTo('gmdesk');
+                    } else if (href === '/draft') {
+                        window.router.navigateTo('draft');
+                    } else if (href === '/hof') {
+                        window.router.navigateTo('hof');
+                    }
+                };
+                
+                link.addEventListener('click', handleNavigation);
+                link.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleNavigation(e);
+                    }
+                });
+            });
+            
+            // Back to dashboard button
+            const backButton = document.getElementById('back-to-dashboard');
+            if (backButton) {
+                const handleBack = () => {
+                    window.router.goHome();
+                };
+                
+                backButton.addEventListener('click', handleBack);
+                backButton.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleBack();
+                    }
+                });
+            }
+            
+            // Initialize Page Demo toggle
+            if (window.PageDemoToggle && window.pageDemoProvider) {
+                window.pageDemoToggle = new window.PageDemoToggle('page-demo-toggle-container');
+                console.log('Page Demo Mode initialized:', window.getPageDemoUI() ? 'ON' : 'OFF');
+            }
+            
+            // Check dashboard elements after DOM is loaded
+            if (window.checkDashboardIds) {
+                setTimeout(() => {
+                    window.checkDashboardIds();
+                }, 100); // Small delay to ensure all components are initialized
+            }
+        });
+    </script>
+    <!-- Debug order + availability -->
+    <script src="/static/js/ff-probe.js?v=probe-1.0" defer></script>
+    <script src="/static/js/ff-route-nudge.js?v=1"></script>
+    <script src="/static/js/ff-roster-driver.js?v=rollback-v32"></script>
+    <!-- Emergency revive: safe to keep; delete once native roster is solid -->
+<!-- Hard-mount roster no matter what (remove after native fix) -->
+<!-- === Inline roster fallback (guaranteed render) === -->
+    <script>
+    (function(){
+      const LOG='[ff-inline-roster]';
+
+      function onRosterRoute(){
+        const p=(location.pathname||'').toLowerCase();
+        const h=(location.hash||'').toLowerCase();
+        return p.endsWith('/roster') || h.includes('roster');
+      }
+      function host(){
+        return document.querySelector('#app-root') ||
+               document.querySelector('main') ||
+               document.querySelector('#content') ||
+               document.body;
+      }
+      function ensureShell(){
+        if (document.getElementById('page-roster')) return true;
+        const h=host(); if(!h){ console.warn(LOG,'no host'); return false; }
+        const el=document.createElement('section');
+        el.id='page-roster';
+        el.dataset.testid='page-roster';
+        el.className='page roster-page';
+        el.innerHTML=`
+          <header class="mb-3"><h2 class="text-lg font-semibold">Roster</h2></header>
+          <div class="grid grid-cols-12 gap-4">
+            <section class="col-span-12">
+              <div class="flex items-center gap-2 mb-2">
+                <button id="btn-auto-assign" data-action="auto-assign" class="btn">Auto Assign</button>
+                <button id="btn-undo-assign" data-action="undo-assign" class="btn btn-secondary">Undo</button>
+              </div>
+              <section id="roster-main" class="card panel min-h-[360px]" data-roster-root></section>
+            </section>
+            <section class="col-span-12">
+              <h3 class="text-base font-semibold mb-2">Depth Chart</h3>
+              <div class="grid grid-cols-12 gap-4">
+                <section id="depth-offense"  class="col-span-12 card panel min-h-[220px]" data-depth-offense></section>
+                <section id="depth-defense"  class="col-span-12 card panel min-h-[220px]" data-depth-defense></section>
+                <section id="depth-special"  class="col-span-12 card panel min-h-[180px]" data-depth-special></section>
+              </div>
+            </section>
+          </div>`;
+        h.appendChild(el);
+        el.addEventListener('click',(e)=>{
+          const a=e.target?.dataset?.action;
+          if(a==='auto-assign') window.dispatchEvent(new CustomEvent('ff:depth:autoAssign'));
+          if(a==='undo-assign')  window.dispatchEvent(new CustomEvent('ff:depth:undo'));
+        });
+        console.info(LOG,'shell mounted');
+        window.dispatchEvent(new Event('ff:roster:rendered'));
+        return true;
+      }
+
+      async function getRoster(){
+        try{
+          if (typeof window.uiAdapters?.roster?.getTeamRoster==='function') return await window.uiAdapters.roster.getTeamRoster();
+          if (window.FF?.data?.activeTeamRoster) return window.FF.data.activeTeamRoster;
+          if (window.FF?.data?.demo?.roster) return window.FF.data.demo.roster;
+        }catch(_){}
+        return [
+          { id:'qb_1', name:'Alex Carter', pos:'QB', ovr:74 },
+          { id:'rb_1', name:'Miles Stone', pos:'RB', ovr:71 },
+          { id:'wr_1', name:'Jay Banks',   pos:'WR', ovr:73 },
+          { id:'te_1', name:'D. Clark',    pos:'TE', ovr:69 },
+          { id:'k_1',  name:'K. Hale',     pos:'K',  ovr:68 },
+        ];
+      }
+
+      async function renderFallback(){
+        const root=document.querySelector('#roster-main[data-roster-root]');
+        if(!root){ console.warn(LOG,'no #roster-main'); return; }
+        if(root.dataset.rendered==='native' || root.querySelector('table')){
+          console.info(LOG,'native/table present; skip fallback'); return;
+        }
+        const roster=await getRoster();
+        root.innerHTML=`
+          <div class="mb-2 text-sm opacity-70">Roster (Inline Fallback)</div>
+          <div class="overflow-auto border border-base-300 rounded">
+            <table class="w-full min-w-[520px] text-sm">
+              <thead>
+                <tr><th class="sticky left-0 bg-base-300 text-left px-2">Name</th><th>Pos</th><th>OVR</th></tr>
+              </thead>
+              <tbody>${
+                (roster||[]).map(p=>`<tr>
+                  <td class="sticky left-0 bg-base-200 px-2">${p.name || [p.first_name,p.last_name].filter(Boolean).join(' ')}</td>
+                  <td>${p.pos ?? ''}</td><td>${p.ovr ?? ''}</td>
+                </tr>`).join('')
+              }</tbody>
+            </table>
+          </div>`;
+        console.info(LOG,`fallback table rendered (${roster?.length||0} players)`);
+      }
+
+      function boot(){
+        console.info(LOG,'loaded on', location.pathname, location.hash);
+        if (!onRosterRoute()) return;
+        if (ensureShell()) renderFallback();
+      }
+
+      if (document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', boot); } else { boot(); }
+      // SPA safety: remount if shell disappears while still on /roster
+      new MutationObserver(()=>{
+        if (onRosterRoute() && !document.getElementById('page-roster')){
+          if (ensureShell()) renderFallback();
+        }
+      }).observe(document.body,{childList:true,subtree:true});
+    })();
+    </script>
+    <!-- === /Inline roster fallback === -->
+    
+    <!-- Console Rescue Script (backup emergency option) -->
+    <script src="/static/js/ff-console-rescue.js?v=rescue-1.0"></script>
+</body>
+</html>
+

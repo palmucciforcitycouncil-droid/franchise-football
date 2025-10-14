@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football - Playoff Bracket</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .controls {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+        .error {
+            color: #dc3545;
+            text-align: center;
+            padding: 20px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .bracket-section {
+            margin-bottom: 40px;
+        }
+        .bracket-section h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .seeds {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        .conference {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .conference h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .seed-item {
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 4px;
+            background: white;
+            border-left: 4px solid #007bff;
+        }
+        .seed-item.division-winner {
+            border-left-color: #28a745;
+            font-weight: bold;
+        }
+        .seed-item.wild-card {
+            border-left-color: #ffc107;
+        }
+        .games {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .game {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .game-header {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 10px;
+        }
+        .game-teams {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .team {
+            flex: 1;
+            text-align: center;
+        }
+        .vs {
+            margin: 0 15px;
+            font-weight: bold;
+            color: #6c757d;
+        }
+        .super-bowl {
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin: 30px 0;
+        }
+        .super-bowl h2 {
+            border: none;
+            color: white;
+            margin-top: 0;
+        }
+        .super-bowl-info {
+            font-size: 18px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏈 Franchise Football - NFL Playoff Bracket</h1>
+        
+        <div class="controls">
+            <button onclick="generatePlayoffBracket()">Generate Playoff Bracket</button>
+            <button onclick="clearBracket()">Clear</button>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            Generating playoff bracket...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="bracket" style="display: none;">
+            <!-- Seeds Section -->
+            <div class="bracket-section">
+                <h2>Playoff Seeds</h2>
+                <div class="seeds">
+                    <div class="conference">
+                        <h3>AFC Conference</h3>
+                        <div id="afc-seeds"></div>
+                    </div>
+                    <div class="conference">
+                        <h3>NFC Conference</h3>
+                        <div id="nfc-seeds"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Wildcard Round -->
+            <div class="bracket-section">
+                <h2>Wildcard Round</h2>
+                <div class="games" id="wildcard-games"></div>
+            </div>
+            
+            <!-- Divisional Round -->
+            <div class="bracket-section">
+                <h2>Divisional Round</h2>
+                <div class="games" id="divisional-games"></div>
+            </div>
+            
+            <!-- Conference Championship -->
+            <div class="bracket-section">
+                <h2>Conference Championship</h2>
+                <div class="games" id="conference-games"></div>
+            </div>
+            
+            <!-- Super Bowl -->
+            <div class="bracket-section">
+                <div class="super-bowl" id="super-bowl"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function generatePlayoffBracket() {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const bracket = document.getElementById('bracket');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            bracket.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/v1/playoffs/generate?season=2025&seed=12345', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayBracket(data);
+                
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+        
+        function displayBracket(data) {
+            // Display seeds
+            displaySeeds('afc-seeds', data.seeds.AFC);
+            displaySeeds('nfc-seeds', data.seeds.NFC);
+            
+            // Display games
+            displayGames('wildcard-games', data.wildcard);
+            displayGames('divisional-games', data.divisional);
+            displayGames('conference-games', data.conference_championship);
+            
+            // Display Super Bowl
+            displaySuperBowl(data.super_bowl);
+            
+            // Show bracket
+            document.getElementById('bracket').style.display = 'block';
+        }
+        
+        function displaySeeds(containerId, seeds) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            seeds.forEach(seed => {
+                const div = document.createElement('div');
+                div.className = `seed-item ${seed.is_division_winner ? 'division-winner' : 'wild-card'}`;
+                div.innerHTML = `
+                    <strong>${seed.seed}.</strong> ${seed.team_name} 
+                    <span style="color: #6c757d;">(${seed.wins}-${seed.losses}-${seed.ties})</span>
+                    ${seed.is_division_winner ? ' [DIV]' : ' [WC]'}
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        function displayGames(containerId, games) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            games.forEach(game => {
+                const div = document.createElement('div');
+                div.className = 'game';
+                div.innerHTML = `
+                    <div class="game-header">${game.slot}</div>
+                    <div class="game-teams">
+                        <div class="team">${game.home}</div>
+                        <div class="vs">vs</div>
+                        <div class="team">${game.away}</div>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px; color: #6c757d; font-size: 14px;">
+                        ${game.conf}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        function displaySuperBowl(sb) {
+            const container = document.getElementById('super-bowl');
+            container.innerHTML = `
+                <h2>🏆 Super Bowl</h2>
+                <div class="super-bowl-info">${sb.slot}</div>
+                <div class="super-bowl-info">${sb.team_afc} vs ${sb.team_nfc}</div>
+                <div class="super-bowl-info">at ${sb.site}</div>
+                <div class="super-bowl-info">Home Designation: ${sb.home_designation}</div>
+            `;
+        }
+        
+        function clearBracket() {
+            document.getElementById('bracket').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+        }
+        
+        // Auto-generate bracket on page load
+        window.onload = function() {
+            generatePlayoffBracket();
+        };
+    </script>
+</body>
+</html>
+
+

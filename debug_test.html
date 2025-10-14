@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #111; color: #fff; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #064e3b; border: 1px solid #10b981; }
+        .error { background: #7f1d1d; border: 1px solid #ef4444; }
+        .loading { background: #1e3a8a; border: 1px solid #3b82f6; }
+    </style>
+</head>
+<body>
+    <h1>Franchise Football Debug Test</h1>
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+        const resultsDiv = document.getElementById('results');
+
+        function addResult(message, type = 'loading') {
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.textContent = message;
+            resultsDiv.appendChild(div);
+        }
+
+        async function testEndpoint(endpoint, name) {
+            addResult(`Testing ${name}...`, 'loading');
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    addResult(`✅ ${name}: SUCCESS (${data.length || 'N/A'} items)`, 'success');
+                    console.log(`${name} data:`, data);
+                } else {
+                    addResult(`❌ ${name}: HTTP ${response.status}`, 'error');
+                }
+            } catch (error) {
+                addResult(`❌ ${name}: ERROR - ${error.message}`, 'error');
+                console.error(`${name} error:`, error);
+            }
+        }
+
+        async function runTests() {
+            addResult('Starting API tests...', 'loading');
+            
+            await testEndpoint('/teams', 'Teams');
+            await testEndpoint('/players', 'Players');
+            await testEndpoint('/coaches', 'Coaches');
+            await testEndpoint('/season/standings', 'Standings');
+            await testEndpoint('/power-rankings', 'Power Rankings');
+            
+            addResult('All tests completed!', 'success');
+        }
+
+        // Run tests when page loads
+        document.addEventListener('DOMContentLoaded', runTests);
+    </script>
+</body>
+</html>
