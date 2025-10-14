@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -66,14 +66,14 @@
         function showDashboard() {
             document.getElementById('main-content').innerHTML = `
                 <h1>Dashboard - Dynamic Data</h1>
-                <p class="success">✅ All data is loaded from the live API (not static)</p>
+                <p class="success">âœ… All data is loaded from the live API (not static)</p>
                 
                 <div style="background: #333; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center;">
                     <button onclick="quickSimWeek()" style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer; margin-right: 10px;">
-                        🏈 Quick Sim Week
+                        ðŸˆ Quick Sim Week
                     </button>
                     <button onclick="showSimulation()" style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
-                        ⚙️ Full Simulation Panel
+                        âš™ï¸ Full Simulation Panel
                     </button>
                 </div>
                 
@@ -136,7 +136,7 @@
             
             document.getElementById('main-content').innerHTML = `
                 <h1>Roster - Dynamic Player Data</h1>
-                <p class="success">✅ ${players.length} players loaded from live database</p>
+                <p class="success">âœ… ${players.length} players loaded from live database</p>
                 
                 <h2>Players by Position</h2>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
@@ -163,7 +163,7 @@
             
             document.getElementById('main-content').innerHTML = `
                 <h1>Standings - Live Season Data</h1>
-                <p class="success">✅ Current season standings with real game results</p>
+                <p class="success">âœ… Current season standings with real game results</p>
                 
                 <h2>Full League Standings (${standings.length} teams)</h2>
                 <table border="1" style="border-collapse: collapse; width: 100%; background: #222; color: #fff;">
@@ -198,12 +198,12 @@
             
             document.getElementById('main-content').innerHTML = `
                 <h1>Game Simulation</h1>
-                <p class="success">✅ Simulate games and watch the season progress</p>
+                <p class="success">âœ… Simulate games and watch the season progress</p>
                 
                 <div style="background: #333; padding: 20px; border-radius: 5px; margin: 20px 0;">
                     <h2>Simulation Controls</h2>
                     <button onclick="simulateWeek()" id="sim-btn" style="background: #4CAF50; color: white; padding: 15px 30px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer;">
-                        🏈 Simulate Week
+                        ðŸˆ Simulate Week
                     </button>
                     <p id="sim-status" style="margin-top: 10px;"></p>
                 </div>
@@ -230,7 +230,7 @@
             
             // Show loading state
             btn.disabled = true;
-            btn.textContent = '⏳ Simulating...';
+            btn.textContent = 'â³ Simulating...';
             status.textContent = 'Running week simulation...';
             status.style.color = '#ff0';
             
@@ -250,7 +250,7 @@
                 const result = await response.json();
                 
                 // Show success
-                status.textContent = '✅ Week simulated successfully!';
+                status.textContent = 'âœ… Week simulated successfully!';
                 status.style.color = '#0f0';
                 
                 // Display results
@@ -274,12 +274,12 @@
                 
             } catch (error) {
                 console.error('Simulation error:', error);
-                status.textContent = `❌ Error: ${error.message}`;
+                status.textContent = `âŒ Error: ${error.message}`;
                 status.style.color = '#f00';
             } finally {
                 // Reset button
                 btn.disabled = false;
-                btn.textContent = '🏈 Simulate Week';
+                btn.textContent = 'ðŸˆ Simulate Week';
             }
         }
         
@@ -301,7 +301,7 @@
                 // Show quick success message
                 const statusDiv = document.createElement('div');
                 statusDiv.style.cssText = 'background: #4CAF50; color: white; padding: 10px; border-radius: 5px; margin: 10px 0; text-align: center;';
-                statusDiv.textContent = '✅ Week simulated successfully! Refreshing data...';
+                statusDiv.textContent = 'âœ… Week simulated successfully! Refreshing data...';
                 document.getElementById('main-content').insertBefore(statusDiv, document.getElementById('main-content').firstChild.nextSibling);
                 
                 // Refresh data and reload dashboard
@@ -314,7 +314,7 @@
                 console.error('Quick simulation error:', error);
                 const statusDiv = document.createElement('div');
                 statusDiv.style.cssText = 'background: #f44336; color: white; padding: 10px; border-radius: 5px; margin: 10px 0; text-align: center;';
-                statusDiv.textContent = `❌ Error: ${error.message}`;
+                statusDiv.textContent = `âŒ Error: ${error.message}`;
                 document.getElementById('main-content').insertBefore(statusDiv, document.getElementById('main-content').firstChild.nextSibling);
             }
         }
@@ -322,5 +322,11 @@
         // Load data when page loads
         document.addEventListener('DOMContentLoaded', loadData);
     </script>
+<!-- proof-of-life: we are editing the live template -->
+<div id="ff-proof" style="position:fixed;right:12px;bottom:12px;z-index:2147483647;background:#0f172a;color:#cbd5e1;border:1px solid #334155;border-radius:8px;padding:6px 8px;font:12px ui-monospace,Consolas;opacity:.9">
+  FF LIVE TEMPLATE âœ”
+</div>
+<script>console.info("[ff-proof] live template active:", location.pathname, location.hash);</script>
 </body>
 </html>
+
