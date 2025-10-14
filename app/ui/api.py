@@ -3072,3 +3072,23 @@ def simulate_week_endpoint(request: dict):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Week simulation error: {str(e)}")
+
+# Jinja2 Templates setup for native roster
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
+
+# Setup Jinja2 templates
+ROOT = Path(__file__).resolve().parents[2]
+STATIC_DIR = ROOT / "app" / "ui" / "static"
+TEMPLATES_DIR = ROOT / "app" / "ui" / "templates"
+
+# Mount static files if not already mounted
+if not any(m.name == "static" for m in getattr(app, "routes", [])):
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+@app.get("/roster", response_class=HTMLResponse)
+def roster(req: Request):
+    """Serve the native roster view with proper base layout (navbar/theme intact)"""
+    return templates.TemplateResponse("roster_native.html", {"request": req})
