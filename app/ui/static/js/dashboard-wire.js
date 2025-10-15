@@ -1,43 +1,37 @@
-/* dashboard-wire v1.0 — no template edits required */
+/* dashboard-wire v1.1 — text-driven wiring; no template edits needed besides include */
 (function(){
-  const LOG='[dashboard-wire]';
-  console.info(LOG,'boot');
+  const LOG='[dashboard-wire]'; console.info(LOG,'boot');
 
   const T = {
-    season: /season status/i,
-    champs: /championship/i,
-    leaders:/leaders/i,
+    season: /season status|current season|season/i,
+    champs: /championship|playoffs|finals/i,
+    leaders:/leaders|top players/i,
     btnSim: /simulate week/i,
     btnPO:  /start playoffs/i,
     btnOS:  /process offseason/i,
   };
 
   function findCard(regex){
-    // look for a heading then return its nearest card/panel container
     const hs=[...document.querySelectorAll('h1,h2,h3,h4,strong,header,div')];
-    const h = hs.find(el => regex.test(el.textContent||''));
+    const h = hs.find(el => regex.test((el.textContent||'').trim()));
     if(!h) return null;
-    // walk up to something that looks like a card/panel
-    let n=h; for(let i=0;i<5 && n; i++, n=n.parentElement){
-      if(n.classList && /card|panel|box|container|section|tile/i.test(n.className)) return n;
+    let n=h; for(let i=0;i<6 && n; i++, n=n.parentElement){
+      if(n.classList && /card|panel|box|container|tile|module/i.test(n.className)) return n;
     }
     return h.closest('section,div') || h.parentElement;
   }
-
-  function ensureField(card, label, dataKey){
+  function ensureField(card, key, label){
     if(!card) return null;
-    let slot = card.querySelector(`[data-field="${dataKey}"]`);
+    let slot = card.querySelector(`[data-field="${key}"]`);
     if(!slot){
-      // append a simple row quietly if the template had plain text before
-      slot = document.createElement('span');
-      slot.setAttribute('data-field', dataKey);
-      slot.style.whiteSpace='pre-wrap';
-      // try to place into a body-ish element
-      (card.querySelector('.card-body, .panel, .content, .body') || card).appendChild(slot);
+      slot=document.createElement('div');
+      slot.setAttribute('data-field',key);
+      slot.style.fontSize='0.95rem';
+      slot.style.opacity='0.95';
+      (card.querySelector('.card-body, .panel, .content, .body, .inner') || card).appendChild(slot);
     }
     return slot;
   }
-
   function findButton(regex){
     const btns=[...document.querySelectorAll('button,a,input[type="button"],input[type="submit"]')];
     return btns.find(b => regex.test((b.textContent||b.value||'').trim()));
@@ -51,33 +45,35 @@
     const champsCard = findCard(T.champs);
     const leadersCard= findCard(T.leaders);
 
-    const [season, champs, leaders] = await Promise.all([
+    const [season, champs, leaders] = await Promise.allSettled([
       api.getSeasonSummary(), api.getChampionship(), api.getLeaders()
     ]);
 
-    // season fields
-    const fWeek   = ensureField(seasonCard,'Week','week');
-    const fRecord = ensureField(seasonCard,'Record','record');
-    const fHealth = ensureField(seasonCard,'Health','health');
-    if(fWeek)   fWeek.textContent   = `Week ${season?.week ?? '?'}`;
-    if(fRecord) fRecord.textContent = `  •  ${season?.record ?? ''}`;
-    if(fHealth) fHealth.textContent = `  •  ${season?.health ?? ''}`;
+    const S = (p)=>p.status==='fulfilled'?p.value:null;
 
-    // champs
-    const fChamp = ensureField(champsCard,'Champion','champion');
-    if(fChamp) {
-      fChamp.textContent = champs?.champion
-        ? `Champion: ${champs.champion}`
-        : (champs?.stage ? `(${champs.stage})` : 'No champion yet.');
+    // Season
+    const fWeek   = ensureField(seasonCard,'week','Week');
+    const fRecord = ensureField(seasonCard,'record','Record');
+    const fHealth = ensureField(seasonCard,'health','Health');
+    if(fWeek)   fWeek.textContent   = `Week ${S(season)?.week ?? '?'}`;
+    if(fRecord) fRecord.textContent = `Record: ${S(season)?.record ?? '—'}`;
+    if(fHealth) fHealth.textContent = `Health: ${S(season)?.health ?? '—'}`;
+
+    // Championship
+    const fChamp = ensureField(champsCard,'champion','Champion');
+    if(fChamp){
+      const c=S(champs);
+      fChamp.textContent = c?.champion ? `Champion: ${c.champion}` : (c?.stage ? `Stage: ${c.stage}` : 'No champion yet.');
     }
 
-    // leaders
-    const fLead = ensureField(leadersCard,'Leaders','leaders');
+    // Leaders
+    const fLead = ensureField(leadersCard,'leaders','Leaders');
     if(fLead){
-      const qb = leaders?.qb, rb = leaders?.rb;
+      const L=S(leaders)||{};
+      const qb = L.qb, rb = L.rb;
       fLead.textContent = [
         qb ? `QB: ${qb.name} (OVR ${qb.ovr})` : null,
-        rb ? `RB: ${rb.name} (OVR ${rb.ovr})` : null
+        rb ? `RB: ${rb.name} (OVR ${rb.ovr})` : null,
       ].filter(Boolean).join('   |   ');
     }
 
@@ -106,9 +102,17 @@
     }
   }
 
+  function badge(){
+    if(document.getElementById('dash-wire-badge')) return;
+    const b=document.createElement('div');
+    b.id='dash-wire-badge';
+    b.style.cssText='position:fixed;right:10px;bottom:10px;z-index:2147483647;font:12px ui-monospace,Consolas;color:#cbd5e1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:5px 8px;opacity:.9';
+    b.textContent='Dashboard Wire v1.1';
+    document.body.appendChild(b);
+  }
+
   function boot(){
-    render(); wireButtons();
-    // In case SPA swaps content after load, watch for changes and re-wire.
+    badge(); render(); wireButtons();
     const mo = new MutationObserver(()=>{ wireButtons(); });
     mo.observe(document.body, { childList:true, subtree:true });
   }
