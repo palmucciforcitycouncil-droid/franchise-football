@@ -45,7 +45,7 @@
   <main id="dash" class="dashboard-grid">
     <!-- C1 column -->
     <!-- Division Standings -->
-    <section id="standings-card" class="card area-standings">
+    <section id="standings-card" class="card area-standings" data-lock="standings-v1">
       <div class="card-header">
         <div class="card-title" id="std-division-name">AFC East</div>
         <div class="card-actions">
@@ -87,7 +87,7 @@
       <div class="card-body">Loading…</div>
     </section>
     
-    <section id="league-perf-card" class="card area-league">
+    <section id="league-performers-card" class="card area-league">
       <div class="card-header">
         <div class="card-title">League Top Performers</div>
         <div class="card-actions">
@@ -102,12 +102,16 @@
     </section>
 
     <!-- C2 column -->
-    <section id="schedule-card" class="card area-schedule">
+    <section id="schedule-card" class="card area-schedule" data-lock="schedule-v1">
       <div class="card-header">
-        <h2 class="card-title">Team Schedule</h2>
-        <span class="badge demo" aria-label="demo data" hidden></span>
-            </div>
-      <div class="scroll-panel">Loading…</div>
+        <div class="card-title">Team Schedule</div>
+        <span class="badge demo" id="sched-demo" hidden>(demo)</span>
+      </div>
+      <div class="card-body">
+        <div id="schedule-scroll" class="schedule-scroll">
+          <div id="sched-list" class="sched-list"></div>
+        </div>
+      </div>
     </section>
     
     <!-- SPAN across C2 + C3 -->
@@ -118,26 +122,18 @@
       </div>
       <div class="card-body">
         <div class="box-wrap">
-          <!-- Score by Quarter -->
           <div class="quarters">
             <table class="qtable" id="qtable">
               <thead>
-                <tr>
-                  <th class="qteam">Team</th>
-                  <th>1</th><th>2</th><th>3</th><th>4</th><th>T</th>
-                </tr>
+                <tr><th class="qteam">Team</th><th>1</th><th>2</th><th>3</th><th>4</th><th>T</th></tr>
               </thead>
               <tbody id="qbody"></tbody>
             </table>
           </div>
-
-          <!-- Team Comparison -->
           <div class="compare">
             <div class="card-subtitle" style="margin-bottom:8px;">Team Comparison</div>
             <div id="cmp-list" class="cmp-list"></div>
           </div>
-
-          <!-- Leaders -->
           <div class="leaders">
             <div class="card-subtitle" style="margin-bottom:8px;">Game Leaders</div>
             <div id="leaders"></div>
@@ -160,7 +156,7 @@
     </section>
 
     <!-- C3 column -->
-    <section id="scouting-card" class="card area-scout">
+    <section id="scout-card" class="card area-scout">
       <div class="card-header">
         <h2 class="card-title">Scouting – Next Opponent</h2>
         <span class="badge demo" aria-label="demo data" hidden></span>
@@ -168,7 +164,7 @@
       <div class="card-body">Loading…</div>
     </section>
     
-    <section id="team-perf-card" class="card area-team">
+    <section id="team-performers-card" class="card area-team">
       <div class="card-header">
         <div class="card-title">Team Top Performers</div>
         <div class="card-actions">
@@ -189,6 +185,7 @@
 
   <script defer src="{{ url_for('static', path='/js/dashboard.js') }}"></script>
   <script type="module" src="{{ url_for('static', path='/js/dashboard/standings.js') }}"></script>
+  <script type="module" src="{{ url_for('static', path='/js/dashboard/schedule.js') }}"></script>
   
   <script>
   (function(){

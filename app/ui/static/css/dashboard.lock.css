@@ -1,32 +1,22 @@
-/* === DASHBOARD LAYOUT + STANDINGS LOCK (do not edit without intent) === */
+/* === DO-NOT-REGRESS: Dashboard Layout & Frozen Boxes (Standings/Schedule) === */
 
-/* Grid areas (desktop): C1/C2/C3 with Box Score spanning C2–C3 */
+/* Grid uses full width; Box spans C2–C3 */
+.dashboard-grid{ width:100%!important; max-width:100%!important; margin:0 auto; }
 .dashboard-grid{
-  display:grid;
-  gap:20px;
+  display:grid; gap:20px; align-items:start;
   grid-template-columns:repeat(3, minmax(0,1fr));
   grid-template-areas:
     "standings schedule scout"
     "power     box      box"
     "league    pbp      team";
-  align-items:start;
 }
-.dashboard-grid > * { min-width:0; }
+.dashboard-grid > *{ min-width:0; }
+.area-standings{ grid-area:standings; } .area-power{ grid-area:power; } .area-league{ grid-area:league; }
+.area-schedule{ grid-area:schedule; } .area-box{ grid-area:box; } .area-pbp{ grid-area:pbp; }
+.area-scout{ grid-area:scout; } .area-team{ grid-area:team; }
 
-/* Area hooks (these should be on the outer <section> cards) */
-.area-standings{ grid-area:standings; }
-.area-power{ grid-area:power; }
-.area-league{ grid-area:league; }
-.area-schedule{ grid-area:schedule; }
-.area-box{ grid-area:box; }
-.area-pbp{ grid-area:pbp; }
-.area-scout{ grid-area:scout; }
-.area-team{ grid-area:team; }
-
-/* Tablet: 2 cols; Mobile: 1 col */
 @media (min-width:1024px) and (max-width:1279.98px){
-  .dashboard-grid{
-    grid-template-columns:repeat(2,minmax(0,1fr));
+  .dashboard-grid{ grid-template-columns:repeat(2, minmax(0,1fr));
     grid-template-areas:
       "standings schedule"
       "power     box"
@@ -36,228 +26,58 @@
   }
 }
 @media (max-width:1023.98px){
-  .dashboard-grid{
-    grid-template-columns:minmax(0,1fr);
+  .dashboard-grid{ grid-template-columns:minmax(0,1fr);
     grid-template-areas:
       "standings" "power" "league" "schedule" "box" "pbp" "scout" "team";
   }
 }
 
-/* --- Standings lock: abbr-only + tighter left + right buffer --- */
-#standings-card .std-table{ width:100%; border-spacing:0; }
-#standings-card .std-table thead th,
-#standings-card .std-table tbody td{ padding:12px 14px; }
-#standings-card .std-table thead th:first-child,
-#standings-card .std-table tbody td:first-child{ padding-left:14px; }
-#standings-card .std-table thead th:last-child,
-#standings-card .std-table tbody td:last-child{ padding-right:18px; }
-#standings-card .std-team{ gap:6px; }
-#standings-card .std-name{ display:none !important; }   /* << keep names hidden */
-#standings-card .std-abbr{ min-width:40px; }
-#standings-card .std-table th:not(.col-team),
-#standings-card .std-table td:not(:first-child){ text-align:right; }
-#standings-card .std-pct{ text-align:right; }
-
-/* --- Team Schedule: native vertical scrollbar --- */
-#schedule-card .schedule-scroll{
-  max-height: 560px;
-  overflow-y: auto;         /* native scrollbar */
-  overflow-x: hidden;
+/* ===== STANDINGS (lock as currently displayed) ===== */
+#standings-card[data-lock="standings-v1"]{ overflow:hidden; }
+#standings-card[data-lock="standings-v1"] .card-body{
+  padding-right:18px!important; overflow-x:hidden; box-sizing:border-box;
 }
-#schedule-card .sched-list{ display:grid; gap:10px; }
-#schedule-card .sched-row{
+#standings-card[data-lock="standings-v1"] .std-table{
+  width:100%!important; table-layout:fixed; border-collapse:separate; border-spacing:0;
+}
+#standings-card[data-lock="standings-v1"] .std-table thead th,
+#standings-card[data-lock="standings-v1"] .std-table tbody td{
+  padding:12px 14px; white-space:nowrap;
+}
+#standings-card[data-lock="standings-v1"] .std-table thead th:last-child,
+#standings-card[data-lock="standings-v1"] .std-table tbody td:last-child{
+  padding-right:22px;
+}
+/* keep abbr-only (names present in DOM but visually hidden) */
+#standings-card[data-lock="standings-v1"] .std-name{ display:none!important; }
+
+/* ===== SCHEDULE (lock as currently displayed) ===== */
+#schedule-card[data-lock="schedule-v1"] .schedule-scroll{
+  max-height:560px; overflow-y:auto; overflow-x:hidden;
+}
+#schedule-card[data-lock="schedule-v1"] .sched-list{ display:grid; gap:10px; }
+/* preserve one-line row style */
+#schedule-card[data-lock="schedule-v1"] .sched-row{
   display:flex; align-items:center; justify-content:space-between;
   padding:12px 0; border-bottom:1px dashed var(--line);
 }
-#schedule-card .sched-row:last-child{ border-bottom:none; }
-#schedule-card .sched-left{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
-#schedule-card .sched-week{ font-weight:700; }
-#schedule-card .sched-right{ display:flex; gap:10px; align-items:center; }
-#schedule-card .sched-score{ font-weight:800; letter-spacing:.2px; }
-#schedule-card .pill.W{ background:rgba(35,178,109,.12); color:var(--good); border-color:rgba(35,178,109,.35); }
-#schedule-card .pill.L{ background:rgba(217,76,83,.12); color:var(--bad);  border-color:rgba(217,76,83,.35); }
+#schedule-card[data-lock="schedule-v1"] .sched-row:last-child{ border-bottom:none; }
+#schedule-card[data-lock="schedule-v1"] .sched-left{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+#schedule-card[data-lock="schedule-v1"] .sched-week{ font-weight:700; }
+#schedule-card[data-lock="schedule-v1"] .sched-right{ display:flex; gap:10px; align-items:center; }
+#schedule-card[data-lock="schedule-v1"] .sched-score{ font-weight:800; letter-spacing:.2px; }
 
-/* === Standings right-edge bleed fix (locked) === */
-#standings-card {
-  overflow: hidden;                 /* clip to rounded corners */
-}
-#standings-card .card-body {
-  padding-right: 18px !important;   /* create a right gutter inside the card */
-  overflow-x: hidden;               /* prevent any horizontal creep */
-  box-sizing: border-box;
-}
-#standings-card .std-table {
-  width: 100% !important;           /* never exceed card width */
-  table-layout: fixed;              /* stable column widths */
-  border-collapse: separate;
-  border-spacing: 0;
-}
-/* tighten global cell padding + explicit right buffer on last column */
-#standings-card .std-table thead th,
-#standings-card .std-table tbody td {
-  padding: 12px 14px;
-  white-space: nowrap;              /* keep numbers tidy */
-}
-#standings-card .std-table thead th:last-child,
-#standings-card .std-table tbody td:last-child {
-  padding-right: 22px;              /* extra cushion at the edge */
-}
-/* abbr-only stays locked */
-#standings-card .std-name { display: none !important; }
-
-/* === LOCK: grid + standings + boxscore (append safe) === */
-
-/* -- (A) Standings never bleed right & stays abbr-only -- */
-#standings-card { overflow: hidden; }
-#standings-card .card-body{
-  padding-right:18px !important;
-  overflow-x:hidden;
-  box-sizing:border-box;
-}
-#standings-card .std-table{
-  width:100% !important;
-  table-layout:fixed;
-  border-collapse:separate;
-  border-spacing:0;
-}
-#standings-card .std-table thead th,
-#standings-card .std-table tbody td{ padding:12px 14px; white-space:nowrap; }
-#standings-card .std-table thead th:last-child,
-#standings-card .std-table tbody td:last-child{ padding-right:22px; }
-#standings-card .std-name{ display:none !important; } /* lock to ABBR only */
-
-/* -- (B) Box Score card layout -- */
+/* ===== Box Score layout (kept from prior step) ===== */
 #boxscore-card .box-wrap{ display:grid; gap:18px; }
-@media(min-width:1280px){
-  #boxscore-card .box-wrap{
-    grid-template-columns: 1.2fr 1fr; /* quarters wider; compare/leaders right */
-    grid-template-areas:
-      "quarters compare"
-      "leaders  compare";
-  }
-}
-@media(max-width:1279.98px){
-  #boxscore-card .box-wrap{
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "quarters"
-      "compare"
-      "leaders";
-  }
-}
-
-/* quarters table */
-#boxscore-card .quarters{ grid-area:quarters; }
-#boxscore-card .qtable{
-  width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  overflow:hidden;
-  border-radius:10px;
-}
-#boxscore-card .qtable th, #boxscore-card .qtable td{
-  padding:10px 12px; text-align:center; border-bottom:1px solid var(--line);
-}
-#boxscore-card .qtable thead th{ font-weight:700; }
-#boxscore-card .qteam{
-  text-align:left; font-weight:700; letter-spacing:.3px;
-}
-
-/* team compare */
-#boxscore-card .compare{ grid-area:compare; }
+@media(min-width:1280px){ #boxscore-card .box-wrap{ grid-template-columns:1.2fr 1fr; grid-template-areas:"quarters compare" "leaders compare"; } }
+@media(max-width:1279.98px){ #boxscore-card .box-wrap{ grid-template-columns:1fr; grid-template-areas:"quarters" "compare" "leaders"; } }
+#boxscore-card .quarters{ grid-area:quarters; } #boxscore-card .compare{ grid-area:compare; } #boxscore-card .leaders{ grid-area:leaders; }
+#boxscore-card .qtable{ width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:10px; }
+#boxscore-card .qtable th,#boxscore-card .qtable td{ padding:10px 12px; text-align:center; border-bottom:1px solid var(--line); }
+#boxscore-card .qteam{ text-align:left; font-weight:700; letter-spacing:.3px; }
 #boxscore-card .cmp-list{ display:grid; gap:10px; }
-#boxscore-card .cmp-row{
-  display:flex; align-items:center; justify-content:space-between;
-  padding:8px 0; border-bottom:1px dashed var(--line);
-}
+#boxscore-card .cmp-row{ display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--line); }
 #boxscore-card .cmp-row:last-child{ border-bottom:none; }
-#boxscore-card .cmp-label{ opacity:.9; }
-#boxscore-card .cmp-val{ font-weight:700; }
-
-/* leaders */
-#boxscore-card .leaders{ grid-area:leaders; }
 #boxscore-card .lead-section{ margin-bottom:12px; }
 #boxscore-card .lead-title{ font-weight:700; margin-bottom:8px; }
-#boxscore-card .lead-grid{
-  display:grid; gap:10px;
-  grid-template-columns: 1fr auto 1fr; /* home | label | away */
-  align-items:center;
-}
-#boxscore-card .pname{ font-weight:600; }
-#boxscore-card .pstat{ opacity:.9; }
-
-/* small pills if needed later */
-#boxscore-card .pill{
-  display:inline-flex; align-items:center; justify-content:center;
-  min-width:28px; height:24px; border-radius:999px;
-  padding:0 8px; font-weight:700; border:1px solid transparent;
-}
-.pill.W{ background:rgba(35,178,109,.12); color:var(--good); border-color:rgba(35,178,109,.35);}
-.pill.L{ background:rgba(217,76,83,.12); color:var(--bad);  border-color:rgba(217,76,83,.35);}
-
-/* ===== DO-NOT-REGRESS: Dashboard Layout & Standings ===== */
-
-/* Make sure the grid gets the full horizontal space */
-.dashboard-grid { width: 100% !important; max-width: 100% !important; margin: 0 auto; }
-/* If any generic container tries to constrain width, override */
-:where(main, .content, .container, .page, #app, body) > .dashboard-grid {
-  width: 100% !important; max-width: 100% !important;
-}
-
-/* 3/2/1 columns with named areas; Box spans C2–C3 */
-.dashboard-grid{
-  display:grid; gap:20px; align-items:start;
-  grid-template-columns: repeat(3, minmax(0,1fr));
-  grid-template-areas:
-    "standings schedule scout"
-    "power     box      box"
-    "league    pbp      team";
-}
-.dashboard-grid > * { min-width:0; }               /* allow children to shrink inside tracks */
-.area-standings{ grid-area:standings; }
-.area-power{ grid-area:power; }
-.area-league{ grid-area:league; }
-.area-schedule{ grid-area:schedule; }
-.area-box{ grid-area:box; }
-.area-pbp{ grid-area:pbp; }
-.area-scout{ grid-area:scout; }
-.area-team{ grid-area:team; }
-@media (min-width:1024px) and (max-width:1279.98px){
-  .dashboard-grid{
-    grid-template-columns: repeat(2, minmax(0,1fr));
-    grid-template-areas:
-      "standings schedule"
-      "power     box"
-      "scout     box"
-      "league    pbp"
-      "team      pbp";
-  }
-}
-@media (max-width:1023.98px){
-  .dashboard-grid{
-    grid-template-columns: minmax(0,1fr);
-    grid-template-areas:
-      "standings" "power" "league" "schedule" "box" "pbp" "scout" "team";
-  }
-}
-
-/* ===== Standings: abbr-only, no bleed, fixed table layout ===== */
-#standings-card { overflow:hidden; }
-#standings-card .card-body{
-  padding-right:18px !important;   /* right gutter */
-  overflow-x:hidden; box-sizing:border-box;
-}
-#standings-card .std-table{
-  width:100% !important; table-layout:fixed; border-collapse:separate; border-spacing:0;
-}
-#standings-card .std-table thead th,
-#standings-card .std-table tbody td{
-  padding:12px 14px; white-space:nowrap;
-}
-#standings-card .std-table thead th:last-child,
-#standings-card .std-table tbody td:last-child{ padding-right:22px; }
-#standings-card .std-name{ display:none !important; } /* << lock to ABBR only */
-#standings-card .std-team{ gap:6px; }
-#standings-card .std-table th:not(.col-team),
-#standings-card .std-table td:not(:first-child){ text-align:right; }
-#standings-card .std-pct{ text-align:right; }
+#boxscore-card .lead-grid{ display:grid; gap:10px; grid-template-columns:1fr auto 1fr; align-items:center; }
