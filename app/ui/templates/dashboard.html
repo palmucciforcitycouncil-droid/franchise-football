@@ -4,7 +4,13 @@
   <meta charset="UTF-8" />
   <title>Franchise Football — Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="/static/css/dashboard.css" rel="stylesheet" />
+  
+  <!-- Inter font (weights used across the app) -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Main dashboard theme -->
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/dashboard.css') }}">
 </head>
 <body class="bg">
   <header class="nav">
@@ -133,7 +139,7 @@
           <div class="side"><h3>${b.home.code}</h3><div class="muted">${b.home.name}</div></div>
           <div class="score big">0 — 0</div>
           <div class="side"><h3>${b.away.code}</h3><div class="muted">${b.away.name}</div></div>
-        </div>
+                    </div>
         <table class="mini qtrs"><thead><tr><th></th><th>NE</th><th>BUF</th></tr></thead><tbody>${qtrs}</tbody></table>
         <div class="split">
           <div><h4>Top Performers (NE)</h4><ul class="list">${b.performers.NE.map(p=>`<li>${p}</li>`).join("")}</ul></div>
@@ -171,6 +177,6 @@
       }
     });
   })();
-  </script>
+    </script>
 </body>
 </html>
