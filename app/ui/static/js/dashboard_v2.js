@@ -47,6 +47,15 @@
       sched.appendChild(wrap);
     });
 
+    // Schedule scrolling
+    const scheduleContainer = $('#schedule-body');
+    $('#schedule-scroll-up').addEventListener('click', ()=>{
+      scheduleContainer.scrollTop -= 50;
+    });
+    $('#schedule-scroll-down').addEventListener('click', ()=>{
+      scheduleContainer.scrollTop += 50;
+    });
+
     // Scouting (Stats)
     const sstats = $('#scouting-stats .table');
     sstats.innerHTML = '<div class="tr th"><div>Rank ↑</div><div>Stat</div><div>Value</div></div>';
@@ -85,6 +94,44 @@
     const rAway = document.createElement('div'); rAway.className='row';
     rAway.innerHTML = `<div>${data.box.away.abbr}</div>${data.box.away.quarters.map(v=>`<div>${v}</div>`).join('')}`;
     q.appendChild(rAway);
+
+    // Box Score Top Performers
+    const boxPerformers = $('#box-top-performers');
+    if (boxPerformers) {
+      boxPerformers.innerHTML = `
+        <h4>Top Performers</h4>
+        <div class="team-performers">
+          <strong>${data.box.home.abbr}</strong>
+          <div class="performer">
+            <span>Mac Jones</span>
+            <span>24/31, 287 yards, 3 TD</span>
+          </div>
+          <div class="performer">
+            <span>Rhamondre Stevenson</span>
+            <span>18 att, 89 yards, 1 TD</span>
+          </div>
+          <div class="performer">
+            <span>JuJu Smith-Schuster</span>
+            <span>6 rec, 98 yards, 1 TD</span>
+          </div>
+        </div>
+        <div class="team-performers">
+          <strong>${data.box.away.abbr}</strong>
+          <div class="performer">
+            <span>Davis Mills</span>
+            <span>18/28, 156 yards, 1 TD, 1 INT</span>
+          </div>
+          <div class="performer">
+            <span>Dameon Pierce</span>
+            <span>12 att, 45 yards, 0 TD</span>
+          </div>
+          <div class="performer">
+            <span>Brandin Cooks</span>
+            <span>5 rec, 67 yards, 0 TD</span>
+          </div>
+        </div>
+      `;
+    }
 
     // Play by Play
     const pbp = $('#playbyplay-body .pbp-container');

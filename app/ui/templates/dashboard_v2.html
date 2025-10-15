@@ -31,6 +31,7 @@
   </section>
 
   <main class="grid">
+    <!-- Left Column -->
     <!-- Standings -->
     <section class="card span-6" id="standings-card">
       <div class="card-title">Standings</div>
@@ -51,79 +52,11 @@
       </div>
     </section>
 
-    <!-- Schedule -->
-    <section class="card span-6" id="schedule-card">
-      <div class="card-title">Schedule</div>
-      <div class="card-body schedule" id="schedule-body">
-        <div class="loading">Loading…</div>
-      </div>
-    </section>
-
-    <!-- Scouting -->
-    <section class="card span-6" id="scouting-card">
-      <div class="card-title">Scouting</div>
-      <div class="tabs">
-        <button class="tab active" data-tab="stats">Stats</button>
-        <button class="tab" data-tab="top">Top Performers</button>
-      </div>
-      <div class="card-body" id="scouting-stats">
-        <div class="table">
-          <div class="tr th">
-            <div>Rank ↑</div><div>Stat</div><div>Value</div>
-          </div>
-          <!-- rows injected -->
-        </div>
-      </div>
-      <div class="card-body hidden" id="scouting-top">
-        <div class="table">
-          <div class="tr th">
-            <div>#</div><div>Player</div><div>Metric</div>
-          </div>
-          <!-- rows injected -->
-        </div>
-      </div>
-    </section>
-
     <!-- Power Rankings -->
     <section class="card span-6" id="power-card">
       <div class="card-title">Power Rankings</div>
       <div class="card-body" id="power-body">
         <!-- rows injected -->
-      </div>
-    </section>
-
-    <!-- Box Score -->
-    <section class="card span-6" id="box-card">
-      <div class="card-title-row">
-        <div class="card-title">Box Score</div>
-        <div class="btns-inline">
-          <a class="btn btn-mini" href="#">Full Box Score</a>
-          <a class="btn btn-mini success" href="#">Play-by-Play</a>
-        </div>
-      </div>
-      <div class="card-body" id="box-body">
-        <div class="matchup">
-          <div class="team-col">
-            <div class="abbr" id="box-home-abbr">NE</div>
-            <div class="team-name" id="box-home-name">New England Patriots</div>
-          </div>
-          <div class="score" id="box-score">—</div>
-          <div class="team-col">
-            <div class="abbr" id="box-away-abbr">BUF</div>
-            <div class="team-name" id="box-away-name">Buffalo Bills</div>
-          </div>
-        </div>
-        <div class="qtr-table" id="box-qtrs">
-          <!-- quarter rows injected -->
-        </div>
-      </div>
-    </section>
-
-    <!-- Team Top Performers -->
-    <section class="card span-6" id="team-top-card">
-      <div class="card-title">Team Top Performers <span class="muted">(demo)</span></div>
-      <div class="card-body" id="team-top-body">
-        <!-- sections injected -->
       </div>
     </section>
 
@@ -153,6 +86,140 @@
           </div>
           <!-- rows injected -->
         </div>
+      </div>
+    </section>
+
+    <!-- Middle Column -->
+    <!-- Schedule -->
+    <section class="card span-6" id="schedule-card">
+      <div class="card-title-row">
+        <div class="card-title">Schedule</div>
+        <div class="btns-inline">
+          <button class="btn btn-mini" id="schedule-scroll-up">↑</button>
+          <button class="btn btn-mini" id="schedule-scroll-down">↓</button>
+        </div>
+      </div>
+      <div class="card-body schedule" id="schedule-body">
+        <div class="loading">Loading…</div>
+      </div>
+    </section>
+
+    <!-- Box Score -->
+    <section class="card span-6" id="box-card">
+      <div class="card-title-row">
+        <div class="card-title">Box Score</div>
+        <div class="btns-inline">
+          <a class="btn btn-mini" href="#">Full Box Score</a>
+          <a class="btn btn-mini success" href="#">Play-by-Play</a>
+        </div>
+      </div>
+      <div class="card-body" id="box-body">
+        <div class="matchup">
+          <div class="team-col">
+            <div class="abbr" id="box-home-abbr">NE</div>
+            <div class="team-name" id="box-home-name">New England Patriots</div>
+          </div>
+          <div class="score" id="box-score">—</div>
+          <div class="team-col">
+            <div class="abbr" id="box-away-abbr">BUF</div>
+            <div class="team-name" id="box-away-name">Buffalo Bills</div>
+          </div>
+        </div>
+        <div class="qtr-table" id="box-qtrs">
+          <!-- quarter rows injected -->
+        </div>
+        <div class="box-top-performers" id="box-top-performers">
+          <!-- Top performers for each team will be injected here -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Play by Play -->
+    <section class="card span-6" id="playbyplay-card">
+      <div class="card-title-row">
+        <div class="card-title">Play by Play</div>
+        <div class="btns-inline">
+          <button class="btn btn-mini">Auto Scroll</button>
+          <button class="btn btn-mini btn-ghost">Clear</button>
+        </div>
+      </div>
+      <div class="card-body" id="playbyplay-body">
+        <div class="pbp-container">
+          <div class="pbp-entry">
+            <span class="pbp-time">15:00</span>
+            <span class="pbp-play">Game starts with kickoff</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">14:52</span>
+            <span class="pbp-play">Buffalo 1st and 10 at BUF 25</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">14:15</span>
+            <span class="pbp-play">Josh Allen pass complete to Stefon Diggs for 12 yards</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">13:38</span>
+            <span class="pbp-play">Buffalo 1st and 10 at BUF 37</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">13:02</span>
+            <span class="pbp-play">Devin Singletary rush for 3 yards</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">12:45</span>
+            <span class="pbp-play">Buffalo 2nd and 7 at BUF 40</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">12:18</span>
+            <span class="pbp-play">Josh Allen pass incomplete to Gabe Davis</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">12:12</span>
+            <span class="pbp-play">Buffalo 3rd and 7 at BUF 40</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">11:55</span>
+            <span class="pbp-play">Josh Allen pass complete to Dawson Knox for 8 yards</span>
+          </div>
+          <div class="pbp-entry">
+            <span class="pbp-time">11:28</span>
+            <span class="pbp-play">Buffalo 1st and 10 at BUF 48</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column -->
+    <!-- Scouting -->
+    <section class="card span-6" id="scouting-card">
+      <div class="card-title">Scouting</div>
+      <div class="tabs">
+        <button class="tab active" data-tab="stats">Stats</button>
+        <button class="tab" data-tab="top">Top Performers</button>
+      </div>
+      <div class="card-body" id="scouting-stats">
+        <div class="table">
+          <div class="tr th">
+            <div>Rank ↑</div><div>Stat</div><div>Value</div>
+          </div>
+          <!-- rows injected -->
+        </div>
+      </div>
+      <div class="card-body hidden" id="scouting-top">
+        <div class="table">
+          <div class="tr th">
+            <div>#</div><div>Player</div><div>Metric</div>
+          </div>
+          <!-- rows injected -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Team Top Performers -->
+    <section class="card span-6" id="team-top-card">
+      <div class="card-title">Team Top Performers <span class="muted">(demo)</span></div>
+      <div class="card-body" id="team-top-body">
+        <!-- sections injected -->
       </div>
     </section>
   </main>
