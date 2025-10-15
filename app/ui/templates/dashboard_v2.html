@@ -31,10 +31,10 @@
   </section>
 
   <main class="grid">
-    <!-- Left Column -->
-    <!-- Standings -->
+    <!-- C1: Left Column -->
+    <!-- Division Standings -->
     <section class="card span-6" id="standings-card">
-      <div class="card-title">Standings</div>
+      <div class="card-title">Division Standings</div>
       <div class="standings-toolbar">
         <div class="chip-group">
           <button class="chip">&larr;</button>
@@ -52,18 +52,30 @@
       </div>
     </section>
 
-    <!-- Power Rankings -->
+    <!-- League Team Power Rankings (carousel) -->
     <section class="card span-6" id="power-card">
-      <div class="card-title">Power Rankings</div>
+      <div class="card-title-row">
+        <div class="card-title">League Power Rankings</div>
+        <div class="btns-inline">
+          <button class="btn btn-mini" id="power-prev">‹</button>
+          <button class="btn btn-mini" id="power-next">›</button>
+        </div>
+      </div>
       <div class="card-body" id="power-body">
         <!-- rows injected -->
       </div>
     </section>
 
-    <!-- League Top Performers -->
+    <!-- League Top Performers (carousel) -->
     <section class="card span-6" id="league-top-card">
       <div class="card-title-row">
-        <div class="card-title">League Top Performers <span class="muted">(demo)</span></div>
+        <div class="card-title">League Top Performers</div>
+        <div class="btns-inline">
+          <button class="btn btn-mini" id="league-prev">‹</button>
+          <button class="btn btn-mini" id="league-next">›</button>
+        </div>
+      </div>
+      <div class="card-body">
         <div class="filters">
           <select id="league-metric" class="select">
             <option>QB Rating</option>
@@ -78,9 +90,7 @@
             <option>NFC</option>
           </select>
         </div>
-      </div>
-      <div class="card-body" id="league-top-body">
-        <div class="table">
+        <div class="table" id="league-top-body">
           <div class="tr th">
             <div>#</div><div>Player</div><div>Value</div>
           </div>
@@ -89,11 +99,11 @@
       </div>
     </section>
 
-    <!-- Middle Column -->
-    <!-- Schedule -->
+    <!-- C2: Middle Column -->
+    <!-- Full Team Schedule List -->
     <section class="card span-6" id="schedule-card">
       <div class="card-title-row">
-        <div class="card-title">Schedule</div>
+        <div class="card-title">Team Schedule</div>
         <div class="btns-inline">
           <button class="btn btn-mini" id="schedule-scroll-up">↑</button>
           <button class="btn btn-mini" id="schedule-scroll-down">↓</button>
@@ -104,10 +114,10 @@
       </div>
     </section>
 
-    <!-- Box Score -->
-    <section class="card span-6" id="box-card">
+    <!-- Box Score with Top Performers (spans C2-C3) -->
+    <section class="card span-12" id="box-card">
       <div class="card-title-row">
-        <div class="card-title">Box Score</div>
+        <div class="card-title">Box Score - Last Game</div>
         <div class="btns-inline">
           <a class="btn btn-mini" href="#">Full Box Score</a>
           <a class="btn btn-mini success" href="#">Play-by-Play</a>
@@ -134,7 +144,7 @@
       </div>
     </section>
 
-    <!-- Play by Play -->
+    <!-- Scrollable Play by Play Panel -->
     <section class="card span-6" id="playbyplay-card">
       <div class="card-title-row">
         <div class="card-title">Play by Play</div>
@@ -189,29 +199,43 @@
       </div>
     </section>
 
-    <!-- Right Column -->
-    <!-- Scouting -->
+    <!-- C3: Right Column -->
+    <!-- Scouting Box for Next Opponent -->
     <section class="card span-6" id="scouting-card">
-      <div class="card-title">Scouting</div>
-      <div class="tabs">
-        <button class="tab active" data-tab="stats">Stats</button>
-        <button class="tab" data-tab="top">Top Performers</button>
-      </div>
-      <div class="card-body" id="scouting-stats">
-        <div class="table">
-          <div class="tr th">
-            <div>Rank ↑</div><div>Stat</div><div>Value</div>
+      <div class="card-title-row">
+        <div class="card-title">Scouting - Next Opponent</div>
+        <div class="btns-inline">
+          <div class="tabs">
+            <button class="tab active" data-tab="stats">Stats</button>
+            <button class="tab" data-tab="top">Top</button>
           </div>
-          <!-- rows injected -->
         </div>
       </div>
-      <div class="card-body hidden" id="scouting-top">
-        <div class="table">
-          <div class="tr th">
-            <div>#</div><div>Player</div><div>Metric</div>
+      <div class="card-body">
+        <div id="scouting-stats">
+          <div class="table">
+            <div class="tr th">
+              <div>Rank ↑</div><div>Stat</div><div>Value</div>
+            </div>
+            <!-- rows injected -->
           </div>
-          <!-- rows injected -->
         </div>
+        <div id="scouting-top" class="hidden">
+          <div class="table">
+            <div class="tr th">
+              <div>#</div><div>Player</div><div>Metric</div>
+            </div>
+            <!-- rows injected -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Box Score Continuation (C3 portion) -->
+    <section class="card span-6" id="box-continuation-card">
+      <div class="card-title">Game Stats</div>
+      <div class="card-body" id="box-continuation-body">
+        <div class="loading">Loading game stats...</div>
       </div>
     </section>
 

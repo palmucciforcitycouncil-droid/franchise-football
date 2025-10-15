@@ -70,13 +70,43 @@
       stop.appendChild(row([idx+1, `${r.name} <span class="muted">${r.pos}</span>`, r.value]));
     });
 
-    // Power Rankings
+    // Power Rankings (carousel)
     const pb = $('#power-body'); pb.innerHTML = '';
     data.power.forEach((rowObj, i)=>{
       const r = document.createElement('div'); r.className='tr';
       r.innerHTML = `<div>${i+1}</div><div>${rowObj.team}</div><div>${rowObj.score}</div>`;
       pb.appendChild(r);
     });
+
+    // Power Rankings carousel functionality
+    let powerCurrentPage = 0;
+    const powerPerPage = 5;
+    const totalPowerPages = Math.ceil(data.power.length / powerPerPage);
+    
+    function showPowerPage(page) {
+      const pb = $('#power-body');
+      pb.innerHTML = '';
+      const start = page * powerPerPage;
+      const end = Math.min(start + powerPerPage, data.power.length);
+      for (let i = start; i < end; i++) {
+        const rowObj = data.power[i];
+        const r = document.createElement('div'); r.className='tr';
+        r.innerHTML = `<div>${i+1}</div><div>${rowObj.team}</div><div>${rowObj.score}</div>`;
+        pb.appendChild(r);
+      }
+    }
+    
+    $('#power-prev').addEventListener('click', () => {
+      powerCurrentPage = Math.max(0, powerCurrentPage - 1);
+      showPowerPage(powerCurrentPage);
+    });
+    
+    $('#power-next').addEventListener('click', () => {
+      powerCurrentPage = Math.min(totalPowerPages - 1, powerCurrentPage + 1);
+      showPowerPage(powerCurrentPage);
+    });
+    
+    showPowerPage(0);
 
     // Box Score
     $('#box-home-abbr').textContent = data.box.home.abbr;
@@ -162,18 +192,88 @@
       });
     });
 
-    // League Top Performers
+    // League Top Performers (carousel)
     const lb = $('#league-top-body .table');
+    let leagueCurrentPage = 0;
+    const leaguePerPage = 5;
+    
     function renderLeague(list){
       lb.innerHTML = '<div class="tr th"><div>#</div><div>Player</div><div>Value</div></div>';
-      list.forEach((p,i)=>{
+      const totalPages = Math.ceil(list.length / leaguePerPage);
+      const start = leagueCurrentPage * leaguePerPage;
+      const end = Math.min(start + leaguePerPage, list.length);
+      
+      for (let i = start; i < end; i++) {
+        const p = list[i];
         lb.appendChild(row([i+1, `${p.name} <span class="muted">(${p.pos})</span><div class="muted" style="font-size:12px">${p.id}</div>`, p.value]));
-      });
+      }
     }
+    
+    function showLeaguePage(page, list) {
+      leagueCurrentPage = page;
+      const lb = $('#league-top-body .table');
+      lb.innerHTML = '<div class="tr th"><div>#</div><div>Player</div><div>Value</div></div>';
+      const start = page * leaguePerPage;
+      const end = Math.min(start + leaguePerPage, list.length);
+      
+      for (let i = start; i < end; i++) {
+        const p = list[i];
+        lb.appendChild(row([i+1, `${p.name} <span class="muted">(${p.pos})</span><div class="muted" style="font-size:12px">${p.id}</div>`, p.value]));
+      }
+    }
+    
+    $('#league-prev').addEventListener('click', () => {
+      const totalPages = Math.ceil(data.leagueTop.length / leaguePerPage);
+      leagueCurrentPage = Math.max(0, leagueCurrentPage - 1);
+      showLeaguePage(leagueCurrentPage, data.leagueTop);
+    });
+    
+    $('#league-next').addEventListener('click', () => {
+      const totalPages = Math.ceil(data.leagueTop.length / leaguePerPage);
+      leagueCurrentPage = Math.min(totalPages - 1, leagueCurrentPage + 1);
+      showLeaguePage(leagueCurrentPage, data.leagueTop);
+    });
+
     renderLeague(data.leagueTop);
 
-    $('#league-metric').addEventListener('change', ()=>renderLeague(data.leagueTop));
-    $('#league-scope').addEventListener('change', ()=>renderLeague(data.leagueTop));
+    $('#league-metric').addEventListener('change', ()=>{
+      leagueCurrentPage = 0;
+      renderLeague(data.leagueTop);
+    });
+    $('#league-scope').addEventListener('change', ()=>{
+      leagueCurrentPage = 0;
+      renderLeague(data.leagueTop);
+    });
+
+    // Box Score Continuation (C3 portion)
+    const boxContinuation = $('#box-continuation-body');
+    if (boxContinuation) {
+      boxContinuation.innerHTML = `
+        <div class="game-stats">
+          <h4>Team Stats</h4>
+          <div class="stat-row">
+            <span>Total Yards</span>
+            <span>NE: 387 | HOU: 234</span>
+          </div>
+          <div class="stat-row">
+            <span>Passing Yards</span>
+            <span>NE: 287 | HOU: 156</span>
+          </div>
+          <div class="stat-row">
+            <span>Rushing Yards</span>
+            <span>NE: 100 | HOU: 78</span>
+          </div>
+          <div class="stat-row">
+            <span>Time of Possession</span>
+            <span>NE: 32:15 | HOU: 27:45</span>
+          </div>
+          <div class="stat-row">
+            <span>Turnovers</span>
+            <span>NE: 1 | HOU: 2</span>
+          </div>
+        </div>
+      `;
+    }
   }
 
   setTabs();
