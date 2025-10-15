@@ -1,0 +1,525 @@
+/* Dashboard CSS Variables */
+:root {
+  --bg: #0a0f1c;
+  --panel: #1a2332;
+  --panel-2: #151e2b;
+  --card-border: #2a3441;
+  --accent: #3b82f6;
+  --accent-2: #10b981;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+}
+
+/* Base Styles */
+* { box-sizing: border-box; }
+body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; line-height: 1.5; }
+.bg { background: linear-gradient(135deg, var(--bg) 0%, #0f172a 100%); min-height: 100vh; }
+
+/* Navigation */
+.nav { background: linear-gradient(180deg, #1e293b, #0f172a); padding: 1rem 1.5rem; border-bottom: 1px solid var(--card-border); }
+.nav { display: flex; align-items: center; justify-content: space-between; }
+.brand { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+.nav-links { display: flex; gap: 2rem; }
+.nav-links a { color: var(--text); text-decoration: none; font-weight: 500; transition: color 0.2s; }
+.nav-links a:hover, .nav-links a.active { color: var(--accent); }
+
+/* Toolbar */
+.toolbar { background: var(--panel); padding: 1rem 1.5rem; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center; }
+.team { font-size: 1.25rem; font-weight: 600; }
+.actions .btn { margin-left: 0.5rem; }
+
+/* Buttons */
+.btn { background: var(--accent); color: white; border: none; border-radius: 0.625rem; padding: 0.625rem 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: #2563eb; transform: translateY(-1px); }
+.btn-ghost { background: transparent; border: 1px solid #294172; color: #c7d2fe; }
+.btn-ghost:hover { background: rgba(59, 130, 246, 0.1); }
+.btn-mini { padding: 0.375rem 0.625rem; border-radius: 0.5rem; font-size: 0.75rem; }
+.success { background: var(--accent-2); }
+.success:hover { background: #059669; }
+
+/* Dashboard Grid */
+#dashboard.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr;
+  grid-template-areas:
+    "c1 c2 c3"
+    "c1 c2 c3"
+    "c1 c2 c3"
+    "c1 span span"
+    "c1 pbp pbp";
+  gap: 1rem;
+  padding: 1.5rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+#col-c1 { 
+  grid-area: c1; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 1rem; 
+}
+
+#col-c2 { 
+  grid-area: c2; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 1rem; 
+}
+
+#col-c3 { 
+  grid-area: c3; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 1rem; 
+}
+
+#box-score-card { 
+  grid-area: span; 
+}
+
+#pbp-panel { 
+  grid-area: pbp; 
+}
+
+/* Cards */
+.card { 
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); 
+  border: 1px solid var(--card-border); 
+  border-radius: 0.875rem; 
+  box-shadow: 0 10px 24px rgba(0,0,0,.35); 
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover { 
+  transform: translateY(-2px); 
+  box-shadow: 0 16px 32px rgba(0,0,0,.4); 
+}
+
+.card-title { 
+  font-size: 1.25rem; 
+  font-weight: 700; 
+  margin: 0; 
+  padding: 1rem 1rem 0.5rem 1rem; 
+  color: var(--text);
+}
+
+.card-title-row { 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  padding: 1rem 1rem 0.5rem 1rem;
+}
+
+.card-body { 
+  padding: 0 1rem 1rem 1rem; 
+}
+
+/* Scrollable containers */
+.scrollable { 
+  max-height: 420px; 
+  overflow: auto; 
+}
+
+.scrollable::-webkit-scrollbar { width: 6px; }
+.scrollable::-webkit-scrollbar-track { background: rgba(255,255,255,.05); }
+.scrollable::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 3px; }
+.scrollable::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+
+/* Carousel Controls */
+.carousel-controls { 
+  display: flex; 
+  gap: 0.375rem; 
+  align-items: center; 
+}
+
+.scroll-controls { 
+  display: flex; 
+  gap: 0.375rem; 
+  align-items: center; 
+}
+
+/* Tabs */
+.tabs { 
+  display: flex; 
+  gap: 0.5rem; 
+}
+
+.tab { 
+  background: transparent; 
+  border: 1px solid var(--card-border); 
+  color: var(--muted); 
+  padding: 0.375rem 0.75rem; 
+  border-radius: 0.5rem; 
+  cursor: pointer; 
+  transition: all 0.2s; 
+}
+
+.tab.active, .tab:hover { 
+  background: var(--accent); 
+  color: white; 
+  border-color: var(--accent); 
+}
+
+/* Inline buttons */
+.btns-inline { 
+  display: flex; 
+  gap: 0.375rem; 
+  align-items: center; 
+}
+
+/* Tables */
+.table { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 0.25rem; 
+}
+
+.tr { 
+  display: grid; 
+  grid-template-columns: 1fr 2fr 1fr; 
+  gap: 0.75rem; 
+  padding: 0.5rem; 
+  border-radius: 0.375rem; 
+  transition: background-color 0.2s; 
+}
+
+.tr:hover { 
+  background: rgba(255,255,255,.05); 
+}
+
+.tr.th { 
+  background: var(--card-border); 
+  font-weight: 600; 
+  color: var(--accent); 
+}
+
+/* Badges */
+.badge { 
+  display: inline-block; 
+  padding: 0.25rem 0.5rem; 
+  border-radius: 0.375rem; 
+  font-size: 0.75rem; 
+  font-weight: 600; 
+}
+
+.badge.win { 
+  background: var(--accent-2); 
+  color: white; 
+}
+
+.badge.loss { 
+  background: #ef4444; 
+  color: white; 
+}
+
+/* Game entries */
+.game { 
+  padding: 0.75rem; 
+  border: 1px solid var(--card-border); 
+  border-radius: 0.5rem; 
+  margin-bottom: 0.5rem; 
+  transition: background-color 0.2s; 
+}
+
+.game:hover { 
+  background: rgba(255,255,255,.03); 
+}
+
+.game .title { 
+  font-weight: 600; 
+  margin-bottom: 0.25rem; 
+  display: flex; 
+  align-items: center; 
+  gap: 0.5rem; 
+}
+
+.game .meta { 
+  color: var(--muted); 
+  font-size: 0.875rem; 
+}
+
+/* Box Score */
+.matchup { 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  padding: 1rem; 
+  background: var(--card-border); 
+  border-radius: 0.5rem; 
+  margin-bottom: 1rem; 
+}
+
+.team-col { 
+  display: flex; 
+  flex-direction: column; 
+  align-items: center; 
+  text-align: center; 
+}
+
+.abbr { 
+  font-size: 1.5rem; 
+  font-weight: 700; 
+  color: var(--accent); 
+}
+
+.team-name { 
+  font-size: 0.875rem; 
+  color: var(--muted); 
+  margin-top: 0.25rem; 
+}
+
+.score { 
+  font-size: 2rem; 
+  font-weight: 700; 
+  color: var(--text); 
+}
+
+/* Quarter table */
+.qtr-table { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 0.5rem; 
+  margin-bottom: 1rem; 
+}
+
+.row { 
+  display: grid; 
+  grid-template-columns: 1fr repeat(4, 0.5fr); 
+  gap: 0.75rem; 
+  padding: 0.5rem; 
+  border-radius: 0.375rem; 
+}
+
+.row:first-child { 
+  background: var(--card-border); 
+  font-weight: 600; 
+}
+
+/* Play by Play */
+.pbp-container { 
+  max-height: 300px; 
+  overflow-y: auto; 
+  padding: 0.25rem 0; 
+}
+
+.pbp-entry { 
+  display: flex; 
+  gap: 0.5rem; 
+  padding: 0.25rem 0; 
+  border-bottom: 1px dashed rgba(255,255,255,.04); 
+  font-size: 0.8125rem; 
+  line-height: 1.4; 
+}
+
+.pbp-time { 
+  color: var(--muted); 
+  font-weight: 600; 
+  min-width: 45px; 
+  flex-shrink: 0; 
+}
+
+.pbp-play { 
+  color: var(--text); 
+  flex: 1; 
+}
+
+/* Top Performers */
+.box-top-performers { 
+  margin-top: 0.75rem; 
+  padding-top: 0.75rem; 
+  border-top: 1px solid rgba(255,255,255,.1); 
+}
+
+.box-top-performers h4 { 
+  font-size: 0.875rem; 
+  margin: 0 0 0.5rem 0; 
+  color: var(--muted); 
+}
+
+.team-performers { 
+  margin-bottom: 0.75rem; 
+}
+
+.performer { 
+  display: flex; 
+  justify-content: space-between; 
+  padding: 0.25rem 0; 
+  font-size: 0.8125rem; 
+  border-bottom: 1px dashed rgba(255,255,255,.04); 
+}
+
+.performer:last-child { 
+  border-bottom: none; 
+}
+
+/* Game Stats */
+.game-stats { 
+  margin-top: 0.5rem; 
+}
+
+.game-stats h4 { 
+  font-size: 0.875rem; 
+  margin: 0 0 0.5rem 0; 
+  color: var(--muted); 
+}
+
+.stat-row { 
+  display: flex; 
+  justify-content: space-between; 
+  padding: 0.25rem 0; 
+  font-size: 0.8125rem; 
+  border-bottom: 1px dashed rgba(255,255,255,.04); 
+}
+
+.stat-row:last-child { 
+  border-bottom: none; 
+}
+
+/* Loading and Empty States */
+.loading, .empty { 
+  color: var(--muted); 
+  padding: 2rem; 
+  text-align: center; 
+  font-style: italic; 
+}
+
+/* Footer */
+.footer { 
+  color: var(--muted); 
+  font-size: 0.75rem; 
+  padding: 1rem 1.5rem; 
+  text-align: center; 
+  border-top: 1px solid var(--card-border); 
+}
+
+.muted { 
+  color: var(--muted); 
+  font-weight: 500; 
+}
+
+/* Responsive Design */
+@media (max-width: 1279px) {
+  #dashboard.dashboard-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "c1 c2"
+      "c3 c2"
+      "span span"
+      "pbp pbp";
+  }
+  
+  .scrollable { 
+    max-height: 380px; 
+  }
+}
+
+@media (max-width: 1023px) {
+  #dashboard.dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "c1"
+      "c2"
+      "c3"
+      "span"
+      "pbp";
+  }
+  
+  .scrollable { 
+    max-height: 320px; 
+  }
+  
+  .nav { 
+    flex-direction: column; 
+    gap: 1rem; 
+  }
+  
+  .nav-links { 
+    gap: 1rem; 
+  }
+  
+  .toolbar { 
+    flex-direction: column; 
+    gap: 1rem; 
+    text-align: center; 
+  }
+}
+
+@media (max-width: 768px) {
+  #dashboard.dashboard-grid {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+  
+  .scrollable { 
+    max-height: 280px; 
+  }
+  
+  .card-title { 
+    font-size: 1.125rem; 
+  }
+  
+  .nav-links { 
+    flex-wrap: wrap; 
+    justify-content: center; 
+  }
+  
+  .actions { 
+    display: flex; 
+    flex-wrap: wrap; 
+    justify-content: center; 
+    gap: 0.5rem; 
+  }
+  
+  .actions .btn { 
+    margin-left: 0; 
+  }
+}
+
+/* Utility Classes */
+.hidden { 
+  display: none !important; 
+}
+
+/* Chip Groups for Standings */
+.chip-group { 
+  display: flex; 
+  gap: 0.375rem; 
+}
+
+.chip { 
+  background: var(--card-border); 
+  border: 1px solid var(--card-border); 
+  color: var(--text); 
+  padding: 0.25rem 0.5rem; 
+  border-radius: 0.375rem; 
+  font-size: 0.75rem; 
+  cursor: pointer; 
+  transition: all 0.2s; 
+}
+
+.chip:hover { 
+  background: var(--accent); 
+  color: white; 
+}
+
+.chip-pill { 
+  background: var(--accent); 
+  color: white; 
+}
+
+/* Select dropdowns */
+.select { 
+  background: var(--panel); 
+  border: 1px solid var(--card-border); 
+  color: var(--text); 
+  border-radius: 0.5rem; 
+  padding: 0.375rem 0.5rem; 
+  font-size: 0.875rem; 
+}
+
+.select:focus { 
+  outline: none; 
+  border-color: var(--accent); 
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); 
+}

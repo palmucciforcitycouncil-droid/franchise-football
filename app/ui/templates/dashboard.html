@@ -1,708 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Franchise Football - Season Dashboard</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .header h1 {
-            margin: 0;
-            font-size: 2.5em;
-            font-weight: 300;
-        }
-        
-        .header p {
-            margin: 10px 0 0 0;
-            opacity: 0.9;
-            font-size: 1.1em;
-        }
-        
-        .dashboard {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            padding: 30px;
-        }
-        
-        .panel {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 25px;
-            border-left: 5px solid #007bff;
-        }
-        
-        .panel h2 {
-            margin: 0 0 20px 0;
-            color: #1e3c72;
-            font-size: 1.5em;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .status-card {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 15px;
-            border: 1px solid #e9ecef;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid #f1f3f4;
-        }
-        
-        .status-item:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
-        }
-        
-        .status-label {
-            font-weight: 600;
-            color: #495057;
-        }
-        
-        .status-value {
-            font-weight: 500;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.9em;
-        }
-        
-        .status-complete {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status-active {
-            background: #cce5ff;
-            color: #004085;
-        }
-        
-        .status-pending {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .btn {
-            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1em;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            margin: 5px;
-        }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,123,255,0.3);
-        }
-        
-        .btn:disabled {
-            background: #6c757d;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        
-        .btn-success {
-            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-        }
-        
-        .btn-warning {
-            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
-            color: #212529;
-        }
-        
-        .btn-danger {
-            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-        }
-        
-        .championship-banner {
-            background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
-            border-radius: 10px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: center;
-            border: 3px solid #ffc107;
-        }
-        
-        .championship-banner h3 {
-            margin: 0 0 10px 0;
-            color: #856404;
-            font-size: 1.8em;
-        }
-        
-        .championship-banner p {
-            margin: 5px 0;
-            color: #856404;
-            font-size: 1.1em;
-        }
-        
-        .full-width {
-            grid-column: 1 / -1;
-        }
-        
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #007bff;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .alert {
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 6px;
-            border-left: 5px solid;
-        }
-        
-        .alert-success {
-            background: #d4edda;
-            border-color: #28a745;
-            color: #155724;
-        }
-        
-        .alert-warning {
-            background: #fff3cd;
-            border-color: #ffc107;
-            color: #856404;
-        }
-        
-        .alert-info {
-            background: #cce5ff;
-            border-color: #007bff;
-            color: #004085;
-        }
-        
-        .standings-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-        
-        .standings-table th,
-        .standings-table td {
-            padding: 8px 12px;
-            text-align: left;
-            border-bottom: 1px solid #dee2e6;
-        }
-        
-        .standings-table th {
-            background: #f8f9fa;
-            font-weight: 600;
-            color: #495057;
-        }
-        
-        .standings-table tr:hover {
-            background: #f8f9fa;
-        }
-        
-        .playoff-team {
-            background: #d4edda !important;
-            font-weight: 600;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Franchise Football — Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="/static/css/dashboard.css" rel="stylesheet" />
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🏈 Franchise Football</h1>
-            <p>Season Dashboard - Complete Integration</p>
+<body class="bg">
+  <header class="nav">
+    <div class="brand">Franchise Football</div>
+    <nav class="nav-links">
+      <a href="/dashboard" class="active">Home</a>
+      <a href="/roster">Roster</a>
+      <a href="#">Playoffs</a>
+      <a href="#">Stats</a>
+      <a href="#">Staff</a>
+      <a href="#">GM Desk</a>
+      <a href="#">Draft</a>
+      <a href="#">HOF</a>
+    </nav>
+  </header>
+
+  <section class="toolbar">
+    <div class="team">New England Patriots</div>
+    <div class="actions">
+      <button class="btn">Sim Week</button>
+      <button class="btn btn-ghost">Week 1</button>
+      <button class="btn btn-ghost">Depth Chart</button>
+    </div>
+  </section>
+
+  <main id="dashboard" class="dashboard-grid">
+    <!-- C1 (Left Column) -->
+    <div id="col-c1" class="col">
+      <section id="standings-widget" class="card">
+        <div class="card-title">Division Standings</div>
+        <div class="card-body">
+          <div class="loading">Loading standings...</div>
         </div>
-        
-        <div class="dashboard">
-            <!-- Season Status Panel -->
-            <div class="panel">
-                <h2>📊 Season Status</h2>
-                <div class="status-card" id="season-status">
-                    <div class="loading"></div>
-                    <p>Loading season status...</p>
-                </div>
-                
-                <div class="status-card">
-                    <h3>Season Controls</h3>
-                    <button class="btn" onclick="simulateWeek()" id="sim-week-btn">
-                        <span id="sim-week-text">Simulate Week</span>
-                        <span id="sim-week-loading" class="loading" style="display: none;"></span>
-                    </button>
-                    <button class="btn btn-success" onclick="advanceToPlayoffs()" id="playoffs-btn" disabled>
-                        Start Playoffs
-                    </button>
-                    <button class="btn btn-warning" onclick="processOffseason()" id="offseason-btn" disabled>
-                        Process Offseason
-                    </button>
-                    <button class="btn btn-danger" onclick="startNewSeason()" id="new-season-btn" disabled>
-                        Start New Season
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Championship Panel -->
-            <div class="panel">
-                <h2>🏆 Championship</h2>
-                <div class="status-card" id="championship-status">
-                    <div class="loading"></div>
-                    <p>Loading championship info...</p>
-                </div>
-                
-                <div class="status-card">
-                    <h3>Championship Leaders</h3>
-                    <div id="championship-leaders">
-                        <div class="loading"></div>
-                        <p>Loading leaders...</p>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Awards Panel -->
-            <div class="panel">
-                <h2>🏅 Awards</h2>
-                <div class="status-card" id="awards-status">
-                    <div class="loading"></div>
-                    <p>Loading awards info...</p>
-                </div>
-            </div>
-            
-            <!-- Offseason Panel -->
-            <div class="panel">
-                <h2>📋 Offseason</h2>
-                <div class="status-card" id="offseason-status">
-                    <div class="loading"></div>
-                    <p>Loading offseason info...</p>
-                </div>
-            </div>
-            
-            <!-- Standings Panel -->
-            <div class="panel full-width">
-                <h2>📈 League Standings</h2>
-                <div class="status-card">
-                    <div id="standings-content">
-                        <div class="loading"></div>
-                        <p>Loading standings...</p>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Championship Celebration Banner -->
-            <div class="panel full-width" id="celebration-banner" style="display: none;">
-                <div class="championship-banner" id="championship-celebration">
-                    <!-- Championship celebration content will be inserted here -->
-                </div>
-            </div>
+      </section>
+
+      <section id="power-rankings-carousel" class="card">
+        <div class="card-title-row">
+          <div class="card-title">League Power Rankings</div>
+          <div class="carousel-controls">
+            <button class="btn btn-mini" id="power-prev">‹</button>
+            <button class="btn btn-mini" id="power-next">›</button>
+          </div>
         </div>
+        <div class="card-body">
+          <div class="loading">Loading power rankings...</div>
+        </div>
+      </section>
+
+      <section id="league-top-performers-carousel" class="card">
+        <div class="card-title-row">
+          <div class="card-title">League Top Performers</div>
+          <div class="carousel-controls">
+            <button class="btn btn-mini" id="league-prev">‹</button>
+            <button class="btn btn-mini" id="league-next">›</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="loading">Loading league performers...</div>
+        </div>
+      </section>
     </div>
 
-    <script>
-        const API_BASE = 'http://localhost:8001';
-        
-        // Load all dashboard data
-        async function loadDashboard() {
-            await Promise.all([
-                loadSeasonStatus(),
-                loadChampionshipInfo(),
-                loadAwardsInfo(),
-                loadOffseasonInfo(),
-                loadStandings()
-            ]);
-        }
-        
-        // Season Status
-        async function loadSeasonStatus() {
-            try {
-                const response = await fetch(`${API_BASE}/season/integration/status`);
-                const data = await response.json();
-                
-                const statusHtml = `
-                    <div class="status-item">
-                        <span class="status-label">Season Year</span>
-                        <span class="status-value status-active">${data.season}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Current Phase</span>
-                        <span class="status-value status-active">${data.current_phase.replace('_', ' ').toUpperCase()}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Current Week</span>
-                        <span class="status-value status-active">${data.current_week}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Regular Season</span>
-                        <span class="status-value ${data.regular_season_complete ? 'status-complete' : 'status-pending'}">
-                            ${data.regular_season_complete ? 'Complete' : 'In Progress'}
-                        </span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Playoffs</span>
-                        <span class="status-value ${data.playoffs_complete ? 'status-complete' : 'status-pending'}">
-                            ${data.playoffs_complete ? 'Complete' : 'Not Started'}
-                        </span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Offseason</span>
-                        <span class="status-value ${data.offseason_complete ? 'status-complete' : 'status-pending'}">
-                            ${data.offseason_complete ? 'Complete' : 'Not Started'}
-                        </span>
-                    </div>
-                    ${data.champion ? `
-                    <div class="status-item">
-                        <span class="status-label">Champion</span>
-                        <span class="status-value status-complete">${data.champion.name}</span>
-                    </div>
-                    ` : ''}
-                `;
-                
-                document.getElementById('season-status').innerHTML = statusHtml;
-                
-                // Update button states
-                updateButtonStates(data);
-                
-            } catch (error) {
-                console.error('Error loading season status:', error);
-                document.getElementById('season-status').innerHTML = '<p style="color: red;">Error loading season status</p>';
-            }
-        }
-        
-        // Update button states based on season status
-        function updateButtonStates(data) {
-            const simWeekBtn = document.getElementById('sim-week-btn');
-            const playoffsBtn = document.getElementById('playoffs-btn');
-            const offseasonBtn = document.getElementById('offseason-btn');
-            const newSeasonBtn = document.getElementById('new-season-btn');
-            
-            // Sim Week button
-            simWeekBtn.disabled = data.current_phase !== 'regular_season';
-            
-            // Playoffs button
-            playoffsBtn.disabled = !data.regular_season_complete || data.playoffs_complete;
-            
-            // Offseason button
-            offseasonBtn.disabled = !data.playoffs_complete || data.offseason_complete;
-            
-            // New Season button
-            newSeasonBtn.disabled = !data.offseason_complete;
-        }
-        
-        // Championship Info
-        async function loadChampionshipInfo() {
-            try {
-                const response = await fetch(`${API_BASE}/championships/leaders`);
-                const data = await response.json();
-                
-                const leadersHtml = data.leaders.slice(0, 5).map((leader, index) => `
-                    <div class="status-item">
-                        <span class="status-label">#${index + 1} ${leader.team_name}</span>
-                        <span class="status-value status-complete">${leader.total_championships} titles</span>
-                    </div>
-                `).join('');
-                
-                document.getElementById('championship-leaders').innerHTML = leadersHtml || '<p>No championship history yet</p>';
-                
-            } catch (error) {
-                console.error('Error loading championship info:', error);
-                document.getElementById('championship-status').innerHTML = '<p style="color: red;">Error loading championship info</p>';
-            }
-        }
-        
-        // Awards Info
-        async function loadAwardsInfo() {
-            try {
-                const response = await fetch(`${API_BASE}/awards/summary/2025`);
-                const data = await response.json();
-                
-                const awardsHtml = `
-                    <div class="status-item">
-                        <span class="status-label">Total Awards</span>
-                        <span class="status-value status-active">${data.total_awards}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Award Types</span>
-                        <span class="status-value status-active">${Object.keys(data.awards_by_type).length}</span>
-                    </div>
-                `;
-                
-                document.getElementById('awards-status').innerHTML = awardsHtml;
-                
-            } catch (error) {
-                console.error('Error loading awards info:', error);
-                document.getElementById('awards-status').innerHTML = '<p style="color: red;">Error loading awards info</p>';
-            }
-        }
-        
-        // Offseason Info
-        async function loadOffseasonInfo() {
-            try {
-                const response = await fetch(`${API_BASE}/offseason/summary/2025`);
-                const data = await response.json();
-                
-                const offseasonHtml = `
-                    <div class="status-item">
-                        <span class="status-label">Draft Picks</span>
-                        <span class="status-value status-active">${data.draft_picks}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Free Agent Signings</span>
-                        <span class="status-value status-active">${data.free_agent_signings}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Coaching Changes</span>
-                        <span class="status-value status-active">${data.coaching_changes}</span>
-                    </div>
-                `;
-                
-                document.getElementById('offseason-status').innerHTML = offseasonHtml;
-                
-            } catch (error) {
-                console.error('Error loading offseason info:', error);
-                document.getElementById('offseason-status').innerHTML = '<p style="color: red;">Error loading offseason info</p>';
-            }
-        }
-        
-        // Standings
-        async function loadStandings() {
-            try {
-                const response = await fetch(`${API_BASE}/season/standings`);
-                const data = await response.json();
-                
-                const standingsHtml = `
-                    <table class="standings-table">
-                        <thead>
-                            <tr>
-                                <th>Team</th>
-                                <th>W</th>
-                                <th>L</th>
-                                <th>T</th>
-                                <th>PF</th>
-                                <th>PA</th>
-                                <th>Diff</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${data.slice(0, 10).map(team => `
-                                <tr ${team.is_playoff_team ? 'class="playoff-team"' : ''}>
-                                    <td>${team.team_name}</td>
-                                    <td>${team.wins}</td>
-                                    <td>${team.losses}</td>
-                                    <td>${team.ties}</td>
-                                    <td>${team.points_for}</td>
-                                    <td>${team.points_against}</td>
-                                    <td>${team.points_for - team.points_against}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-                
-                document.getElementById('standings-content').innerHTML = standingsHtml;
-                
-            } catch (error) {
-                console.error('Error loading standings:', error);
-                document.getElementById('standings-content').innerHTML = '<p style="color: red;">Error loading standings</p>';
-            }
-        }
-        
-        // Season Control Functions
-        async function simulateWeek() {
-            const btn = document.getElementById('sim-week-btn');
-            const text = document.getElementById('sim-week-text');
-            const loading = document.getElementById('sim-week-loading');
-            
-            btn.disabled = true;
-            text.style.display = 'none';
-            loading.style.display = 'inline-block';
-            
-            try {
-                const response = await fetch(`${API_BASE}/season/simulate-week`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await response.json();
-                
-                if (data.message) {
-                    showAlert(`Week simulation complete: ${data.message}`, 'success');
-                }
-                
-                // Reload dashboard
-                await loadDashboard();
-                
-            } catch (error) {
-                console.error('Error simulating week:', error);
-                showAlert('Error simulating week', 'warning');
-            } finally {
-                btn.disabled = false;
-                text.style.display = 'inline';
-                loading.style.display = 'none';
-            }
-        }
-        
-        async function advanceToPlayoffs() {
-            const btn = document.getElementById('playoffs-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<div class="loading"></div> Starting Playoffs...';
-            
-            try {
-                const response = await fetch(`${API_BASE}/season/advance-to-playoffs`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await response.json();
-                
-                if (data.message) {
-                    showAlert(data.message, 'success');
-                }
-                
-                // Reload dashboard
-                await loadDashboard();
-                
-            } catch (error) {
-                console.error('Error advancing to playoffs:', error);
-                showAlert('Error advancing to playoffs', 'warning');
-            } finally {
-                btn.innerHTML = 'Start Playoffs';
-                btn.disabled = false;
-            }
-        }
-        
-        async function processOffseason() {
-            const btn = document.getElementById('offseason-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<div class="loading"></div> Processing Offseason...';
-            
-            try {
-                const response = await fetch(`${API_BASE}/season/integration/complete-season`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await response.json();
-                
-                if (data.message) {
-                    showAlert(data.message, 'success');
-                }
-                
-                // Show championship celebration if available
-                if (data.celebration_banner) {
-                    showChampionshipCelebration(data.celebration_banner);
-                }
-                
-                // Reload dashboard
-                await loadDashboard();
-                
-            } catch (error) {
-                console.error('Error processing offseason:', error);
-                showAlert('Error processing offseason', 'warning');
-            } finally {
-                btn.innerHTML = 'Process Offseason';
-                btn.disabled = false;
-            }
-        }
-        
-        async function startNewSeason() {
-            const btn = document.getElementById('new-season-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<div class="loading"></div> Starting New Season...';
-            
-            try {
-                const response = await fetch(`${API_BASE}/season/start-new-season`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ season_year: 2026 })
-                });
-                const data = await response.json();
-                
-                if (data.message) {
-                    showAlert(data.message, 'success');
-                }
-                
-                // Reload dashboard
-                await loadDashboard();
-                
-            } catch (error) {
-                console.error('Error starting new season:', error);
-                showAlert('Error starting new season', 'warning');
-            } finally {
-                btn.innerHTML = 'Start New Season';
-                btn.disabled = false;
-            }
-        }
-        
-        // Utility Functions
-        function showAlert(message, type) {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert alert-${type}`;
-            alertDiv.innerHTML = message;
-            
-            // Insert at top of dashboard
-            const dashboard = document.querySelector('.dashboard');
-            dashboard.insertBefore(alertDiv, dashboard.firstChild);
-            
-            // Remove after 5 seconds
-            setTimeout(() => {
-                alertDiv.remove();
-            }, 5000);
-        }
-        
-        function showChampionshipCelebration(bannerText) {
-            const banner = document.getElementById('celebration-banner');
-            const celebration = document.getElementById('championship-celebration');
-            
-            celebration.innerHTML = `<pre>${bannerText}</pre>`;
-            banner.style.display = 'block';
-            
-            // Hide after 10 seconds
-            setTimeout(() => {
-                banner.style.display = 'none';
-            }, 10000);
-        }
-        
-        // Load dashboard on page load
-        document.addEventListener('DOMContentLoaded', loadDashboard);
-        
-        // Auto-refresh every 30 seconds
-        setInterval(loadDashboard, 30000);
-    </script>
+    <!-- C2 (Middle Column) -->
+    <div id="col-c2" class="col">
+      <section id="schedule-list" class="card scrollable">
+        <div class="card-title-row">
+          <div class="card-title">Team Schedule</div>
+          <div class="scroll-controls">
+            <button class="btn btn-mini" id="schedule-up">↑</button>
+            <button class="btn btn-mini" id="schedule-down">↓</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="loading">Loading schedule...</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- C3 (Right Column) -->
+    <div id="col-c3" class="col">
+      <section id="scouting-panel" class="card">
+        <div class="card-title-row">
+          <div class="card-title">Scouting - Next Opponent</div>
+          <div class="tabs">
+            <button class="tab active" data-tab="stats">Stats</button>
+            <button class="tab" data-tab="top">Top</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="loading">Loading scouting data...</div>
+        </div>
+      </section>
+
+      <section id="team-top-performers" class="card">
+        <div class="card-title">Team Top Performers</div>
+        <div class="card-body">
+          <div class="loading">Loading team performers...</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Box Score spans C2-C3 -->
+    <section id="box-score-card" class="card span-c2-c3">
+      <div class="card-title-row">
+        <div class="card-title">Box Score - Last Game</div>
+        <div class="btns-inline">
+          <a class="btn btn-mini" href="#">Full Box Score</a>
+          <a class="btn btn-mini success" href="#">Play-by-Play</a>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="loading">Loading box score...</div>
+      </div>
+    </section>
+
+    <!-- Play-by-Play panel below the span card, centered under C2 -->
+    <section id="pbp-panel" class="card scrollable">
+      <div class="card-title-row">
+        <div class="card-title">Play by Play</div>
+        <div class="btns-inline">
+          <button class="btn btn-mini">Auto Scroll</button>
+          <button class="btn btn-mini btn-ghost">Clear</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="loading">Loading play-by-play...</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Dashboard v2.0 (rebuild)</span>
+  </footer>
+
+  <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
-
-
