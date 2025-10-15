@@ -86,6 +86,21 @@
     rAway.innerHTML = `<div>${data.box.away.abbr}</div>${data.box.away.quarters.map(v=>`<div>${v}</div>`).join('')}`;
     q.appendChild(rAway);
 
+    // Play by Play
+    const pbp = $('#playbyplay-body .pbp-container');
+    if (pbp && data.playbyplay) {
+      pbp.innerHTML = '';
+      data.playbyplay.forEach(entry => {
+        const entryEl = document.createElement('div');
+        entryEl.className = 'pbp-entry';
+        entryEl.innerHTML = `
+          <span class="pbp-time">${entry.time}</span>
+          <span class="pbp-play">${entry.play}</span>
+        `;
+        pbp.appendChild(entryEl);
+      });
+    }
+
     // Team Top Performers
     const tt = $('#team-top-body'); tt.innerHTML='';
     Object.entries(data.teamTop).forEach(([label, items])=>{
