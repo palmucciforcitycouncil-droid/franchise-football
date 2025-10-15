@@ -79,8 +79,8 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/app.css?v={{ assets_version }}">
-    <link rel="stylesheet" href="/static/css/playoffs.css?v={{ assets_version }}&cb=24">
+    <link rel="stylesheet" href="/static/css/app.css?v=restore-dash">
+    <link rel="stylesheet" href="/static/css/playoffs.css?v=restore-dash&cb=restore-dash24">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #111827; color: #E5E7EB; }
         .card { background-color: #1F2937; border: 1px solid #374151; border-radius: 0.75rem; padding: 1.5rem; }
@@ -406,76 +406,76 @@
     </div>
 
     <!-- Script order and DOMContentLoaded listener -->
-    <script src="/static/js/config.js?v={{ assets_version }}"></script>
-    <script src="/static/js/util.js?v={{ assets_version }}&cb=3"></script>
-    <script src="/static/js/InlineError.js?v={{ assets_version }}"></script>
+    <script src="/static/js/config.js?v=restore-dash"></script>
+    <script src="/static/js/util.js?v=restore-dash&cb=restore-dash3"></script>
+    <script src="/static/js/InlineError.js?v=restore-dash"></script>
     
     <!-- MUST load ff-core.js BEFORE any stub/demo files to establish FF namespace -->
-    <script src="/static/js/ff-core.js?v={{ assets_version }}&cb=20"></script>
+    <script src="/static/js/ff-core.js?v=restore-dash&cb=restore-dash20"></script>
     
-    <script src="/static/js/demoConfig.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}"></script>
-    <script src="/static/js/demoData.js?v={{ assets_version }}&cb=20&t={{ timestamp or 'now' }}"></script>
-    <script src="/static/js/DemoContext.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}"></script>
-    <script src="/static/js/DemoToggle.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}"></script>
-    <script src="/static/js/teamLookup.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/dashboard-adapters.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/DashboardHeader.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/StandingsPanel.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/PowerRankingsPanel.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/LeagueTopPerformersPanel.js?v={{ assets_version }}&cb=10&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/TeamTopPerformersPanel.js?v={{ assets_version }}&cb=9&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/PBPClient.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/BoxPanel.js?v={{ assets_version }}&cb=7&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/TeamSchedulePanel.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/TopPerformersPanel.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/ScoutingBox.js?v={{ assets_version }}"></script>
-    <script src="/static/js/TeamPerformanceBars.js?v={{ assets_version }}"></script>
-    <script src="/static/js/GameLeadersPanel.js?v={{ assets_version }}"></script>
+    <script src="/static/js/demoConfig.js?v=restore-dash&cb=restore-dash7&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/demoData.js?v=restore-dash&cb=restore-dash20&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/DemoContext.js?v=restore-dash&cb=restore-dash7&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/DemoToggle.js?v=restore-dash&cb=restore-dash7&t={{ timestamp or 'now' }}"></script>
+    <script src="/static/js/teamLookup.js?v=restore-dash" defer></script>
+    <script src="/static/js/dashboard-adapters.js?v=restore-dash" defer></script>
+    <script src="/static/js/DashboardHeader.js?v=restore-dash" defer></script>
+    <script src="/static/js/StandingsPanel.js?v=restore-dash" defer></script>
+    <script src="/static/js/PowerRankingsPanel.js?v=restore-dash" defer></script>
+    <script src="/static/js/LeagueTopPerformersPanel.js?v=restore-dash&cb=restore-dash10&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/TeamTopPerformersPanel.js?v=restore-dash&cb=restore-dash9&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/PBPClient.js?v=restore-dash&cb=restore-dash7&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/BoxPanel.js?v=restore-dash&cb=restore-dash7&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/TeamSchedulePanel.js?v=restore-dash" defer></script>
+    <script src="/static/js/TopPerformersPanel.js?v=restore-dash" defer></script>
+    <script src="/static/js/ScoutingBox.js?v=restore-dash"></script>
+    <script src="/static/js/TeamPerformanceBars.js?v=restore-dash"></script>
+    <script src="/static/js/GameLeadersPanel.js?v=restore-dash"></script>
     <script src="/static/js/DepthChartPanel.js?v=force-r1" defer></script>
-    <script src="/static/js/Dashboard.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/dashboard-tests.js?v={{ assets_version }}" defer></script>
-    <script src="/static/js/dashboard-layout-tests.js?v={{ assets_version }}" defer></script>
+    <script src="/static/js/Dashboard.js?v=restore-dash" defer></script>
+    <script src="/static/js/dashboard-tests.js?v=restore-dash" defer></script>
+    <script src="/static/js/dashboard-layout-tests.js?v=restore-dash" defer></script>
     
     <!-- MVP UI Finalization Pack Scripts -->
-    <script src="/static/js/components/common/PageShell.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/common/ComingSoon.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/common/BadgeDelta.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/common/SkeletonCard.js?v={{ assets_version }}&cb=12&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/hooks/usePersistedState.js?v={{ assets_version }}&cb=12&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/common/Toast.js?v={{ assets_version }}&cb=13&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/common/ErrorBoundary.js?v={{ assets_version }}&cb=13&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/utils/performance.js?v={{ assets_version }}&cb=13&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/utils/noSeedRand.js?v={{ assets_version }}&cb=19&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/utils/dashboardGuard.js?v={{ assets_version }}&cb=18&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/utils/verifyCleanup.js?v={{ assets_version }}&cb=20&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/overrides/PageDemo.js?v={{ assets_version }}&cb=14&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/PageDemoToggle.js?v={{ assets_version }}&cb=14&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/demo/demoUtils.js?v={{ assets_version }}&cb=18&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/demo/rosterStubs.js?v={{ assets_version }}&cb=23&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/demo/playoffsStubs.js?v={{ assets_version }}&cb=21&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/demo/statsStubs.js?v={{ assets_version }}&cb=21&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/adapters/roster.js?v={{ assets_version }}&cb=23&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/adapters/playoffs.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/adapters/stats.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/roster/StickyHScroll.js?v={{ assets_version }}&cb=23&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/PageShell.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/ComingSoon.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/BadgeDelta.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/SkeletonCard.js?v=restore-dash&cb=restore-dash12&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/hooks/usePersistedState.js?v=restore-dash&cb=restore-dash12&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/Toast.js?v=restore-dash&cb=restore-dash13&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/common/ErrorBoundary.js?v=restore-dash&cb=restore-dash13&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/performance.js?v=restore-dash&cb=restore-dash13&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/noSeedRand.js?v=restore-dash&cb=restore-dash19&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/dashboardGuard.js?v=restore-dash&cb=restore-dash18&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/utils/verifyCleanup.js?v=restore-dash&cb=restore-dash20&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/overrides/PageDemo.js?v=restore-dash&cb=restore-dash14&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/PageDemoToggle.js?v=restore-dash&cb=restore-dash14&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/demoUtils.js?v=restore-dash&cb=restore-dash18&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/rosterStubs.js?v=restore-dash&cb=restore-dash23&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/playoffsStubs.js?v=restore-dash&cb=restore-dash21&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/demo/statsStubs.js?v=restore-dash&cb=restore-dash21&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/adapters/roster.js?v=restore-dash&cb=restore-dash23&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/adapters/playoffs.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/adapters/stats.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/roster/StickyHScroll.js?v=restore-dash&cb=restore-dash23&t={{ timestamp or 'now' }}" defer></script>
     <script src="/static/js/components/roster/TeamRosterTable.js?v=rollback-v32" defer></script>
     <script src="/static/js/depthChart.js?v=rollback-v32" defer></script>
     <script src="/static/js/components/roster/DepthChartCard.js?v=rollback-v32" defer></script>
-    <script src="/static/js/components/playoffs/GameCard.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/playoffs/InTheHuntPanel.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/playoffs/Bracket.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/playoffs/BracketGameModal.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/stats/AwardsRaceCard.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/stats/PositionalLeadersCarousel.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/components/stats/LeaguePlayerStatsTable.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/GameCard.js?v=restore-dash&cb=restore-dash24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/InTheHuntPanel.js?v=restore-dash&cb=restore-dash24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/Bracket.js?v=restore-dash&cb=restore-dash24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/playoffs/BracketGameModal.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/stats/AwardsRaceCard.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/stats/PositionalLeadersCarousel.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/components/stats/LeaguePlayerStatsTable.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
     <script src="/static/js/pages/RosterPage.js?v=rollback-v32" defer></script>
-    <script src="/static/js/pages/PlayoffsPage.js?v={{ assets_version }}&cb=24&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/pages/StatsPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/pages/StaffPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/pages/GMDeskPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/pages/DraftPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/pages/HOFPage.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
-    <script src="/static/js/__tests__/ui/pages.test.js?v={{ assets_version }}&cb=11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/PlayoffsPage.js?v=restore-dash&cb=restore-dash24&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/StatsPage.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/StaffPage.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/GMDeskPage.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/DraftPage.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/pages/HOFPage.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
+    <script src="/static/js/__tests__/ui/pages.test.js?v=restore-dash&cb=restore-dash11&t={{ timestamp or 'now' }}" defer></script>
     
     <!-- Dashboard initialization -->
     <script>
@@ -773,11 +773,7 @@
     <!-- === /Inline roster fallback === -->
     
     <!-- Console Rescue Script (backup emergency option) -->
-    <script src="/static/js/ff-console-rescue.js?v=rescue-1.0"></script>
-    
-    <!-- dash-wire badge appears bottom-right when loaded -->
-    <script src="/static/js/adapters/dashboardAdapter.js?v=wire3"></script>
-    <script src="/static/js/dashboard-wire.js?v=wire3"></script>
+    <script src="/static/js/ff-console-rescue.js?v=restore-dash"></script>
 </body>
 </html>
 
