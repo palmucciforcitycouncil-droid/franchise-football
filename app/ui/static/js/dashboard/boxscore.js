@@ -1,18 +1,31 @@
+import { demoBox, withDemo } from './demoData.js';
+
 const el = (sel) => document.querySelector(sel);
 
 /** Initialize on dashboard load */
 export async function initBoxScore(){
   const flag = el('#box-demo-flag');
-  try{
-    const r = await fetch('/api/boxscore/last', { headers:{'Accept':'application/json'} });
-    if(!r.ok) throw new Error('bad status');
-    const data = await r.json();
-    renderBox(data);
-  }catch(err){
-    const data = demoBox();     // safe fallback (shapes match GDD)
-    if (flag) flag.hidden = false;
-    renderBox(data);
+  
+  const { data, isDemo } = await withDemo(
+    async (signal) => {
+      const r = await fetch('/api/boxscore/last', { 
+        headers: {'Accept': 'application/json'},
+        signal
+      });
+      if (!r.ok) throw new Error('bad status');
+      return r.json();
+    },
+    demoBox
+  );
+  
+  if (isDemo) {
+    showErrorBanner();
+    flag.hidden = false;
+  } else {
+    flag.hidden = true;
   }
+  
+  renderBox(data);
 }
 
 /** Render everything */
@@ -25,8 +38,30 @@ function renderBox(data){
 /** === Quarters Table === */
 function renderQuarters(d){
   const rows = [];
-  const home = rowForTeam(d.home_abbr || 'HOME', d.score_by_quarter_home, d.home_score);
-  const away = rowForTeam(d.away_abbr || 'AWAY', d.score_by_quarter_away, d.away_score);
+  
+  // Handle both old format (home_abbr/away_abbr) and new format (home_id/away_id)
+  const homeId = d.home_id || d.home_abbr || 'HOME';
+  const awayId = d.away_id || d.away_abbr || 'AWAY';
+  
+  // Handle both old format (score_by_quarter_*) and new format (q array)
+  let homeQuarters, awayQuarters, homeTotal, awayTotal;
+  
+  if (d.q && Array.isArray(d.q)) {
+    // New format: q: [{NE:7,BUF:3}, {NE:10,BUF:7}, ...]
+    homeQuarters = d.q.map(q => q[homeId] || 0);
+    awayQuarters = d.q.map(q => q[awayId] || 0);
+    homeTotal = d.totals?.[homeId] || homeQuarters.reduce((a,b) => a+b, 0);
+    awayTotal = d.totals?.[awayId] || awayQuarters.reduce((a,b) => a+b, 0);
+  } else {
+    // Old format
+    homeQuarters = d.score_by_quarter_home || [0,0,0,0];
+    awayQuarters = d.score_by_quarter_away || [0,0,0,0];
+    homeTotal = d.home_score || homeQuarters.reduce((a,b) => a+b, 0);
+    awayTotal = d.away_score || awayQuarters.reduce((a,b) => a+b, 0);
+  }
+  
+  const home = rowForTeam(homeId, homeQuarters, homeTotal);
+  const away = rowForTeam(awayId, awayQuarters, awayTotal);
   rows.push(away, home); // away first like TV slates
   el('#qbody').innerHTML = rows.join('');
 }
@@ -107,39 +142,14 @@ function leaderBlock(title, b){
   </div>`;
 }
 
-/** === Demo payload (shape aligns with GDD 3.1/3.3) === */
-function demoBox(){
-  return {
-    game_id: 'demo_last',
-    week_number: 5,
-    home_abbr: 'NE',
-    away_abbr: 'BUF',
-    home_score: 27,
-    away_score: 20,
-    score_by_quarter_home: [7,10,3,7],
-    score_by_quarter_away: [7,3,7,3],
-    team_lines:{
-      home:{
-        totals:{ plays:63, yards:381, ypp:6.0, top_sec: 28*60+26 },
-        rush:{ att:24, yds:145, td:1 },
-        pass:{ att:35, cmp:23, yds:236, td:2, int:1, sack:3 },
-        fd:{ total:19 }, situational:{ conv3:{made:3,att:10,rate:0.3}, conv4:{made:0,att:1,rate:0.0} },
-        penalties:{ count:9, yards:84 }, security:{ to:1 }
-      },
-      away:{
-        totals:{ plays:60, yards:329, ypp:5.5, top_sec: 31*60+34 },
-        rush:{ att:22, yds:124, td:1 },
-        pass:{ att:34, cmp:21, yds:205, td:1, int:1, sack:2 },
-        fd:{ total:22 }, situational:{ conv3:{made:3,att:8,rate:0.375}, conv4:{made:1,att:1,rate:1.0} },
-        penalties:{ count:5, yards:40 }, security:{ to:2 }
-      }
-    },
-    leaders:{
-      passing:{ home:{name:'Mac Jones', stat:'287 YDS, 3 TD'}, away:{name:'Josh Allen', stat:'156 YDS, 1 TD'} },
-      rushing:{ home:{name:'R. Stevenson', stat:'18 CAR, 89 YDS, 1 TD'}, away:{name:'D. Singletary', stat:'12 CAR, 45 YDS'} },
-      receiving:{ home:{name:'J. Smith-Schuster', stat:'6 REC, 98 YDS, 1 TD'}, away:{name:'S. Diggs', stat:'5 REC, 67 YDS'} }
-    }
-  };
+function showErrorBanner(){
+  const cardBody = document.querySelector('#boxscore-card .card-body');
+  if (cardBody && !cardBody.querySelector('.error-banner')) {
+    const banner = document.createElement('div');
+    banner.className = 'error-banner';
+    banner.innerHTML = 'Couldn\'t load. Showing demo data.';
+    cardBody.insertBefore(banner, cardBody.firstChild);
+  }
 }
 
 // auto-run on page load (if card exists)

@@ -80,24 +80,28 @@ function renderStandings(data){
 }
 
 function rowHtml(t){
-  const abbr = normalizeAbbr(t.abbr || t.team || '');
+  const abbr = normalizeAbbr(t.abbr || t.team || t.team_id || '');
   const name = t.name || teamNameFromAbbr(abbr) || abbr;
   const w = t.w|0, l = t.l|0, tt = t.t|0;
   const pf = t.pf|0, pa = t.pa|0;
-  const pct = toPct(winPct(t));
-  const home = `${t.home_w|0}-${t.home_l|0}`;
-  const away = `${t.away_w|0}-${t.away_l|0}`;
-  const strkVal = Number.isFinite(t.streak) ? t.streak : 0;
-  const strk = streakStr(strkVal);
-  const strkClass = strkVal>=0 ? 'win':'loss';
+  const pct = t.pct || toPct(winPct(t));
+  const home = t.home || `${t.home_w|0}-${t.home_l|0}`;
+  const away = t.away || `${t.away_w|0}-${t.away_l|0}`;
+  const strk = t.strk || streakStr(Number.isFinite(t.streak) ? t.streak : 0);
+  const strkClass = (t.streak >= 0 || strk.startsWith('W')) ? 'win':'loss';
+  
   return `
     <tr>
-      <td><div class="std-team"><span class="std-abbr">${abbr}</span><span class="std-name">${name}</span></div></td>
-      <td>${w}</td><td>${l}</td><td>${tt}</td>
-      <td class="std-pct">${pct}</td>
-      <td>${pf}</td><td>${pa}</td>
-      <td>${home}</td><td>${away}</td>
-      <td class="std-strk ${strkClass}">${strk}</td>
+      <td><div class="std-team"><span class="std-abbr" style="min-width:56px;display:inline-block;text-align:center;">${abbr}</span><span class="std-name" style="display:none;">${name}</span></div></td>
+      <td style="min-width:44px;text-align:right;">${w}</td>
+      <td style="min-width:44px;text-align:right;">${l}</td>
+      <td style="min-width:44px;text-align:right;">${tt}</td>
+      <td class="std-pct" style="min-width:44px;text-align:right;">${pct}</td>
+      <td style="min-width:44px;text-align:right;">${pf}</td>
+      <td style="min-width:44px;text-align:right;">${pa}</td>
+      <td style="min-width:44px;text-align:right;">${home}</td>
+      <td style="min-width:44px;text-align:right;">${away}</td>
+      <td class="std-strk ${strkClass}" style="min-width:44px;text-align:right;">${strk}</td>
     </tr>`;
 }
 
