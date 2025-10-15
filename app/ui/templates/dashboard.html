@@ -27,30 +27,93 @@
     </nav>
   </header>
 
-  <section class="toolbar">
-    <div class="team">New England Patriots</div>
-    <div class="actions">
-      <button class="btn">Sim Week</button>
-      <button class="btn btn-ghost">Week 1</button>
-      <button class="btn btn-ghost">Depth Chart</button>
-    </div>
-  </section>
-
+  <div class="page-header">
+    <div class="team-id">
+      <div class="team-badge">NE</div>
+      <div class="team-lines">
+        <div class="team-name">New England Patriots</div>
+        <div class="team-sub">Record: 10-7 · AFC East · Power Rank: 8th</div>
+                </div>
+            </div>
+    <div class="subnav">
+      <button class="chip" aria-label="Simulate current week">Sim Week</button>
+      <button class="chip primary" aria-label="Advance to next week">Next</button>
+                </div>
+            </div>
+            
   <main id="dash" class="grid">
     <!-- C1 column -->
-    <section id="standings-card" data-area="c1-standings" class="card"><h2>Division Standings</h2><div class="card-body">Loading…</div></section>
-    <section id="power-card" data-area="c1-power" class="card"><h2>League Power Rankings</h2><div class="card-body">Loading…</div></section>
-    <section id="league-perf-card" data-area="c1-perf" class="card"><h2>League Top Performers</h2><div class="card-body">Loading…</div></section>
+    <section id="standings-card" data-area="c1-standings" class="card">
+      <div class="card-header">
+        <h2 class="card-title">Division Standings</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+                </div>
+      <div class="card-body">Loading…</div>
+    </section>
+    
+    <section id="power-card" data-area="c1-power" class="card">
+      <div class="card-header">
+        <h2 class="card-title">League Power Rankings</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+            </div>
+      <div class="card-body">Loading…</div>
+    </section>
+    
+    <section id="league-perf-card" data-area="c1-perf" class="card">
+      <div class="card-header">
+        <h2 class="card-title">League Top Performers</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+                </div>
+      <div class="card-body">Loading…</div>
+    </section>
 
     <!-- C2 column -->
-    <section id="schedule-card" data-area="c2-schedule" class="card"><h2>Team Schedule</h2><div class="card-body">Loading…</div></section>
+    <section id="schedule-card" data-area="c2-schedule" class="card">
+      <div class="card-header">
+        <h2 class="card-title">Team Schedule</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+            </div>
+      <div class="scroll-panel">Loading…</div>
+    </section>
+    
     <!-- SPAN across C2 + C3 -->
-    <section id="box-score-card" data-area="span-boxscore" class="card"><h2>Box Score – Last Game</h2><div class="card-body">Loading…</div></section>
-    <section id="pbp-card" data-area="c2-pbp" class="card"><h2>Play by Play</h2><div class="card-body">Loading…</div></section>
+    <section id="box-score-card" data-area="span-boxscore" class="card">
+      <div class="card-header">
+        <h2 class="card-title">Box Score – Last Game</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+                    </div>
+      <div class="card-body">Loading…</div>
+    </section>
+    
+    <section id="pbp-card" data-area="c2-pbp" class="card">
+      <div class="card-header">
+        <div class="card-title">Play-by-Play</div>
+        <div class="toolbar" role="toolbar" aria-label="PBP actions">
+          <button class="pill" id="pbp-copy" aria-label="Copy game ID">Copy ID</button>
+          <button class="pill" id="pbp-download" aria-label="Download PBP as JSON">Download PBP (.json)</button>
+          <button class="pill" id="pbp-jump" aria-label="Jump to latest play">Jump to Latest</button>
+          <span class="status-dot" id="pbp-status" title="autoscroll paused"></span>
+        </div>
+    </div>
+      <div class="scroll-panel" id="pbp-lines">Loading…</div>
+    </section>
 
     <!-- C3 column -->
-    <section id="scouting-card" data-area="c3-scout" class="card"><h2>Scouting – Next Opponent</h2><div class="card-body">Loading…</div></section>
-    <section id="team-perf-card" data-area="c3-teamperf" class="card"><h2>Team Top Performers</h2><div class="card-body">Loading…</div></section>
+    <section id="scouting-card" data-area="c3-scout" class="card">
+      <div class="card-header">
+        <h2 class="card-title">Scouting – Next Opponent</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+      </div>
+      <div class="card-body">Loading…</div>
+    </section>
+    
+    <section id="team-perf-card" data-area="c3-teamperf" class="card">
+      <div class="card-header">
+        <h2 class="card-title">Team Top Performers</h2>
+        <span class="badge demo" aria-label="demo data" hidden></span>
+                    </div>
+      <div class="card-body">Loading…</div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -119,9 +182,18 @@
 
     function $(sel){ return document.querySelector(sel); }
     function htmlStandings(d){
-      return `<div class="muted">${d.division}</div>
-        <table class="mini"><thead><tr><th>Team</th><th>W</th><th>L</th></tr></thead>
-        <tbody>${d.teams.map(t=>`<tr><td>${t.name}</td><td>${t.w}</td><td>${t.l}</td></tr>`).join("")}</tbody></table>`;
+      return `<div class="list-compact">
+        ${d.teams.map(t=>`<div class="row">
+          <div>
+            <div>${t.name}</div>
+            <div class="muted">${t.pf||995} PF / ${t.pa||987} PA</div>
+          </div>
+          <div class="kv">
+            <span class="k">Record</span>
+            <span>${t.w}-${t.l}</span>
+                    </div>
+        </div>`).join("")}
+      </div>`;
     }
     function htmlPower(rows){
       return `<ul class="list">${rows.map(x=>`<li><b>${x.rank}</b> ${x.team} <span class="muted">${x.elo}</span> <span class="muted">${x.delta}</span></li>`).join("")}</ul>`;
@@ -130,27 +202,48 @@
       return `<ol class="list">${rows.map(x=>`<li>${x.rk}. ${x.player} <span class="muted">${x.val}</span></li>`).join("")}</ol>`;
     }
     function htmlSchedule(rows){
-      return `<ul class="list">${rows.map(g=>`<li>Week ${g.wk} ${g.home?"vs":"at"} ${g.opp} — <b>${g.res}</b> <span class="muted">${g.score}</span></li>`).join("")}</ul>`;
+      return `<div class="list-compact">
+        ${rows.map(g=>`<div class="row">
+          <div>
+            <div>Week ${g.wk} ${g.home?"vs":"at"} ${g.opp}</div>
+            <div class="muted">Record: ${g.opp_record||"8-9"} · ${g.score}</div>
+                    </div>
+          <span class="pill result-pill ${g.res}">${g.res}</span>
+        </div>`).join("")}
+      </div>`;
     }
     function htmlBox(b){
-      const qtrs = b.qtr.map((q,i)=>`<tr><td>Q${i+1}</td><td>${q.ne}</td><td>${q.buf}</td></tr>`).join("");
       return `
         <div class="teams">
           <div class="side"><h3>${b.home.code}</h3><div class="muted">${b.home.name}</div></div>
           <div class="score big">0 — 0</div>
           <div class="side"><h3>${b.away.code}</h3><div class="muted">${b.away.name}</div></div>
                     </div>
-        <table class="mini qtrs"><thead><tr><th></th><th>NE</th><th>BUF</th></tr></thead><tbody>${qtrs}</tbody></table>
-        <div class="split">
-          <div><h4>Top Performers (NE)</h4><ul class="list">${b.performers.NE.map(p=>`<li>${p}</li>`).join("")}</ul></div>
-          <div><h4>Top Performers (BUF)</h4><ul class="list">${b.performers.BUF.map(p=>`<li>${p}</li>`).join("")}</ul></div>
+        <table class="quarters" aria-label="Quarter by quarter scoring">
+          <thead><tr><th></th><th>1</th><th>2</th><th>3</th><th>4</th><th>T</th></tr></thead>
+                        <tbody>
+            <tr><td class="team">${b.home.code}</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+            <tr><td class="team">${b.away.code}</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                        </tbody>
+                    </table>
+        <div class="leaders">
+          <div><strong>Passing</strong> Mac Jones — 24/31, 287y, 3 TD · Josh Allen — 18/28, 156y, 1 TD</div>
+          <div><strong>Rushing</strong> R. Stevenson — 18 rush, 89y, 1 TD · D. Singletary — 12 att, 45y</div>
+          <div><strong>Receiving</strong> J. Smith-Schuster — 6 rec, 98y, 1 TD · S. Diggs — 5 rec, 67y</div>
         </div>`;
     }
     function htmlPbp(rows){ return `<ul class="list mono">${rows.map(l=>`<li>${l}</li>`).join("")}</ul>`; }
     function htmlScouting(s){
-      return `<h4 class="muted">Opponent: ${s.opp}</h4>
-        <table class="mini"><thead><tr><th>Stat</th><th>Value</th></tr></thead>
-        <tbody>${s.stats.map(r=>`<tr><td>${r.stat}</td><td>${r.val}</td></tr>`).join("")}</tbody></table>`;
+      return `<div class="list-compact">
+        <div class="kv">
+          <span class="k">Opponent</span>
+          <span>${s.opp}</span>
+        </div>
+        ${s.stats.map(r=>`<div class="kv">
+          <span class="k">${r.stat}</span>
+          <span>${r.val}</span>
+        </div>`).join("")}
+      </div>`;
     }
     function htmlTeamPerf(t){
       return `
@@ -159,7 +252,27 @@
         <h4>Receiving</h4><ul class="list">${t.receiving.map(x=>`<li>${x}</li>`).join("")}</ul>
         <h4>Defense</h4><ul class="list">${t.defense.map(x=>`<li>${x}</li>`).join("")}</ul>`;
     }
-    function fill(id, html){ const el=$(id); if (el) el.querySelector('.card-body').innerHTML = html; }
+    function fill(id, html){ 
+      const el=$(id); 
+      if (el) {
+        const body = el.querySelector('.card-body') || el.querySelector('.scroll-panel');
+        if (body) body.innerHTML = html;
+      }
+    }
+    
+    function wirePBP(){
+      const copyBtn = $('#pbp-copy');
+      const downloadBtn = $('#pbp-download');
+      const jumpBtn = $('#pbp-jump');
+      const statusDot = $('#pbp-status');
+      
+      if (copyBtn) copyBtn.addEventListener('click', ()=>navigator.clipboard.writeText('game_12345'));
+      if (downloadBtn) downloadBtn.addEventListener('click', ()=>window.open('/api/pbp/12345.json', '_blank'));
+      if (jumpBtn) jumpBtn.addEventListener('click', ()=>document.querySelector('#pbp-lines').scrollTop = 9999);
+      
+      // Toggle demo badges when using fallback
+      document.querySelectorAll('.badge.demo').forEach(badge => badge.hidden = false);
+    }
 
     window.addEventListener('DOMContentLoaded', function(){
       try {
@@ -168,9 +281,10 @@
         fill("#league-perf-card", htmlLeaguePerf(DUMMY.leaguePerformers));
         fill("#schedule-card",    htmlSchedule(DUMMY.schedule));
         fill("#box-score-card",   htmlBox(DUMMY.box));
-        fill("#pbp-card",         htmlPbp(DUMMY.pbp));
+        fill("#pbp-lines",        htmlPbp(DUMMY.pbp));
         fill("#scouting-card",    htmlScouting(DUMMY.scouting));
         fill("#team-perf-card",   htmlTeamPerf(DUMMY.teamPerf));
+        wirePBP();
         console.log("INLINE FALLBACK RENDERED");
       } catch(e){
         console.error("Inline fallback render failed", e);
