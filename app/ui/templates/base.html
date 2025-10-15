@@ -3,7 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <title>{% block title %}Franchise Football{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/base.css">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/dashboard.lock.css') }}"><!-- lock last -->
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0;background:#0b0e14;color:#e6e6e6}
