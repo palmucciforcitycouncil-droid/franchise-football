@@ -32,25 +32,145 @@
 
   <main id="dash" class="grid">
     <!-- C1 column -->
-    <section id="standings-card" class="card" data-area="c1-standings"></section>
-    <section id="power-card" class="card" data-area="c1-power"></section>
-    <section id="league-perf-card" class="card" data-area="c1-perf"></section>
+    <section id="standings-card" data-area="c1-standings" class="card"><h2>Division Standings</h2><div class="card-body">Loading…</div></section>
+    <section id="power-card" data-area="c1-power" class="card"><h2>League Power Rankings</h2><div class="card-body">Loading…</div></section>
+    <section id="league-perf-card" data-area="c1-perf" class="card"><h2>League Top Performers</h2><div class="card-body">Loading…</div></section>
 
     <!-- C2 column -->
-    <section id="schedule-card" class="card scroll" data-area="c2-schedule"></section>
+    <section id="schedule-card" data-area="c2-schedule" class="card"><h2>Team Schedule</h2><div class="card-body">Loading…</div></section>
     <!-- SPAN across C2 + C3 -->
-    <section id="box-score-card" class="card" data-area="span-boxscore"></section>
-    <section id="pbp-card" class="card scroll" data-area="c2-pbp"></section>
+    <section id="box-score-card" data-area="span-boxscore" class="card"><h2>Box Score – Last Game</h2><div class="card-body">Loading…</div></section>
+    <section id="pbp-card" data-area="c2-pbp" class="card"><h2>Play by Play</h2><div class="card-body">Loading…</div></section>
 
     <!-- C3 column -->
-    <section id="scouting-card" class="card" data-area="c3-scout"></section>
-    <section id="team-perf-card" class="card" data-area="c3-teamperf"></section>
+    <section id="scouting-card" data-area="c3-scout" class="card"><h2>Scouting – Next Opponent</h2><div class="card-body">Loading…</div></section>
+    <section id="team-perf-card" data-area="c3-teamperf" class="card"><h2>Team Top Performers</h2><div class="card-body">Loading…</div></section>
   </main>
 
   <footer class="footer">
     <span>Dashboard v3 Grid Layout</span>
   </footer>
 
-  <script src="/static/js/dashboard.js"></script>
+  <script defer src="{{ url_for('static', path='/js/dashboard.js') }}"></script>
+  
+  <script>
+  (function(){
+    const DUMMY = {
+      standings: { division: "AFC — East", teams: [
+        { name:"Patriots", w:0, l:0 }, { name:"Bills", w:0, l:0 }, { name:"Jets", w:0, l:0 }, { name:"Dolphins", w:0, l:0 }
+      ]},
+      power: [
+        { rank:1, team:"49ers", elo:1685, delta:"+7" },
+        { rank:2, team:"Chiefs", elo:1668, delta:"+3" },
+        { rank:3, team:"Ravens", elo:1640, delta:"-1" },
+        { rank:4, team:"Lions", elo:1612, delta:"+2" },
+        { rank:5, team:"Bills", elo:1608, delta:"+1" },
+      ],
+      leaguePerformers: [
+        { rk:1, player:"Chris White (QB)", val:"103.8" },
+        { rk:2, player:"Casey Jones (QB)", val:"102.6" },
+        { rk:3, player:"Jalen Jackson (QB)", val:"100.4" },
+      ],
+      schedule: [
+        { wk:1, opp:"BUF", home:true,  res:"W", score:"24–21" },
+        { wk:2, opp:"MIA", home:false, res:"L", score:"17–28" },
+        { wk:3, opp:"NYJ", home:true,  res:"W", score:"31–14" },
+        { wk:4, opp:"BAL", home:false, res:"L", score:"20–27" },
+        { wk:5, opp:"CIN", home:true,  res:"W", score:"35–21" },
+      ],
+      box: {
+        home:{ code:"NE",  name:"New England Patriots" },
+        away:{ code:"BUF", name:"Buffalo Bills" },
+        qtr:[{ne:0,buf:0},{ne:0,buf:0},{ne:0,buf:0},{ne:0,buf:0}],
+        performers:{
+          NE:["Mac Jones — 24/31, 287y, 3 TD","R. Stevenson — 18 rush, 89y, 1 TD","J. Smith-Schuster — 6 rec, 98y, 1 TD"],
+          BUF:["Josh Allen — 18/28, 156y, 1 TD, 1 INT","D. Singletary — 12 att, 45y, 0 TD","S. Diggs — 5 rec, 67y, 0 TD"]
+        }
+      },
+      pbp: [
+        "15:00 Game starts with kickoff",
+        "14:52 BUF 1st & 10 at BUF 25",
+        "14:15 Allen pass to Diggs for 12y",
+        "13:38 BUF 1st & 10 at BUF 37",
+        "13:02 Singletary rush for 3y"
+      ],
+      scouting: { opp:"BUF", stats:[
+        { stat:"Points Per Game", val:"24.5" },
+        { stat:"Yards per Play", val:"5.8" },
+        { stat:"3rd Down Conversion %", val:"42.3%" },
+        { stat:"Red Zone TD %", val:"68.2%" },
+        { stat:"Turnovers Committed", val:"1.2" },
+        { stat:"OL Sack Rate %", val:"6.8%" },
+        { stat:"Yds Before Contact/Rush", val:"2.1" },
+      ], top:["Josh Allen","James Cook","Stefon Diggs"]},
+      teamPerf: {
+        passing:["Casey Allen — 24/31, 287y, 2 TD"],
+        rushing:["Jordan Moss — 18 att, 89y, 1 TD"],
+        receiving:["Terry Hill — 6 rec, 98y, 1 TD"],
+        defense:["Chris Harris — 9 tackles","Sam Jackson — 1.5 sacks","Alex Brown — 1 INT"]
+      }
+    };
+
+    function $(sel){ return document.querySelector(sel); }
+    function htmlStandings(d){
+      return `<div class="muted">${d.division}</div>
+        <table class="mini"><thead><tr><th>Team</th><th>W</th><th>L</th></tr></thead>
+        <tbody>${d.teams.map(t=>`<tr><td>${t.name}</td><td>${t.w}</td><td>${t.l}</td></tr>`).join("")}</tbody></table>`;
+    }
+    function htmlPower(rows){
+      return `<ul class="list">${rows.map(x=>`<li><b>${x.rank}</b> ${x.team} <span class="muted">${x.elo}</span> <span class="muted">${x.delta}</span></li>`).join("")}</ul>`;
+    }
+    function htmlLeaguePerf(rows){
+      return `<ol class="list">${rows.map(x=>`<li>${x.rk}. ${x.player} <span class="muted">${x.val}</span></li>`).join("")}</ol>`;
+    }
+    function htmlSchedule(rows){
+      return `<ul class="list">${rows.map(g=>`<li>Week ${g.wk} ${g.home?"vs":"at"} ${g.opp} — <b>${g.res}</b> <span class="muted">${g.score}</span></li>`).join("")}</ul>`;
+    }
+    function htmlBox(b){
+      const qtrs = b.qtr.map((q,i)=>`<tr><td>Q${i+1}</td><td>${q.ne}</td><td>${q.buf}</td></tr>`).join("");
+      return `
+        <div class="teams">
+          <div class="side"><h3>${b.home.code}</h3><div class="muted">${b.home.name}</div></div>
+          <div class="score big">0 — 0</div>
+          <div class="side"><h3>${b.away.code}</h3><div class="muted">${b.away.name}</div></div>
+        </div>
+        <table class="mini qtrs"><thead><tr><th></th><th>NE</th><th>BUF</th></tr></thead><tbody>${qtrs}</tbody></table>
+        <div class="split">
+          <div><h4>Top Performers (NE)</h4><ul class="list">${b.performers.NE.map(p=>`<li>${p}</li>`).join("")}</ul></div>
+          <div><h4>Top Performers (BUF)</h4><ul class="list">${b.performers.BUF.map(p=>`<li>${p}</li>`).join("")}</ul></div>
+        </div>`;
+    }
+    function htmlPbp(rows){ return `<ul class="list mono">${rows.map(l=>`<li>${l}</li>`).join("")}</ul>`; }
+    function htmlScouting(s){
+      return `<h4 class="muted">Opponent: ${s.opp}</h4>
+        <table class="mini"><thead><tr><th>Stat</th><th>Value</th></tr></thead>
+        <tbody>${s.stats.map(r=>`<tr><td>${r.stat}</td><td>${r.val}</td></tr>`).join("")}</tbody></table>`;
+    }
+    function htmlTeamPerf(t){
+      return `
+        <h4>Passing</h4><ul class="list">${t.passing.map(x=>`<li>${x}</li>`).join("")}</ul>
+        <h4>Rushing</h4><ul class="list">${t.rushing.map(x=>`<li>${x}</li>`).join("")}</ul>
+        <h4>Receiving</h4><ul class="list">${t.receiving.map(x=>`<li>${x}</li>`).join("")}</ul>
+        <h4>Defense</h4><ul class="list">${t.defense.map(x=>`<li>${x}</li>`).join("")}</ul>`;
+    }
+    function fill(id, html){ const el=$(id); if (el) el.querySelector('.card-body').innerHTML = html; }
+
+    window.addEventListener('DOMContentLoaded', function(){
+      try {
+        fill("#standings-card",   htmlStandings(DUMMY.standings));
+        fill("#power-card",       htmlPower(DUMMY.power));
+        fill("#league-perf-card", htmlLeaguePerf(DUMMY.leaguePerformers));
+        fill("#schedule-card",    htmlSchedule(DUMMY.schedule));
+        fill("#box-score-card",   htmlBox(DUMMY.box));
+        fill("#pbp-card",         htmlPbp(DUMMY.pbp));
+        fill("#scouting-card",    htmlScouting(DUMMY.scouting));
+        fill("#team-perf-card",   htmlTeamPerf(DUMMY.teamPerf));
+        console.log("INLINE FALLBACK RENDERED");
+      } catch(e){
+        console.error("Inline fallback render failed", e);
+      }
+    });
+  })();
+  </script>
 </body>
 </html>
