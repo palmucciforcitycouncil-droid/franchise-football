@@ -45,8 +45,14 @@
     <!-- C1 column -->
     <section id="standings-card" data-area="c1-standings" class="card">
       <div class="card-header">
-        <h2 class="card-title">Division Standings</h2>
-        <span class="badge demo" aria-label="demo data" hidden></span>
+        <div class="card-title">Division Standings</div>
+        <div class="card-actions">
+          <div class="nav-arrows" aria-label="Change division">
+            <button id="std-left"  aria-label="Previous division">←</button>
+            <button id="std-right" aria-label="Next division">→</button>
+                </div>
+          <span class="badge demo" id="std-demo" aria-label="demo data" hidden>(demo)</span>
+                    </div>
                 </div>
       <div class="card-body">Loading…</div>
     </section>
@@ -61,9 +67,15 @@
     
     <section id="league-perf-card" data-area="c1-perf" class="card">
       <div class="card-header">
-        <h2 class="card-title">League Top Performers</h2>
-        <span class="badge demo" aria-label="demo data" hidden></span>
+        <div class="card-title">League Top Performers</div>
+        <div class="card-actions">
+          <div class="nav-arrows" aria-label="League performers pages">
+            <button id="lgp-left"  aria-label="Previous page">←</button>
+            <button id="lgp-right" aria-label="Next page">→</button>
+          </div>
+          <span class="badge demo" id="lgp-demo" aria-label="demo data" hidden>(demo)</span>
                 </div>
+            </div>
       <div class="card-body">Loading…</div>
     </section>
 
@@ -109,8 +121,14 @@
     
     <section id="team-perf-card" data-area="c3-teamperf" class="card">
       <div class="card-header">
-        <h2 class="card-title">Team Top Performers</h2>
-        <span class="badge demo" aria-label="demo data" hidden></span>
+        <div class="card-title">Team Top Performers</div>
+        <div class="card-actions">
+          <div class="nav-arrows" aria-label="Team performers pages">
+            <button id="ttp-left"  aria-label="Previous page">←</button>
+            <button id="ttp-right" aria-label="Next page">→</button>
+                    </div>
+          <span class="badge demo" id="ttp-demo" aria-label="demo data" hidden>(demo)</span>
+                    </div>
                     </div>
       <div class="card-body">Loading…</div>
     </section>
@@ -273,6 +291,104 @@
       // Toggle demo badges when using fallback
       document.querySelectorAll('.badge.demo').forEach(badge => badge.hidden = false);
     }
+    
+    function initCarousels() {
+      // Simple carousel implementation for demo
+      const stdLeft = $('#std-left');
+      const stdRight = $('#std-right');
+      const lgpLeft = $('#lgp-left');
+      const lgpRight = $('#lgp-right');
+      const ttpLeft = $('#ttp-left');
+      const ttpRight = $('#ttp-right');
+      
+      // Standings carousel
+      let stdPage = 0;
+      const stdDivisions = [
+        {name: 'AFC East', teams: [
+          {name: 'Patriots', w: 10, l: 7, pf: 995, pa: 987},
+          {name: 'Bills', w: 9, l: 8, pf: 1023, pa: 945},
+          {name: 'Jets', w: 7, l: 10, pf: 876, pa: 1023},
+          {name: 'Dolphins', w: 11, l: 6, pf: 1087, pa: 892}
+        ]},
+        {name: 'AFC West', teams: [
+          {name: 'Chiefs', w: 12, l: 5, pf: 1156, pa: 834},
+          {name: 'Chargers', w: 8, l: 9, pf: 945, pa: 1023},
+          {name: 'Raiders', w: 6, l: 11, pf: 823, pa: 1087},
+          {name: 'Broncos', w: 5, l: 12, pf: 756, pa: 1156}
+        ]}
+      ];
+      
+      function updateStandings() {
+        const div = stdDivisions[stdPage];
+        if (div) {
+          fill("#standings-card", htmlStandings({teams: div.teams}));
+          stdLeft.disabled = stdPage <= 0;
+          stdRight.disabled = stdPage >= stdDivisions.length - 1;
+        }
+      }
+      
+      if (stdLeft && stdRight) {
+        stdLeft.addEventListener('click', () => { stdPage = Math.max(0, stdPage - 1); updateStandings(); });
+        stdRight.addEventListener('click', () => { stdPage = Math.min(stdDivisions.length - 1, stdPage + 1); updateStandings(); });
+        updateStandings();
+      }
+      
+      // League performers carousel
+      let lgpPage = 0;
+      const lgpPages = [
+        [{rank: 1, player: "Chris White (QB)", val: "103.8"}, {rank: 2, player: "Casey Jones (QB)", val: "102.6"}, {rank: 3, player: "Jalen Jackson (QB)", val: "100.4"}, {rank: 4, player: "Marcus Johnson (RB)", val: "98.2"}, {rank: 5, player: "Terry Hill (WR)", val: "96.8"}],
+        [{rank: 6, player: "Sam Wilson (QB)", val: "94.5"}, {rank: 7, player: "Jordan Moss (RB)", val: "92.1"}, {rank: 8, player: "Alex Brown (WR)", val: "89.7"}, {rank: 9, player: "Chris Harris (CB)", val: "87.3"}, {rank: 10, player: "Sam Jackson (DE)", val: "85.9"}]
+      ];
+      
+      function updateLeaguePerformers() {
+        const page = lgpPages[lgpPage];
+        if (page) {
+          fill("#league-perf-card", htmlLeaguePerf(page));
+          lgpLeft.disabled = lgpPage <= 0;
+          lgpRight.disabled = lgpPage >= lgpPages.length - 1;
+        }
+      }
+      
+      if (lgpLeft && lgpRight) {
+        lgpLeft.addEventListener('click', () => { lgpPage = Math.max(0, lgpPage - 1); updateLeaguePerformers(); });
+        lgpRight.addEventListener('click', () => { lgpPage = Math.min(lgpPages.length - 1, lgpPage + 1); updateLeaguePerformers(); });
+        updateLeaguePerformers();
+      }
+      
+      // Team performers carousel
+      let ttpPage = 0;
+      const ttpPages = [
+        [{player: "Casey Allen", position: "QB", stat: "Passing Yards", value: "2,847"}, {player: "Jordan Moss", position: "RB", stat: "Rushing Yards", value: "1,234"}, {player: "Terry Hill", position: "WR", stat: "Receiving Yards", value: "987"}, {player: "Chris Harris", position: "CB", stat: "Tackles", value: "89"}, {player: "Sam Jackson", position: "DE", stat: "Sacks", value: "8.5"}],
+        [{player: "Alex Brown", position: "WR", stat: "Receptions", value: "67"}, {player: "Marcus Johnson", position: "RB", stat: "Rush TDs", value: "12"}, {player: "Jalen Jackson", position: "QB", stat: "Pass TDs", value: "24"}, {player: "Chris White", position: "LB", stat: "Tackles", value: "76"}, {player: "Sam Wilson", position: "S", stat: "Interceptions", value: "4"}]
+      ];
+      
+      function updateTeamPerformers() {
+        const page = ttpPages[ttpPage];
+        if (page) {
+          const html = `<div class="list-compact">
+            ${page.map(p => `<div class="row">
+              <div>
+                <div>${p.player}</div>
+                <div class="muted">${p.position}</div>
+              </div>
+              <div class="kv">
+                <span class="k">${p.stat}</span>
+                <span>${p.value}</span>
+              </div>
+            </div>`).join("")}
+          </div>`;
+          fill("#team-perf-card", html);
+          ttpLeft.disabled = ttpPage <= 0;
+          ttpRight.disabled = ttpPage >= ttpPages.length - 1;
+        }
+      }
+      
+      if (ttpLeft && ttpRight) {
+        ttpLeft.addEventListener('click', () => { ttpPage = Math.max(0, ttpPage - 1); updateTeamPerformers(); });
+        ttpRight.addEventListener('click', () => { ttpPage = Math.min(ttpPages.length - 1, ttpPage + 1); updateTeamPerformers(); });
+        updateTeamPerformers();
+      }
+    }
 
     window.addEventListener('DOMContentLoaded', function(){
       try {
@@ -285,6 +401,7 @@
         fill("#scouting-card",    htmlScouting(DUMMY.scouting));
         fill("#team-perf-card",   htmlTeamPerf(DUMMY.teamPerf));
         wirePBP();
+        initCarousels();
         console.log("INLINE FALLBACK RENDERED");
       } catch(e){
         console.error("Inline fallback render failed", e);

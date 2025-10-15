@@ -248,3 +248,55 @@ html,body{font-family:var(--ff);}
 @media (max-width: 1024px){
   .quarters{font-size:.95rem}
 }
+
+/* ====== Density & Type Scale Upgrade ====== */
+:root{
+  --fs-body: 16px;           /* up from ~14-15 */
+  --fs-sub:  0.95rem;
+  --fs-base: 1.00rem;
+  --fs-plus: 1.05rem;
+  --fs-title:1.18rem;         /* card titles */
+  --lh:      1.35;
+  --pad-card: 16px;
+}
+body{ font-size: var(--fs-body); line-height: var(--lh); }
+.card{ padding: 0; }
+.card-header{
+  padding: calc(var(--pad-card) + 2px) var(--pad-card);
+}
+.card-title{ font-size: var(--fs-title); letter-spacing:.2px; }
+.card .list-compact,
+.card .scroll-panel,
+.card .card-body{
+  padding: var(--pad-card);
+}
+table{ font-size: var(--fs-base); }
+.muted{ font-size: var(--fs-sub); }
+.list-compact .row{ padding: 12px 0; } /* slightly bigger rows */
+
+/* ====== Card header actions (arrow buttons) ====== */
+.card-actions{ display:flex; align-items:center; gap:10px; }
+.nav-arrows{ display:flex; gap:8px; }
+.nav-arrows button{
+  border:1px solid var(--line);
+  background:var(--bg-2);
+  color:var(--text);
+  border-radius:10px;
+  padding:6px 10px;
+  font-weight:600;
+  line-height:1;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.nav-arrows button:hover{
+  background:var(--bg-1);
+  border-color:var(--accent);
+}
+.nav-arrows button:focus{ outline:2px solid var(--accent); outline-offset:2px; }
+.nav-arrows [disabled]{ opacity:.45; cursor:not-allowed; }
+
+/* Pills a touch larger to match scale */
+.pill{ padding:5px 12px; font-size:.96rem; }
+
+/* Tables denser but bigger type */
+.quarters th,.quarters td{ padding:10px 12px; }
