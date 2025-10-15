@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Franchise Football — Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="/static/css/dashboard_v2.css" rel="stylesheet" />
+</head>
+<body class="bg">
+  <header class="nav">
+    <div class="brand">Franchise Football</div>
+    <nav class="nav-links">
+      <a href="/dashboard" class="active">Home</a>
+      <a href="/roster">Roster</a>
+      <a href="#">Playoffs</a>
+      <a href="#">Stats</a>
+      <a href="#">Staff</a>
+      <a href="#">GM Desk</a>
+      <a href="#">Draft</a>
+      <a href="#">HOF</a>
+    </nav>
+  </header>
+
+  <section class="toolbar">
+    <div class="team">New England Patriots</div>
+    <div class="actions">
+      <button class="btn">Sim Week</button>
+      <button class="btn btn-ghost">Week 1</button>
+      <button class="btn btn-ghost">Depth Chart</button>
+    </div>
+  </section>
+
+  <main class="grid">
+    <!-- Standings -->
+    <section class="card span-6" id="standings-card">
+      <div class="card-title">Standings</div>
+      <div class="standings-toolbar">
+        <div class="chip-group">
+          <button class="chip">&larr;</button>
+          <button class="chip chip-pill" id="conf-chip">AFC</button>
+          <button class="chip">&rarr;</button>
+        </div>
+        <div class="chip-group">
+          <button class="chip">&larr;</button>
+          <button class="chip chip-pill" id="div-chip">East</button>
+          <button class="chip">&rarr;</button>
+        </div>
+      </div>
+      <div class="card-body" id="standings-body">
+        <div class="empty">No teams found for AFC East</div>
+      </div>
+    </section>
+
+    <!-- Schedule -->
+    <section class="card span-6" id="schedule-card">
+      <div class="card-title">Schedule</div>
+      <div class="card-body schedule" id="schedule-body">
+        <div class="loading">Loading…</div>
+      </div>
+    </section>
+
+    <!-- Scouting -->
+    <section class="card span-6" id="scouting-card">
+      <div class="card-title">Scouting</div>
+      <div class="tabs">
+        <button class="tab active" data-tab="stats">Stats</button>
+        <button class="tab" data-tab="top">Top Performers</button>
+      </div>
+      <div class="card-body" id="scouting-stats">
+        <div class="table">
+          <div class="tr th">
+            <div>Rank ↑</div><div>Stat</div><div>Value</div>
+          </div>
+          <!-- rows injected -->
+        </div>
+      </div>
+      <div class="card-body hidden" id="scouting-top">
+        <div class="table">
+          <div class="tr th">
+            <div>#</div><div>Player</div><div>Metric</div>
+          </div>
+          <!-- rows injected -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Power Rankings -->
+    <section class="card span-6" id="power-card">
+      <div class="card-title">Power Rankings</div>
+      <div class="card-body" id="power-body">
+        <!-- rows injected -->
+      </div>
+    </section>
+
+    <!-- Box Score -->
+    <section class="card span-6" id="box-card">
+      <div class="card-title-row">
+        <div class="card-title">Box Score</div>
+        <div class="btns-inline">
+          <a class="btn btn-mini" href="#">Full Box Score</a>
+          <a class="btn btn-mini success" href="#">Play-by-Play</a>
+        </div>
+      </div>
+      <div class="card-body" id="box-body">
+        <div class="matchup">
+          <div class="team-col">
+            <div class="abbr" id="box-home-abbr">NE</div>
+            <div class="team-name" id="box-home-name">New England Patriots</div>
+          </div>
+          <div class="score" id="box-score">—</div>
+          <div class="team-col">
+            <div class="abbr" id="box-away-abbr">BUF</div>
+            <div class="team-name" id="box-away-name">Buffalo Bills</div>
+          </div>
+        </div>
+        <div class="qtr-table" id="box-qtrs">
+          <!-- quarter rows injected -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Team Top Performers -->
+    <section class="card span-6" id="team-top-card">
+      <div class="card-title">Team Top Performers <span class="muted">(demo)</span></div>
+      <div class="card-body" id="team-top-body">
+        <!-- sections injected -->
+      </div>
+    </section>
+
+    <!-- League Top Performers -->
+    <section class="card span-6" id="league-top-card">
+      <div class="card-title-row">
+        <div class="card-title">League Top Performers <span class="muted">(demo)</span></div>
+        <div class="filters">
+          <select id="league-metric" class="select">
+            <option>QB Rating</option>
+            <option>Rushing Yds</option>
+            <option>Receiving Yds</option>
+            <option>Sacks</option>
+            <option>INT</option>
+          </select>
+          <select id="league-scope" class="select">
+            <option>All</option>
+            <option>AFC</option>
+            <option>NFC</option>
+          </select>
+        </div>
+      </div>
+      <div class="card-body" id="league-top-body">
+        <div class="table">
+          <div class="tr th">
+            <div>#</div><div>Player</div><div>Value</div>
+          </div>
+          <!-- rows injected -->
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Dashboard Wire v2.0 (demo)</span>
+  </footer>
+
+  <script src="/static/js/dashboard_v2.js"></script>
+</body>
+</html>
