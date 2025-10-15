@@ -48,6 +48,14 @@
       <div class="card-header">
         <div class="card-title" id="std-division-name">AFC East</div>
         <div class="card-actions">
+          <div class="seg" role="tablist" aria-label="Conference">
+            <button id="seg-afc" class="seg-btn active" role="tab" aria-selected="true">AFC</button>
+            <button id="seg-nfc" class="seg-btn" role="tab" aria-selected="false">NFC</button>
+          </div>
+          <div class="nav-arrows" aria-label="Change division">
+            <button id="std-left"  aria-label="Previous division">←</button>
+            <button id="std-right" aria-label="Next division">→</button>
+          </div>
           <span class="badge demo" id="std-demo" hidden>(demo)</span>
         </div>
       </div>
@@ -152,6 +160,7 @@
   </footer>
 
   <script defer src="{{ url_for('static', path='/js/dashboard.js') }}"></script>
+  <script type="module" src="{{ url_for('static', path='/js/dashboard/standings.js') }}"></script>
   
   <script>
   (function(){
