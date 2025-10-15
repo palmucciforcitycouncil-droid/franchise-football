@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football - Advanced UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #3b82f6;
+        }
+        
+        .team-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .team-logo {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            color: white;
+            border: 2px solid #60a5fa;
+        }
+        
+        .team-details h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .team-stats {
+            font-size: 14px;
+            color: #cbd5e1;
+        }
+        
+        .header-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #64748b;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .nav {
+            background: #334155;
+            padding: 0 20px;
+            border-bottom: 1px solid #475569;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 0;
+        }
+        
+        .nav-tab {
+            padding: 15px 20px;
+            background: transparent;
+            border: none;
+            color: #cbd5e1;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .nav-tab:hover {
+            background: #475569;
+            color: white;
+        }
+        
+        .nav-tab.active {
+            color: white;
+            border-bottom-color: #3b82f6;
+            background: #475569;
+        }
+        
+        .main-content {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #475569;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .card-controls {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+        
+        .btn-link {
+            background: transparent;
+            color: #3b82f6;
+            border: none;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        
+        .content-area {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .table th,
+        .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #475569;
+        }
+        
+        .table th {
+            background: #334155;
+            font-weight: 600;
+            color: #e2e8f0;
+            position: sticky;
+            top: 0;
+        }
+        
+        .table tr:hover {
+            background: #334155;
+        }
+        
+        .rating {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .rating-high {
+            background: #10b981;
+            color: white;
+        }
+        
+        .rating-medium {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .rating-low {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .status-won {
+            color: #10b981;
+            font-weight: 600;
+        }
+        
+        .status-lost {
+            color: #ef4444;
+            font-weight: 600;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .standings-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #475569;
+        }
+        
+        .standings-item:last-child {
+            border-bottom: none;
+        }
+        
+        .team-name {
+            font-weight: 500;
+        }
+        
+        .team-record {
+            color: #cbd5e1;
+            font-size: 14px;
+        }
+        
+        .coach-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+        
+        .stat-label {
+            color: #cbd5e1;
+        }
+        
+        .stat-value {
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="team-info">
+            <div class="team-logo" id="team-logo">NE</div>
+            <div class="team-details">
+                <h1 id="team-name">New England</h1>
+                <div class="team-stats" id="team-stats">Record: 10-7 | AFC East | Power Rank: 8th</div>
+            </div>
+        </div>
+        <div class="header-controls">
+            <button class="btn btn-secondary" id="sim-week-btn">Sim Week</button>
+            <button class="btn btn-primary" id="next-btn">Next</button>
+        </div>
+    </div>
+    
+    <!-- Navigation -->
+    <div class="nav">
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-tab="dashboard">Dashboard</button>
+            <button class="nav-tab" data-tab="roster">Roster</button>
+            <button class="nav-tab" data-tab="depth-chart">Depth Chart</button>
+            <button class="nav-tab" data-tab="free-agents">Free Agents</button>
+            <button class="nav-tab" data-tab="trading-block">Trading Block</button>
+            <button class="nav-tab" data-tab="staff">Staff</button>
+            <button class="nav-tab" data-tab="stats">Stats</button>
+            <button class="nav-tab" data-tab="playoffs">Playoffs</button>
+            <button class="nav-tab" data-tab="draft">Draft</button>
+            <button class="nav-tab" data-tab="calendar">Calendar</button>
+            <button class="nav-tab" data-tab="hof">HOF</button>
+        </div>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <!-- Dashboard Sidebar Content -->
+            <div id="dashboard-sidebar">
+                <!-- Division Standings (compact) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Division Standings</div>
+                        <div class="card-controls">
+                            <select id="division-select">
+                                <option value="AFC-East">AFC East</option>
+                                <option value="AFC-North">AFC North</option>
+                                <option value="AFC-South">AFC South</option>
+                                <option value="AFC-West">AFC West</option>
+                                <option value="NFC-East">NFC East</option>
+                                <option value="NFC-North">NFC North</option>
+                                <option value="NFC-South">NFC South</option>
+                                <option value="NFC-West">NFC West</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="division-standings-content">
+                        <div class="loading">Loading standings...</div>
+                    </div>
+                </div>
+                
+                <!-- League Top Performers (carousel) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">League Top Performers</div>
+                        <div class="card-controls">
+                            <button class="btn-small btn-secondary" id="performers-prev">&lt;</button>
+                            <button class="btn-small btn-secondary" id="performers-next">&gt;</button>
+                        </div>
+                    </div>
+                    <div id="top-performers-content">
+                        <div class="loading">Loading top performers...</div>
+                    </div>
+                </div>
+                
+                <!-- League Team Rankings (carousel) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">League Team Rankings</div>
+                        <div class="card-controls">
+                            <button class="btn-small btn-secondary" id="rankings-prev">&lt;</button>
+                            <button class="btn-small btn-secondary" id="rankings-next">&gt;</button>
+                        </div>
+                    </div>
+                    <div id="league-rankings-content">
+                        <div class="loading">Loading rankings...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Roster Sidebar Content -->
+            <div id="roster-sidebar" class="hidden">
+                <!-- Top Free Agents -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Top Free Agents</div>
+                        <div class="card-controls">
+                            <select id="fa-position-filter">
+                                <option value="all">All Positions</option>
+                                <option value="QB">QB</option>
+                                <option value="RB">RB</option>
+                                <option value="WR">WR</option>
+                                <option value="TE">TE</option>
+                                <option value="OL">OL</option>
+                                <option value="DE">DE</option>
+                                <option value="DT">DT</option>
+                                <option value="LB">LB</option>
+                                <option value="CB">CB</option>
+                                <option value="S">S</option>
+                                <option value="K">K</option>
+                                <option value="P">P</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="top-free-agents-content">
+                        <div class="loading">Loading free agents...</div>
+                    </div>
+                </div>
+                
+                <!-- Trading Block -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Trading Block</div>
+                        <div class="card-controls">
+                            <button class="btn-small btn-link">View All</button>
+                        </div>
+                    </div>
+                    <div id="trading-block-content">
+                        <div class="loading">Loading trading block...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Other sidebar content for different tabs -->
+            <div id="depth-chart-sidebar" class="hidden">
+                <!-- Contextual Top Free Agents -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Top Free Agents</div>
+                        <div class="card-controls">
+                            <button class="btn-small btn-link">View All</button>
+                        </div>
+                    </div>
+                    <div id="depth-chart-free-agents">
+                        <div class="loading">Loading free agents...</div>
+                    </div>
+                </div>
+                
+                <!-- League Trading Block -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">League Trading Block</div>
+                    </div>
+                    <div id="league-trading-block">
+                        <div class="loading">Loading trading block...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Content Area -->
+        <div class="content-area">
+            <!-- Dashboard Tab -->
+            <div id="dashboard" class="tab-content active">
+                <!-- Left Column -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Team Schedule (compact) -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Team Schedule</div>
+                            <div class="card-controls">
+                                <select id="schedule-team-select">
+                                    <option value="your-team">Your Team</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="schedule-content">
+                            <div class="loading">Loading schedule...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Last Game Box Score -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title" id="game-title">Last Game</div>
+                            <div class="card-title" style="color: #10b981;">Final</div>
+                        </div>
+                        <div id="game-content">
+                            <div class="loading">Loading game...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Team Top Performers (season) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Team Top Performers</div>
+                        <div class="card-controls">
+                            <select id="performers-category">
+                                <option value="passing">Passing</option>
+                                <option value="rushing">Rushing</option>
+                                <option value="receiving">Receiving</option>
+                                <option value="defense">Defense</option>
+                                <option value="special-teams">Special Teams</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="team-performers-content">
+                        <div class="loading">Loading team performers...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Roster Tab -->
+            <div id="roster" class="tab-content">
+                <!-- Main Roster Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Team Roster Table</div>
+                        <div class="card-controls">
+                            <select id="roster-team-select">
+                                <option value="your-team">Your Team</option>
+                            </select>
+                            <select id="roster-position-select">
+                                <option value="all">All Positions</option>
+                                <option value="QB">QB</option>
+                                <option value="RB">RB</option>
+                                <option value="WR">WR</option>
+                                <option value="TE">TE</option>
+                                <option value="OL">OL</option>
+                                <option value="DE">DE</option>
+                                <option value="DT">DT</option>
+                                <option value="LB">LB</option>
+                                <option value="CB">CB</option>
+                                <option value="S">S</option>
+                                <option value="K">K</option>
+                                <option value="P">P</option>
+                            </select>
+                            <button class="btn-small btn-primary" id="sort-roster">Sort</button>
+                        </div>
+                    </div>
+                    <div id="roster-content">
+                        <div class="loading">Loading roster...</div>
+                    </div>
+                </div>
+                
+                <!-- Depth Chart Summary (Footer) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Depth Chart Summary</div>
+                        <div class="card-controls">
+                            <button class="btn-small btn-link">View Full Depth Chart</button>
+                        </div>
+                    </div>
+                    <div id="depth-chart-summary">
+                        <div class="loading">Loading depth chart summary...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Staff Tab -->
+            <div id="staff" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Your Coaching Staff</div>
+                    </div>
+                    <div id="staff-content">
+                        <div class="loading">Loading coaching staff...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Team Ratings</div>
+                    </div>
+                    <div id="team-ratings-content">
+                        <div class="loading">Loading team ratings...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Depth Chart Tab -->
+            <div id="depth-chart" class="tab-content">
+                <!-- Interactive Depth Grid (Top) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Interactive Depth Chart</div>
+                        <div class="card-controls">
+                            <select id="depth-team-select">
+                                <option value="your-team">Your Team</option>
+                            </select>
+                            <button class="btn-small btn-primary" id="save-depth-chart">Save Changes</button>
+                        </div>
+                    </div>
+                    <div id="depth-chart-grid">
+                        <div class="loading">Loading depth chart...</div>
+                    </div>
+                </div>
+                
+                <!-- Team Roster Table (Bottom, Full Width) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Team Roster Table (Full)</div>
+                        <div class="card-controls">
+                            <select id="roster-filter">
+                                <option value="all">All Players</option>
+                                <option value="offense">Offense Only</option>
+                                <option value="defense">Defense Only</option>
+                                <option value="special-teams">Special Teams Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="full-roster-content">
+                        <div class="loading">Loading full roster...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Free Agents Tab -->
+            <div id="free-agents" class="tab-content">
+                <!-- Free Agents Table (Main) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Free Agents Pool</div>
+                        <div class="card-controls">
+                            <select id="fa-position-filter-main">
+                                <option value="all">All Positions</option>
+                                <option value="QB">QB</option>
+                                <option value="RB">RB</option>
+                                <option value="WR">WR</option>
+                                <option value="TE">TE</option>
+                                <option value="OL">OL</option>
+                                <option value="DE">DE</option>
+                                <option value="DT">DT</option>
+                                <option value="LB">LB</option>
+                                <option value="CB">CB</option>
+                                <option value="S">S</option>
+                                <option value="K">K</option>
+                                <option value="P">P</option>
+                            </select>
+                            <select id="fa-sort">
+                                <option value="overall">Overall Rating</option>
+                                <option value="age">Age</option>
+                                <option value="contract-demands">Contract Demands</option>
+                                <option value="position">Position</option>
+                            </select>
+                            <button class="btn-small btn-primary" id="sort-fa">Sort</button>
+                        </div>
+                    </div>
+                    <div id="free-agents-content">
+                        <div class="loading">Loading free agents...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="trading-block" class="tab-content">
+                <div class="card">
+                    <div class="card-title">Trading Block</div>
+                    <div class="loading">Trading block functionality coming soon...</div>
+                </div>
+            </div>
+            
+            <div id="stats" class="tab-content">
+                <div class="card">
+                    <div class="card-title">Statistics</div>
+                    <div class="loading">Statistics functionality coming soon...</div>
+                </div>
+            </div>
+            
+            <div id="playoffs" class="tab-content">
+                <div class="card">
+                    <div class="card-title">Playoffs</div>
+                    <div class="loading">Playoffs functionality coming soon...</div>
+                </div>
+            </div>
+            
+            <div id="draft" class="tab-content">
+                <div class="card">
+                    <div class="card-title">Draft</div>
+                    <div class="loading">Draft functionality coming soon...</div>
+                </div>
+            </div>
+            
+            <div id="calendar" class="tab-content">
+                <div class="card">
+                    <div class="card-title">Calendar</div>
+                    <div class="loading">Calendar functionality coming soon...</div>
+                </div>
+            </div>
+            
+            <div id="hof" class="tab-content">
+                <div class="card">
+                    <div class="card-title">Hall of Fame</div>
+                    <div class="loading">Hall of Fame functionality coming soon...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8003';
+        let currentTeam = 'New England';
+        let currentTab = 'dashboard';
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            setupNavigation();
+            loadDashboardData();
+        });
+        
+        // Navigation setup
+        function setupNavigation() {
+            const tabs = document.querySelectorAll('.nav-tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabName = this.dataset.tab;
+                    switchTab(tabName);
+                });
+            });
+            
+            // Button event listeners
+            document.getElementById('sim-week-btn').addEventListener('click', simulateWeek);
+            document.getElementById('next-btn').addEventListener('click', nextAction);
+            
+            // Division selector
+            document.getElementById('division-select').addEventListener('change', loadDivisionStandings);
+            
+            // Team selectors
+            document.getElementById('schedule-team-select').addEventListener('change', loadSchedule);
+            document.getElementById('roster-team-select').addEventListener('change', loadRoster);
+            document.getElementById('depth-team-select').addEventListener('change', loadDepthChart);
+            
+            // Position filters
+            document.getElementById('roster-position-select').addEventListener('change', loadRoster);
+            document.getElementById('fa-position-filter').addEventListener('change', loadTopFreeAgents);
+            document.getElementById('fa-position-filter-main').addEventListener('change', loadFreeAgents);
+            
+            // Performance category selector
+            document.getElementById('performers-category').addEventListener('change', loadTeamPerformers);
+            
+            // Roster filters
+            document.getElementById('roster-filter').addEventListener('change', loadFullRoster);
+            
+            // Sort buttons
+            document.getElementById('sort-roster').addEventListener('click', loadRoster);
+            document.getElementById('sort-fa').addEventListener('click', loadFreeAgents);
+            
+            // Carousel controls
+            document.getElementById('performers-prev').addEventListener('click', () => {
+                console.log('Previous performers');
+            });
+            document.getElementById('performers-next').addEventListener('click', () => {
+                console.log('Next performers');
+            });
+            document.getElementById('rankings-prev').addEventListener('click', () => {
+                console.log('Previous rankings');
+            });
+            document.getElementById('rankings-next').addEventListener('click', () => {
+                console.log('Next rankings');
+            });
+        }
+        
+        // Tab switching
+        function switchTab(tabName) {
+            // Update navigation
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+            
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tabName).classList.add('active');
+            
+            // Update sidebar content
+            updateSidebarForTab(tabName);
+            
+            currentTab = tabName;
+            
+            // Load tab-specific data
+            loadTabData(tabName);
+        }
+        
+        // Update sidebar content based on current tab
+        function updateSidebarForTab(tabName) {
+            // Hide all sidebar sections
+            document.querySelectorAll('#sidebar > div').forEach(section => {
+                section.classList.add('hidden');
+            });
+            
+            // Show relevant sidebar section
+            switch(tabName) {
+                case 'dashboard':
+                    document.getElementById('dashboard-sidebar').classList.remove('hidden');
+                    break;
+                case 'roster':
+                    document.getElementById('roster-sidebar').classList.remove('hidden');
+                    break;
+                case 'depth-chart':
+                    document.getElementById('depth-chart-sidebar').classList.remove('hidden');
+                    break;
+                case 'free-agents':
+                    document.getElementById('roster-sidebar').classList.remove('hidden');
+                    break;
+                case 'trading-block':
+                    document.getElementById('roster-sidebar').classList.remove('hidden');
+                    break;
+                default:
+                    document.getElementById('dashboard-sidebar').classList.remove('hidden');
+                    break;
+            }
+        }
+        
+        // Load dashboard data
+        async function loadDashboardData() {
+            await Promise.all([
+                loadDivisionStandings(),
+                loadTopPerformers(),
+                loadLeagueRankings(),
+                loadSchedule(),
+                loadRecentGame(),
+                loadTeamPerformers()
+            ]);
+        }
+        
+        // Load tab-specific data
+        async function loadTabData(tabName) {
+            switch(tabName) {
+                case 'dashboard':
+                    loadDashboardData();
+                    break;
+                case 'roster':
+                    loadRoster();
+                    loadTopFreeAgents();
+                    break;
+                case 'depth-chart':
+                    loadDepthChart();
+                    loadFullRoster();
+                    break;
+                case 'free-agents':
+                    loadFreeAgents();
+                    break;
+                case 'staff':
+                    loadStaff();
+                    break;
+                default:
+                    // Other tabs will be implemented later
+                    break;
+            }
+        }
+        
+        // Load top free agents for sidebar
+        async function loadTopFreeAgents() {
+            try {
+                const response = await fetch(`${API_BASE}/free-agents`);
+                const data = await response.json();
+                
+                const freeAgentsHtml = data.slice(0, 3).map(player => `
+                    <div class="standings-item">
+                        <div>
+                            <div class="team-name">${player.first_name} ${player.last_name} (${player.position})</div>
+                            <div class="team-record">Age: ${player.age}</div>
+                        </div>
+                        <div class="rating rating-high">${player.overall_rating}</div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('top-free-agents-content').innerHTML = freeAgentsHtml;
+            } catch (error) {
+                console.error('Error loading top free agents:', error);
+                document.getElementById('top-free-agents-content').innerHTML = '<div class="loading">Error loading free agents</div>';
+            }
+        }
+        
+        // Load free agents for main tab
+        async function loadFreeAgents() {
+            try {
+                const response = await fetch(`${API_BASE}/free-agents`);
+                const data = await response.json();
+                
+                const freeAgentsHtml = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>POS</th>
+                                <th>OVR</th>
+                                <th>AGE</th>
+                                <th>Contract Demands</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.slice(0, 20).map(player => `
+                                <tr>
+                                    <td>${player.first_name} ${player.last_name}</td>
+                                    <td>${player.position}</td>
+                                    <td><span class="rating ${player.overall_rating >= 85 ? 'rating-high' : player.overall_rating >= 70 ? 'rating-medium' : 'rating-low'}">${player.overall_rating}</span></td>
+                                    <td>${player.age}</td>
+                                    <td>$5.2M / 3 years</td>
+                                    <td><button class="btn-small btn-primary">Sign</button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                
+                document.getElementById('free-agents-content').innerHTML = freeAgentsHtml;
+            } catch (error) {
+                console.error('Error loading free agents:', error);
+                document.getElementById('free-agents-content').innerHTML = '<div class="loading">Error loading free agents</div>';
+            }
+        }
+        
+        // Load depth chart
+        async function loadDepthChart() {
+            try {
+                // Mock depth chart data
+                const depthChartHtml = `
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+                        <div>
+                            <h4>OFFENSE</h4>
+                            <div style="margin-bottom: 10px;">
+                                <strong>QB:</strong> Mac Jones, Bailey Zappe
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>RB:</strong> Rhamondre Stevenson, Ezekiel Elliott
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>WR:</strong> DeVante Parker, Kendrick Bourne
+                            </div>
+                        </div>
+                        <div>
+                            <h4>DEFENSE</h4>
+                            <div style="margin-bottom: 10px;">
+                                <strong>DE:</strong> Matthew Judon, Josh Uche
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>LB:</strong> Ja'Whaun Bentley, Mack Wilson
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>CB:</strong> Jalen Mills, Marcus Jones
+                            </div>
+                        </div>
+                        <div>
+                            <h4>SPECIAL TEAMS</h4>
+                            <div style="margin-bottom: 10px;">
+                                <strong>K:</strong> Nick Folk
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>P:</strong> Jake Bailey
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>LS:</strong> Joe Cardona
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('depth-chart-grid').innerHTML = depthChartHtml;
+            } catch (error) {
+                console.error('Error loading depth chart:', error);
+                document.getElementById('depth-chart-grid').innerHTML = '<div class="loading">Error loading depth chart</div>';
+            }
+        }
+        
+        // Load full roster for depth chart
+        async function loadFullRoster() {
+            try {
+                const response = await fetch(`${API_BASE}/players`);
+                const data = await response.json();
+                
+                const rosterHtml = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>POS</th>
+                                <th>OVR</th>
+                                <th>AGE</th>
+                                <th>SPD</th>
+                                <th>STR</th>
+                                <th>AGI</th>
+                                <th>AWR</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.slice(0, 25).map(player => `
+                                <tr>
+                                    <td>${player.first_name} ${player.last_name}</td>
+                                    <td>${player.position}</td>
+                                    <td><span class="rating ${player.overall_rating >= 85 ? 'rating-high' : player.overall_rating >= 70 ? 'rating-medium' : 'rating-low'}">${player.overall_rating}</span></td>
+                                    <td>${player.age}</td>
+                                    <td>${player.speed}</td>
+                                    <td>${player.strength}</td>
+                                    <td>${player.agility}</td>
+                                    <td>${player.awareness}</td>
+                                    <td><button class="btn-small btn-primary">Move Up</button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                
+                document.getElementById('full-roster-content').innerHTML = rosterHtml;
+            } catch (error) {
+                console.error('Error loading full roster:', error);
+                document.getElementById('full-roster-content').innerHTML = '<div class="loading">Error loading roster</div>';
+            }
+        }
+        
+        // Load division standings
+        async function loadDivisionStandings() {
+            try {
+                const response = await fetch(`${API_BASE}/season/standings`);
+                const data = await response.json();
+                
+                const divisionSelect = document.getElementById('division-select');
+                const selectedDivision = divisionSelect.value;
+                const [conference, division] = selectedDivision.split('-');
+                
+                const divisionTeams = data.filter(team => 
+                    team.division === division && team.conference === conference
+                );
+                
+                const standingsHtml = divisionTeams.map(team => `
+                    <div class="standings-item">
+                        <div>
+                            <div class="team-name">${team.team_name}</div>
+                            <div class="team-record">${team.points_for} PF / ${team.points_against} PA</div>
+                        </div>
+                        <div class="team-record">${team.wins}-${team.losses}-${team.ties}</div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('division-standings-content').innerHTML = standingsHtml;
+            } catch (error) {
+                console.error('Error loading division standings:', error);
+                document.getElementById('division-standings-content').innerHTML = '<div class="loading">Error loading standings</div>';
+            }
+        }
+        
+        // Load league rankings
+        async function loadLeagueRankings() {
+            try {
+                const response = await fetch(`${API_BASE}/power-rankings`);
+                const data = await response.json();
+                
+                const rankingsHtml = data.slice(0, 5).map((team, index) => `
+                    <div class="standings-item">
+                        <div class="team-name">${index + 1}. ${team.team_name}</div>
+                        <div class="team-record">${Math.round(team.power_rating)}</div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('league-rankings-content').innerHTML = rankingsHtml;
+            } catch (error) {
+                console.error('Error loading league rankings:', error);
+                document.getElementById('league-rankings-content').innerHTML = '<div class="loading">Error loading rankings</div>';
+            }
+        }
+        
+        // Load top performers
+        async function loadTopPerformers() {
+            try {
+                // Mock data for now - will be replaced with real API call
+                const performersHtml = `
+                    <div class="standings-item">
+                        <div class="team-name">L. Jackson (QB)</div>
+                        <div class="team-record">2,847 Yds, 28 TD</div>
+                    </div>
+                    <div class="standings-item">
+                        <div class="team-name">C. McCaffrey (RB)</div>
+                        <div class="team-record">1,459 Yds, 14 TD</div>
+                    </div>
+                    <div class="standings-item">
+                        <div class="team-name">T. Hill (WR)</div>
+                        <div class="team-record">1,799 Yds, 13 TD</div>
+                    </div>
+                `;
+                
+                document.getElementById('top-performers-content').innerHTML = performersHtml;
+            } catch (error) {
+                console.error('Error loading top performers:', error);
+                document.getElementById('top-performers-content').innerHTML = '<div class="loading">Error loading performers</div>';
+            }
+        }
+        
+        // Load team performers
+        async function loadTeamPerformers() {
+            try {
+                const response = await fetch(`${API_BASE}/season/player-stats?team_id=3&season=2025&limit=5`);
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    document.getElementById('team-performers-content').innerHTML = '<div class="loading">No player stats available</div>';
+                    return;
+                }
+                
+                const performersHtml = data.map(player => {
+                    let stats = '';
+                    if (player.position === 'QB') {
+                        stats = `${player.pass_yds} Yds, ${player.pass_td} TD`;
+                    } else if (player.position === 'RB') {
+                        stats = `${player.rush_yds} Yds, ${player.rush_td} TD`;
+                    } else if (player.position === 'WR' || player.position === 'TE') {
+                        stats = `${player.rec_yds} Yds, ${player.rec_td} TD`;
+                    } else if (player.position === 'CB' || player.position === 'S' || player.position === 'LB') {
+                        stats = `${player.def_tkl} Tackles, ${player.def_sack} Sacks`;
+                    } else {
+                        stats = `${player.total_yds} Total Yds, ${player.total_td} TD`;
+                    }
+                    
+                    return `
+                        <div class="standings-item">
+                            <div class="team-name">${player.player_name} (${player.position})</div>
+                            <div class="team-record">${stats}</div>
+                        </div>
+                    `;
+                }).join('');
+                
+                document.getElementById('team-performers-content').innerHTML = performersHtml;
+            } catch (error) {
+                console.error('Error loading team performers:', error);
+                document.getElementById('team-performers-content').innerHTML = '<div class="loading">Error loading team performers</div>';
+            }
+        }
+        
+        // Load schedule
+        async function loadSchedule() {
+            try {
+                // Get real schedule data from API
+                const response = await fetch(`${API_BASE}/season/schedule?team_id=3&season=2025`);
+                const scheduleData = await response.json();
+                
+                const scheduleHtml = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Week</th>
+                                <th>Opponent</th>
+                                <th>Result</th>
+                                <th>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${scheduleData.map(game => `
+                                <tr>
+                                    <td>Week ${game.week}</td>
+                                    <td>${game.is_home ? 'vs' : '@'} ${game.opponent}</td>
+                                    <td class="${game.result === 'W' ? 'status-won' : game.result === 'L' ? 'status-lost' : 'status-tied'}">${game.played ? game.result : '-'}</td>
+                                    <td>${game.played ? `${game.home_score}-${game.away_score}` : 'TBD'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                
+                document.getElementById('schedule-content').innerHTML = scheduleHtml;
+            } catch (error) {
+                console.error('Error loading schedule:', error);
+                document.getElementById('schedule-content').innerHTML = '<div class="loading">Error loading schedule</div>';
+            }
+        }
+        
+        // Load recent game
+        async function loadRecentGame() {
+            try {
+                const response = await fetch(`${API_BASE}/season/recent-games?limit=1&user_team_id=3`);
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    document.getElementById('game-content').innerHTML = '<div class="loading">No recent games</div>';
+                    return;
+                }
+                
+                const game = data[0];
+                const homeInitials = game.home_team.split(' ').map(word => word[0]).join('');
+                const awayInitials = game.away_team.split(' ').map(word => word[0]).join('');
+                
+                const gameHtml = `
+                    <div style="margin-bottom: 10px; font-size: 12px; color: #64748b; text-align: center;">
+                        Week ${game.week}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div style="text-align: center;">
+                            <div style="width: 40px; height: 40px; background: #3b82f6; border-radius: 50%; margin: 0 auto 5px; display: flex; align-items: center; justify-content: center; font-weight: bold;">${homeInitials}</div>
+                            <div style="font-weight: 600;">${game.home_team}</div>
+                        </div>
+                        <div style="font-size: 24px; font-weight: bold;">${game.home_score}</div>
+                        <div style="font-size: 18px; color: #64748b;">-</div>
+                        <div style="font-size: 24px; font-weight: bold;">${game.away_score}</div>
+                        <div style="text-align: center;">
+                            <div style="width: 40px; height: 40px; background: #8b5cf6; border-radius: 50%; margin: 0 auto 5px; display: flex; align-items: center; justify-content: center; font-weight: bold;">${awayInitials}</div>
+                            <div style="font-weight: 600;">${game.away_team}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px; text-align: center; font-size: 14px; color: #64748b;">
+                        Winner: ${game.winner === 'home' ? game.home_team : game.away_team}
+                    </div>
+                `;
+                
+                document.getElementById('game-content').innerHTML = gameHtml;
+            } catch (error) {
+                console.error('Error loading recent game:', error);
+                document.getElementById('game-content').innerHTML = '<div class="loading">Error loading game</div>';
+            }
+        }
+        
+        
+        // Load roster
+        async function loadRoster() {
+            try {
+                const response = await fetch(`${API_BASE}/players`);
+                const data = await response.json();
+                
+                const rosterHtml = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>POS ↑</th>
+                                <th>OVR ↑</th>
+                                <th>AGE ↑</th>
+                                <th>SPD ↑</th>
+                                <th>STR ↑</th>
+                                <th>AGI ↑</th>
+                                <th>AWR ↑</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.slice(0, 20).map(player => `
+                                <tr>
+                                    <td>${player.first_name} ${player.last_name}</td>
+                                    <td>${player.position}</td>
+                                    <td><span class="rating ${player.overall_rating >= 85 ? 'rating-high' : player.overall_rating >= 70 ? 'rating-medium' : 'rating-low'}">${player.overall_rating}</span></td>
+                                    <td>${player.age}</td>
+                                    <td>${player.speed}</td>
+                                    <td>${player.strength}</td>
+                                    <td>${player.agility}</td>
+                                    <td>${player.awareness}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                
+                document.getElementById('roster-content').innerHTML = rosterHtml;
+            } catch (error) {
+                console.error('Error loading roster:', error);
+                document.getElementById('roster-content').innerHTML = '<div class="loading">Error loading roster</div>';
+            }
+        }
+        
+        // Load staff
+        async function loadStaff() {
+            try {
+                const response = await fetch(`${API_BASE}/coaches`);
+                const data = await response.json();
+                
+                const staffHtml = `
+                    <div style="margin-bottom: 30px;">
+                        <div style="font-weight: 600; margin-bottom: 15px; font-size: 16px;">HC: B. Belichick (Age: 72)</div>
+                        <div class="coach-stats">
+                            <div class="stat-item"><span class="stat-label">Run/Pass:</span><span class="stat-value">55</span></div>
+                            <div class="stat-item"><span class="stat-label">Off Aggro:</span><span class="stat-value">50</span></div>
+                            <div class="stat-item"><span class="stat-label">Def Aggro:</span><span class="stat-value">95</span></div>
+                            <div class="stat-item"><span class="stat-label">Pace:</span><span class="stat-value">40</span></div>
+                            <div class="stat-item"><span class="stat-label">Clock Mgmt:</span><span class="stat-value">99</span></div>
+                            <div class="stat-item"><span class="stat-label">4th Down:</span><span class="stat-value">30</span></div>
+                            <div class="stat-item"><span class="stat-label">PDEV Off:</span><span class="stat-value">75</span></div>
+                            <div class="stat-item"><span class="stat-label">PDEV Def:</span><span class="stat-value">98</span></div>
+                            <div class="stat-item"><span class="stat-label">Blitz Rate:</span><span class="stat-value">60</span></div>
+                            <div class="stat-item"><span class="stat-label">Coverage Mix:</span><span class="stat-value">80</span></div>
+                            <div class="stat-item"><span class="stat-label">Discipline:</span><span class="stat-value">99</span></div>
+                            <div class="stat-item"><span class="stat-label">Motivation:</span><span class="stat-value">85</span></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-weight: 600; margin-bottom: 15px; font-size: 16px;">OC: J. McDaniels (Age: 48)</div>
+                        <div class="coach-stats">
+                            <div class="stat-item"><span class="stat-label">Run/Pass:</span><span class="stat-value">48</span></div>
+                            <div class="stat-item"><span class="stat-label">Off Aggro:</span><span class="stat-value">88</span></div>
+                            <div class="stat-item"><span class="stat-label">Def Aggro:</span><span class="stat-value">50</span></div>
+                            <div class="stat-item"><span class="stat-label">Pace:</span><span class="stat-value">75</span></div>
+                            <div class="stat-item"><span class="stat-label">Clock Mgmt:</span><span class="stat-value">70</span></div>
+                            <div class="stat-item"><span class="stat-label">4th Down:</span><span class="stat-value">70</span></div>
+                            <div class="stat-item"><span class="stat-label">PDEV Off:</span><span class="stat-value">85</span></div>
+                            <div class="stat-item"><span class="stat-label">PDEV Def:</span><span class="stat-value">50</span></div>
+                            <div class="stat-item"><span class="stat-label">Blitz Rate:</span><span class="stat-value">50</span></div>
+                            <div class="stat-item"><span class="stat-label">Coverage Mix:</span><span class="stat-value">50</span></div>
+                            <div class="stat-item"><span class="stat-label">Discipline:</span><span class="stat-value">65</span></div>
+                            <div class="stat-item"><span class="stat-label">Motivation:</span><span class="stat-value">78</span></div>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('staff-content').innerHTML = staffHtml;
+                
+                // Load team ratings
+                const teamRatingsHtml = `
+                    <div style="margin-bottom: 15px;">
+                        <div class="stat-item"><span class="stat-label">Overall Offense:</span><span class="stat-value" style="color: #10b981;">88</span></div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <div class="stat-item"><span class="stat-label">Overall Defense:</span><span class="stat-value" style="color: #10b981;">91</span></div>
+                    </div>
+                    <div>
+                        <div class="stat-item"><span class="stat-label">Special Teams:</span><span class="stat-value" style="color: #f59e0b;">84</span></div>
+                    </div>
+                `;
+                
+                document.getElementById('team-ratings-content').innerHTML = teamRatingsHtml;
+            } catch (error) {
+                console.error('Error loading staff:', error);
+                document.getElementById('staff-content').innerHTML = '<div class="loading">Error loading staff</div>';
+            }
+        }
+        
+        // Button actions
+        async function simulateWeek() {
+            const btn = document.getElementById('sim-week-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Simulating...';
+            btn.disabled = true;
+            
+            try {
+                console.log('Starting simulation...');
+                const response = await fetch(`${API_BASE}/season/simulate-week`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Simulation failed');
+                }
+                
+                const data = await response.json();
+                console.log('Simulation response:', data);
+                
+                // Show success message
+                alert(data.message || `Week ${data.week || 'completed'} simulated successfully!`);
+                
+                // Reload all dashboard data to show updated standings, rankings, etc.
+                console.log('Reloading dashboard data...');
+                try {
+                    await loadDivisionStandings();
+                    console.log('✓ Division standings loaded');
+                } catch (e) {
+                    console.error('✗ Error loading division standings:', e);
+                }
+                
+                try {
+                    await loadTopPerformers();
+                    console.log('✓ Top performers loaded');
+                } catch (e) {
+                    console.error('✗ Error loading top performers:', e);
+                }
+                
+                try {
+                    await loadLeagueRankings();
+                    console.log('✓ League rankings loaded');
+                } catch (e) {
+                    console.error('✗ Error loading league rankings:', e);
+                }
+                
+                try {
+                    await loadSchedule();
+                    console.log('✓ Schedule loaded');
+                } catch (e) {
+                    console.error('✗ Error loading schedule:', e);
+                }
+                
+                try {
+                    await loadRecentGame();
+                    console.log('✓ Recent game loaded');
+                } catch (e) {
+                    console.error('✗ Error loading recent game:', e);
+                }
+                
+                try {
+                    await loadTeamPerformers();
+                    console.log('✓ Team performers loaded');
+                } catch (e) {
+                    console.error('✗ Error loading team performers:', e);
+                }
+                
+                console.log('Dashboard data reload complete');
+                
+            } catch (error) {
+                console.error('Error simulating week:', error);
+                alert(`Error simulating week: ${error.message}`);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+        
+        async function nextAction() {
+            alert('Next action - to be implemented');
+        }
+    </script>
+</body>
+</html>
