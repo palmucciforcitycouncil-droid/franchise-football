@@ -17,7 +17,8 @@ templates = Jinja2Templates(directory=TPL_DIR)
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "origin": request.base_url._url.rstrip("/")})
+    # Redirect root to our new Dashboard v2
+    return templates.TemplateResponse("dashboard_v2.html", {"request": request})
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_v2(request: Request):
