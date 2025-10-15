@@ -43,18 +43,31 @@
             
   <main id="dash" class="grid">
     <!-- C1 column -->
-    <section id="standings-card" data-area="c1-standings" class="card">
+    <!-- Division Standings -->
+    <section id="standings-card" class="card">
       <div class="card-header">
-        <div class="card-title">Division Standings</div>
+        <div class="card-title" id="std-division-name">AFC East</div>
         <div class="card-actions">
-          <div class="nav-arrows" aria-label="Change division">
-            <button id="std-left"  aria-label="Previous division">←</button>
-            <button id="std-right" aria-label="Next division">→</button>
-                </div>
-          <span class="badge demo" id="std-demo" aria-label="demo data" hidden>(demo)</span>
-                    </div>
-                </div>
-      <div class="card-body">Loading…</div>
+          <span class="badge demo" id="std-demo" hidden>(demo)</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <table class="std-table" aria-label="Division standings">
+          <thead>
+            <tr>
+              <th class="col-team">Team</th>
+              <th>W</th><th>L</th><th>T</th>
+              <th class="col-pct">Pct</th>
+              <th>PF</th><th>PA</th>
+              <th>Home</th><th>Away</th>
+              <th>Strk</th>
+            </tr>
+          </thead>
+          <tbody id="std-tbody">
+            <!-- rows injected by standings.js -->
+          </tbody>
+        </table>
+      </div>
     </section>
     
     <section id="power-card" data-area="c1-power" class="card">
@@ -143,8 +156,11 @@
   <script>
   (function(){
     const DUMMY = {
-      standings: { division: "AFC — East", teams: [
-        { name:"Patriots", w:0, l:0 }, { name:"Bills", w:0, l:0 }, { name:"Jets", w:0, l:0 }, { name:"Dolphins", w:0, l:0 }
+      standings: { division: "AFC East", teams: [
+        { abbr:"NE", name:"Patriots", w:4, l:2, t:0, pf:150, pa:120, home_w:1, home_l:2, away_w:3, away_l:0, streak: 3 },
+        { abbr:"BUF", name:"Bills", w:4, l:2, t:0, pf:167, pa:137, home_w:3, home_l:1, away_w:1, away_l:1, streak:-2 },
+        { abbr:"MIA", name:"Dolphins", w:1, l:5, t:0, pf:134, pa:174, home_w:1, home_l:2, away_w:0, away_l:3, streak:-2 },
+        { abbr:"NYJ", name:"Jets", w:0, l:6, t:0, pf:123, pa:170, home_w:0, home_l:4, away_w:0, away_l:2, streak:-6 }
       ]},
       power: [
         { rank:1, team:"49ers", elo:1685, delta:"+7" },
@@ -199,19 +215,87 @@
     };
 
     function $(sel){ return document.querySelector(sel); }
+    
+    // Helper functions for standings calculations
+    function winPct(t){
+      const w=t.w|0, l=t.l|0, tt=t.t|0;
+      const g=w+l+tt;
+      if(!g) return 0;
+      return (w + 0.5*tt) / g;
+    }
+    function toPct(x){
+      return x === 0 ? '.000' : ('.' + Math.round(x*1000).toString().padStart(3,'0'));
+    }
+    function streakStr(s){
+      if(!s) return '–';
+      const n = Math.abs(s);
+      return (s>0?'W':'L')+n;
+    }
+    function normalizeAbbr(a){
+      const up = String(a||'').toUpperCase();
+      if(up==='BUFF') return 'BUF';
+      return up;
+    }
+    function teamNameFromAbbr(ab){
+      const map = {
+        NE:'Patriots', BUF:'Bills', MIA:'Dolphins', NYJ:'Jets',
+        DAL:'Cowboys', NYG:'Giants', PHI:'Eagles', WAS:'Commanders'
+      };
+      return map[ab];
+    }
     function htmlStandings(d){
-      return `<div class="list-compact">
-        ${d.teams.map(t=>`<div class="row">
-          <div>
-            <div>${t.name}</div>
-            <div class="muted">${t.pf||995} PF / ${t.pa||987} PA</div>
-          </div>
-          <div class="kv">
-            <span class="k">Record</span>
-            <span>${t.w}-${t.l}</span>
-                    </div>
-        </div>`).join("")}
-      </div>`;
+      const teams = Array.isArray(d?.teams) ? d.teams.slice() : [];
+      // Sort by win pct, then PF diff
+      teams.sort((a,b)=>{
+        const pa = winPct(a), pb = winPct(b);
+        if(pb !== pa) return pb - pa;
+        const da = (a.pf||0)-(a.pa||0), db = (b.pf||0)-(b.pa||0);
+        return db - da;
+      });
+      
+      return `<table class="std-table" aria-label="Division standings">
+        <thead>
+          <tr>
+            <th class="col-team">Team</th>
+            <th>W</th><th>L</th><th>T</th>
+            <th class="col-pct">Pct</th>
+            <th>PF</th><th>PA</th>
+            <th>Home</th><th>Away</th>
+            <th>Strk</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${teams.map(t => {
+            const abbr = normalizeAbbr(t.abbr || t.team || '');
+            const name = t.name || teamNameFromAbbr(abbr) || abbr;
+            const w = t.w|0, l = t.l|0, tt = t.t|0;
+            const pct = toPct(winPct(t));
+            const pf = t.pf|0, pa = t.pa|0;
+            const home = `${t.home_w|0}-${t.home_l|0}`;
+            const away = `${t.away_w|0}-${t.away_l|0}`;
+            const strk = streakStr(t.streak);
+            const strkClass = (t.streak||0) >= 0 ? 'win' : 'loss';
+            
+            return `<tr>
+              <td>
+                <div class="std-team">
+                  <span class="std-abbr">${abbr}</span>
+                  <span class="std-name">${name}</span>
+                </div>
+              </td>
+              <td>${w}</td>
+              <td>${l}</td>
+              <td>${tt}</td>
+              <td class="std-pct">${pct}</td>
+              <td>${pf}</td>
+              <td>${pa}</td>
+              <td>${home}</td>
+              <td>${away}</td>
+              <td class="std-strk ${strkClass}">${strk}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>`;
     }
     function htmlPower(rows){
       return `<ul class="list">${rows.map(x=>`<li><b>${x.rank}</b> ${x.team} <span class="muted">${x.elo}</span> <span class="muted">${x.delta}</span></li>`).join("")}</ul>`;
@@ -294,44 +378,10 @@
     
     function initCarousels() {
       // Simple carousel implementation for demo
-      const stdLeft = $('#std-left');
-      const stdRight = $('#std-right');
       const lgpLeft = $('#lgp-left');
       const lgpRight = $('#lgp-right');
       const ttpLeft = $('#ttp-left');
       const ttpRight = $('#ttp-right');
-      
-      // Standings carousel
-      let stdPage = 0;
-      const stdDivisions = [
-        {name: 'AFC East', teams: [
-          {name: 'Patriots', w: 10, l: 7, pf: 995, pa: 987},
-          {name: 'Bills', w: 9, l: 8, pf: 1023, pa: 945},
-          {name: 'Jets', w: 7, l: 10, pf: 876, pa: 1023},
-          {name: 'Dolphins', w: 11, l: 6, pf: 1087, pa: 892}
-        ]},
-        {name: 'AFC West', teams: [
-          {name: 'Chiefs', w: 12, l: 5, pf: 1156, pa: 834},
-          {name: 'Chargers', w: 8, l: 9, pf: 945, pa: 1023},
-          {name: 'Raiders', w: 6, l: 11, pf: 823, pa: 1087},
-          {name: 'Broncos', w: 5, l: 12, pf: 756, pa: 1156}
-        ]}
-      ];
-      
-      function updateStandings() {
-        const div = stdDivisions[stdPage];
-        if (div) {
-          fill("#standings-card", htmlStandings({teams: div.teams}));
-          stdLeft.disabled = stdPage <= 0;
-          stdRight.disabled = stdPage >= stdDivisions.length - 1;
-        }
-      }
-      
-      if (stdLeft && stdRight) {
-        stdLeft.addEventListener('click', () => { stdPage = Math.max(0, stdPage - 1); updateStandings(); });
-        stdRight.addEventListener('click', () => { stdPage = Math.min(stdDivisions.length - 1, stdPage + 1); updateStandings(); });
-        updateStandings();
-      }
       
       // League performers carousel
       let lgpPage = 0;

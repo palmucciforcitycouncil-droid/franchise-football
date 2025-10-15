@@ -1,78 +1,119 @@
-import { makePager } from './carouselUtil.js';
+// Standings widget: renders NFL-style compact table with Team, W/L/T, Pct, PF/PA, Home/Away, Strk.
+// Expects GET /api/standings to return something like:
+// {
+//   "division": "AFC East",
+//   "teams": [
+//     {"abbr":"NE","name":"Patriots","w":4,"l":2,"t":0,"pf":150,"pa":120,"home_w":1,"home_l":2,"away_w":3,"away_l":0,"streak":3},
+//     ...
+//   ]
+// }
 
-const left  = document.getElementById('std-left');
-const right = document.getElementById('std-right');
-
-// Assume we have divisions[] and currentIndex managed here.
-let divisions = []; // [{name:'AFC East', teams:[...]}...]
-let page = 0;
-
-function getCount(){ return divisions.length || 1; }
-function getPage(){ return page; }
-function setPage(v){
-  page = Math.max(0, Math.min(v, getCount()-1));
-  renderDivision(divisions[page]);
-}
-
-const pager = makePager({getCount, getPage, setPage, leftBtn:left, rightBtn:right});
-
-function renderDivision(division) {
-  if (!division) return;
-  
-  const html = `<div class="list-compact">
-    ${division.teams.map(t=>`<div class="row">
-      <div>
-        <div>${t.name}</div>
-        <div class="muted">${t.pf||995} PF / ${t.pa||987} PA</div>
-      </div>
-      <div class="kv">
-        <span class="k">Record</span>
-        <span>${t.w}-${t.l}</span>
-      </div>
-    </div>`).join("")}
-  </div>`;
-  
-  const cardBody = document.querySelector('#standings-card .card-body');
-  if (cardBody) cardBody.innerHTML = html;
-}
+const TBODY = document.getElementById('std-tbody');
+const DIVNAME = document.getElementById('std-division-name');
+const DEMOBADGE = document.getElementById('std-demo');
 
 export async function initStandings(){
-  const ok = await loadDivisions(); // fill divisions[]; on fail => demo data
-  setPage(0);
-  pager.apply(); // enable/disable arrows correctly
+  let payload;
+  try{
+    const r = await fetch('/api/standings',{headers:{'Accept':'application/json'}});
+    if(!r.ok) throw new Error('bad status '+r.status);
+    payload = await r.json();
+  }catch(err){
+    // Demo fallback
+    DEMOBADGE.hidden = false;
+    payload = demoStandings();
+  }
+  renderStandings(payload);
 }
 
-async function loadDivisions() {
-  try {
-    const response = await fetch('/api/standings');
-    if (response.ok) {
-      const data = await response.json();
-      divisions = data.divisions || [];
-      return true;
-    }
-  } catch (e) {
-    console.warn('Failed to load standings:', e);
-  }
-  
-  // Fallback demo data
-  divisions = [
-    {name: 'AFC East', teams: [
-      {name: 'Patriots', w: 10, l: 7, pf: 995, pa: 987},
-      {name: 'Bills', w: 9, l: 8, pf: 1023, pa: 945},
-      {name: 'Jets', w: 7, l: 10, pf: 876, pa: 1023},
-      {name: 'Dolphins', w: 11, l: 6, pf: 1087, pa: 892}
-    ]},
-    {name: 'AFC West', teams: [
-      {name: 'Chiefs', w: 12, l: 5, pf: 1156, pa: 834},
-      {name: 'Chargers', w: 8, l: 9, pf: 945, pa: 1023},
-      {name: 'Raiders', w: 6, l: 11, pf: 823, pa: 1087},
-      {name: 'Broncos', w: 5, l: 12, pf: 756, pa: 1156}
-    ]}
-  ];
-  
-  // Show demo badge
-  const demoBadge = document.getElementById('std-demo');
-  if (demoBadge) demoBadge.hidden = false;
-  
-  return false;
+function renderStandings(data){
+  const teams = Array.isArray(data?.teams) ? data.teams.slice() : [];
+  DIVNAME.textContent = data?.division || 'Division';
+
+  // Sort by win pct, then PF diff (PF-PA)
+  teams.sort((a,b)=>{
+    const pa = winPct(a), pb = winPct(b);
+    if(pb !== pa) return pb - pa;
+    const da = (a.pf||0)-(a.pa||0), db = (b.pf||0)-(b.pa||0);
+    return db - da;
+  });
+
+  TBODY.innerHTML = teams.map(t => rowHtml(t)).join('');
 }
+
+function rowHtml(t){
+  const abbr = normalizeAbbr(t.abbr || t.team || '');
+  const name = t.name || teamNameFromAbbr(abbr) || abbr;
+  const w = t.w|0, l = t.l|0, tt = t.t|0;
+  const pct = toPct(winPct(t));
+  const pf = t.pf|0, pa = t.pa|0;
+  const home = `${t.home_w|0}-${t.home_l|0}`;
+  const away = `${t.away_w|0}-${t.away_l|0}`;
+  const strk = streakStr(t.streak);
+  const strkClass = (t.streak||0) >= 0 ? 'win' : 'loss';
+
+  return `
+    <tr>
+      <td>
+        <div class="std-team">
+          <span class="std-abbr">${abbr}</span>
+          <span class="std-name">${name}</span>
+        </div>
+      </td>
+      <td>${w}</td>
+      <td>${l}</td>
+      <td>${tt}</td>
+      <td class="std-pct">${pct}</td>
+      <td>${pf}</td>
+      <td>${pa}</td>
+      <td>${home}</td>
+      <td>${away}</td>
+      <td class="std-strk ${strkClass}">${strk}</td>
+    </tr>`;
+}
+
+function winPct(t){
+  const w=t.w|0, l=t.l|0, tt=t.t|0;
+  const g=w+l+tt;
+  if(!g) return 0;
+  return (w + 0.5*tt) / g;
+}
+function toPct(x){
+  // format like .667, .500, .000
+  return x === 0 ? '.000' : ('.' + Math.round(x*1000).toString().padStart(3,'0'));
+}
+function streakStr(s){
+  // positive => Wn, negative => Ln, 0 => –
+  if(!s) return '–';
+  const n = Math.abs(s);
+  return (s>0?'W':'L')+n;
+}
+// Normalize to requested style (NE, BUF, MIA, NYJ, etc.; allow BUFF from input)
+function normalizeAbbr(a){
+  const up = String(a||'').toUpperCase();
+  if(up==='BUFF') return 'BUF';
+  return up;
+}
+function teamNameFromAbbr(ab){
+  const map = {
+    NE:'Patriots', BUF:'Bills', MIA:'Dolphins', NYJ:'Jets',
+    DAL:'Cowboys', NYG:'Giants', PHI:'Eagles', WAS:'Commanders'
+    // extend as needed; fallback uses abbr
+  };
+  return map[ab];
+}
+
+function demoStandings(){
+  return {
+    division:'AFC East',
+    teams:[
+      {abbr:'NE',  name:'Patriots', w:4, l:2, t:0, pf:150, pa:120, home_w:1, home_l:2, away_w:3, away_l:0, streak: 3},
+      {abbr:'BUF', name:'Bills',     w:4, l:2, t:0, pf:167, pa:137, home_w:3, home_l:1, away_w:1, away_l:1, streak:-2},
+      {abbr:'MIA', name:'Dolphins',  w:1, l:5, t:0, pf:134, pa:174, home_w:1, home_l:2, away_w:0, away_l:3, streak:-2},
+      {abbr:'NYJ', name:'Jets',      w:0, l:6, t:0, pf:123, pa:170, home_w:0, home_l:4, away_w:0, away_l:2, streak:-6}
+    ]
+  };
+}
+
+// Auto-init if the card exists
+if (TBODY) { initStandings(); }

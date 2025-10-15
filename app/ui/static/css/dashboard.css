@@ -300,3 +300,49 @@ table{ font-size: var(--fs-base); }
 
 /* Tables denser but bigger type */
 .quarters th,.quarters td{ padding:10px 12px; }
+
+/* ===== Standings compact table ===== */
+.std-table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  font-size:1rem;
+}
+.std-table thead th{
+  text-align:left;
+  color:var(--muted);
+  font-weight:700;
+  padding:10px 12px;
+  border-bottom:1px solid var(--line);
+}
+.std-table .col-team{ min-width:160px; }
+.std-table .col-pct{ min-width:64px; text-align:left; }
+.std-table tbody td{
+  padding:14px 12px;
+  border-bottom:1px solid var(--line);
+  vertical-align:middle;
+}
+.std-team{
+  display:flex; align-items:center; gap:10px; font-weight:600;
+}
+.std-abbr{
+  display:inline-block;
+  min-width:38px;
+  text-align:center;
+  border-radius:8px;
+  background:var(--bg-2);
+  border:1px solid var(--line);
+  padding:4px 6px;
+  color:var(--text);
+  font-weight:700;
+  letter-spacing:.4px;
+}
+.std-name{ color:var(--text); }
+.std-pct{ font-weight:700; }
+.std-strk.win{ color:var(--good); font-weight:700; }
+.std-strk.loss{ color:var(--bad);  font-weight:700; }
+.std-table tbody tr:last-child td{ border-bottom:none; }
+@media (max-width: 640px){
+  .std-table{ font-size:.95rem; }
+  .std-table .col-team{ min-width:120px; }
+}
