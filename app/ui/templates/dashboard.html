@@ -10,7 +10,7 @@
   <header class="nav">
     <div class="brand">Franchise Football</div>
     <nav class="nav-links">
-      <a href="/dashboard" class="active">Home</a>
+      <a href="/" class="active">Home</a>
       <a href="/roster">Roster</a>
       <a href="#">Playoffs</a>
       <a href="#">Stats</a>
@@ -30,113 +30,25 @@
     </div>
   </section>
 
-  <main id="dashboard" class="dashboard-grid">
-    <!-- C1 (Left Column) -->
-    <div id="col-c1" class="col">
-      <section id="standings-widget" class="card">
-        <div class="card-title">Division Standings</div>
-        <div class="card-body">
-          <div class="loading">Loading standings...</div>
-        </div>
-      </section>
+  <main id="dash" class="grid">
+    <!-- C1 column -->
+    <section id="standings-card" class="card" data-area="c1-standings"></section>
+    <section id="power-card" class="card" data-area="c1-power"></section>
+    <section id="league-perf-card" class="card" data-area="c1-perf"></section>
 
-      <section id="power-rankings-carousel" class="card">
-        <div class="card-title-row">
-          <div class="card-title">League Power Rankings</div>
-          <div class="carousel-controls">
-            <button class="btn btn-mini" id="power-prev">‹</button>
-            <button class="btn btn-mini" id="power-next">›</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="loading">Loading power rankings...</div>
-        </div>
-      </section>
+    <!-- C2 column -->
+    <section id="schedule-card" class="card scroll" data-area="c2-schedule"></section>
+    <!-- SPAN across C2 + C3 -->
+    <section id="box-score-card" class="card" data-area="span-boxscore"></section>
+    <section id="pbp-card" class="card scroll" data-area="c2-pbp"></section>
 
-      <section id="league-top-performers-carousel" class="card">
-        <div class="card-title-row">
-          <div class="card-title">League Top Performers</div>
-          <div class="carousel-controls">
-            <button class="btn btn-mini" id="league-prev">‹</button>
-            <button class="btn btn-mini" id="league-next">›</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="loading">Loading league performers...</div>
-        </div>
-      </section>
-    </div>
-
-    <!-- C2 (Middle Column) -->
-    <div id="col-c2" class="col">
-      <section id="schedule-list" class="card scrollable">
-        <div class="card-title-row">
-          <div class="card-title">Team Schedule</div>
-          <div class="scroll-controls">
-            <button class="btn btn-mini" id="schedule-up">↑</button>
-            <button class="btn btn-mini" id="schedule-down">↓</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="loading">Loading schedule...</div>
-        </div>
-      </section>
-    </div>
-
-    <!-- C3 (Right Column) -->
-    <div id="col-c3" class="col">
-      <section id="scouting-panel" class="card">
-        <div class="card-title-row">
-          <div class="card-title">Scouting - Next Opponent</div>
-          <div class="tabs">
-            <button class="tab active" data-tab="stats">Stats</button>
-            <button class="tab" data-tab="top">Top</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="loading">Loading scouting data...</div>
-        </div>
-      </section>
-
-      <section id="team-top-performers" class="card">
-        <div class="card-title">Team Top Performers</div>
-        <div class="card-body">
-          <div class="loading">Loading team performers...</div>
-        </div>
-      </section>
-    </div>
-
-    <!-- Box Score spans C2-C3 -->
-    <section id="box-score-card" class="card span-c2-c3">
-      <div class="card-title-row">
-        <div class="card-title">Box Score - Last Game</div>
-        <div class="btns-inline">
-          <a class="btn btn-mini" href="#">Full Box Score</a>
-          <a class="btn btn-mini success" href="#">Play-by-Play</a>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="loading">Loading box score...</div>
-      </div>
-    </section>
-
-    <!-- Play-by-Play panel below the span card, centered under C2 -->
-    <section id="pbp-panel" class="card scrollable">
-      <div class="card-title-row">
-        <div class="card-title">Play by Play</div>
-        <div class="btns-inline">
-          <button class="btn btn-mini">Auto Scroll</button>
-          <button class="btn btn-mini btn-ghost">Clear</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="loading">Loading play-by-play...</div>
-      </div>
-    </section>
+    <!-- C3 column -->
+    <section id="scouting-card" class="card" data-area="c3-scout"></section>
+    <section id="team-perf-card" class="card" data-area="c3-teamperf"></section>
   </main>
 
   <footer class="footer">
-    <span>Dashboard v2.0 (rebuild)</span>
+    <span>Dashboard v3 Grid Layout</span>
   </footer>
 
   <script src="/static/js/dashboard.js"></script>
