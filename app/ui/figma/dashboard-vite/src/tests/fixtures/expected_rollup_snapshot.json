@@ -1,0 +1,132 @@
+{
+  "game_id": 1001,
+  "expected_player_stats": {
+    "101": {
+      "player_id": 101,
+      "team_id": 1,
+      "pass_attempts": 3,
+      "pass_completions": 2,
+      "pass_yards": 12,
+      "pass_touchdowns": 0,
+      "interceptions": 1,
+      "sacks_taken": 1.0,
+      "sack_yards": 8,
+      "qb_hits": 1,
+      "pressures_faced": 1,
+      "third_down_conversions": 1,
+      "third_down_attempts": 1,
+      "snaps_offense": 3
+    },
+    "201": {
+      "player_id": 201,
+      "team_id": 1,
+      "targets": 1,
+      "receptions": 1,
+      "receiving_yards": 12,
+      "yards_after_catch": 4,
+      "snaps_offense": 1
+    },
+    "202": {
+      "player_id": 202,
+      "team_id": 1,
+      "targets": 1,
+      "receptions": 1,
+      "receiving_yards": 8,
+      "yards_after_catch": 3,
+      "snaps_offense": 1
+    },
+    "301": {
+      "player_id": 301,
+      "team_id": 1,
+      "rush_attempts": 1,
+      "rush_yards": 2,
+      "rush_touchdowns": 0,
+      "snaps_offense": 1
+    },
+    "302": {
+      "player_id": 302,
+      "team_id": 2,
+      "rush_attempts": 1,
+      "rush_yards": 15,
+      "rush_touchdowns": 1,
+      "snaps_offense": 1
+    },
+    "401": {
+      "player_id": 401,
+      "team_id": 2,
+      "sacks": 0.5,
+      "quarterback_hits": 1,
+      "pressures": 1,
+      "snaps_defense": 1
+    },
+    "402": {
+      "player_id": 402,
+      "team_id": 2,
+      "sacks": 0.5,
+      "pressures": 1,
+      "snaps_defense": 1
+    },
+    "501": {
+      "player_id": 501,
+      "team_id": 2,
+      "interceptions_caught": 1,
+      "targets_against": 1,
+      "snaps_defense": 1
+    },
+    "601": {
+      "player_id": 601,
+      "team_id": 1,
+      "snaps_defense": 1
+    },
+    "701": {
+      "player_id": 701,
+      "team_id": 1,
+      "punts": 1,
+      "punt_yards": 45,
+      "punt_net_yards": 35,
+      "punts_in_20": 1,
+      "snaps_st": 1
+    },
+    "801": {
+      "player_id": 801,
+      "team_id": 2,
+      "field_goals_made": 1,
+      "field_goals_attempted": 1,
+      "snaps_st": 1
+    }
+  },
+  "expected_team_stats": {
+    "1": {
+      "team_id": 1,
+      "points_scored": 0,
+      "total_yards": 22,
+      "passing_yards": 12,
+      "rushing_yards": 2,
+      "turnovers_committed": 1,
+      "punts": 1,
+      "punt_net_yards": 35,
+      "punts_in_20": 1,
+      "third_down_conversions": 1,
+      "third_down_attempts": 1
+    },
+    "2": {
+      "team_id": 2,
+      "points_scored": 9,
+      "total_yards": 15,
+      "passing_yards": 0,
+      "rushing_yards": 15,
+      "turnovers_forced": 1,
+      "field_goals_made": 1,
+      "field_goals_attempted": 1,
+      "third_down_conversions": 0,
+      "third_down_attempts": 0
+    }
+  },
+  "validation_checks": {
+    "sack_shares_sum_to_one": true,
+    "team_totals_equal_player_sums": true,
+    "coverage_stats_consistent": true,
+    "special_teams_net_yards_valid": true,
+    "situational_splits_consistent": true
+  }
+}

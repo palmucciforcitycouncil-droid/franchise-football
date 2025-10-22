@@ -1,10 +1,13 @@
 from __future__ import annotations
 from typing import Optional, Literal, List, Tuple, Dict, Any
-from pydantic import BaseModel, Field, validator
+from sqlmodel import SQLModel, Field
 from datetime import datetime
 
-class PBPEvent(BaseModel):
+class PBPEvent(SQLModel, table=True):
     """Comprehensive Play-by-Play Event Schema for Advanced Stats"""
+    __tablename__ = "pbp_events"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
     
     # Core event identification
     game_id: int
@@ -19,7 +22,7 @@ class PBPEvent(BaseModel):
     down: int = Field(ge=1, le=4)
     distance: int = Field(ge=1, le=99)
     yardline: int = Field(ge=1, le=99)
-    play_type: Literal["pass", "run", "punt", "kickoff", "fg", "xp", "kickoff_return", "punt_return"]
+    play_type: str = Field(description="pass, run, punt, kickoff, fg, xp, kickoff_return, punt_return")
     yards_gained: int
     is_scoring_play: bool = False
     points_offense: int = 0
@@ -51,13 +54,13 @@ class PBPEvent(BaseModel):
     fumbled_by_id: Optional[int] = None
     forced_by_id: Optional[int] = None
     recovered_by_id: Optional[int] = None
-    turnover_type: Optional[Literal["interception", "fumble"]] = None
+    turnover_type: Optional[str] = Field(default=None, description="interception, fumble")
     
     # Penalty stats
-    penalty: Optional[Dict[str, Any]] = Field(default=None, description="Penalty object with type, yards, player_id, etc.")
+    penalty: Optional[str] = Field(default=None, description="Penalty JSON string")
     
     # Special Teams stats
-    kick_type: Optional[Literal["kickoff", "punt", "fg", "xp"]] = None
+    kick_type: Optional[str] = Field(default=None, description="kickoff, punt, fg, xp")
     kicker_id: Optional[int] = None
     punter_id: Optional[int] = None
     returner_id: Optional[int] = None
@@ -74,20 +77,20 @@ class PBPEvent(BaseModel):
     # === ADVANCED STATS FIELDS ===
     
     # Offensive Line responsibility
-    ol_block: Optional[Dict[str, Any]] = Field(default=None, description="OL blocking assignment and outcome")
+    ol_block: Optional[str] = Field(default=None, description="OL blocking assignment JSON string")
     
     # Front-seven attribution
-    pressures_by_ids: List[int] = Field(default_factory=list, description="List of defender IDs who generated pressure")
-    hits_by_ids: List[int] = Field(default_factory=list, description="List of defender IDs who hit QB")
-    sack_split: List[Tuple[int, float]] = Field(default_factory=list, description="List of (defender_id, share) tuples for sack attribution")
-    tfl_by_ids: List[int] = Field(default_factory=list, description="List of defender IDs credited with TFL")
-    missed_tackle_by_ids: List[int] = Field(default_factory=list, description="List of defender IDs who missed tackles")
+    pressures_by_ids: Optional[str] = Field(default=None, description="JSON string of defender IDs who generated pressure")
+    hits_by_ids: Optional[str] = Field(default=None, description="JSON string of defender IDs who hit QB")
+    sack_split: Optional[str] = Field(default=None, description="JSON string of (defender_id, share) tuples for sack attribution")
+    tfl_by_ids: Optional[str] = Field(default=None, description="JSON string of defender IDs credited with TFL")
+    missed_tackle_by_ids: Optional[str] = Field(default=None, description="JSON string of defender IDs who missed tackles")
     
     # Coverage / Secondary
     targeted_db_id: Optional[int] = Field(default=None, description="Defensive back who was targeted")
     pass_breakup_by_id: Optional[int] = Field(default=None, description="Defensive back who broke up the pass")
-    coverage_type: Optional[Literal["man", "zone"]] = Field(default=None, description="Type of coverage")
-    coverage_result: Optional[Literal["caught", "defended", "intercepted", "incomplete"]] = Field(default=None, description="Result of coverage")
+    coverage_type: Optional[str] = Field(default=None, description="man, zone")
+    coverage_result: Optional[str] = Field(default=None, description="caught, defended, intercepted, incomplete")
     
     # Special Teams advanced
     hang_time_ms: Optional[int] = Field(default=None, description="Hang time in milliseconds")
@@ -110,66 +113,6 @@ class PBPEvent(BaseModel):
     snaps_defense: int = Field(default=0, description="Number of defensive snaps")
     snaps_st: int = Field(default=0, description="Number of special teams snaps")
     
-    @validator('sack_split')
-    def validate_sack_split(cls, v):
-        """Ensure sack shares sum to approximately 1.0"""
-        if v:
-            total_share = sum(share for _, share in v)
-            if abs(total_share - 1.0) > 0.01:  # Allow small floating point errors
-                raise ValueError(f"Sack split shares must sum to 1.0, got {total_share}")
-        return v
-    
-    @validator('net_yards')
-    def compute_net_yards(cls, v, values):
-        """Compute net yards if missing for punts"""
-        if v is None and values.get('play_type') == 'punt':
-            kick_distance = values.get('kick_distance', 0)
-            return_yards = values.get('yards_gained', 0)
-            return kick_distance - return_yards
-        return v
-    
-    @validator('is_red_zone')
-    def mark_red_zone(cls, v, values):
-        """Mark red zone when yardline ≤ 20"""
-        yardline = values.get('yardline', 0)
-        return yardline <= 20
-    
-    @validator('is_garbage_time_excluded')
-    def flag_garbage_time(cls, v, values):
-        """Flag garbage time by quarter ≥ 4 and score differential > threshold"""
-        quarter = values.get('quarter', 1)
-        points_offense = values.get('points_offense', 0)
-        points_defense = values.get('points_defense', 0)
-        
-        # Garbage time threshold: 4th quarter with score differential > 21 points
-        if quarter >= 4:
-            score_diff = abs(points_offense - points_defense)
-            return score_diff > 21
-        return False
-    
-    @validator('down')
-    def validate_down(cls, v):
-        """Ensure down is valid"""
-        if v < 1 or v > 4:
-            raise ValueError("Down must be between 1 and 4")
-        return v
-    
-    @validator('distance')
-    def validate_distance(cls, v):
-        """Ensure distance is valid"""
-        if v < 1 or v > 99:
-            raise ValueError("Distance must be between 1 and 99")
-        return v
-    
-    @validator('yardline')
-    def validate_yardline(cls, v):
-        """Ensure yardline is valid"""
-        if v < 1 or v > 99:
-            raise ValueError("Yardline must be between 1 and 99")
-        return v
-    
-    class Config:
-        """Pydantic configuration"""
-        validate_assignment = True
-        use_enum_values = True
-        extra = "forbid"
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

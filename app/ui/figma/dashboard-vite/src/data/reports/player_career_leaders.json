@@ -1,0 +1,335 @@
+{
+  "passing_yards": {
+    "stat": "passing_yards",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 101,
+        "player_name": "QB Smith",
+        "position": "QB",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 4850.0,
+        "games_played": 17
+      },
+      {
+        "player_id": 201,
+        "player_name": "QB Jones",
+        "position": "QB",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 4200.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 301,
+        "player_name": "QB Wilson",
+        "position": "QB",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 3950.0,
+        "games_played": 15
+      }
+    ],
+    "total_qualified": 3
+  },
+  "passing_touchdowns": {
+    "stat": "passing_touchdowns",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 101,
+        "player_name": "QB Smith",
+        "position": "QB",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 38.0,
+        "games_played": 17
+      },
+      {
+        "player_id": 301,
+        "player_name": "QB Wilson",
+        "position": "QB",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 32.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 201,
+        "player_name": "QB Jones",
+        "position": "QB",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 28.0,
+        "games_played": 16
+      }
+    ],
+    "total_qualified": 3
+  },
+  "rushing_yards": {
+    "stat": "rushing_yards",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 401,
+        "player_name": "RB Johnson",
+        "position": "RB",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 1250.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 501,
+        "player_name": "RB Brown",
+        "position": "RB",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 1180.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 601,
+        "player_name": "RB Davis",
+        "position": "RB",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 950.0,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  },
+  "rushing_touchdowns": {
+    "stat": "rushing_touchdowns",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 401,
+        "player_name": "RB Johnson",
+        "position": "RB",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 12.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 501,
+        "player_name": "RB Brown",
+        "position": "RB",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 10.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 601,
+        "player_name": "RB Davis",
+        "position": "RB",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 8.0,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  },
+  "receiving_yards": {
+    "stat": "receiving_yards",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 701,
+        "player_name": "WR Williams",
+        "position": "WR",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 1350.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 801,
+        "player_name": "WR Miller",
+        "position": "WR",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 1280.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 901,
+        "player_name": "WR Garcia",
+        "position": "WR",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 1150.0,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  },
+  "receiving_touchdowns": {
+    "stat": "receiving_touchdowns",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 701,
+        "player_name": "WR Williams",
+        "position": "WR",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 11.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 801,
+        "player_name": "WR Miller",
+        "position": "WR",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 9.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 901,
+        "player_name": "WR Garcia",
+        "position": "WR",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 8.0,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  },
+  "tackles": {
+    "stat": "tackles",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 1001,
+        "player_name": "LB Thompson",
+        "position": "LB",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 125.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 1101,
+        "player_name": "LB Anderson",
+        "position": "LB",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 118.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 1201,
+        "player_name": "LB Martinez",
+        "position": "LB",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 112.0,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  },
+  "sacks": {
+    "stat": "sacks",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 1301,
+        "player_name": "DE Jackson",
+        "position": "DE",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 14.5,
+        "games_played": 15
+      },
+      {
+        "player_id": 1401,
+        "player_name": "DE White",
+        "position": "DE",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 12.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 1501,
+        "player_name": "DE Taylor",
+        "position": "DE",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 10.5,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  },
+  "interceptions_caught": {
+    "stat": "interceptions_caught",
+    "year": null,
+    "split": null,
+    "role": null,
+    "scope": "regular",
+    "leaders": [
+      {
+        "player_id": 1601,
+        "player_name": "CB Robinson",
+        "position": "CB",
+        "team_id": 3,
+        "team_name": "Team C",
+        "value": 6.0,
+        "games_played": 15
+      },
+      {
+        "player_id": 1701,
+        "player_name": "S Clark",
+        "position": "S",
+        "team_id": 1,
+        "team_name": "Team A",
+        "value": 5.0,
+        "games_played": 16
+      },
+      {
+        "player_id": 1801,
+        "player_name": "CB Lewis",
+        "position": "CB",
+        "team_id": 2,
+        "team_name": "Team B",
+        "value": 4.0,
+        "games_played": 14
+      }
+    ],
+    "total_qualified": 3
+  }
+}
