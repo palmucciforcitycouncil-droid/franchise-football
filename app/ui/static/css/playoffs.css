@@ -1,0 +1,32 @@
+@import url("/static/css/reset.css");
+@import url("/static/css/tokens.css");
+
+html,body{background:var(--bg-primary);color:var(--text-primary);font-family:var(--font)}
+.wrap{max-width:1440px;margin:28px auto;padding:0 24px}
+.h1{font-size:32px;font-weight:700;margin:0 0 var(--s-4)}
+
+.grid{display:grid;grid-template-columns:1fr 420px 1fr;gap:var(--s-4)}
+@media(max-width:1200px){.grid{grid-template-columns:1fr}}
+
+.card{background:var(--bg-card);border:1px solid var(--stroke);border-radius:var(--radius-card);box-shadow:var(--shadow);padding:var(--s-6)}
+.card.super{border:2px solid var(--gold)}
+.title{font-size:22px;font-weight:700;color:var(--gold);margin-bottom:var(--s-3)}
+
+.section-title{display:flex;align-items:center;gap:var(--s-2);margin-bottom:var(--s-3)}
+.badge{font-size:12px;font-weight:600;padding:4px 10px;border-radius:var(--radius-badge);border:1px solid var(--stroke);background:#0c1420;color:var(--text-muted)}
+.badge.afc{background:#1d0b0b;color:var(--afc-red-text);border-color:#3a1515}
+.badge.nfc{background:#0b1326;color:var(--nfc-blue-text);border-color:#14214c}
+.badge.round{background:transparent;color:var(--text-muted)}
+
+.match{display:flex;justify-content:space-between;align-items:center;margin-top:var(--s-3);padding:10px 12px;border:1px solid var(--stroke);border-radius:12px;background:#0F1724}
+.match.complete{border-color:var(--gold)}
+.seed{font-size:12px;font-weight:700;padding:2px 7px;border-radius:999px;border:1px solid var(--stroke);margin-right:8px;background:#0E1A2A;color:#8FB2FF}
+.team{display:flex;align-items:center;gap:8px;min-width:0}
+.team-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.score{font-weight:700}
+.score.win{color:var(--gold)}
+.vs{opacity:.7;font-weight:700;margin:0 8px}
+.placeholder{color:var(--text-muted);font-style:italic;margin-top:6px}
+
+.hunt{display:flex;gap:12px;overflow:auto;padding:8px 4px;margin-top:var(--s-3);scroll-snap-type:x mandatory}
+.hunt .card{min-width:240px;scroll-snap-align:start}

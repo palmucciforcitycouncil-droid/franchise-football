@@ -1,0 +1,559 @@
+<!-- Coach Card Modal Content (partial HTML fragment) -->
+<div class="coach-card-modal">
+  <!-- Header Section -->
+  <div class="card-header">
+    <div class="coach-info">
+      <div class="coach-avatar">
+        <img src="{{ coach.avatar_url or '/static/img/default-coach.png' }}" alt="{{ coach.name }}" />
+      </div>
+      <div class="coach-details">
+        <h2 class="coach-name">{{ coach.name }}</h2>
+        <div class="coach-meta">
+          <span class="position">{{ coach.position }}</span>
+          <span class="team">{{ coach.team_name }}</span>
+          <span class="experience">{{ coach.experience }} years</span>
+        </div>
+        <div class="coach-overview">
+          <div class="overview-item">
+            <span class="overview-label">Overall</span>
+            <span class="overview-value">{{ coach.overall_rating }}</span>
+          </div>
+          <div class="overview-item">
+            <span class="overview-label">Age</span>
+            <span class="overview-value">{{ coach.age }}</span>
+          </div>
+          <div class="overview-item">
+            <span class="overview-label">Morale</span>
+            <span class="overview-value">{{ coach.morale }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ratings Rail -->
+  <div class="ratings-rail">
+    <div class="rating-category">
+      <h4>Coaching Skills</h4>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.offense_rating / 100) * 100 }}%"></div>
+        <span class="rating-label">OFF {{ coach.offense_rating }}</span>
+      </div>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.defense_rating / 100) * 100 }}%"></div>
+        <span class="rating-label">DEF {{ coach.defense_rating }}</span>
+      </div>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.special_teams_rating / 100) * 100 }}%"></div>
+        <span class="rating-label">ST {{ coach.special_teams_rating }}</span>
+      </div>
+    </div>
+
+    <div class="rating-category">
+      <h4>Leadership</h4>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.leadership / 100) * 100 }}%"></div>
+        <span class="rating-label">LD {{ coach.leadership }}</span>
+      </div>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.discipline / 100) * 100 }}%"></div>
+        <span class="rating-label">DISC {{ coach.discipline }}</span>
+      </div>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.motivation / 100) * 100 }}%"></div>
+        <span class="rating-label">MOT {{ coach.motivation }}</span>
+      </div>
+    </div>
+
+    <div class="rating-category">
+      <h4>Player Development</h4>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.player_development / 100) * 100 }}%"></div>
+        <span class="rating-label">DEV {{ coach.player_development }}</span>
+      </div>
+      <div class="rating-bar">
+        <div class="rating-fill" style="width: {{ (coach.scouting / 100) * 100 }}%"></div>
+        <span class="rating-label">SCOUT {{ coach.scouting }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs Section -->
+  <div class="card-tabs">
+    <div class="tab-nav">
+      <button class="tab-button active" data-tab="bio">Bio</button>
+      <button class="tab-button" data-tab="scheme">Scheme</button>
+      <button class="tab-button" data-tab="contract">Contract</button>
+      <button class="tab-button" data-tab="history">History</button>
+    </div>
+
+    <div class="tab-content">
+      <!-- Bio Tab -->
+      <div class="tab-panel active" id="bio">
+        <div class="bio-section">
+          <h3>Coach Information</h3>
+          <div class="bio-grid">
+            <div class="bio-item">
+              <span class="bio-label">Age</span>
+              <span class="bio-value">{{ coach.age }}</span>
+            </div>
+            <div class="bio-item">
+              <span class="bio-label">Experience</span>
+              <span class="bio-value">{{ coach.experience }} years</span>
+            </div>
+            <div class="bio-item">
+              <span class="bio-label">Previous Team</span>
+              <span class="bio-value">{{ coach.previous_team or 'N/A' }}</span>
+            </div>
+            <div class="bio-item">
+              <span class="bio-label">College</span>
+              <span class="bio-value">{{ coach.college or 'N/A' }}</span>
+            </div>
+            <div class="bio-item">
+              <span class="bio-label">Career Record</span>
+              <span class="bio-value">{{ coach.career_wins }}-{{ coach.career_losses }}</span>
+            </div>
+          </div>
+          
+          <div class="coach-philosophy">
+            <h4>Coaching Philosophy</h4>
+            <p>{{ coach.philosophy or 'No philosophy information available.' }}</p>
+          </div>
+
+          <div class="coach-traits">
+            <h4>Traits</h4>
+            <div class="trait-list">
+              {% for trait in coach.traits %}
+              <span class="trait-badge">{{ trait }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scheme Tab -->
+      <div class="tab-panel" id="scheme">
+        <div class="scheme-section">
+          <h3>Coaching Scheme</h3>
+          
+          {% if coach.position == 'Head Coach' %}
+          <div class="scheme-overview">
+            <div class="scheme-item">
+              <span class="scheme-label">Offensive Scheme</span>
+              <span class="scheme-value">{{ coach.offensive_scheme or 'Multiple' }}</span>
+            </div>
+            <div class="scheme-item">
+              <span class="scheme-label">Defensive Scheme</span>
+              <span class="scheme-value">{{ coach.defensive_scheme or 'Multiple' }}</span>
+            </div>
+            <div class="scheme-item">
+              <span class="scheme-label">Special Teams Focus</span>
+              <span class="scheme-value">{{ coach.special_teams_focus or 'Balanced' }}</span>
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="scheme-preferences">
+            <h4>Game Preferences</h4>
+            <div class="preference-grid">
+              <div class="preference-item">
+                <span class="preference-label">Aggressiveness</span>
+                <div class="preference-bar">
+                  <div class="preference-fill" style="width: {{ (coach.aggressiveness / 100) * 100 }}%"></div>
+                </div>
+                <span class="preference-value">{{ coach.aggressiveness }}%</span>
+              </div>
+              <div class="preference-item">
+                <span class="preference-label">Conservative</span>
+                <div class="preference-bar">
+                  <div class="preference-fill" style="width: {{ (coach.conservative / 100) * 100 }}%"></div>
+                </div>
+                <span class="preference-value">{{ coach.conservative }}%</span>
+              </div>
+              <div class="preference-item">
+                <span class="preference-label">Clock Management</span>
+                <div class="preference-bar">
+                  <div class="preference-fill" style="width: {{ (coach.clock_management / 100) * 100 }}%"></div>
+                </div>
+                <span class="preference-value">{{ coach.clock_management }}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contract Tab -->
+      <div class="tab-panel" id="contract">
+        <div class="contract-section">
+          <h3>Contract Information</h3>
+          <div class="contract-grid">
+            <div class="contract-item">
+              <span class="contract-label">Salary</span>
+              <span class="contract-value">${{ "{:,.0f}".format(coach.salary) }}</span>
+            </div>
+            <div class="contract-item">
+              <span class="contract-label">Years Remaining</span>
+              <span class="contract-value">{{ coach.contract_years }}</span>
+            </div>
+            <div class="contract-item">
+              <span class="contract-label">Bonus</span>
+              <span class="contract-value">${{ "{:,.0f}".format(coach.signing_bonus) }}</span>
+            </div>
+            <div class="contract-item">
+              <span class="contract-label">Job Security</span>
+              <span class="contract-value">{{ coach.job_security }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Tab -->
+      <div class="tab-panel" id="history">
+        <div class="history-section">
+          <h3>Coaching History</h3>
+          
+          <div class="season-stats">
+            <h4>Season Record</h4>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <span class="stat-label">Wins</span>
+                <span class="stat-value">{{ coach.season_wins }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Losses</span>
+                <span class="stat-value">{{ coach.season_losses }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Win %</span>
+                <span class="stat-value">{{ "%.1f".format((coach.season_wins / (coach.season_wins + coach.season_losses)) * 100) }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="career-highlights">
+            <h4>Career Highlights</h4>
+            <ul class="highlights-list">
+              {% for highlight in coach.career_highlights %}
+              <li>{{ highlight }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="team-improvement">
+            <h4>Team Improvement</h4>
+            <div class="improvement-grid">
+              <div class="improvement-item">
+                <span class="improvement-label">Offense Change</span>
+                <span class="improvement-value {{ 'positive' if coach.offense_change > 0 else 'negative' }}">
+                  {{ '+' if coach.offense_change > 0 else '' }}{{ coach.offense_change }}
+                </span>
+              </div>
+              <div class="improvement-item">
+                <span class="improvement-label">Defense Change</span>
+                <span class="improvement-value {{ 'positive' if coach.defense_change > 0 else 'negative' }}">
+                  {{ '+' if coach.defense_change > 0 else '' }}{{ coach.defense_change }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+/* Coach Card Modal Styles */
+.coach-card-modal {
+  max-width: 100%;
+  color: white;
+}
+
+.card-header {
+  border-bottom: 1px solid #2d4a6f;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+
+.coach-info {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.coach-avatar img {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 2px solid #2d4a6f;
+}
+
+.coach-name {
+  font-size: 24px;
+  font-weight: bold;
+  margin: 0 0 8px 0;
+  color: #d4af37;
+}
+
+.coach-meta {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.coach-overview {
+  display: flex;
+  gap: 20px;
+}
+
+.overview-item {
+  text-align: center;
+}
+
+.overview-label {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.overview-value {
+  display: block;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+}
+
+.ratings-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.rating-category h4 {
+  font-size: 14px;
+  color: #d4af37;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rating-bar {
+  position: relative;
+  height: 20px;
+  background: #2d4a6f;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.rating-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #d4af37, #f4d03f);
+  transition: width 0.3s ease;
+}
+
+.rating-label {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  font-size: 12px;
+  font-weight: bold;
+  color: #0a1929;
+  z-index: 1;
+}
+
+.tab-nav {
+  display: flex;
+  border-bottom: 1px solid #2d4a6f;
+  margin-bottom: 20px;
+}
+
+.tab-button {
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.tab-button:hover {
+  color: white;
+}
+
+.tab-button.active {
+  color: #d4af37;
+  border-bottom-color: #d4af37;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.bio-grid, .contract-grid, .scheme-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.bio-item, .contract-item, .scheme-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #2d4a6f;
+}
+
+.bio-label, .contract-label, .scheme-label {
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.bio-value, .contract-value, .scheme-value {
+  color: white;
+  font-weight: 500;
+}
+
+.coach-philosophy p {
+  color: #94a3b8;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.trait-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trait-badge {
+  background: #2d4a6f;
+  color: #d4af37;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.preference-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.preference-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preference-label {
+  min-width: 120px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.preference-bar {
+  flex: 1;
+  height: 8px;
+  background: #2d4a6f;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.preference-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #d4af37, #f4d03f);
+  transition: width 0.3s ease;
+}
+
+.preference-value {
+  min-width: 40px;
+  text-align: right;
+  color: white;
+  font-weight: 500;
+}
+
+.stats-grid, .improvement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-item, .improvement-item {
+  text-align: center;
+  padding: 8px;
+  border: 1px solid #2d4a6f;
+  border-radius: 4px;
+}
+
+.stat-label, .improvement-label {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.stat-value, .improvement-value {
+  display: block;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+}
+
+.improvement-value.positive {
+  color: #10b981;
+}
+
+.improvement-value.negative {
+  color: #ef4444;
+}
+
+.highlights-list {
+  list-style: none;
+  padding: 0;
+}
+
+.highlights-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid #2d4a6f;
+  color: #94a3b8;
+}
+
+.highlights-list li:before {
+  content: "🏆 ";
+  margin-right: 8px;
+}
+</style>
+
+<script>
+// Tab switching functionality
+document.addEventListener('DOMContentLoaded', function() {
+  const tabButtons = document.querySelectorAll('.tab-button');
+  const tabPanels = document.querySelectorAll('.tab-panel');
+
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const targetTab = button.dataset.tab;
+      
+      // Remove active class from all buttons and panels
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      tabPanels.forEach(panel => panel.classList.remove('active'));
+      
+      // Add active class to clicked button and corresponding panel
+      button.classList.add('active');
+      document.getElementById(targetTab).classList.add('active');
+    });
+  });
+});
+</script>

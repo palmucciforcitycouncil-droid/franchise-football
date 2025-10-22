@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roster & Depth Chart - Franchise Football</title>
+    
+    <!-- Include CSS -->
+    <link rel="stylesheet" href="/static/css/roster.css">
+    <link rel="stylesheet" href="/static/css/modal.css">
+    
+    <!-- Tailwind CSS for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ff-primary': '#d4af37',
+                        'ff-bg': '#0a1929',
+                        'ff-card': '#1a2332',
+                        'ff-border': '#2d4a6f',
+                        'ff-text': '#94a3b8'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #0a1929;
+            color: white;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        
+        .roster-card, .depth-chart-card {
+            background-color: #1a2332;
+            border: 1px solid #2d4a6f;
+            border-radius: 8px;
+        }
+        
+        .depth-dropdown {
+            background-color: #1a2332;
+            border: 1px solid #2d4a6f;
+            color: white;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        
+        .depth-dropdown:focus {
+            outline: none;
+            border-color: #d4af37;
+        }
+        
+        .warnings-bar {
+            background-color: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-bottom: 16px;
+        }
+        
+        .warning-item {
+            color: #f59e0b;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+        
+        .validation-error {
+            color: #ef4444;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="max-w-[1800px] mx-auto p-6">
+        <!-- Page Header -->
+        <div class="mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-4">
+                    <select class="bg-[#1a2332] border-[#2d4a6f] text-white rounded px-3 py-2">
+                        <option value="NE">New England Patriots</option>
+                    </select>
+                    <h1 class="text-2xl font-bold text-white">Active Roster & Depth Chart</h1>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <button class="bg-transparent border-[#2d4a6f] text-white hover:bg-[#2d4a6f] px-4 py-2 rounded border">
+                        Filter
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Search -->
+            <input type="text" 
+                   placeholder="Search name, position, or query like OVR >= 75 AND CTH >= 80"
+                   class="w-full bg-[#1a2332] border-[#2d4a6f] text-white placeholder:text-[#94a3b8] rounded px-4 py-2">
+        </div>
+
+        <!-- Roster Card -->
+        <div id="rosterCard" class="roster-card">
+            <!-- Roster Header -->
+            <div class="p-4 border-b border-[#2d4a6f]">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-white">Roster</h3>
+                </div>
+            </div>
+            
+            <!-- Roster Table Container -->
+            <div id="rosterBodyScroll">
+                <table id="rosterTable" class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="text-left p-3 text-[#94a3b8]">Player</th>
+                            <th class="text-right p-3 text-[#94a3b8]">OVR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">SPD</th>
+                            <th class="text-right p-3 text-[#94a3b8]">STR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">AGI</th>
+                            <th class="text-right p-3 text-[#94a3b8]">TPW</th>
+                            <th class="text-right p-3 text-[#94a3b8]">TAC</th>
+                            <th class="text-right p-3 text-[#94a3b8]">CTH</th>
+                            <th class="text-right p-3 text-[#94a3b8]">TCK</th>
+                            <th class="text-right p-3 text-[#94a3b8]">AWR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">POT</th>
+                            <th class="text-right p-3 text-[#94a3b8]">STA</th>
+                            <th class="text-right p-3 text-[#94a3b8]">INJ</th>
+                            <th class="text-right p-3 text-[#94a3b8]">MOR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">AGE</th>
+                            <th class="text-right p-3 text-[#94a3b8]">CTR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">YRS</th>
+                            <th class="text-left p-3 text-[#94a3b8]">DEP</th>
+                            <th class="text-left p-3 text-[#94a3b8]">HLTH</th>
+                            <th class="text-center p-3 text-[#94a3b8]">TRD</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rosterTableBody">
+                        <!-- Roster rows will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Depth Chart Card -->
+        <div class="mt-6 depth-chart-card">
+            <!-- Depth Chart Header -->
+            <div class="p-4 border-b border-[#2d4a6f]">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-white">Depth Chart</h3>
+                    <button id="btnAutoFillDepth" class="px-4 py-2 bg-[#d4af37] text-[#0a1929] rounded-lg hover:bg-[#f4d03f] transition-colors font-medium">
+                        Auto-Fill Empty Slots
+                    </button>
+                </div>
+            </div>
+
+            <!-- Warnings Bar (hidden by default) -->
+            <div id="warningsBar" class="warnings-bar" style="display: none;">
+                <div class="font-medium text-[#f59e0b] mb-2">Auto-Fill Warnings:</div>
+                <div id="warningsList"></div>
+            </div>
+
+            <!-- Depth Chart Container -->
+            <div id="depthChartContainer" class="p-4">
+                <!-- Depth chart grid will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Include Scripts -->
+    <script type="module" src="/static/js/entity-modal.js"></script>
+    <script src="/static/js/roster.js"></script>
+    
+    <!-- Configuration -->
+    <script>
+        window.__TEAM_ID__ = 'NE';
+        window.__SEASON__ = 2025;
+    </script>
+</body>
+</html>

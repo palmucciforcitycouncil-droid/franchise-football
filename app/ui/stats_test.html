@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franchise Football - Stats API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .test-section {
+            margin-bottom: 30px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .loading {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+        }
+        .stat-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        .stat-value {
+            font-size: 1.2em;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏈 Franchise Football - Stats API Test</h1>
+        <p>Test the comprehensive stats system with PBP v2 data.</p>
+    </div>
+
+    <div class="container">
+        <h2>📊 Stats System Test</h2>
+        <div class="test-section">
+            <button onclick="testStatsSystem()">Run Complete Stats Test</button>
+            <button onclick="testBoxScore()">Test Box Score</button>
+            <button onclick="testLeaders()">Test Statistical Leaders</button>
+            <button onclick="testPlayerStats()">Test Player Season Stats</button>
+            <button onclick="testTeamStats()">Test Team Season Stats</button>
+        </div>
+        <div id="statsResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>🎯 Quick Stats Overview</h2>
+        <div id="quickStats" class="stats-grid">
+            <!-- Quick stats will be populated here -->
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8015/api/stats';
+        
+        function showResult(elementId, content, type = 'result') {
+            const element = document.getElementById(elementId);
+            element.className = `result ${type}`;
+            element.textContent = content;
+            element.style.display = 'block';
+        }
+
+        function showLoading(elementId) {
+            showResult(elementId, 'Loading...', 'loading');
+        }
+
+        async function testStatsSystem() {
+            showLoading('statsResult');
+            
+            try {
+                const results = [];
+                
+                // Test 1: Box Score
+                results.push('=== BOX SCORE TEST ===');
+                try {
+                    const boxScoreResponse = await fetch(`${API_BASE}/games/1`);
+                    if (boxScoreResponse.ok) {
+                        const boxScore = await boxScoreResponse.json();
+                        results.push(`✅ Box Score: Game ${boxScore.game_id}`);
+                        results.push(`   Home Team: ${boxScore.home_team.team_id}`);
+                        results.push(`   Away Team: ${boxScore.away_team.team_id}`);
+                        results.push(`   Home Players: ${boxScore.home_players.length}`);
+                        results.push(`   Away Players: ${boxScore.away_players.length}`);
+                    } else {
+                        results.push(`❌ Box Score: ${boxScoreResponse.status} ${boxScoreResponse.statusText}`);
+                    }
+                } catch (error) {
+                    results.push(`❌ Box Score Error: ${error.message}`);
+                }
+                
+                // Test 2: Leaders
+                results.push('\n=== LEADERS TEST ===');
+                try {
+                    const leadersResponse = await fetch(`${API_BASE}/leaders?year=2025&stat=pass_yards&top=5`);
+                    if (leadersResponse.ok) {
+                        const leaders = await leadersResponse.json();
+                        results.push(`✅ Leaders: ${leaders.length} players found`);
+                        leaders.slice(0, 3).forEach(leader => {
+                            results.push(`   ${leader.team_name}: ${leader.stat_value} yards`);
+                        });
+                    } else {
+                        results.push(`❌ Leaders: ${leadersResponse.status} ${leadersResponse.statusText}`);
+                    }
+                } catch (error) {
+                    results.push(`❌ Leaders Error: ${error.message}`);
+                }
+                
+                // Test 3: Player Stats
+                results.push('\n=== PLAYER STATS TEST ===');
+                try {
+                    const playerStatsResponse = await fetch(`${API_BASE}/players/season?year=2025`);
+                    if (playerStatsResponse.ok) {
+                        const playerStats = await playerStatsResponse.json();
+                        results.push(`✅ Player Stats: ${playerStats.length} players found`);
+                        const qbStats = playerStats.filter(p => p.pass_attempts > 0);
+                        results.push(`   QBs with stats: ${qbStats.length}`);
+                    } else {
+                        results.push(`❌ Player Stats: ${playerStatsResponse.status} ${playerStatsResponse.statusText}`);
+                    }
+                } catch (error) {
+                    results.push(`❌ Player Stats Error: ${error.message}`);
+                }
+                
+                // Test 4: Team Stats
+                results.push('\n=== TEAM STATS TEST ===');
+                try {
+                    const teamStatsResponse = await fetch(`${API_BASE}/teams/season?year=2025`);
+                    if (teamStatsResponse.ok) {
+                        const teamStats = await teamStatsResponse.json();
+                        results.push(`✅ Team Stats: ${teamStats.length} teams found`);
+                        const totalYards = teamStats.reduce((sum, team) => sum + team.total_yards, 0);
+                        results.push(`   Total League Yards: ${totalYards.toLocaleString()}`);
+                    } else {
+                        results.push(`❌ Team Stats: ${teamStatsResponse.status} ${teamStatsResponse.statusText}`);
+                    }
+                } catch (error) {
+                    results.push(`❌ Team Stats Error: ${error.message}`);
+                }
+                
+                showResult('statsResult', results.join('\n'), 'success');
+                
+            } catch (error) {
+                showResult('statsResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testBoxScore() {
+            showLoading('statsResult');
+            
+            try {
+                const response = await fetch(`${API_BASE}/games/1`);
+                if (response.ok) {
+                    const boxScore = await response.json();
+                    const result = `Box Score for Game ${boxScore.game_id}:
+Home Team: ${boxScore.home_team.team_id}
+Away Team: ${boxScore.away_team.team_id}
+Home Players: ${boxScore.home_players.length}
+Away Players: ${boxScore.away_players.length}
+
+Home Team Stats:
+- Pass Yards: ${boxScore.home_team.pass_yards}
+- Rush Yards: ${boxScore.home_team.rush_yards}
+- Total Yards: ${boxScore.home_team.total_yards}
+- Turnovers: ${boxScore.home_team.turnovers}
+
+Away Team Stats:
+- Pass Yards: ${boxScore.away_team.pass_yards}
+- Rush Yards: ${boxScore.away_team.rush_yards}
+- Total Yards: ${boxScore.away_team.total_yards}
+- Turnovers: ${boxScore.away_team.turnovers}`;
+                    
+                    showResult('statsResult', result, 'success');
+                } else {
+                    showResult('statsResult', `Error: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                showResult('statsResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testLeaders() {
+            showLoading('statsResult');
+            
+            try {
+                const response = await fetch(`${API_BASE}/leaders?year=2025&stat=pass_yards&top=10`);
+                if (response.ok) {
+                    const leaders = await response.json();
+                    const result = `Passing Yards Leaders (2025):
+${leaders.map(leader => 
+    `${leader.team_name}: ${leader.stat_value} yards (${leader.games_played} games)`
+).join('\n')}`;
+                    
+                    showResult('statsResult', result, 'success');
+                } else {
+                    showResult('statsResult', `Error: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                showResult('statsResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testPlayerStats() {
+            showLoading('statsResult');
+            
+            try {
+                const response = await fetch(`${API_BASE}/players/season?year=2025`);
+                if (response.ok) {
+                    const playerStats = await response.json();
+                    const qbStats = playerStats.filter(p => p.pass_attempts > 0);
+                    const result = `Player Season Stats (2025):
+Total Players: ${playerStats.length}
+QBs with Stats: ${qbStats.length}
+
+Top 5 QBs by Pass Yards:
+${qbStats
+    .sort((a, b) => b.pass_yards - a.pass_yards)
+    .slice(0, 5)
+    .map(qb => 
+        `Team ${qb.team_id}: ${qb.pass_yards} yards, ${qb.pass_td} TDs, ${qb.pass_int} INTs`
+    ).join('\n')}`;
+                    
+                    showResult('statsResult', result, 'success');
+                } else {
+                    showResult('statsResult', `Error: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                showResult('statsResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTeamStats() {
+            showLoading('statsResult');
+            
+            try {
+                const response = await fetch(`${API_BASE}/teams/season?year=2025`);
+                if (response.ok) {
+                    const teamStats = await response.json();
+                    const result = `Team Season Stats (2025):
+Total Teams: ${teamStats.length}
+
+Top 5 Teams by Total Yards:
+${teamStats
+    .sort((a, b) => b.total_yards - a.total_yards)
+    .slice(0, 5)
+    .map(team => 
+        `Team ${team.team_id}: ${team.total_yards} yards, ${team.total_td} TDs, ${team.turnovers} turnovers`
+    ).join('\n')}
+
+League Totals:
+- Total Yards: ${teamStats.reduce((sum, team) => sum + team.total_yards, 0).toLocaleString()}
+- Total TDs: ${teamStats.reduce((sum, team) => sum + team.total_td, 0)}
+- Total Turnovers: ${teamStats.reduce((sum, team) => sum + team.turnovers, 0)}`;
+                    
+                    showResult('statsResult', result, 'success');
+                } else {
+                    showResult('statsResult', `Error: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                showResult('statsResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Load quick stats on page load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/teams/season?year=2025`);
+                if (response.ok) {
+                    const teamStats = await response.json();
+                    const quickStatsDiv = document.getElementById('quickStats');
+                    
+                    const totalYards = teamStats.reduce((sum, team) => sum + team.total_yards, 0);
+                    const totalTDs = teamStats.reduce((sum, team) => sum + team.total_td, 0);
+                    const totalTurnovers = teamStats.reduce((sum, team) => sum + team.turnovers, 0);
+                    const avgYardsPerGame = totalYards / (teamStats.length * 17); // 17 games per team
+                    
+                    quickStatsDiv.innerHTML = `
+                        <div class="stat-card">
+                            <div class="stat-title">Total Teams</div>
+                            <div class="stat-value">${teamStats.length}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-title">Total Yards</div>
+                            <div class="stat-value">${totalYards.toLocaleString()}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-title">Total TDs</div>
+                            <div class="stat-value">${totalTDs}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-title">Total Turnovers</div>
+                            <div class="stat-value">${totalTurnovers}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-title">Avg Yards/Game</div>
+                            <div class="stat-value">${avgYardsPerGame.toFixed(1)}</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading quick stats:', error);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -280,6 +280,10 @@ async def dashboard_demo():
         ]
     })
 
+@app.get("/playoffs", response_class=HTMLResponse)
+def playoffs(request: Request):
+    return templates.TemplateResponse("playoffs.html", {"request": request})
+
 @app.get("/_health", response_class=HTMLResponse)
 def health():
     return HTMLResponse("<pre>{\"ok\": true, \"ui\": \"templates\", \"port\": 8000}</pre>")

@@ -1,0 +1,19 @@
+*{box-sizing:border-box}html,body{margin:0;padding:0;font:14px/1.5 system-ui,Segoe UI,Helvetica,Arial,sans-serif;background:#0b0f14;color:#e6edf3}
+a{color:#9ecbff;text-decoration:none}a:hover{text-decoration:underline}
+.wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+h1{font-size:22px;margin:8px 0 16px}h2{font-size:18px;margin:16px 0 8px}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.card{background:#11161c;border:1px solid #1f2a35;border-radius:10px;padding:14px;min-width:260px;flex:1}
+.btn{display:inline-block;background:#1e40af;color:#fff;border:none;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}
+.btn.red{background:#dc2626}.btn.gold{background:#d4af37;color:#0b0f14}.btn.gray{background:#334155}
+.input{background:#0f1623;border:1px solid #1f2a35;border-radius:8px;color:#e6edf3;padding:8px 10px}
+.table{width:100%;border-collapse:collapse;margin-top:8px}
+.table th,.table td{border-bottom:1px solid #1f2a35;padding:8px 6px;text-align:left}
+.kv{display:grid;grid-template-columns:160px 1fr;gap:4px}
+.rowline{display:grid;grid-template-columns:40px 1fr 40px 40px 1fr 90px;gap:6px;align-items:center;padding:6px;border-bottom:1px solid #1f2a35}
+.rowline .seed{color:#94a3b8}
+.rowline .score{justify-self:end}
+.round{margin-bottom:10px}
+.huntHdr{margin-top:8px;font-weight:700;color:#9ecbff}
+.huntItem{padding:4px 0;border-bottom:1px dashed #1f2a35}
+.badge{display:inline-block;background:#1f2a35;border-radius:6px;padding:2px 6px;margin-right:6px}

@@ -26,6 +26,9 @@ class Team(SQLModel, table=True):
     # basic identity
     location_name: str
     nickname: Optional[str] = Field(default=None)
+    name: Optional[str] = Field(default=None)  # Full team name
+    abbr: Optional[str] = Field(default=None)  # Team abbreviation
+    logo_url: Optional[str] = Field(default=None)  # Logo URL
 
     # IMPORTANT: Python names match tests; DB column names stay conf/div
     conference: Conference = Field(
@@ -38,6 +41,7 @@ class Team(SQLModel, table=True):
     # standings + rating (keep existing DB column names)
     wins: int = Field(default=0, sa_column=Column("w", Integer, nullable=False, server_default="0"))
     losses: int = Field(default=0, sa_column=Column("l", Integer, nullable=False, server_default="0"))
+    ties: int = Field(default=0, sa_column=Column("t", Integer, nullable=False, server_default="0"))
     points_for: int = Field(default=0, sa_column=Column("pf", Integer, nullable=False, server_default="0"))
     points_against: int = Field(default=0, sa_column=Column("pa", Integer, nullable=False, server_default="0"))
     elo: int = Field(default=1500, nullable=False)

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block body %}
+<div class="card">
+  <h2>Teams</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Abbr</th><th>Name</th><th>Conf</th><th>Power</th></tr></thead>
+    <tbody>
+    {% for t in teams %}
+      <tr><td>{{ t.id }}</td><td>{{ t.abbr }}</td><td>{{ t.name }}</td><td>{{ t.conference }}</td><td>{{ '%.1f'|format(t.power) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,980 @@
+{
+  "NE_2025": {
+    "team_id": "NE",
+    "season": 2025,
+    "slots": [
+      {
+        "position": "QB",
+        "slot": "QB1",
+        "player_id": 212,
+        "name": "J. Kingsley"
+      },
+      {
+        "position": "QB",
+        "slot": "QB2",
+        "player_id": 213,
+        "name": "M. Sanders"
+      },
+      {
+        "position": "QB",
+        "slot": "QB3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RB",
+        "slot": "RB1",
+        "player_id": 332,
+        "name": "T. Morrow"
+      },
+      {
+        "position": "RB",
+        "slot": "RB2",
+        "player_id": 411,
+        "name": "K. Carter"
+      },
+      {
+        "position": "RB",
+        "slot": "RB3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RB",
+        "slot": "RB4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "WR",
+        "slot": "WR1",
+        "player_id": 101,
+        "name": "K. Benton"
+      },
+      {
+        "position": "WR",
+        "slot": "WR2",
+        "player_id": 234,
+        "name": "L. Carter"
+      },
+      {
+        "position": "WR",
+        "slot": "WR3",
+        "player_id": 456,
+        "name": "J. Thomas"
+      },
+      {
+        "position": "WR",
+        "slot": "WR4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "WR",
+        "slot": "WR5",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "TE",
+        "slot": "TE1",
+        "player_id": 567,
+        "name": "C. Matthews"
+      },
+      {
+        "position": "TE",
+        "slot": "TE2",
+        "player_id": 678,
+        "name": "B. Wilson"
+      },
+      {
+        "position": "TE",
+        "slot": "TE3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LT",
+        "slot": "LT1",
+        "player_id": 789,
+        "name": "D. Miller"
+      },
+      {
+        "position": "LT",
+        "slot": "LT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LG",
+        "slot": "LG1",
+        "player_id": 890,
+        "name": "M. Johnson"
+      },
+      {
+        "position": "LG",
+        "slot": "LG2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "C",
+        "slot": "C1",
+        "player_id": 901,
+        "name": "T. Garcia"
+      },
+      {
+        "position": "C",
+        "slot": "C2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RG",
+        "slot": "RG1",
+        "player_id": 102,
+        "name": "K. Brown"
+      },
+      {
+        "position": "RG",
+        "slot": "RG2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RT",
+        "slot": "RT1",
+        "player_id": 103,
+        "name": "J. Davis"
+      },
+      {
+        "position": "RT",
+        "slot": "RT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LE",
+        "slot": "LE1",
+        "player_id": 104,
+        "name": "R. Anderson"
+      },
+      {
+        "position": "LE",
+        "slot": "LE2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "DT",
+        "slot": "DT1",
+        "player_id": 105,
+        "name": "P. Williams"
+      },
+      {
+        "position": "DT",
+        "slot": "DT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "DT",
+        "slot": "DT3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RE",
+        "slot": "RE1",
+        "player_id": 106,
+        "name": "S. Taylor"
+      },
+      {
+        "position": "RE",
+        "slot": "RE2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LOLB",
+        "slot": "LOLB1",
+        "player_id": 107,
+        "name": "L. Jackson"
+      },
+      {
+        "position": "LOLB",
+        "slot": "LOLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "MLB",
+        "slot": "MLB1",
+        "player_id": 108,
+        "name": "E. Harris"
+      },
+      {
+        "position": "MLB",
+        "slot": "MLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "ROLB",
+        "slot": "ROLB1",
+        "player_id": 109,
+        "name": "M. White"
+      },
+      {
+        "position": "ROLB",
+        "slot": "ROLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "CB",
+        "slot": "CB1",
+        "player_id": 110,
+        "name": "C. Robinson"
+      },
+      {
+        "position": "CB",
+        "slot": "CB2",
+        "player_id": 111,
+        "name": "D. Lewis"
+      },
+      {
+        "position": "CB",
+        "slot": "CB3",
+        "player_id": 112,
+        "name": "T. Young"
+      },
+      {
+        "position": "CB",
+        "slot": "CB4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "FS",
+        "slot": "FS1",
+        "player_id": 113,
+        "name": "A. Green"
+      },
+      {
+        "position": "FS",
+        "slot": "FS2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "SS",
+        "slot": "SS1",
+        "player_id": 114,
+        "name": "J. Adams"
+      },
+      {
+        "position": "SS",
+        "slot": "SS2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "K",
+        "slot": "K1",
+        "player_id": 115,
+        "name": "N. Parker"
+      },
+      {
+        "position": "P",
+        "slot": "P1",
+        "player_id": 116,
+        "name": "B. Collins"
+      },
+      {
+        "position": "KR",
+        "slot": "KR1",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "KR",
+        "slot": "KR2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "PR",
+        "slot": "PR1",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "PR",
+        "slot": "PR2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LS",
+        "slot": "LS1",
+        "player_id": null,
+        "name": null
+      }
+    ],
+    "created_at": "2025-10-17 16:15:28.522809",
+    "updated_at": "2025-10-17 16:15:28.522809"
+  },
+  "NE_2024": {
+    "team_id": "NE",
+    "season": 2024,
+    "slots": [
+      {
+        "position": "QB",
+        "slot": "QB1",
+        "player_id": 212,
+        "name": "J. Kingsley"
+      },
+      {
+        "position": "QB",
+        "slot": "QB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "QB",
+        "slot": "QB3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RB",
+        "slot": "RB1",
+        "player_id": 332,
+        "name": "T. Morrow"
+      },
+      {
+        "position": "RB",
+        "slot": "RB2",
+        "player_id": 411,
+        "name": "K. Carter"
+      },
+      {
+        "position": "RB",
+        "slot": "RB3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RB",
+        "slot": "RB4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "WR",
+        "slot": "WR1",
+        "player_id": 101,
+        "name": "K. Benton"
+      },
+      {
+        "position": "WR",
+        "slot": "WR2",
+        "player_id": 234,
+        "name": "L. Carter"
+      },
+      {
+        "position": "WR",
+        "slot": "WR3",
+        "player_id": 456,
+        "name": "J. Thomas"
+      },
+      {
+        "position": "WR",
+        "slot": "WR4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "WR",
+        "slot": "WR5",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "TE",
+        "slot": "TE1",
+        "player_id": 567,
+        "name": "C. Matthews"
+      },
+      {
+        "position": "TE",
+        "slot": "TE2",
+        "player_id": 678,
+        "name": "B. Wilson"
+      },
+      {
+        "position": "TE",
+        "slot": "TE3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LT",
+        "slot": "LT1",
+        "player_id": 789,
+        "name": "D. Miller"
+      },
+      {
+        "position": "LT",
+        "slot": "LT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LG",
+        "slot": "LG1",
+        "player_id": 890,
+        "name": "M. Johnson"
+      },
+      {
+        "position": "LG",
+        "slot": "LG2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "C",
+        "slot": "C1",
+        "player_id": 901,
+        "name": "T. Garcia"
+      },
+      {
+        "position": "C",
+        "slot": "C2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RG",
+        "slot": "RG1",
+        "player_id": 102,
+        "name": "K. Brown"
+      },
+      {
+        "position": "RG",
+        "slot": "RG2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RT",
+        "slot": "RT1",
+        "player_id": 103,
+        "name": "J. Davis"
+      },
+      {
+        "position": "RT",
+        "slot": "RT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LE",
+        "slot": "LE1",
+        "player_id": 104,
+        "name": "R. Anderson"
+      },
+      {
+        "position": "LE",
+        "slot": "LE2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "DT",
+        "slot": "DT1",
+        "player_id": 105,
+        "name": "P. Williams"
+      },
+      {
+        "position": "DT",
+        "slot": "DT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "DT",
+        "slot": "DT3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RE",
+        "slot": "RE1",
+        "player_id": 106,
+        "name": "S. Taylor"
+      },
+      {
+        "position": "RE",
+        "slot": "RE2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LOLB",
+        "slot": "LOLB1",
+        "player_id": 107,
+        "name": "L. Jackson"
+      },
+      {
+        "position": "LOLB",
+        "slot": "LOLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "MLB",
+        "slot": "MLB1",
+        "player_id": 108,
+        "name": "E. Harris"
+      },
+      {
+        "position": "MLB",
+        "slot": "MLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "ROLB",
+        "slot": "ROLB1",
+        "player_id": 109,
+        "name": "M. White"
+      },
+      {
+        "position": "ROLB",
+        "slot": "ROLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "CB",
+        "slot": "CB1",
+        "player_id": 110,
+        "name": "C. Robinson"
+      },
+      {
+        "position": "CB",
+        "slot": "CB2",
+        "player_id": 111,
+        "name": "D. Lewis"
+      },
+      {
+        "position": "CB",
+        "slot": "CB3",
+        "player_id": 112,
+        "name": "T. Young"
+      },
+      {
+        "position": "CB",
+        "slot": "CB4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "FS",
+        "slot": "FS1",
+        "player_id": 113,
+        "name": "A. Green"
+      },
+      {
+        "position": "FS",
+        "slot": "FS2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "SS",
+        "slot": "SS1",
+        "player_id": 114,
+        "name": "J. Adams"
+      },
+      {
+        "position": "SS",
+        "slot": "SS2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "K",
+        "slot": "K1",
+        "player_id": 115,
+        "name": "N. Parker"
+      },
+      {
+        "position": "P",
+        "slot": "P1",
+        "player_id": 116,
+        "name": "B. Collins"
+      },
+      {
+        "position": "KR",
+        "slot": "KR1",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "KR",
+        "slot": "KR2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "PR",
+        "slot": "PR1",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "PR",
+        "slot": "PR2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LS",
+        "slot": "LS1",
+        "player_id": null,
+        "name": null
+      }
+    ],
+    "created_at": "2025-10-17 16:15:08.301267",
+    "updated_at": "2025-10-17 16:15:08.301267"
+  },
+  "BUF_2025": {
+    "team_id": "BUF",
+    "season": 2025,
+    "slots": [
+      {
+        "position": "QB",
+        "slot": "QB1",
+        "player_id": 212,
+        "name": "J. Kingsley"
+      },
+      {
+        "position": "QB",
+        "slot": "QB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "QB",
+        "slot": "QB3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RB",
+        "slot": "RB1",
+        "player_id": 332,
+        "name": "T. Morrow"
+      },
+      {
+        "position": "RB",
+        "slot": "RB2",
+        "player_id": 411,
+        "name": "K. Carter"
+      },
+      {
+        "position": "RB",
+        "slot": "RB3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RB",
+        "slot": "RB4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "WR",
+        "slot": "WR1",
+        "player_id": 101,
+        "name": "K. Benton"
+      },
+      {
+        "position": "WR",
+        "slot": "WR2",
+        "player_id": 234,
+        "name": "L. Carter"
+      },
+      {
+        "position": "WR",
+        "slot": "WR3",
+        "player_id": 456,
+        "name": "J. Thomas"
+      },
+      {
+        "position": "WR",
+        "slot": "WR4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "WR",
+        "slot": "WR5",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "TE",
+        "slot": "TE1",
+        "player_id": 567,
+        "name": "C. Matthews"
+      },
+      {
+        "position": "TE",
+        "slot": "TE2",
+        "player_id": 678,
+        "name": "B. Wilson"
+      },
+      {
+        "position": "TE",
+        "slot": "TE3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LT",
+        "slot": "LT1",
+        "player_id": 789,
+        "name": "D. Miller"
+      },
+      {
+        "position": "LT",
+        "slot": "LT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LG",
+        "slot": "LG1",
+        "player_id": 890,
+        "name": "M. Johnson"
+      },
+      {
+        "position": "LG",
+        "slot": "LG2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "C",
+        "slot": "C1",
+        "player_id": 901,
+        "name": "T. Garcia"
+      },
+      {
+        "position": "C",
+        "slot": "C2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RG",
+        "slot": "RG1",
+        "player_id": 102,
+        "name": "K. Brown"
+      },
+      {
+        "position": "RG",
+        "slot": "RG2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RT",
+        "slot": "RT1",
+        "player_id": 103,
+        "name": "J. Davis"
+      },
+      {
+        "position": "RT",
+        "slot": "RT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LE",
+        "slot": "LE1",
+        "player_id": 104,
+        "name": "R. Anderson"
+      },
+      {
+        "position": "LE",
+        "slot": "LE2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "DT",
+        "slot": "DT1",
+        "player_id": 105,
+        "name": "P. Williams"
+      },
+      {
+        "position": "DT",
+        "slot": "DT2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "DT",
+        "slot": "DT3",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "RE",
+        "slot": "RE1",
+        "player_id": 106,
+        "name": "S. Taylor"
+      },
+      {
+        "position": "RE",
+        "slot": "RE2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LOLB",
+        "slot": "LOLB1",
+        "player_id": 107,
+        "name": "L. Jackson"
+      },
+      {
+        "position": "LOLB",
+        "slot": "LOLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "MLB",
+        "slot": "MLB1",
+        "player_id": 108,
+        "name": "E. Harris"
+      },
+      {
+        "position": "MLB",
+        "slot": "MLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "ROLB",
+        "slot": "ROLB1",
+        "player_id": 109,
+        "name": "M. White"
+      },
+      {
+        "position": "ROLB",
+        "slot": "ROLB2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "CB",
+        "slot": "CB1",
+        "player_id": 110,
+        "name": "C. Robinson"
+      },
+      {
+        "position": "CB",
+        "slot": "CB2",
+        "player_id": 111,
+        "name": "D. Lewis"
+      },
+      {
+        "position": "CB",
+        "slot": "CB3",
+        "player_id": 112,
+        "name": "T. Young"
+      },
+      {
+        "position": "CB",
+        "slot": "CB4",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "FS",
+        "slot": "FS1",
+        "player_id": 113,
+        "name": "A. Green"
+      },
+      {
+        "position": "FS",
+        "slot": "FS2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "SS",
+        "slot": "SS1",
+        "player_id": 114,
+        "name": "J. Adams"
+      },
+      {
+        "position": "SS",
+        "slot": "SS2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "K",
+        "slot": "K1",
+        "player_id": 115,
+        "name": "N. Parker"
+      },
+      {
+        "position": "P",
+        "slot": "P1",
+        "player_id": 116,
+        "name": "B. Collins"
+      },
+      {
+        "position": "KR",
+        "slot": "KR1",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "KR",
+        "slot": "KR2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "PR",
+        "slot": "PR1",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "PR",
+        "slot": "PR2",
+        "player_id": null,
+        "name": null
+      },
+      {
+        "position": "LS",
+        "slot": "LS1",
+        "player_id": null,
+        "name": null
+      }
+    ],
+    "created_at": "2025-10-17 16:15:08.306273",
+    "updated_at": "2025-10-17 16:15:08.306273"
+  }
+}

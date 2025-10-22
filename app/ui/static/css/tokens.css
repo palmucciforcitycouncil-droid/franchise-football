@@ -1,0 +1,31 @@
+:root{
+  /* Colors */
+  --bg-primary:#0B0F14;      /* Main background */
+  --bg-card:#11161C;         /* Card backgrounds */
+  --stroke:#1F2A35;          /* Borders and strokes */
+  --text-primary:#E6EDF3;    /* Primary text */
+  --text-muted:#94a3b8;      /* Secondary text */
+
+  /* Conferences */
+  --afc-red:#dc2626;
+  --afc-red-text:#ef4444;
+  --nfc-blue:#1e40af;
+  --nfc-blue-text:#60a5fa;
+
+  /* Accent */
+  --gold:#d4af37;
+  --gold-hover:#c49a2e;
+
+  /* Radii */
+  --radius-card:16px;   /* Cards */
+  --radius-badge:6px;   /* Badges */
+
+  /* Spacing (base 4px) */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-6:24px;
+
+  /* Shadow */
+  --shadow:0 4px 16px rgba(0,0,0,0.2);
+
+  /* Typography */
+  --font:Inter, ui-sans-serif, system-ui, Segoe UI, Helvetica, Arial, sans-serif;
+}

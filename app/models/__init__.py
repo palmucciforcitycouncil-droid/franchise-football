@@ -5,7 +5,6 @@ from .game_result import GameResult
 
 __all__ = ["Team", "Conference", "Division", "Player", "DepthChart", "GameResult"]
 
-from .player_season_stats import PlayerSeasonStats
-__all__ = [*__all__, "PlayerSeasonStats"]  # type: ignore
-
 from .user_profile import UserProfile
+from .defense_stats import TeamDefenseStatsWeekly, PlayerDefenseStatsWeekly  # noqa
+from .stats import PlayerGameStats, TeamGameStats, PlayerSeasonStats, TeamSeasonStats, PlayerCareerStats  # noqa

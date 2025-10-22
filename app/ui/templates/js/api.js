@@ -10,7 +10,7 @@ export const PlayDTO = {
     desc: String
 };
 
-export async function getLastGame(base = window.API_BASE || 'http://127.0.0.1:8000') {
+export async function getLastGame(base = window.API_BASE || 'http://127.0.0.1:8015') {
     const url = base.replace(/\/$/, "") + "/last-game";
     const res = await fetch(url, { method: "GET" });
     if (!res.ok) throw new Error(`GET /last-game ${res.status}`);

@@ -1,0 +1,67 @@
+{% extends "base.html" %}{% block body %}
+<div class="card">
+  <h2>Box Score — Game {{ game.id }}</h2>
+  <div class="row">
+    <div>Home: {{ teams[game.home_team_id].abbr }} — {{ game.home_score }}</div>
+    <div>Away: {{ teams[game.away_team_id].abbr }} — {{ game.away_score }}</div>
+  </div>
+  <h3 style="margin-top:12px">Team Stats</h3>
+  <table class="table">
+    <thead><tr><th>Team</th><th>Points</th><th>Plays</th><th>Yards</th><th>Pass</th><th>Rush</th><th>TOs</th></tr></thead>
+    <tbody>
+      {% for s in stats %}
+      <tr>
+        <td>{{ teams[s.team_id].abbr }}</td>
+        <td>{{ s.points }}</td>
+        <td>{{ s.plays }}</td>
+        <td>{{ s.yards_total }}</td>
+        <td>{{ s.pass_yards }}</td>
+        <td>{{ s.rush_yards }}</td>
+        <td>{{ s.turnovers }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <h3>Player Stats (MVP)</h3>
+  <div id="players">Loading…</div>
+</div>
+
+<script type="module">
+import { j, qs } from "/static/js/ui.js";
+(async function(){
+  const gid = {{ game.id }};
+  try{
+    const rows = await j(`/api/stats/players/game/${gid}`);
+    const t = document.createElement("table"); t.className="table";
+    t.innerHTML = `<thead><tr>
+      <th>Player</th><th>Pos</th><th>Pass</th><th>Rush</th><th>Rec</th><th>K</th><th>Punt</th>
+    </tr></thead><tbody></tbody>`;
+    const tb = t.querySelector("tbody");
+    const names = {};
+    // fetch names quickly: we already have teams[] but not player names; do a small call
+    const teamIds = [...new Set(rows.map(r=>r.team_id))];
+    for (const tid of teamIds){
+      const roster = await j(`/api/roster/team/${tid}/players`);
+      roster.forEach(p=> names[p.id] = `${p.first} ${p.last}`);
+    }
+    rows.forEach(r=>{
+      const pass = (r.pass_yds||0) ? `${r.pass_yds}y/${r.pass_td}TD/${r.pass_int}INT` : "";
+      const rush = (r.rush_yds||0) ? `${r.rush_yds}y/${r.rush_att}car/${r.rush_td}TD` : "";
+      const rec  = (r.rec_yds||0)  ? `${r.rec_yds}y/${r.rec_rec}rec/${r.rec_td}TD`  : "";
+      const kick = (r.fg_a||0||r.xp_a||0) ? `FG ${r.fg_m}/${r.fg_a}, XP ${r.xp_m}/${r.xp_a}` : "";
+      const punt = (r.punts||0) ? `${r.punts} for ${r.punt_yds}y` : "";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${names[r.player_id]||r.player_id}</td><td>${r.pos}</td>
+        <td>${pass}</td><td>${rush}</td><td>${rec}</td><td>${kick}</td><td>${punt}</td>`;
+      tb.appendChild(tr);
+    });
+    qs("#players").innerHTML = ""; qs("#players").appendChild(t);
+  }catch(e){
+    qs("#players").textContent = "Error loading player stats: "+e.message;
+  }
+})();
+</script>
+{% endblock %}

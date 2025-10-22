@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roster Page - Franchise Football</title>
+    
+    <!-- Include CSS -->
+    <link rel="stylesheet" href="/static/css/roster.css">
+    <link rel="stylesheet" href="/static/css/modal.css">
+    
+    <!-- Tailwind CSS for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ff-primary': '#d4af37',
+                        'ff-bg': '#0a1929',
+                        'ff-card': '#1a2332',
+                        'ff-border': '#2d4a6f',
+                        'ff-text': '#94a3b8'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #0a1929;
+            color: white;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        
+        .roster-card, .depth-chart-card {
+            background-color: #1a2332;
+            border: 1px solid #2d4a6f;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="max-w-[1800px] mx-auto p-6">
+        <!-- Page Header -->
+        <div class="mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-4">
+                    <select class="bg-[#1a2332] border-[#2d4a6f] text-white rounded px-3 py-2">
+                        <option value="NE">New England Patriots</option>
+                    </select>
+                    <h1 class="text-2xl font-bold text-white">Active Roster</h1>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <!-- View Toggle -->
+                    <div class="flex items-center bg-[#1a2332] rounded-lg border border-[#2d4a6f] p-1">
+                        <button class="px-4 py-2 rounded text-sm bg-[#d4af37] text-[#0a1929]">Attributes</button>
+                        <button class="px-4 py-2 rounded text-sm text-white hover:bg-[#2d4a6f]">Stats</button>
+                    </div>
+                    
+                    <button class="bg-transparent border-[#2d4a6f] text-white hover:bg-[#2d4a6f] px-4 py-2 rounded border">
+                        Auto Assign
+                    </button>
+                    
+                    <button class="bg-transparent border-[#2d4a6f] text-white hover:bg-[#2d4a6f] px-4 py-2 rounded border">
+                        Filter
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Search -->
+            <input type="text" 
+                   placeholder="Search name, position, or query like OVR >= 75 AND CTH >= 80"
+                   class="w-full bg-[#1a2332] border-[#2d4a6f] text-white placeholder:text-[#94a3b8] rounded px-4 py-2">
+        </div>
+
+        <!-- Roster Card -->
+        <div id="rosterCard" class="roster-card">
+            <!-- Roster Header -->
+            <div class="p-4 border-b border-[#2d4a6f]">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-white">Roster (29 players)</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[#94a3b8] text-xs">(demo)</span>
+                        <button class="text-[#94a3b8] hover:text-white p-1">
+                            ⚙️
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Roster Table Container -->
+            <div id="rosterBodyScroll">
+                <table id="rosterTable" class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="text-left p-3 text-[#94a3b8]">Player</th>
+                            <th class="text-right p-3 text-[#94a3b8]">OVR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">SPD</th>
+                            <th class="text-right p-3 text-[#94a3b8]">STR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">AGI</th>
+                            <th class="text-right p-3 text-[#94a3b8]">TPW</th>
+                            <th class="text-right p-3 text-[#94a3b8]">TAC</th>
+                            <th class="text-right p-3 text-[#94a3b8]">CTH</th>
+                            <th class="text-right p-3 text-[#94a3b8]">TCK</th>
+                            <th class="text-right p-3 text-[#94a3b8]">AWR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">POT</th>
+                            <th class="text-right p-3 text-[#94a3b8]">STA</th>
+                            <th class="text-right p-3 text-[#94a3b8]">INJ</th>
+                            <th class="text-right p-3 text-[#94a3b8]">MOR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">AGE</th>
+                            <th class="text-right p-3 text-[#94a3b8]">CTR</th>
+                            <th class="text-right p-3 text-[#94a3b8]">YRS</th>
+                            <th class="text-left p-3 text-[#94a3b8]">DEP</th>
+                            <th class="text-left p-3 text-[#94a3b8]">HLTH</th>
+                            <th class="text-center p-3 text-[#94a3b8]">TRD</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Sample roster rows -->
+                        <tr class="border-b border-[#2d4a6f]/50 hover:bg-[#2d4a6f]/30">
+                            <td class="p-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-[#2d4a6f] flex items-center justify-center text-white text-xs">12</div>
+                                    <div>
+                                        <a href="/players/212" data-entity="player" data-id="212" class="entity-link text-white hover:text-[#d4af37]">J. Kingsley</a>
+                                        <div class="text-[#94a3b8] text-xs">QB · Age 28</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="text-right p-3"><span class="px-2 py-1 rounded bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30">84</span></td>
+                            <td class="text-right p-3 text-white">78</td>
+                            <td class="text-right p-3 text-white">62</td>
+                            <td class="text-right p-3 text-white">82</td>
+                            <td class="text-right p-3 text-white">91</td>
+                            <td class="text-right p-3 text-white">86</td>
+                            <td class="text-right p-3 text-white">48</td>
+                            <td class="text-right p-3 text-white">22</td>
+                            <td class="text-right p-3 text-white">85</td>
+                            <td class="text-right p-3 text-white">88</td>
+                            <td class="text-right p-3 text-white">92</td>
+                            <td class="text-right p-3 text-white">18</td>
+                            <td class="text-right p-3 text-white">74</td>
+                            <td class="text-right p-3 text-white">28</td>
+                            <td class="text-right p-3 text-white">$8.5M</td>
+                            <td class="text-right p-3 text-white">2</td>
+                            <td class="text-left p-3 text-[#94a3b8]">QB1</td>
+                            <td class="text-left p-3"><span class="px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">Healthy</span></td>
+                            <td class="text-center p-3"></td>
+                        </tr>
+                        <!-- Add more rows as needed -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Depth Chart Card -->
+        <div class="mt-6 depth-chart-card">
+            <!-- Depth Chart Header -->
+            <div class="p-4 border-b border-[#2d4a6f]">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-white">Depth Chart</h3>
+                    <button id="btnAutoFillDepth" class="px-4 py-2 bg-[#d4af37] text-[#0a1929] rounded-lg hover:bg-[#f4d03f] transition-colors font-medium">
+                        Auto-Fill Depth Chart
+                    </button>
+                </div>
+            </div>
+
+            <!-- Depth Chart Container -->
+            <div id="depthChartContainer" class="p-4">
+                <div class="empty text-center text-[#94a3b8] py-8">
+                    <div class="mb-4">
+                        <svg class="mx-auto h-12 w-12 text-[#94a3b8]/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                    </div>
+                    <p class="text-lg font-medium mb-2">No depth chart yet</p>
+                    <p class="text-sm">Click Auto-Fill to generate one based on your roster</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include Scripts -->
+    <script type="module" src="/static/js/entity-modal.js"></script>
+    <script src="/static/js/roster.js"></script>
+    
+    <!-- Configuration -->
+    <script>
+        window.__TEAM_ID__ = 'NE';
+        window.__SEASON__ = 2025;
+    </script>
+</body>
+</html>

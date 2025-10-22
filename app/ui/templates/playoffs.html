@@ -1,0 +1,150 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Playoffs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/playoffs.css?v=4"/>
+</head><body>
+  <div class="wrap" data-test="playoff-content">
+    <h1 class="h1">Playoffs</h1>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div class="section-title"><span class="badge afc">AFC</span><span class="badge round">WILD CARD</span></div>
+          <div data-layer="afc-wc"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="section-title"><span class="badge afc">AFC</span><span class="badge round">DIVISIONAL</span></div>
+          <div class="placeholder">Advances after games</div>
+          <div data-layer="afc-div"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="section-title"><span class="badge afc">AFC</span><span class="badge round">CONFERENCE</span></div>
+          <div class="placeholder">Advances after games</div>
+          <div data-layer="afc-conf"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card super">
+          <div class="title">SUPER BOWL</div>
+          <div data-layer="sb-card"></div>
+          <div class="placeholder">Championship Game</div>
+        </div>
+        </div>
+
+      <div>
+        <div class="card">
+          <div class="section-title"><span class="badge nfc">NFC</span><span class="badge round">WILD CARD</span></div>
+          <div data-layer="nfc-wc"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="section-title"><span class="badge nfc">NFC</span><span class="badge round">DIVISIONAL</span></div>
+          <div class="placeholder">Advances after games</div>
+          <div data-layer="nfc-div"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="section-title"><span class="badge nfc">NFC</span><span class="badge round">CONFERENCE</span></div>
+          <div class="placeholder">Advances after games</div>
+          <div data-layer="nfc-conf"></div>
+        </div>
+      </div>
+                            </div>
+                            
+    <h2 class="h1" style="font-size:24px;margin-top:18px">In the Hunt</h2>
+    <div class="hunt" data-layer="hunt-strip"></div>
+  </div>
+
+  <script type="module">
+    import { getJson } from "/static/js/http.js";
+    const q = a => document.querySelector(`[data-layer="${a}"]`);
+
+    // Adapter: map current backend shape to Figma doc naming without changing API
+    function adapt(b){
+      const mapTeam = (t, conf)=>({
+        team_id: String(t.team_id),
+        team_name: t.team_name ?? t.name ?? `Team ${t.team_id}`,
+        team_abbr: t.team_abbr ?? t.abbr ?? `T${t.team_id}`,
+        seed: t.seed,
+        logo_url: t.logo_url ?? null,
+        conference: conf || t.conference
+      });
+      const rounds = (b.rounds||[]).map((r,i)=>({
+        round_id: String(i+1),
+        round_name: r.round_name,
+        matchups: (r.matchups||[]).map((m,j)=>({
+          matchup_id: `${r.round_name}-${j+1}`,
+          round: r.round_name, side: m.side ?? null,
+          higher_seed_team: mapTeam(m.higher_seed_team, m.side),
+          lower_seed_team: mapTeam(m.lower_seed_team, m.side),
+          higher_seed_score: m.higher_seed_score ?? m.home_score ?? null,
+          lower_seed_score: m.lower_seed_score ?? m.away_score ?? null,
+          is_complete: m.is_complete ?? (m.winner_team_id!=null),
+          winner_team_id: m.winner_team_id!=null ? String(m.winner_team_id) : null
+        }))
+      }));
+      const inHunt = (b.in_the_hunt||[]).map(h=>({
+        team_id: String(h.team_id),
+        team_name: h.team_name ?? `Team ${h.team_id}`,
+        team_abbr: h.team_abbr ?? `T${h.team_id}`,
+        side: h.side,
+        games_back: h.games_back ?? h.gb ?? 0,
+        seed_if_made: h.seed_if_made,
+        current_record: h.current_record ?? "-"
+      }));
+      return { rounds, in_the_hunt: inHunt };
+    }
+
+    function row(tHi, tLo, s){
+      const done = Number.isFinite(s?.hi) && Number.isFinite(s?.lo);
+    return `
+        <div class="match${done?' complete':''}">
+          <div class="team"><span class="seed">#${tHi.seed}</span><span class="team-name">${tHi.team_name} (${tHi.team_abbr})</span></div>
+          <div class="vs">vs</div>
+          <div class="team" style="justify-content:flex-end"><span class="seed">#${tLo.seed}</span><span class="team-name">${tLo.team_name} (${tLo.team_abbr})</span></div>
+          ${done?`<div class="score ${s.hi>s.lo?'win':''}">${s.hi}</div><div class="score ${s.lo>s.hi?'win':''}">${s.lo}</div>`:''}
+      </div>`;
+  }
+    const byRound=(d,code)=>d.rounds.find(x=>x.round_name===code);
+
+    function renderRound(side,d,code){
+      const mm=(byRound(d,code)?.matchups||[]).filter(m=>m.side===side);
+      return mm.length?mm.map(m=>row(m.higher_seed_team,m.lower_seed_team,{hi:m.higher_seed_score,lo:m.lower_seed_score})).join(""):`<div class="placeholder">Advances after games</div>`;
+    }
+    function renderSB(d){
+      const m=byRound(d,"SB")?.matchups?.[0];
+      return m?row(m.higher_seed_team,m.lower_seed_team,{hi:m.higher_seed_score,lo:m.lower_seed_score}):`<div class="placeholder">Awaiting seeds</div>`;
+    }
+    function renderHunt(list){
+      if(!list?.length) return "";
+      return list.map(h=>`
+    <div class="card">
+          <div class="section-title"><span class="badge ${h.side==='AFC'?'afc':'nfc'}">${h.side}</span><span class="badge round">Bubble</span></div>
+          <div class="match" style="margin-top:12px"><div class="team"><span class="team-name">${h.team_name} (${h.team_abbr})</span></div></div>
+          <div class="placeholder">GB: ${Number(h.games_back||0).toFixed(1)} • if in: #${h.seed_if_made}</div>
+        </div>`).join("");
+    }
+
+    async function ensureData(){
+      let b = await getJson("/api/v1/playoffs");
+      if(b?.error?.code==="NOT_FOUND"){
+        try{ await getJson("/api/dev/seed"); }catch(_){}
+        b = await getJson("/api/v1/playoffs");
+      }
+      return adapt(b);
+    }
+
+    (async()=>{
+      const d=await ensureData();
+      q("afc-wc").innerHTML  = renderRound("AFC",d,"WC");
+      q("nfc-wc").innerHTML  = renderRound("NFC",d,"WC");
+      q("afc-div").innerHTML = renderRound("AFC",d,"DIV");
+      q("nfc-div").innerHTML = renderRound("NFC",d,"DIV");
+      q("afc-conf").innerHTML= renderRound("AFC",d,"CONF");
+      q("nfc-conf").innerHTML= renderRound("NFC",d,"CONF");
+      q("sb-card").innerHTML = renderSB(d);
+      q("hunt-strip").innerHTML = renderHunt(d.in_the_hunt);
+    })();
+</script>
+</body></html>

@@ -1,0 +1,54 @@
+{% extends "base.html" %}{% block body %}
+<div class="row">
+  <div class="card" style="flex:2">
+    <div class="kv">
+      <label>Season</label><input id="season" class="input" value="2025">
+      <label>Seed</label><input id="seed" class="input" value="2025">
+      <label>Week</label><input id="week" class="input" value="1">
+    </div>
+    <div style="margin-top:12px" class="row">
+      <button id="seedTeams" class="btn">Seed Teams</button>
+      <button id="seedRosters" class="btn">Seed Rosters (fake)</button>
+      <button id="importPlayers" class="btn">Import Players CSV</button>
+      <button id="importCoaches" class="btn">Import Coaches CSV</button>
+    </div>
+    <div style="margin-top:8px" class="row">
+      <button id="initSeason" class="btn">Init Season</button>
+      <button id="buildSchedule" class="btn">Build Schedule</button>
+      <button id="advanceWeek" class="btn gold">Advance Week</button>
+    </div>
+    <div style="margin-top:8px" class="row">
+      <button id="buildPO" class="btn red">Build Playoffs</button>
+      <button id="runPO" class="btn red">Run Playoffs</button>
+    </div>
+    <div style="margin-top:8px" class="row">
+      <button id="runOff" class="btn">Run Offseason</button>
+      <button id="newPre" class="btn">Start Next Preseason</button>
+    </div>
+    <div style="margin-top:8px" class="row">
+      <button id="viewGames" class="btn">View Games (week)</button>
+      <button id="viewTeams" class="btn">View Teams</button>
+      <button id="ping" class="btn gray">Ping Health</button>
+    </div>
+    <div style="margin-top:8px" class="row">
+      <a class="btn gray" href="/playoffs">Open Playoffs Page</a>
+    </div>
+  </div>
+
+  <div class="card" style="flex:1">
+    <h2>Save / Load</h2>
+    <div class="row" style="gap:8px;margin-bottom:8px">
+      <button id="save" class="btn">Save → JSON</button>
+      <button id="load" class="btn">Load ← textarea</button>
+    </div>
+    <textarea id="payload" class="input" style="width:100%;height:220px"></textarea>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <h2>Result</h2>
+  <pre id="out" style="white-space:pre-wrap"></pre>
+</div>
+
+<script type="module" src="/static/js/dashboard.js"></script>
+{% endblock %}

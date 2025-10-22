@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{{ title or 'Franchise Football' }}</title>
+  <link rel="stylesheet" href="/static/css/min.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="row" style="align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h1>{{ title or 'Franchise Football' }}</h1>
+      <nav class="row" style="gap:8px">
+        <a class="btn gray" href="/">Dashboard</a>
+        <a class="btn gray" href="/playoffs">Playoffs</a>
+        <a class="btn gray" href="/teams">Teams</a>
+        <a class="btn gray" href="/health-ui">Health</a>
+      </nav>
+    </header>
+    {% block body %}{% endblock %}
+  </div>
+</body>
+</html>

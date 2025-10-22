@@ -1,0 +1,305 @@
+/**
+ * Roster Page Styles
+ * Sticky table behavior and depth chart styling
+ */
+
+/* Roster Card Container */
+#rosterCard {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+}
+
+/* Roster Scroll Container */
+#rosterBodyScroll {
+  overflow: auto;
+  max-height: 56vh;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+}
+
+/* Roster Table */
+#rosterTable {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Sticky Header */
+#rosterTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--card-bg, #0f1723);
+  white-space: nowrap;
+  border-bottom: 1px solid #2d4a6f;
+}
+
+/* Table Cell Styling */
+#rosterTable th, 
+#rosterTable td {
+  white-space: nowrap;
+  padding: 8px 12px;
+  border-right: 1px solid rgba(42, 74, 111, 0.3);
+}
+
+#rosterTable th:last-child,
+#rosterTable td:last-child {
+  border-right: none;
+}
+
+/* Sticky First Column (Name) */
+#rosterTable th:nth-child(1), 
+#rosterTable td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--card-bg, #0f1723);
+  border-right: 2px solid #2d4a6f;
+}
+
+/* Ensure sticky header first column has higher z-index */
+#rosterTable thead th:nth-child(1) {
+  z-index: 6;
+}
+
+/* Row Hover Effects */
+#rosterTable tbody tr:hover {
+  background-color: rgba(42, 74, 111, 0.2);
+}
+
+/* Scrollbar Styling */
+#rosterBodyScroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+#rosterBodyScroll::-webkit-scrollbar-track {
+  background: rgba(42, 74, 111, 0.2);
+  border-radius: 4px;
+}
+
+#rosterBodyScroll::-webkit-scrollbar-thumb {
+  background: rgba(42, 74, 111, 0.6);
+  border-radius: 4px;
+}
+
+#rosterBodyScroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(42, 74, 111, 0.8);
+}
+
+/* Depth Chart Styling */
+.depth-chart-container {
+  padding: 12px;
+}
+
+.depth-chart-container .empty {
+  opacity: 0.7;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.depth-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.pos-group {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.pos-group:hover {
+  border-color: rgba(212, 175, 55, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pos-header {
+  font-weight: 600;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pos-title {
+  color: #d4af37;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pos-count {
+  color: #94a3b8;
+  font-size: 12px;
+  background: rgba(148, 163, 184, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.pos-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pos-table td {
+  padding: 6px 10px;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pos-table tr:last-child td {
+  border-bottom: none;
+}
+
+.pos-table td.slot {
+  opacity: 0.8;
+  width: 60px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pos-table td.name {
+  font-weight: 500;
+  color: white;
+}
+
+.pos-table td.name a {
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.pos-table td.name a:hover {
+  color: #d4af37;
+}
+
+/* Loading States */
+.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid #2d4a6f;
+  border-top: 2px solid #d4af37;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Button States */
+#btnAutoFillDepth:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#btnAutoFillDepth:disabled:hover {
+  background: #d4af37;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .depth-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  
+  .pos-header {
+    padding: 6px 8px;
+  }
+  
+  .pos-table td {
+    padding: 4px 8px;
+  }
+  
+  .pos-title {
+    font-size: 12px;
+  }
+  
+  .pos-count {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .depth-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  #rosterBodyScroll {
+    max-height: 40vh;
+  }
+  
+  .depth-chart-container {
+    padding: 8px;
+  }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+  .pos-group {
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  
+  .pos-header {
+    background: rgba(255, 255, 255, 0.1);
+    border-bottom-color: rgba(255, 255, 255, 0.2);
+  }
+  
+  #rosterTable th,
+  #rosterTable td {
+    border-right-color: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .pos-group {
+    transition: none;
+  }
+  
+  .pos-table td.name a {
+    transition: none;
+  }
+  
+  #rosterTable tbody tr {
+    transition: none;
+  }
+}
+
+/* Print Styles */
+@media print {
+  #rosterBodyScroll {
+    max-height: none;
+    overflow: visible;
+  }
+  
+  .depth-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .pos-group {
+    break-inside: avoid;
+    border: 1px solid #000;
+  }
+}
