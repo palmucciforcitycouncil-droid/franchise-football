@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, desc, and_
+from sqlalchemy import select, func, desc, asc, and_
 from app.core.db import get_session
 from app.models.stats import (
     PlayerGameStats, TeamGameStats, 
@@ -241,13 +241,15 @@ def get_statistical_leaders(
     year: int = Query(..., description="Season year"),
     stat: str = Query(..., description="Statistic name"),
     top: int = Query(10, ge=1, le=100, description="Number of leaders to return"),
-    split: str = Query("regular", description="regular|playoffs|both"),
+    split: str = Query("regular", description="regular|playoffs|both|third_down|red_zone|goal_to_go|two_minute"),
+    role: str = Query("all", description="all|ol|dl|db|st|qb|rb|wr|te"),
     s: Session = Depends(get_session)
 ):
     """Get statistical leaders for a given season"""
     
-    # Map stat names to database fields
+    # Map stat names to database fields (including GDD v3.2 advanced fields)
     stat_fields = {
+        # Basic offensive stats
         "pass_yards": PlayerSeasonStats.pass_yards,
         "pass_td": PlayerSeasonStats.pass_td,
         "pass_int": PlayerSeasonStats.pass_int,
@@ -255,18 +257,69 @@ def get_statistical_leaders(
         "rush_td": PlayerSeasonStats.rush_td,
         "receiving_yards": PlayerSeasonStats.receiving_yards,
         "receiving_td": PlayerSeasonStats.receiving_td,
+        
+        # Basic defensive stats
         "tackles": PlayerSeasonStats.tackles_solo + PlayerSeasonStats.tackles_assist,
         "sacks": PlayerSeasonStats.sacks_defense,
         "interceptions": PlayerSeasonStats.interceptions,
+        "pbus": PlayerSeasonStats.pbus,
+        
+        # Special teams
         "fg_made": PlayerSeasonStats.fg_made,
         "punt_yards": PlayerSeasonStats.punt_yards,
+        "punt_net_avg": PlayerSeasonStats.punt_net_avg,
+        "punts_in_20": PlayerSeasonStats.punts_in_20,
+        
+        # Advanced metrics
         "epa": PlayerSeasonStats.epa,
+        "success_rate": PlayerSeasonStats.success_rate,
+        
+        # GDD v3.2 OL stats
+        "sacks_allowed": PlayerSeasonStats.sacks_allowed,
+        "pressures_allowed": PlayerSeasonStats.pressures_allowed,
+        "run_block_wins": PlayerSeasonStats.run_block_wins,
+        "pass_block_wins": PlayerSeasonStats.pass_block_wins,
+        
+        # GDD v3.2 Defense stats
+        "pressures": PlayerSeasonStats.pressures,
+        "qb_hits": PlayerSeasonStats.qb_hits,
+        "tfl": PlayerSeasonStats.tfl,
+        "run_stops": PlayerSeasonStats.run_stops,
+        "missed_tackles": PlayerSeasonStats.missed_tackles,
+        
+        # GDD v3.2 Coverage stats
+        "targets_faced": PlayerSeasonStats.targets_faced,
+        "completions_allowed": PlayerSeasonStats.completions_allowed,
+        "yards_allowed": PlayerSeasonStats.yards_allowed,
+        "passer_rating_against": PlayerSeasonStats.passer_rating_against,
+        
+        # GDD v3.2 Situational stats
+        "fourth_down_conversions": PlayerSeasonStats.fourth_down_conversions,
+        "red_zone_td": PlayerSeasonStats.red_zone_td,
+        "goal_to_go_td": PlayerSeasonStats.goal_to_go_td,
+        "two_minute_plays": PlayerSeasonStats.two_minute_plays,
     }
     
     if stat not in stat_fields:
         raise HTTPException(status_code=400, detail=f"Invalid stat: {stat}")
     
-    # Build query
+    # Role-based stat filtering
+    role_stats = {
+        "ol": ["sacks_allowed", "pressures_allowed", "run_block_wins", "pass_block_wins"],
+        "dl": ["pressures", "qb_hits", "sacks", "tfl", "run_stops"],
+        "db": ["targets_faced", "completions_allowed", "yards_allowed", "pbus", "interceptions", "passer_rating_against"],
+        "st": ["fg_made", "punt_yards", "punt_net_avg", "punts_in_20", "hang_time_avg", "kick_distance_avg"],
+        "qb": ["pass_yards", "pass_td", "pass_int", "epa", "success_rate"],
+        "rb": ["rush_yards", "rush_td", "broken_tackle"],
+        "wr": ["receiving_yards", "receiving_td", "targets", "receptions"],
+        "te": ["receiving_yards", "receiving_td", "targets", "receptions"]
+    }
+    
+    if role != "all" and role in role_stats:
+        if stat not in role_stats[role]:
+            raise HTTPException(status_code=400, detail=f"Stat '{stat}' not available for role '{role}'")
+    
+    # Build query with situational split filtering
     query = select(
         PlayerSeasonStats.player_id,
         PlayerSeasonStats.team_id,
@@ -277,9 +330,216 @@ def get_statistical_leaders(
         Team, PlayerSeasonStats.team_id == Team.id
     ).where(
         PlayerSeasonStats.season == year
-    ).order_by(
-        desc(stat_fields[stat])
-    ).limit(top)
+    )
+    
+    # Apply situational split filtering
+    if split == "third_down":
+        # Filter for players with meaningful third down stats
+        query = query.where(PlayerSeasonStats.third_down_attempts > 0)
+    elif split == "red_zone":
+        # Filter for players with red zone attempts
+        query = query.where(PlayerSeasonStats.red_zone_attempts > 0)
+    elif split == "goal_to_go":
+        # Filter for players with goal-to-go attempts
+        query = query.where(PlayerSeasonStats.goal_to_go_attempts > 0)
+    elif split == "two_minute":
+        # Filter for players with two-minute drill plays
+        query = query.where(PlayerSeasonStats.two_minute_plays > 0)
+    elif split == "garbage_time_excluded":
+        # Filter out garbage time plays (this would require additional logic)
+        # For now, we'll use regular season stats
+        pass
+    
+    query = query.order_by(desc(stat_fields[stat])).limit(top)
+    
+    results = s.exec(query).all()
+    
+    return [
+        LeaderResponse(
+            player_id=r.player_id,
+            team_id=r.team_id,
+            team_name=r.team_name,
+            stat_value=float(r.stat_value),
+            games_played=r.games_played
+        )
+        for r in results
+    ]
+
+@router.get("/leaders/ol")
+def get_ol_leaders(
+    year: int = Query(..., description="Season year"),
+    stat: str = Query("sacks_allowed", description="sacks_allowed|pressures_allowed|run_block_wins|pass_block_wins"),
+    top: int = Query(10, ge=1, le=100, description="Number of leaders to return"),
+    s: Session = Depends(get_session)
+):
+    """Get offensive line statistical leaders"""
+    
+    ol_stats = {
+        "sacks_allowed": PlayerSeasonStats.sacks_allowed,
+        "pressures_allowed": PlayerSeasonStats.pressures_allowed,
+        "run_block_wins": PlayerSeasonStats.run_block_wins,
+        "pass_block_wins": PlayerSeasonStats.pass_block_wins,
+    }
+    
+    if stat not in ol_stats:
+        raise HTTPException(status_code=400, detail=f"Invalid OL stat: {stat}")
+    
+    # For OL stats, lower is better for sacks/pressures allowed, higher is better for wins
+    order_field = desc(ol_stats[stat]) if stat in ["run_block_wins", "pass_block_wins"] else asc(ol_stats[stat])
+    
+    query = select(
+        PlayerSeasonStats.player_id,
+        PlayerSeasonStats.team_id,
+        Team.name.label("team_name"),
+        ol_stats[stat].label("stat_value"),
+        PlayerSeasonStats.gp.label("games_played")
+    ).join(
+        Team, PlayerSeasonStats.team_id == Team.id
+    ).where(
+        PlayerSeasonStats.season == year
+    ).order_by(order_field).limit(top)
+    
+    results = s.exec(query).all()
+    
+    return [
+        LeaderResponse(
+            player_id=r.player_id,
+            team_id=r.team_id,
+            team_name=r.team_name,
+            stat_value=float(r.stat_value),
+            games_played=r.games_played
+        )
+        for r in results
+    ]
+
+@router.get("/leaders/defense")
+def get_defense_leaders(
+    year: int = Query(..., description="Season year"),
+    stat: str = Query("pressures", description="pressures|qb_hits|sacks|tfl|run_stops|missed_tackles"),
+    top: int = Query(10, ge=1, le=100, description="Number of leaders to return"),
+    s: Session = Depends(get_session)
+):
+    """Get defensive front statistical leaders"""
+    
+    defense_stats = {
+        "pressures": PlayerSeasonStats.pressures,
+        "qb_hits": PlayerSeasonStats.qb_hits,
+        "sacks": PlayerSeasonStats.sacks_defense,
+        "tfl": PlayerSeasonStats.tfl,
+        "run_stops": PlayerSeasonStats.run_stops,
+        "missed_tackles": PlayerSeasonStats.missed_tackles,
+    }
+    
+    if stat not in defense_stats:
+        raise HTTPException(status_code=400, detail=f"Invalid defense stat: {stat}")
+    
+    # For defense stats, lower is better for missed tackles, higher is better for others
+    order_field = asc(defense_stats[stat]) if stat == "missed_tackles" else desc(defense_stats[stat])
+    
+    query = select(
+        PlayerSeasonStats.player_id,
+        PlayerSeasonStats.team_id,
+        Team.name.label("team_name"),
+        defense_stats[stat].label("stat_value"),
+        PlayerSeasonStats.gp.label("games_played")
+    ).join(
+        Team, PlayerSeasonStats.team_id == Team.id
+    ).where(
+        PlayerSeasonStats.season == year
+    ).order_by(order_field).limit(top)
+    
+    results = s.exec(query).all()
+    
+    return [
+        LeaderResponse(
+            player_id=r.player_id,
+            team_id=r.team_id,
+            team_name=r.team_name,
+            stat_value=float(r.stat_value),
+            games_played=r.games_played
+        )
+        for r in results
+    ]
+
+@router.get("/leaders/coverage")
+def get_coverage_leaders(
+    year: int = Query(..., description="Season year"),
+    stat: str = Query("pbus", description="targets_faced|completions_allowed|yards_allowed|pbus|interceptions|passer_rating_against"),
+    top: int = Query(10, ge=1, le=100, description="Number of leaders to return"),
+    s: Session = Depends(get_session)
+):
+    """Get coverage/secondary statistical leaders"""
+    
+    coverage_stats = {
+        "targets_faced": PlayerSeasonStats.targets_faced,
+        "completions_allowed": PlayerSeasonStats.completions_allowed,
+        "yards_allowed": PlayerSeasonStats.yards_allowed,
+        "pbus": PlayerSeasonStats.pbus,
+        "interceptions": PlayerSeasonStats.interceptions,
+        "passer_rating_against": PlayerSeasonStats.passer_rating_against,
+    }
+    
+    if stat not in coverage_stats:
+        raise HTTPException(status_code=400, detail=f"Invalid coverage stat: {stat}")
+    
+    # For coverage stats, lower is better for allowed stats and passer rating, higher is better for positive plays
+    order_field = asc(coverage_stats[stat]) if stat in ["completions_allowed", "yards_allowed", "passer_rating_against"] else desc(coverage_stats[stat])
+    
+    query = select(
+        PlayerSeasonStats.player_id,
+        PlayerSeasonStats.team_id,
+        Team.name.label("team_name"),
+        coverage_stats[stat].label("stat_value"),
+        PlayerSeasonStats.gp.label("games_played")
+    ).join(
+        Team, PlayerSeasonStats.team_id == Team.id
+    ).where(
+        PlayerSeasonStats.season == year
+    ).order_by(order_field).limit(top)
+    
+    results = s.exec(query).all()
+    
+    return [
+        LeaderResponse(
+            player_id=r.player_id,
+            team_id=r.team_id,
+            team_name=r.team_name,
+            stat_value=float(r.stat_value),
+            games_played=r.games_played
+        )
+        for r in results
+    ]
+
+@router.get("/leaders/situational")
+def get_situational_leaders(
+    year: int = Query(..., description="Season year"),
+    stat: str = Query("fourth_down_conversions", description="fourth_down_conversions|red_zone_td|goal_to_go_td|two_minute_plays"),
+    top: int = Query(10, ge=1, le=100, description="Number of leaders to return"),
+    s: Session = Depends(get_session)
+):
+    """Get situational statistical leaders"""
+    
+    situational_stats = {
+        "fourth_down_conversions": PlayerSeasonStats.fourth_down_conversions,
+        "red_zone_td": PlayerSeasonStats.red_zone_td,
+        "goal_to_go_td": PlayerSeasonStats.goal_to_go_td,
+        "two_minute_plays": PlayerSeasonStats.two_minute_plays,
+    }
+    
+    if stat not in situational_stats:
+        raise HTTPException(status_code=400, detail=f"Invalid situational stat: {stat}")
+    
+    query = select(
+        PlayerSeasonStats.player_id,
+        PlayerSeasonStats.team_id,
+        Team.name.label("team_name"),
+        situational_stats[stat].label("stat_value"),
+        PlayerSeasonStats.gp.label("games_played")
+    ).join(
+        Team, PlayerSeasonStats.team_id == Team.id
+    ).where(
+        PlayerSeasonStats.season == year
+    ).order_by(desc(situational_stats[stat])).limit(top)
     
     results = s.exec(query).all()
     
