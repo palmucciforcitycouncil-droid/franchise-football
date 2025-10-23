@@ -1,0 +1,42 @@
+{
+  "season": 2025,
+  "data_summary": {
+    "total_players": 0,
+    "teams": 0,
+    "games_simulated": 4
+  },
+  "correlations": {
+    "QB": null,
+    "RB": null,
+    "WR": null,
+    "TE": null,
+    "Front7": null,
+    "DB": null
+  },
+  "usage_patterns": {
+    "QB": null,
+    "RB": null,
+    "WR": null,
+    "TE": null
+  },
+  "position_counts": {
+    "QB": 0,
+    "RB": 0,
+    "WR": 0,
+    "TE": 0,
+    "EDGE": 0,
+    "DE": 0,
+    "DT": 0,
+    "LB": 0,
+    "CB": 0,
+    "S": 0
+  },
+  "thresholds": {
+    "QB_correlation_min": 0.25,
+    "RB_correlation_min": 0.2,
+    "WR_correlation_min": 0.2,
+    "TE_correlation_min": 0.15,
+    "Front7_correlation_min": 0.15,
+    "DB_correlation_min": 0.1
+  }
+}

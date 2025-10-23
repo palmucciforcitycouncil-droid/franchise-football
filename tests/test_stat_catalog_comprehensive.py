@@ -430,3 +430,4 @@ class TestDataIntegrity:
         assert stats.receptions <= stats.targets
         assert stats.rush_td <= stats.rush_attempts
         assert stats.pass_td <= stats.pass_attempts
+

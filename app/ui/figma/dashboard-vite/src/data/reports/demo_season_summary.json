@@ -1,0 +1,274 @@
+{
+  "season": 2025,
+  "standings": [],
+  "awards": {
+    "MVP": -1,
+    "OPOY_AFC": -1,
+    "OPOY_NFC": -1,
+    "DPOY_AFC": -1,
+    "DPOY_NFC": -1,
+    "OROY": -1,
+    "DROY": -1,
+    "COY_TEAM": null,
+    "GMY_TEAM": null
+  },
+  "awards_persisted": [
+    {
+      "player_id": -1,
+      "id": 1,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "MVP",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 2,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "OPOY_AFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 3,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "OPOY_NFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 4,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "DPOY_AFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 5,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "DPOY_NFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 6,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "OROY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 7,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "DROY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": null,
+      "id": 8,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "COY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": null,
+      "id": 9,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "GMY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 10,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "MVP",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 11,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "OPOY_AFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 12,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "OPOY_NFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 13,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "DPOY_AFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 14,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "DPOY_NFC",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 15,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "OROY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": -1,
+      "id": 16,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "DROY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": null,
+      "id": 17,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "COY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    },
+    {
+      "player_id": null,
+      "id": 18,
+      "gm_id": null,
+      "game_id": null,
+      "season": 2025,
+      "award": "GMY",
+      "coach_id": null,
+      "team_id": null,
+      "notes": null
+    }
+  ],
+  "weekly_awards": [],
+  "leaders": [
+    {
+      "title": "Passing Yards",
+      "leaders": []
+    },
+    {
+      "title": "Passing TD",
+      "leaders": []
+    },
+    {
+      "title": "Interceptions Thrown (Fewest)",
+      "leaders": []
+    },
+    {
+      "title": "Rushing Yards",
+      "leaders": []
+    },
+    {
+      "title": "Rushing TD",
+      "leaders": []
+    },
+    {
+      "title": "Receiving Yards",
+      "leaders": []
+    },
+    {
+      "title": "Receiving TD",
+      "leaders": []
+    },
+    {
+      "title": "Sacks (Defense)",
+      "leaders": []
+    },
+    {
+      "title": "Interceptions (Defense)",
+      "leaders": []
+    },
+    {
+      "title": "TFL",
+      "leaders": []
+    },
+    {
+      "title": "FG Made",
+      "leaders": []
+    },
+    {
+      "title": "FG %",
+      "leaders": []
+    },
+    {
+      "title": "Net Punting",
+      "leaders": []
+    },
+    {
+      "title": "Return TD",
+      "leaders": []
+    }
+  ]
+}

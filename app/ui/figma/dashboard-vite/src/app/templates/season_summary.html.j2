@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Season {{ season }} Summary</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    h1, h2 { margin-bottom: 0.25rem; }
+    .leaders, .awards { margin-top: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+  <h1>Season {{ season }} Summary</h1>
+
+  <h2>Standings</h2>
+  <table>
+    <tr><th>Team</th><th>Wins</th><th>Losses</th><th>Points</th><th>Points Allowed</th></tr>
+    {% for t in standings %}
+    <tr>
+      <td>{{ t.team_id }}</td><td>{{ t.wins or 0 }}</td><td>{{ t.losses or 0 }}</td>
+      <td>{{ t.points or 0 }}</td><td>{{ t.points_allowed or 0 }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <div class="awards">
+    <h2>Season Awards (computed)</h2>
+    <pre>{{ awards | tojson(indent=2) }}</pre>
+    <h2>Awards (persisted rows)</h2>
+    <pre>{{ awards_persisted | tojson(indent=2) }}</pre>
+    <h2>Weekly Awards</h2>
+    <pre>{{ weekly_awards | tojson(indent=2) }}</pre>
+  </div>
+
+  <div class="leaders">
+    <h2>League Leaders</h2>
+    {% for b in leaders %}
+      <h3>{{ b.title }}</h3>
+      <table>
+        <tr><th>Name</th><th>Player ID</th><th>Team</th><th>Value</th></tr>
+        {% for r in b.leaders %}
+        <tr><td>{{ r.name }}</td><td>{{ r.player_id }}</td><td>{{ r.team_id }}</td><td>{{ r.value }}</td></tr>
+        {% endfor %}
+      </table>
+    {% endfor %}
+  </div>
+</body>
+</html>

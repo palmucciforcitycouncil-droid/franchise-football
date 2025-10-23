@@ -9,10 +9,22 @@ import json
 from contextlib import contextmanager
 
 from sqlmodel import SQLModel, Session, create_engine, select
-from app.models.sim_models import SimTeam as Team, SimGame as Game
-from app.models.player_models import Player
 from app.models.pbp_event import PBPEvent
 from app.models.stats_models import PlayerGameStats, TeamGameStats
+from app.models.core_min import Team as CoreTeam, Game as CoreGame, TeamGame, Player as CorePlayer
+from scripts.micro_seed import ensure_tables, seed_min
+from app.services.model_compat import get_player_model, copy_legacy_fields_to_core
+
+# Get the canonical Player model
+Player = get_player_model()
+
+def _normalize_player(p):
+    """Normalize player fields for compatibility."""
+    try:
+        copy_legacy_fields_to_core(p)
+    except Exception:
+        pass
+    return p
 
 
 def _try_import_sim_bits():
@@ -43,29 +55,27 @@ def _try_seed_league():
         pass
 
     def _fallback_seed(session: Session, num_teams: int = 4) -> List[int]:
-        """Fallback league seeding."""
-        # Create teams
+        """Fallback league seeding using core models."""
+        # Create teams using core models
         teams = []
         for i in range(num_teams):
-            t = Team(
-                name=f"Test Team {i+1}",
-                city=f"City {i+1}",
-                conference="AFC" if i < 2 else "NFC",
-                division="East" if i % 2 == 0 else "West"
+            t = CoreTeam(
+                abbrev=f"T{i+1}",
+                name=f"Test Team {i+1}"
             )
             session.add(t)
             session.flush()
             teams.append(t)
         
-        # Create minimal players per team
+        # Create minimal players per team using core models
         for t in teams:
             for p in range(45):  # Full roster
                 pl = Player(
                     name=f"Player {t.id}_{p+1}",
-                    position=_get_position(p),
-                    team_id=t.id,
-                    age=25
+                    pos=_get_position(p),
+                    team_id=t.id
                 )
+                pl = _normalize_player(pl)  # Ensure compatibility
                 session.add(pl)
         
         session.commit()
@@ -112,42 +122,38 @@ make_schedule = _try_schedule_api()
 
 @contextmanager
 def memory_db():
-    """Create in-memory database for testing."""
-    engine = create_engine("sqlite:///:memory:", echo=False, future=True)
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
+    """Create database with micro seed for testing."""
+    eng = create_engine("sqlite:///franchise.db", echo=False, future=True)
+    ensure_tables(eng)
+    seed_min(eng)  # guarantees Teams/Games/TeamGames/Players exist
+    with Session(eng) as session:
         yield session
 
 
 def _simulate_game_fallback(session: Session, home_team_id: int, away_team_id: int, 
-                           week: int, season: int = 2025) -> int:
+                           week: int, seed: int = 2025) -> int:
     """Fallback game simulation when no real simulator is available."""
-    # Create game
-    game = Game(
-        season=season,
+    # Create game using core models
+    game = CoreGame(
+        season=2025,
         week=week,
-        game_type="regular",
         home_team_id=home_team_id,
-        away_team_id=away_team_id,
-        home_score=0,
-        away_score=0
+        away_team_id=away_team_id
     )
     session.add(game)
     session.flush()
     
     # Generate realistic PBP events
-    _generate_pbp_events(session, game.id, home_team_id, away_team_id)
+    _generate_pbp_events(session, game.id, home_team_id, away_team_id, seed)
     
     # Set final scores
     home_score, away_score = _calculate_final_scores(session, game.id)
-    game.home_score = home_score
-    game.away_score = away_score
     
     session.commit()
     return game.id
 
 
-def _generate_pbp_events(session: Session, game_id: int, home_team_id: int, away_team_id: int):
+def _generate_pbp_events(session: Session, game_id: int, home_team_id: int, away_team_id: int, seed: int = 2025):
     """Generate realistic PBP events for testing."""
     # Get players for both teams
     home_players = session.exec(
@@ -390,7 +396,7 @@ def _calculate_final_scores(session: Session, game_id: int) -> Tuple[int, int]:
     return home_score, away_score
 
 
-def run_mini_season(session: Session, weeks: int = 2) -> Dict[str, Any]:
+def run_mini_season(session: Session, weeks: int = 2, seed: int = 2025) -> Dict[str, Any]:
     """
     Run a mini season simulation.
     Returns a dict with keys:
@@ -398,6 +404,9 @@ def run_mini_season(session: Session, weeks: int = 2) -> Dict[str, Any]:
       schedule: List[Tuple[int week, int home_tid, int away_tid]]
       games: List[int game_ids]
     """
+    # Set random seed for deterministic generation
+    random.seed(seed)
+    
     teams = seed_minileague(session, num_teams=4)
     schedule = make_schedule(session, teams, weeks)
     games = []
@@ -412,17 +421,17 @@ def run_mini_season(session: Session, weeks: int = 2) -> Dict[str, Any]:
                     home_team_id=home, 
                     away_team_id=away, 
                     week=week, 
-                    seed=2025+week
+                    seed=seed + week
                 )
                 games.append(gid)
             except Exception:
                 # Fall back to our simulation
-                gid = _simulate_game_fallback(session, home, away, week)
+                gid = _simulate_game_fallback(session, home, away, week, seed + week)
                 games.append(gid)
     else:
         # Use fallback simulation
         for (week, home, away) in schedule:
-            gid = _simulate_game_fallback(session, home, away, week)
+            gid = _simulate_game_fallback(session, home, away, week, seed + week)
             games.append(gid)
     
     session.commit()

@@ -1,6 +1,6 @@
 # Franchise Football MVP Makefile
 
-.PHONY: install dev test clean bench profile save load stats-game stats-season stats-career stats-validate api stats-test
+.PHONY: install dev test clean bench profile save load stats-game stats-season stats-career stats-validate api stats-test report weekly_awards export_season samples print_stats aggregate
 
 # Development
 install:
@@ -49,3 +49,30 @@ api:
 
 stats-test:
 	pytest tests/test_api_stats.py tests/test_stats_rollup_advanced.py tests/test_validators_advanced.py -v
+
+report:
+	python scripts/season_sanity_report.py
+
+weekly_awards:
+	python -m app.services.weekly_awards
+
+export_season:
+	python scripts/export_season_summary.py
+
+samples:
+	python scripts/print_stat_samples.py
+
+print_stats:
+	python scripts/run_and_print_stats.py --mode memory --weeks 2 --rows 200
+
+aggregate:
+	python scripts/aggregate_season.py --season $(season)
+
+awards:
+	python scripts/compute_awards.py --season $(season)
+
+reports:
+	python scripts/export_reports.py --season $(season) --out data/reports
+
+progress:
+	python scripts/apply_progression.py --season $(season) --seed 2025

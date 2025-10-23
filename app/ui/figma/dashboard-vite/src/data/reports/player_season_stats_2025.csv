@@ -1,0 +1,4 @@
+player_id,team_id,season,games,snaps,pass_attempts,completions,pass_yards,pass_tds,interceptions,rush_attempts,rush_yards,rush_tds,targets,receptions,recv_yards,recv_tds,fumbles,tackles,sacks,tfl,qb_hits,interceptions_def,passes_defended,forced_fumbles,fumble_recoveries,defensive_tds,returns,return_yards,return_tds
+1,1,2025,194,45328,12297,10946,113620,485,66,2120,28380,98,1640,1254,45428,67,0,1066,145.5,289,482,52,0,0,0,0,0,0,0
+2,1,2025,193,45328,12297,10946,113320,482,66,2120,28330,97,1640,1254,45328,66,0,1061,144.5,289,482,51,0,0,0,0,0,0,0
+3,1,2025,193,45328,12297,10946,113320,482,66,2120,28330,97,1640,1254,45328,66,0,1061,144.5,289,482,51,0,0,0,0,0,0,0
