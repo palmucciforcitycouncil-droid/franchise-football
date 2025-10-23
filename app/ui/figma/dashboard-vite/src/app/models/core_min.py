@@ -32,12 +32,32 @@ class TeamGame(SQLModel, table=True):
 class Player(SQLModel, table=True):
     __tablename__ = "players"
     id: Optional[int] = Field(default=None, primary_key=True)
-    team_id: int
+    team_id: Optional[int] = None
     pos: str                      # canonical
     name: str
+    first_name: str = ""
+    last_name: str = ""
     rating: int = 60
     kicker_power: float = 0.5
     kicker_base_40_49: float = 0.82
+    
+    # Progression attributes (required for progression system)
+    awareness: int = 50
+    speed: int = 50
+    strength: int = 50
+    agility: int = 50
+    throw_power: int = 50
+    throw_accuracy: int = 50
+    catching: int = 50
+    tackling: int = 50
+    stamina: int = 50
+    morale: int = 50
+    
+    # Additional progression-related attributes
+    age: int = 25
+    years_pro: int = 0
+    potential: int = 50
+    injury_proneness: int = 50
 
     # ---- Compatibility aliases (do NOT create new columns) ----
     @property

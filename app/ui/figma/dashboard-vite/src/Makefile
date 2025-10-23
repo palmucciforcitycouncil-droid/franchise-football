@@ -76,3 +76,15 @@ reports:
 
 progress:
 	python scripts/apply_progression.py --season $(season) --seed 2025
+
+rollback:
+	python scripts/rollback_progression.py --season $(season)
+
+rollover:
+	python scripts/rollover_season.py --from $(from) --to $(to) --seed 2025
+
+save:
+	python scripts/save_league.py --name $(name) --season $(season) --out data/saves
+
+load:
+	python scripts/load_league.py --path $(path) --strategy replace

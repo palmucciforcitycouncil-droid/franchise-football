@@ -1,6 +1,6 @@
 # app/api/dto.py
 from __future__ import annotations
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict, Any
 from pydantic import BaseModel, Field
 
 AwardName = Literal["MVP", "OPOY", "DPOY", "ROY", "COY", "GMOY"]
@@ -85,3 +85,32 @@ class LeagueSummary(BaseModel):
     league_ppg: float
     plays_per_game: float
     pass_rate: float
+
+# Progression DTOs
+class ProgressionDelta(BaseModel):
+    player_id: int
+    season: int
+    name: str
+    position: str | None = None
+    team_id: int | None = None
+    total_delta: int
+    deltas: Dict[str, int] = Field(default_factory=dict)
+
+class ProgressionLeagueView(BaseModel):
+    season: int
+    top_n: int
+    risers: list[ProgressionDelta] = Field(default_factory=list)
+    fallers: list[ProgressionDelta] = Field(default_factory=list)
+
+class ProgressionAuditItem(BaseModel):
+    season: int
+    components: Dict[str, Any]
+    before: Dict[str, int]
+    after: Dict[str, int]
+    total_delta: int
+
+class PlayerProgressionAudit(BaseModel):
+    player_id: int
+    name: str
+    position: str | None = None
+    audits: list[ProgressionAuditItem] = Field(default_factory=list)

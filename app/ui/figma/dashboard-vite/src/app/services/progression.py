@@ -5,6 +5,7 @@ from typing import Dict, Tuple, List, Optional, Callable
 from time import time
 import math
 import random
+from json import loads as _json_loads
 
 from sqlmodel import Session, select, delete
 
@@ -211,6 +212,27 @@ def clamp_rating(v: int) -> int:
 def clamp_delta(d: int) -> int:
     return max(DELTA_MIN, min(DELTA_MAX, d))
 
+def _apply_attr_deltas(session: Session, p: Player, attr_map: Dict[str, int]) -> None:
+    """
+    Apply clamped deltas to a Player and ensure SQLAlchemy persists them.
+    """
+    changed = False
+    for k, v in (attr_map or {}).items():
+        if hasattr(p, k):
+            cur_raw = getattr(p, k)
+            try:
+                cur = int(cur_raw if cur_raw is not None else 0)
+            except Exception:
+                cur = 0
+            nd = clamp_delta(int(v))
+            new_val = clamp_rating(cur + nd)
+            if new_val != cur:
+                setattr(p, k, new_val)
+                changed = True
+    if changed:
+        session.add(p)
+        session.flush()  # push changes so a subsequent refresh sees updated columns
+
 # ----------------------------
 # Orchestrator
 # ----------------------------
@@ -284,14 +306,9 @@ def apply_progression_for_season(session: Session, season: int, seed: int = 2025
 
         # Snapshot before
         before = _snapshot_player_ratings(p)
-
-        # Apply clamped deltas
-        for k, v in attr_map.items():
-            if hasattr(p, k):
-                cur = int(getattr(p, k))
-                nd = clamp_delta(v)
-                setattr(p, k, clamp_rating(cur + nd))
-
+        # Apply clamped deltas and persist
+        _apply_attr_deltas(session, p, attr_map)
+        session.refresh(p)
         # Snapshot after
         after = _snapshot_player_ratings(p)
 
@@ -335,3 +352,47 @@ def _snapshot_player_ratings(p: Player) -> Dict[str, int]:
         if hasattr(p, k):
             snap[k] = int(getattr(p, k))
     return snap
+
+# ----------------------------
+# Rollback functionality
+# ----------------------------
+ROLLBACK_KEYS = [
+    "awareness","speed","strength","agility",
+    "throw_power","throw_accuracy","catching","tackling",
+    "stamina","morale"
+]
+
+def rollback_progression(session: Session, season: int, player_id: int | None = None, purge: bool = False) -> int:
+    """
+    Restore Player attributes to the 'before' snapshot for given season.
+    If player_id is None, rollback all players with a progression row for that season.
+    If purge=True, delete the PlayerProgression rows after rollback. Otherwise keep for audit history.
+    Returns number of players rolled back.
+    """
+    q = select(PlayerProgression).where(PlayerProgression.season == season)
+    if player_id is not None:
+        q = q.where(PlayerProgression.player_id == player_id)
+    rows = session.exec(q).all()
+    if not rows:
+        return 0
+
+    count = 0
+    for r in rows:
+        p = session.get(Player, r.player_id)
+        if not p:
+            continue
+        try:
+            before = _json_loads(r.before_json)
+        except Exception:
+            continue
+        # Apply snapshot back to Player
+        for k in ROLLBACK_KEYS:
+            if hasattr(p, k) and k in before:
+                setattr(p, k, clamp_rating(int(before[k])))
+        session.add(p)
+        count += 1
+        if purge:
+            session.delete(r)
+
+    session.commit()
+    return count

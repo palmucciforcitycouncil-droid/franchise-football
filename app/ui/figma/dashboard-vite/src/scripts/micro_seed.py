@@ -44,7 +44,7 @@ def seed_min(engine, season=2025, week=1):
         # games (round-robin pairs)
         existing_g = s.exec(select(Game)).all()
         if not existing_g:
-            pairs = [(ids[i], ids[i+1]) for i in range(0, len(ids), 2)]
+            pairs = [(ids[i], ids[i+1]) for i in range(0, len(ids)-1, 2)]
             gid = 1
             for (home, away) in pairs:
                 g = Game(id=gid, season=season, week=week, home_team_id=home, away_team_id=away)
