@@ -2,13 +2,15 @@
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from app.ui.api_trades import router as trades_router
+from app.ui.api_trades import router as trades_router, teams_router, season_router
 import os
 
 app = FastAPI(title="Franchise Football UI")
 
-# Register trade router
+# Register routers
 app.include_router(trades_router)
+app.include_router(teams_router)
+app.include_router(season_router)
 
 BASE_DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(BASE_DIR, "static")

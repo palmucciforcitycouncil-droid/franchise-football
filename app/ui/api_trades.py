@@ -2,12 +2,16 @@ from __future__ import annotations
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.models.database import get_session
 from app.services.trade_engine import propose, accept, list_trade_block
 from app.services.trade_value import evaluate as eval_value
+from app.models.team import Team
+from app.models.player import Player
 
 router = APIRouter(prefix="/api/v1/trades", tags=["trades"])
+teams_router = APIRouter(prefix="/api/v1/teams", tags=["teams"])
+season_router = APIRouter(prefix="/api/v1/season", tags=["season"])
 
 class Assets(BaseModel):
     players: List[int] = []
@@ -63,3 +67,66 @@ def api_value_preview(
 @router.get("/block")
 def api_trade_block(season: int, sess: Session = Depends(get_session)):
     return list_trade_block(sess, season)
+
+
+# New endpoints for frontend data fetching
+
+@teams_router.get("/")
+def get_all_teams(sess: Session = Depends(get_session)):
+    """Get all teams for trade partner selection"""
+    teams = sess.exec(select(Team)).all()
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "city": getattr(t, 'city', ''),
+            "abbreviation": getattr(t, 'abbreviation', '')
+        }
+        for t in teams
+    ]
+
+@teams_router.get("/{team_id}/roster")
+def get_team_roster(team_id: int, season: int = Query(2025), sess: Session = Depends(get_session)):
+    """Get team roster for trade asset selection"""
+    players = sess.exec(
+        select(Player).where(Player.team_id == team_id, Player.season == season)
+    ).all()
+    return [
+        {
+            "id": p.id,
+            "name": getattr(p, 'first_name', '') + " " + getattr(p, 'last_name', ''),
+            "position": getattr(p, 'position', ''),
+            "overall": getattr(p, 'overall', 0),
+            "age": getattr(p, 'age', 0)
+        }
+        for p in players
+    ]
+
+@teams_router.get("/{team_id}/picks")
+def get_team_picks(team_id: int, season: int = Query(2025), sess: Session = Depends(get_session)):
+    """Get team draft picks for trade asset selection"""
+    from app.models.draft import DraftPickInventory
+    picks = sess.exec(
+        select(DraftPickInventory).where(
+            DraftPickInventory.owner_team_id == team_id,
+            DraftPickInventory.season == season
+        )
+    ).all()
+    return [
+        {
+            "round": p.round,
+            "slot": p.slot,
+            "year": p.season
+        }
+        for p in picks
+    ]
+
+@season_router.get("/current")
+def get_current_season(sess: Session = Depends(get_session)):
+    """Get current season context"""
+    # TODO: Get from actual game state
+    return {
+        "season": 2025,
+        "week": 1,
+        "current_user_team_id": 1  # TODO: Get from auth/session
+    }
