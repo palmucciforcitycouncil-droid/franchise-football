@@ -1,0 +1,173 @@
+/* Remove any previous contain rules that break sticky */
+#rosterCard.roster-card *,
+#statsCard.roster-card * {
+  contain: initial !important;
+}
+
+/* Card clips content; scrolling happens inside the inner div only */
+#rosterCard.roster-card,
+#statsCard.roster-card {
+  position: relative;
+  overflow: hidden !important;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1a2332;
+  border-radius: 0.5rem;
+  border: 1px solid #2d4a6f;
+}
+
+/* Single scroll container (both axes) */
+#rosterBodyScroll.roster-scroll,
+#statsBodyScroll.roster-scroll {
+  overflow: auto !important;
+  max-height: 56vh;
+  min-height: 400px;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+  background: #1a2332;
+}
+
+/* Table sizing for stable columns + horizontal scroll */
+#rosterTable.roster-table,
+#statsTable.roster-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+  font-size: 0.875rem;
+}
+
+/* Sticky header */
+#rosterTable.roster-table thead th,
+#statsTable.roster-table thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 3 !important;
+  background: #0f1723 !important;
+  white-space: nowrap;
+}
+
+/* Prevent wrapping drift */
+#rosterTable.roster-table th,
+#rosterTable.roster-table td,
+#statsTable.roster-table th,
+#statsTable.roster-table td {
+  white-space: nowrap;
+}
+
+/* Safety: neutralize properties that break sticky */
+#rosterCard.roster-card,
+#rosterCard.roster-card *,
+#statsCard.roster-card,
+#statsCard.roster-card * {
+  transform: none !important;
+  filter: none !important;
+  perspective: none !important;
+}
+
+/* Scrollbar cosmetics */
+#rosterBodyScroll::-webkit-scrollbar,
+#statsBodyScroll::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+
+#rosterBodyScroll::-webkit-scrollbar-track,
+#statsBodyScroll::-webkit-scrollbar-track {
+  background: #0a1929;
+}
+
+#rosterBodyScroll::-webkit-scrollbar-thumb,
+#statsBodyScroll::-webkit-scrollbar-thumb {
+  background: #2d4a6f;
+  border-radius: 6px;
+}
+
+#rosterBodyScroll::-webkit-scrollbar-thumb:hover,
+#statsBodyScroll::-webkit-scrollbar-thumb:hover {
+  background: #4a6a8f;
+}
+
+/* Top scrollbar styling (keep existing functionality) */
+.roster-scrollbar {
+  width: 100%;
+  height: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #1a2332;
+  border-top: 1px solid #2d4a6f;
+  flex-shrink: 0;
+}
+
+.roster-scrollbar .sizer {
+  height: 1px;
+}
+
+.roster-scrollbar::-webkit-scrollbar {
+  height: 12px;
+}
+
+.roster-scrollbar::-webkit-scrollbar-track {
+  background: #0a1929;
+}
+
+.roster-scrollbar::-webkit-scrollbar-thumb {
+  background: #2d4a6f;
+  border-radius: 6px;
+}
+
+.roster-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4a6a8f;
+}
+
+/* Skeleton animation for loading state */
+.skeleton-row {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Temporary proof style - REMOVE AFTER TESTING */
+#rosterTable thead th,
+#statsTable thead th {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Frozen first column */
+th.stickyCol,
+td.stickyCol {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 10 !important;
+  background: #1a2332 !important;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Keep header above frozen cells in body */
+thead th.stickyCol {
+  z-index: 40 !important;
+  background: #0f1723 !important;
+}
+
+/* Maintain hover state on frozen column */
+.group:hover td.stickyCol {
+  background: rgba(45, 74, 111, 0.3) !important;
+}
+
+/* Ensure proper stacking when scrolling */
+#rosterTable.roster-table th.stickyCol,
+#rosterTable.roster-table td.stickyCol,
+#statsTable.roster-table th.stickyCol,
+#statsTable.roster-table td.stickyCol {
+  position: sticky !important;
+  left: 0 !important;
+}
