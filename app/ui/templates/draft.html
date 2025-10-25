@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFL Draft</title>
+    <style>
+        /* Basic Tailwind-like utility classes for readability */
+        body { font-family: sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; }
+        .container { display: flex; max-width: 1400px; margin: 20px auto; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+        .col-left { flex: 3; padding: 20px; border-right: 1px solid #eee; }
+        .col-right { flex: 2; display: flex; flex-direction: column; }
+        .col-right-top { flex: 1; padding: 20px; border-bottom: 1px solid #eee; overflow-y: auto; }
+        .col-right-bottom { flex: 1; padding: 20px; overflow-y: auto; }
+        h2, h3 { color: #2c3e50; margin-top: 0; }
+        .input-group { margin-bottom: 15px; }
+        input[type="text"] { width: calc(100% - 20px); padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        th, td { padding: 10px; border: 1px solid #eee; text-align: left; }
+        th { background-color: #f8f8f8; }
+        .btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; background-color: #3498db; color: white; font-size: 14px; }
+        .btn:hover:not(:disabled) { background-color: #2980b9; }
+        .btn:disabled { background-color: #cccccc; cursor: not-allowed; }
+        .round-tabs { display: flex; margin-bottom: 15px; }
+        .round-tabs button { flex: 1; padding: 10px; border: 1px solid #ddd; background-color: #f0f0f0; cursor: pointer; }
+        .round-tabs button.active { background-color: #3498db; color: white; border-color: #3498db; }
+        .status-chip { background-color: #f39c12; color: white; padding: 8px 12px; border-radius: 20px; text-align: center; margin-bottom: 15px; font-weight: bold; }
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 500px; border-radius: 8px; }
+        .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
+        .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
+        .toast { visibility: hidden; min-width: 250px; margin-left: -125px; background-color: #333; color: #fff; text-align: center; border-radius: 2px; padding: 16px; position: fixed; z-index: 1; left: 50%; bottom: 30px; font-size: 17px; }
+        .toast.show { visibility: visible; -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="col-left">
+            <h2>Prospects</h2>
+            <div class="input-group">
+                <input type="text" id="prospectSearch" placeholder="Search prospects..." onkeyup="debounceSearch()">
+            </div>
+            <table id="prospectsTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>POS</th>
+                        <th>OVR</th>
+                        <th>College</th>
+                        <th>Grade</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Prospect rows will be inserted here by JS -->
+                </tbody>
+            </table>
+        </div>
+        <div class="col-right">
+            <div class="col-right-top">
+                <h2>Draft Results</h2>
+                <div class="round-tabs" id="roundTabs">
+                    <!-- Round buttons will be inserted here by JS -->
+                </div>
+                <div id="statusChip" class="status-chip"></div>
+                <button id="simToNextUserPickBtn" class="btn" onclick="simToNextUserPick()">Sim to Next User Pick</button>
+                <table id="draftResultsTable">
+                    <thead>
+                        <tr>
+                            <th>Pick</th>
+                            <th>Team</th>
+                            <th>Prospect</th>
+                            <th>OVR</th>
+                            <th>POS</th>
+                            <th>College</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Draft result rows will be inserted here by JS -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-right-bottom">
+                <h3>Your Draft Board</h3>
+                <ul id="draftBoardList">
+                    <!-- Draft board prospects will be inserted here by JS -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prospect Card Modal -->
+    <div id="prospectModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeProspectModal()">&times;</span>
+            <h3 id="modalProspectName"></h3>
+            <p><strong>POS:</strong> <span id="modalProspectPos"></span></p>
+            <p><strong>OVR:</strong> <span id="modalProspectOvr"></span></p>
+            <p><strong>College:</strong> <span id="modalProspectCollege"></span></p>
+            <p><strong>Grade:</strong> <span id="modalProspectGrade"></span></p>
+            <button id="modalDraftButton" class="btn" onclick="draftProspectFromModal()">Draft Prospect</button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const USER_TEAM_ID = {{ user_team_id }}; // From Jinja2 context
+        const CURRENT_SEASON = {{ current_season }}; // From Jinja2 context
+        let currentRound = 1; // Default to round 1
+        let userOnClock = false;
+        let pollingInterval;
+        let isModalOpen = false;
+        let selectedProspectForModal = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize currentRound based on current_overall from DraftState if available
+            fetch(/api/v1/draft/results?season=&round=1) // Fetch round 1 to get current_overall
+                .then(response => response.json())
+                .then(data => {
+                    currentRound = Math.floor((data.current_overall - 1) / 32) + 1;
+                    if (currentRound < 1) currentRound = 1;
+                    if (currentRound > 7) currentRound = 7; // Max 7 rounds
+                    loadAllData();
+                    startPolling();
+                })
+                .catch(error => {
+                    console.error('Error initializing draft state:', error);
+                    loadAllData(); // Load with default round if state fetch fails
+                    startPolling();
+                });
+        });
+
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            pollingInterval = setInterval(loadResults, 10000, currentRound);
+        }
+
+        function pausePolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+        }
+
+        async function loadAllData() {
+            await loadProspects();
+            await loadDraftBoard();
+            await loadResults(currentRound);
+            renderRoundTabs();
+        }
+
+        async function loadResults(roundNo) {
+            if (userOnClock && isModalOpen) {
+                // If user is on clock and modal is open, don't auto-advance or refresh results
+                // This prevents the UI from changing while the user is making a decision
+                return;
+            }
+            currentRound = roundNo;
+            document.querySelectorAll('.round-tabs button').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.round) === roundNo) {
+                    btn.classList.add('active');
+                }
+            });
+
+            const response = await fetch(/api/v1/draft/results?season=&round=);
+            const data = await response.json();
+            
+            userOnClock = data.user_on_clock;
+            updateStatusChip(data.current_overall);
+            updateSimButton();
+            updateDraftButtons();
+
+            const tableBody = document.getElementById('draftResultsTable').querySelector('tbody');
+            tableBody.innerHTML = '';
+            data.rows.forEach(pick => {
+                const row = tableBody.insertRow();
+                row.insertCell().textContent = pick.overall;
+                row.insertCell().textContent = pick.team_name;
+                row.insertCell().textContent = pick.prospect_name_or_dash;
+                row.insertCell().textContent = pick.ovr_or_dash;
+                row.insertCell().textContent = pick.pos_or_dash;
+                row.insertCell().textContent = pick.college_or_dash;
+            });
+
+            if (userOnClock) {
+                pausePolling();
+            } else {
+                startPolling();
+            }
+        }
+
+        async function loadProspects(query = '') {
+            const response = await fetch(/api/v1/draft/prospects?q=&limit=50);
+            const prospects = await response.json();
+            const tableBody = document.getElementById('prospectsTable').querySelector('tbody');
+            tableBody.innerHTML = '';
+            prospects.forEach(p => {
+                const row = tableBody.insertRow();
+                row.onclick = () => openProspectModal(p);
+                row.style.cursor = 'pointer';
+                row.insertCell().textContent = p.name;
+                row.insertCell().textContent = p.pos;
+                row.insertCell().textContent = p.ovr;
+                row.insertCell().textContent = p.college;
+                row.insertCell().textContent = p.grade.toFixed(1);
+                const actionsCell = row.insertCell();
+                const addToBoardBtn = document.createElement('button');
+                addToBoardBtn.textContent = '+Board';
+                addToBoardBtn.className = 'btn';
+                addToBoardBtn.onclick = (event) => {
+                    event.stopPropagation(); // Prevent row click
+                    addToBoard(p.id);
+                };
+                actionsCell.appendChild(addToBoardBtn);
+
+                const draftBtn = document.createElement('button');
+                draftBtn.textContent = 'Draft';
+                draftBtn.className = 'btn draft-button';
+                draftBtn.dataset.prospectId = p.id;
+                draftBtn.onclick = (event) => {
+                    event.stopPropagation();
+                    draftProspect(p.id);
+                };
+                actionsCell.appendChild(draftBtn);
+            });
+            updateDraftButtons(); // Ensure draft buttons are correctly enabled/disabled
+        }
+
+        async function loadDraftBoard() {
+            const response = await fetch(/api/v1/draft/board?user_team_id=);
+            const board = await response.json();
+            const list = document.getElementById('draftBoardList');
+            list.innerHTML = '';
+            board.prospects.forEach(p => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center p-2 border-b'; // Basic styling
+                li.innerHTML = 
+                    <span> (, OVR: , )</span>
+                    <button class="btn draft-button" data-prospect-id="" onclick="draftProspect()">Draft</button>
+                ;
+                list.appendChild(li);
+            });
+            updateDraftButtons();
+        }
+
+        let searchTimeout;
+        function debounceSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const query = document.getElementById('prospectSearch').value;
+                loadProspects(query);
+            }, 300);
+        }
+
+        async function addToBoard(prospectId) {
+            const response = await fetch(/api/v1/draft/board:add, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prospect_id: prospectId, user_team_id: USER_TEAM_ID })
+            });
+            const result = await response.json();
+            showToast(result.message, result.ok);
+            if (result.ok) {
+                loadDraftBoard();
+            }
+        }
+
+        async function draftProspect(prospectId) {
+            const response = await fetch(/api/v1/draft/pick:make, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prospect_id: prospectId, season: CURRENT_SEASON, team_id: USER_TEAM_ID })
+            });
+            const result = await response.json();
+            showToast(result.message, result.ok);
+            if (result.ok) {
+                closeProspectModal();
+                loadAllData(); // Refresh all data after a pick
+            }
+        }
+
+        async function simToNextUserPick() {
+            const simButton = document.getElementById('simToNextUserPickBtn');
+            simButton.disabled = true; // Disable during sim
+            const response = await fetch(/api/v1/draft/sim:next-user, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ season: CURRENT_SEASON, user_team_id: USER_TEAM_ID })
+            });
+            const result = await response.json();
+            showToast(result.message, result.ok);
+            if (result.ok) {
+                await loadAllData(); // Refresh all data after sim
+            }
+            simButton.disabled = false; // Re-enable
+        }
+
+        function updateStatusChip(currentOverall) {
+            const statusChip = document.getElementById('statusChip');
+            if (userOnClock) {
+                statusChip.textContent = You are on the clock (Pick );
+                statusChip.style.backgroundColor = '#27ae60'; // Green for user's turn
+            } else {
+                statusChip.textContent = 'Simulating...';
+                statusChip.style.backgroundColor = '#f39c12'; // Orange for AI turn
+            }
+        }
+
+        function updateSimButton() {
+            const simButton = document.getElementById('simToNextUserPickBtn');
+            simButton.disabled = userOnClock;
+        }
+
+        function updateDraftButtons() {
+            document.querySelectorAll('.draft-button').forEach(btn => {
+                btn.disabled = !userOnClock;
+            });
+            if (selectedProspectForModal) {
+                document.getElementById('modalDraftButton').disabled = !userOnClock;
+            }
+        }
+
+        function renderRoundTabs() {
+            const roundTabs = document.getElementById('roundTabs');
+            roundTabs.innerHTML = '';
+            for (let i = 1; i <= 7; i++) {
+                const button = document.createElement('button');
+                button.textContent = Round ;
+                button.dataset.round = i;
+                button.onclick = () => loadResults(i);
+                if (i === currentRound) {
+                    button.classList.add('active');
+                }
+                roundTabs.appendChild(button);
+            }
+        }
+
+        function openProspectModal(prospect) {
+            selectedProspectForModal = prospect;
+            document.getElementById('modalProspectName').textContent = prospect.name;
+            document.getElementById('modalProspectPos').textContent = prospect.pos;
+            document.getElementById('modalProspectOvr').textContent = prospect.ovr;
+            document.getElementById('modalProspectCollege').textContent = prospect.college;
+            document.getElementById('modalProspectGrade').textContent = prospect.grade.toFixed(1);
+            document.getElementById('prospectModal').style.display = 'block';
+            isModalOpen = true;
+            updateDraftButtons(); // Update modal's draft button state
+        }
+
+        function closeProspectModal() {
+            document.getElementById('prospectModal').style.display = 'none';
+            isModalOpen = false;
+            selectedProspectForModal = null;
+            if (!userOnClock) { // Resume polling if not user's turn
+                startPolling();
+            }
+        }
+
+        function draftProspectFromModal() {
+            if (selectedProspectForModal) {
+                draftProspect(selectedProspectForModal.id);
+            }
+        }
+
+        function showToast(message, isSuccess) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.backgroundColor = isSuccess ? '#27ae60' : '#e74c3c';
+            toast.className = 'toast show';
+            setTimeout(() => {
+                toast.className = toast.className.replace('show', '');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

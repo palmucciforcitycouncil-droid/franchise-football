@@ -35,3 +35,4 @@ def adjust_stamina_drain(base_drain: float, f: TeamFocusBundle) -> float:
 
 def adjust_two_minute_success(base_prob: float, f: TeamFocusBundle) -> float:
     return base_prob + f.two_min_offense_success_delta
+

@@ -1,0 +1,52 @@
+<!-- app/ui/templates/hof.html.j2 -->
+<div class="card">
+  <div class="card-header">Hall of Fame</div>
+  <div class="p-3" id="hof-contents">
+    <!-- existing HOF nominees/inductees UI -->
+    <div class="text-center text-gray-400">
+      HOF content will be loaded here
+    </div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header">Career & Single-Season Records</div>
+  <div class="p-3" id="records-box"></div>
+</div>
+
+<script>
+async function loadRecords(){
+  const res = await fetch("/api/v1/awards/records");
+  const data = await res.json();
+  const box = document.getElementById("records-box");
+  box.innerHTML = "";
+  const tbl = document.createElement("table");
+  tbl.className = "w-full text-sm";
+  tbl.innerHTML = "<thead><tr><th class='text-left'>Type</th><th class='text-left'>Category</th><th>Season</th><th>Player</th><th class='text-right'>Value</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  data.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.record_type}</td>
+      <td>${r.category}</td>
+      <td>${r.season ?? "-"}</td>
+      <td>${r.player_id}</td>
+      <td class="text-right">${r.value}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  box.appendChild(tbl);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadRecords(); // reuse from awards_stats_modules.html.j2
+});
+</script>
+
+<style>
+.card { background:#0f2435; border-radius:10px; border:1px solid #1d3b53; margin-bottom:12px; }
+.card-header { background:#0c1b29; border-bottom:1px solid #1d3b53; padding:10px 12px; font-weight:600; }
+</style>
+
+

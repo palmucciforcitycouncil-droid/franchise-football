@@ -1,51 +1,59 @@
 from __future__ import annotations
 from sqlmodel import Session
-from app.services.coach_focus_service import aggregate_weekly_effects, development_progression_bonus
+from app.services.injury_service import weekly_heal
 
-def on_week_start(sess: Session, team_id: int, season: int, week: int):
+def on_week_advance(sess: Session, season: int, week: int):
     """
-    Call this at the start of each week to ensure coach focus effects are computed and persisted.
-    The sim engine can then fetch these effects via focus_hooks.get_focus_bundle().
+    Called when advancing from one week to the next.
+    Heals all teams' injuries when progressing from prior week -> this week.
     """
-    # ensures snapshot exists and is persisted; sim can fetch via focus_hooks
-    _ = aggregate_weekly_effects(sess, team_id, season, week)
+    # Heal all teams' injuries when progressing from prior week -> this week
+    weekly_heal(sess, season, week)
 
-def on_season_progression(sess: Session, team_id: int, season: int) -> float:
+def on_season_advance(sess: Session, season: int):
     """
-    Call during annual progression. Returns a small scalar bonus [0..0.05]
-    to add to player development rolls for players on this team.
-    
-    Returns:
-        float: Development bonus multiplier (0.0 to 0.05)
+    Called when advancing from one season to the next.
+    Resolves all remaining injuries from the previous season.
     """
-    return development_progression_bonus(sess, team_id, season)
-
-def on_week_start_all_teams(sess: Session, season: int, week: int):
-    """
-    Convenience function to call on_week_start for all teams.
-    Useful for bulk operations at week start.
-    """
-    from app.models.core_min import Team
     from sqlmodel import select
+    from app.models.injury import Injury, InjuryStatus
     
-    teams = sess.exec(select(Team)).all()
-    for team in teams:
-        on_week_start(sess, team.team_id, season, week)
+    # Get all unresolved injuries from the previous season
+    unresolved_injuries = list(sess.exec(select(Injury).where(
+        Injury.season == season - 1,
+        Injury.resolved == False  # noqa: E712
+    )))
+    
+    # Resolve all previous season injuries
+    for injury in unresolved_injuries:
+        injury.resolved = True
+        injury.status = InjuryStatus.ACTIVE
+        injury.weeks_out_remaining = 0
+        sess.add(injury)
+    
+    sess.commit()
 
-def on_season_progression_all_teams(sess: Session, season: int) -> dict[int, float]:
+def pregame_injury_setup(sess: Session, season: int, week: int, game_id: int, home_team_id: int, away_team_id: int):
     """
-    Convenience function to get development bonuses for all teams.
-    Useful for bulk operations during season progression.
-    
-    Returns:
-        dict[int, float]: Mapping of team_id to development bonus
+    Called before a game to set up injury checks.
+    Returns list of players who should be checked for injuries.
     """
-    from app.models.core_min import Team
     from sqlmodel import select
+    from app.models.player import Player
     
-    teams = sess.exec(select(Team)).all()
-    bonuses = {}
-    for team in teams:
-        bonuses[team.team_id] = on_season_progression(sess, team.team_id, season)
+    # Get all active players for both teams
+    home_players = list(sess.exec(select(Player).where(Player.team_id == home_team_id)))
+    away_players = list(sess.exec(select(Player).where(Player.team_id == away_team_id)))
     
-    return bonuses
+    return {
+        "home_players": [{"player_id": p.player_id, "team_id": p.team_id, "pos": p.pos} for p in home_players],
+        "away_players": [{"player_id": p.player_id, "team_id": p.team_id, "pos": p.pos} for p in away_players]
+    }
+
+def postgame_injury_cleanup(sess: Session, season: int, week: int, game_id: int):
+    """
+    Called after a game to clean up any injury-related data.
+    Currently a placeholder for future functionality.
+    """
+    # Placeholder for future postgame injury processing
+    pass

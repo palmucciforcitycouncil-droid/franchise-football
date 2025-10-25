@@ -345,3 +345,4 @@ function App() {
 - **Mobile App**: Native mobile experience
 
 This design provides the granular control that sports analysts and scouts need while maintaining an intuitive interface for power users. The modular architecture allows for easy extension and customization as requirements evolve.
+

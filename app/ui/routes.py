@@ -1,15 +1,17 @@
-﻿from __future__ import annotations
-from fastapi import APIRouter
+from __future__ import annotations
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
+templates = Jinja2Templates(directory="app/ui/templates")
 
 _HTML = """
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Franchise Football — Local Test UI</title>
+<title>Franchise Football - Local Test UI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   body { font-family: system-ui,Segoe UI,Roboto,Arial,sans-serif; margin: 24px; }
@@ -25,7 +27,7 @@ _HTML = """
 </style>
 </head>
 <body>
-<h1>Franchise Football — Local Test UI</h1>
+<h1>Franchise Football - Local Test UI</h1>
 
 <div class="row">
   <button id="btn-seed">Seed Teams (32)</button>
@@ -80,24 +82,24 @@ function W(){
 }
 
 async function seed(){ const r=await call('POST','/api/sim/seed-teams'); log(r); statusDot(r); }
-async function sched1(){ const r=await call('POST',`/api/sim/schedule/${S()}`); log(r); statusDot(r); }
-async function schedAll(){ const r=await call('POST',`/api/sim/schedule-all/${S()}`); log(r); statusDot(r); }
-async function play(){ const r=await call('POST',`/api/sim/play-week/${S()}/${W()}`); log(r); statusDot(r); }
-async function playSeason(){ const r=await call('POST',`/api/sim/play-season/${S()}`); log(r); statusDot(r); }
+async function sched1(){ const r=await call('POST',/api/sim/schedule/); log(r); statusDot(r); }
+async function schedAll(){ const r=await call('POST',/api/sim/schedule-all/); log(r); statusDot(r); }
+async function play(){ const r=await call('POST',/api/sim/play-week//); log(r); statusDot(r); }
+async function playSeason(){ const r=await call('POST',/api/sim/play-season/); log(r); statusDot(r); }
 
 async function loadGames(){
-  const r=await call('GET',`/api/sim/games/${S()}/${W()}`); log(r); statusDot(r);
+  const r=await call('GET',/api/sim/games//); log(r); statusDot(r);
   if(r.json&&r.json.games){
     const body=document.querySelector('#games tbody'); body.innerHTML='';
     for(const g of r.json.games){
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${g.id}</td><td>${g.season}</td><td>${g.week}</td><td>${g.home_team_id}</td><td>${g.away_team_id}</td><td>${g.home_score}</td><td>${g.away_score}</td><td>${g.status}</td>`;
+      tr.innerHTML=<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>;
       body.appendChild(tr);
     }
   }
 }
-async function pbp(){ const r=await call('GET',`/api/sim/pbp/${S()}/${W()}`); log(r); statusDot(r); }
-async function team(){ const r=await call('GET',`/api/sim/team-stats/${S()}/${W()}`); log(r); statusDot(r); }
+async function pbp(){ const r=await call('GET',/api/sim/pbp//); log(r); statusDot(r); }
+async function team(){ const r=await call('GET',/api/sim/team-stats//); log(r); statusDot(r); }
 async function health(){ const r=await call('GET','/diag/health'); log(r); statusDot(r); }
 async function modules(){ const r=await call('GET','/diag/modules'); log(r); statusDot(r); }
 async function calib(){ const r=await call('GET','/diag/calibration'); log(r); statusDot(r); }
@@ -111,12 +113,12 @@ document.getElementById('btn-load').onclick=loadGames;
 document.getElementById('btn-pbp').onclick=pbp;
 document.getElementById('btn-team').onclick=team;
 document.getElementById('btn-standings').onclick=async ()=>{
-  const r=await call('GET',`/api/sim/standings/${S()}`); log(r); statusDot(r);
+  const r=await call('GET',/api/sim/standings/); log(r); statusDot(r);
   if(r.json&&r.json.standings){
     const body=document.querySelector('#standings tbody'); body.innerHTML='';
     for(const row of r.json.standings){
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${row.rank}</td><td>${row.abbr}</td><td>${row.wins}</td><td>${row.losses}</td><td>${row.ties}</td><td>${row.pf}</td><td>${row.pa}</td><td>${row.power}</td>`;
+      tr.innerHTML=<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>;
       body.appendChild(tr);
     }
   }
@@ -126,6 +128,17 @@ health();
 </script>
 </body></html>
 """
+
 @router.get("/ui", response_class=HTMLResponse)
 def ui_root():
     return HTMLResponse(content=_HTML, headers={"Cache-Control": "no-store"})
+
+@router.get("/draft", response_class=HTMLResponse)
+async def draft_page(request: Request):
+    # Mock data - in real implementation, get from database
+    context = {
+        "request": request,
+        "user_team_id": 1,  # Get from user context
+        "current_season": 2025,  # Get from league state
+    }
+    return templates.TemplateResponse("draft.html", context)

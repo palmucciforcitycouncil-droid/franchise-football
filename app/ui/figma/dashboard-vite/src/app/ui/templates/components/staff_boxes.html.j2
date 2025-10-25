@@ -1,0 +1,371 @@
+<!-- app/ui/templates/components/staff_boxes.html.j2 -->
+<div class="card">
+  <div class="card-header">Staff — Current Team</div>
+  <div id="staff-current" class="p-3 flex flex-col gap-3"></div>
+</div>
+
+<div class="card">
+  <div class="card-header">Weekly Focus Management</div>
+  <div class="p-3">
+    <div class="mb-3">
+      <label class="text-sm">Season</label>
+      <input type="number" id="focus-season" value="2025" class="input w-full">
+    </div>
+    <div class="mb-3">
+      <label class="text-sm">Week</label>
+      <input type="number" id="focus-week" value="1" class="input w-full">
+    </div>
+    <button class="btn" onclick="loadTeamFocuses()">Load Focuses</button>
+  </div>
+  <div id="focus-management" class="p-3 flex flex-col gap-3"></div>
+</div>
+
+<div class="card">
+  <div class="card-header">Modifiers Preview</div>
+  <div id="modifiers-preview" class="p-3"></div>
+</div>
+
+<div class="card">
+  <div class="card-header">Free Agent Coaches</div>
+  <div id="staff-fa" class="p-3 flex flex-col gap-3"></div>
+</div>
+
+<div class="card">
+  <div class="card-header">Poachable Coaches</div>
+  <div id="staff-poachable" class="p-3 flex flex-col gap-3"></div>
+</div>
+
+<script>
+async function loadStaff(teamId) {
+  // Load current team staff
+  const currentRes = await fetch(`/api/v1/staff/team?team_id=${teamId}`);
+  const currentStaff = await currentRes.json();
+  
+  const currentContainer = document.getElementById("staff-current");
+  currentContainer.innerHTML = "";
+  
+  for (const coach of currentStaff) {
+    const card = document.createElement("div");
+    card.className = "coach-card";
+    card.innerHTML = `
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-lg font-semibold cursor-pointer coach-link" data-coach="${coach.coach_id}">${coach.coach_name}</div>
+          <div class="text-xs opacity-80">${coach.role} · Age ${coach.age} · OVR ${coach.overall}</div>
+        </div>
+        <div class="badge">${coach.overall}</div>
+      </div>
+      <div class="mt-2 grid grid-cols-2 gap-4">
+        <div>
+          <div class="text-xs opacity-80">Focus</div>
+          <div class="font-medium">${coach.focus.replace('_', ' ')}</div>
+        </div>
+        <div>
+          <div class="text-xs opacity-80">Career</div>
+          <div class="font-medium">${coach.career_wins}-${coach.career_losses}</div>
+        </div>
+      </div>
+      <div class="mt-2 flex gap-2">
+        <button class="btn btn-sm" onclick="openCoachModal(${coach.coach_id})">Manage</button>
+        <button class="btn btn-sm" onclick="setFocus(${coach.coach_id})">Focus</button>
+      </div>
+    `;
+    currentContainer.appendChild(card);
+  }
+  
+  // Load free agents
+  const faRes = await fetch("/api/v1/staff/free_agents");
+  const faStaff = await faRes.json();
+  
+  const faContainer = document.getElementById("staff-fa");
+  faContainer.innerHTML = "";
+  
+  for (const coach of faStaff) {
+    const card = document.createElement("div");
+    card.className = "coach-card";
+    card.innerHTML = `
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-lg font-semibold">${coach.coach_name}</div>
+          <div class="text-xs opacity-80">${coach.role} · Age ${coach.age} · OVR ${coach.overall}</div>
+        </div>
+        <div class="badge">${coach.overall}</div>
+      </div>
+      <div class="mt-2">
+        <button class="btn btn-sm" onclick="offerCoach(${coach.coach_id})">Offer Contract</button>
+      </div>
+    `;
+    faContainer.appendChild(card);
+  }
+  
+  // Load poachable coaches
+  const poachableRes = await fetch("/api/v1/staff/poachable");
+  const poachableStaff = await poachableRes.json();
+  
+  const poachableContainer = document.getElementById("staff-poachable");
+  poachableContainer.innerHTML = "";
+  
+  for (const coach of poachableStaff) {
+    const card = document.createElement("div");
+    card.className = "coach-card";
+    card.innerHTML = `
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-lg font-semibold">${coach.coach_name}</div>
+          <div class="text-xs opacity-80">${coach.role} · Age ${coach.age} · OVR ${coach.overall}</div>
+        </div>
+        <div class="badge">${coach.overall}</div>
+      </div>
+      <div class="mt-2">
+        <button class="btn btn-sm" onclick="poachCoach(${coach.coach_id})">Poach</button>
+      </div>
+    `;
+    poachableContainer.appendChild(card);
+  }
+}
+
+async function loadTeamFocuses() {
+  const teamId = 1; // Get from context
+  const season = parseInt(document.getElementById("focus-season").value);
+  const week = parseInt(document.getElementById("focus-week").value);
+  
+  const res = await fetch(`/api/v1/coach/team_focuses?team_id=${teamId}&season=${season}&week=${week}`);
+  const coaches = await res.json();
+  
+  const container = document.getElementById("focus-management");
+  container.innerHTML = "";
+  
+  for (const coach of coaches) {
+    const card = document.createElement("div");
+    card.className = "coach-card";
+    card.innerHTML = `
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-lg font-semibold">${coach.coach_name}</div>
+          <div class="text-xs opacity-80">${coach.role} · Run/Pass: ${coach.run_pass_tendency} · Off Agg: ${coach.offensive_aggression} · Def Agg: ${coach.defensive_aggression}</div>
+          <div class="text-xs opacity-80">Pace: ${coach.pace} · Clock Mgmt: ${coach.clock_management} · Discipline: ${coach.discipline}</div>
+        </div>
+        <div class="badge">${coach.role}</div>
+      </div>
+      <div class="mt-2">
+        <label class="text-xs opacity-80">Weekly Focus</label>
+        <select class="select w-full mt-1" onchange="setCoachFocus(${coach.coach_id}, '${coach.role}', this.value)">
+          <option value="OFF_GAMEPLAN" ${coach.current_focus === 'OFF_GAMEPLAN' ? 'selected' : ''}>Offensive Gameplan</option>
+          <option value="DEF_GAMEPLAN" ${coach.current_focus === 'DEF_GAMEPLAN' ? 'selected' : ''}>Defensive Gameplan</option>
+          <option value="TRAINING" ${coach.current_focus === 'TRAINING' ? 'selected' : ''}>Training</option>
+          <option value="DEVELOPMENT" ${coach.current_focus === 'DEVELOPMENT' ? 'selected' : ''}>Development</option>
+          <option value="SCOUTING" ${coach.current_focus === 'SCOUTING' ? 'selected' : ''}>Scouting</option>
+          <option value="SPECIAL_TEAMS" ${coach.current_focus === 'SPECIAL_TEAMS' ? 'selected' : ''}>Special Teams</option>
+          <option value="TWO_MINUTE" ${coach.current_focus === 'TWO_MINUTE' ? 'selected' : ''}>Two Minute</option>
+        </select>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+  
+  // Load modifiers preview
+  await loadModifiersPreview(teamId, season, week);
+}
+
+async function setCoachFocus(coachId, role, focus) {
+  const teamId = 1; // Get from context
+  const season = parseInt(document.getElementById("focus-season").value);
+  const week = parseInt(document.getElementById("focus-week").value);
+  
+  const res = await fetch("/api/v1/coach/set_focus", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      team_id: teamId,
+      season: season,
+      week: week,
+      coach_id: coachId,
+      role: role,
+      focus: focus
+    })
+  });
+  
+  if (res.ok) {
+    // Reload modifiers preview
+    await loadModifiersPreview(teamId, season, week);
+  }
+}
+
+async function loadModifiersPreview(teamId, season, week) {
+  const res = await fetch(`/api/v1/coach/modifiers_preview?team_id=${teamId}&season=${season}&week=${week}`);
+  const mods = await res.json();
+  
+  const container = document.getElementById("modifiers-preview");
+  container.innerHTML = `
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <div class="text-xs opacity-80">Run/Pass Shift</div>
+        <div class="font-medium ${mods.run_pass_shift > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.run_pass_shift * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Offense Success</div>
+        <div class="font-medium ${mods.off_success_mult > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.off_success_mult * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Defense Success</div>
+        <div class="font-medium ${mods.def_success_mult > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.def_success_mult * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Red Zone Off</div>
+        <div class="font-medium ${mods.rz_off_bonus > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.rz_off_bonus * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Red Zone Def</div>
+        <div class="font-medium ${mods.rz_def_bonus > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.rz_def_bonus * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Pace Multiplier</div>
+        <div class="font-medium ${mods.pace_mult > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.pace_mult * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Two Minute Boost</div>
+        <div class="font-medium ${mods.two_min_off_bonus > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.two_min_off_bonus * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Fourth Down Bias</div>
+        <div class="font-medium ${mods.fourth_down_bias > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.fourth_down_bias * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Two Point Bias</div>
+        <div class="font-medium ${mods.two_point_bias > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.two_point_bias * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Challenge Edge</div>
+        <div class="font-medium ${mods.challenge_edge > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.challenge_edge * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Special Teams</div>
+        <div class="font-medium ${mods.st_eff_bonus > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.st_eff_bonus * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Penalty Rate</div>
+        <div class="font-medium ${mods.penalty_rate_mult < 0 ? 'text-green-400' : 'text-red-400'}">${(mods.penalty_rate_mult * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Fake/Trick Prob</div>
+        <div class="font-medium text-blue-400">${(mods.fake_trick_prob * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Blitz Bias</div>
+        <div class="font-medium ${mods.blitz_bias > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.blitz_bias * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Coverage Eff</div>
+        <div class="font-medium ${mods.coverage_eff > 0 ? 'text-green-400' : 'text-red-400'}">${(mods.coverage_eff * 100).toFixed(1)}%</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Dev Off Week</div>
+        <div class="font-medium text-blue-400">${mods.dev_off_week.toFixed(3)}</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Dev Def Week</div>
+        <div class="font-medium text-blue-400">${mods.dev_def_week.toFixed(3)}</div>
+      </div>
+      <div>
+        <div class="text-xs opacity-80">Chemistry Boost</div>
+        <div class="font-medium text-blue-400">${mods.chemistry_boost.toFixed(3)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function openCoachModal(coachId) {
+  // Open coach management modal
+  alert(`Coach management modal for coach ${coachId}`);
+}
+
+function setFocus(coachId) {
+  const focus = prompt("Set focus:", "OFF_GAMEPLAN");
+  if (focus) {
+    fetch(`/api/v1/staff/focus/${coachId}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({focus: focus})
+    }).then(() => location.reload());
+  }
+}
+
+function offerCoach(coachId) {
+  const aav = parseInt(prompt("Offer AAV:", "2000000") || "0", 10);
+  const years = parseInt(prompt("Offer years:", "3") || "1", 10);
+  const role = prompt("Role:", "AC");
+  
+  if (aav && years && role) {
+    fetch(`/api/v1/staff/offer/${coachId}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        aav: aav,
+        years: years,
+        role: role,
+        team_id: 1, // Get from context
+        season: 2025 // Get from context
+      })
+    }).then(res => res.json()).then(data => {
+      alert(data.accepted ? "Offer accepted!" : `Declined: ${data.reason}`);
+      if (data.accepted) location.reload();
+    });
+  }
+}
+
+function poachCoach(coachId) {
+  const aav = parseInt(prompt("Offer AAV:", "3000000") || "0", 10);
+  const years = parseInt(prompt("Offer years:", "4") || "1", 10);
+  const role = prompt("Role:", "HC");
+  
+  if (aav && years && role) {
+    fetch(`/api/v1/staff/offer/${coachId}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        aav: aav,
+        years: years,
+        role: role,
+        team_id: 1, // Get from context
+        season: 2025 // Get from context
+      })
+    }).then(res => res.json()).then(data => {
+      alert(data.accepted ? "Coach poached!" : `Declined: ${data.reason}`);
+      if (data.accepted) location.reload();
+    });
+  }
+}
+
+window.loadStaff = loadStaff;
+window.loadTeamFocuses = loadTeamFocuses;
+</script>
+
+<style>
+.coach-card { 
+  background:#0e2234; 
+  border:1px solid #1f3f57; 
+  border-radius:10px; 
+  padding:12px; 
+}
+.btn-sm { 
+  padding: 4px 8px; 
+  font-size: 12px; 
+}
+.input {
+  background:#10283c; 
+  border:1px solid #224860; 
+  color:#dbe8f5; 
+  padding:8px; 
+  border-radius:8px; 
+}
+.select {
+  background:#10283c; 
+  border:1px solid #224860; 
+  color:#dbe8f5; 
+  padding:8px; 
+  border-radius:8px; 
+}
+.text-green-400 { color: #4ade80; }
+.text-red-400 { color: #f87171; }
+.text-blue-400 { color: #60a5fa; }
+</style>

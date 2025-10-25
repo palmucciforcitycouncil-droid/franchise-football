@@ -1,0 +1,22 @@
+<!-- app/ui/templates/stats.html.j2 -->
+<div class="container mx-auto p-4">
+  <h1 class="text-2xl font-bold mb-6">Statistics & Awards</h1>
+  
+  {% include "components/awards_stats_modules.html.j2" %}
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // preload with current season/week if you inject context
+  const s = {{ current_season | default(2025) }};
+  const w = {{ current_week | default(1) }};
+  document.getElementById("aw-season").value = s;
+  document.getElementById("aw-week").value = w;
+  document.getElementById("awp-season").value = s;
+  loadWeeklyAwards();
+  loadAnnualProjections();
+  loadRecords();
+});
+</script>
+
+

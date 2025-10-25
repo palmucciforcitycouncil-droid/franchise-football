@@ -19,6 +19,19 @@ def _name_gen(rng: random.Random, pos: str, idx: int) -> str:
 def _roll_attr(rng: random.Random, base: int, spread: int=10) -> int:
     return max(30, min(99, base + rng.randint(-spread, spread)))
 
+def _apply_small_jitter(attrs: dict, rng: random.Random, amount: int = 3) -> dict:
+    """
+    Deterministic micro-variance to avoid clusters of identical prospects.
+    Applied only at draft-class generation (not at promotion).
+    """
+    out = {}
+    for k, v in attrs.items():
+        if isinstance(v, int):
+            out[k] = max(30, min(99, v + rng.randint(-amount, amount)))
+        else:
+            out[k] = v
+    return out
+
 def _archetype_base(pos: str) -> Dict[str, int]:
     return {
         "QB": {"overall":78,"awareness":75,"throw":78,"ath":70},
@@ -36,7 +49,7 @@ def _archetype_base(pos: str) -> Dict[str, int]:
 def generate_draft_class(session: Session, season: int, seed: int = 2025) -> int:
     existing = session.exec(select(DraftClass).where(DraftClass.season == season)).first()
     if existing:  # idempotent: rebuild only if forced in future; here we just skip
-        return session.exec(select(Prospect).where(Prospect.season==season)).count()
+        return len(session.exec(select(Prospect).where(Prospect.season==season)).all())
     rng = random.Random(seed)
     session.add(DraftClass(season=season, seed_used=seed, prospects=0))
     count = 0; idx = 1
@@ -44,16 +57,22 @@ def generate_draft_class(session: Session, season: int, seed: int = 2025) -> int
         base = _archetype_base(pos)
         for _ in range(total):
             name = _name_gen(rng, pos, idx); idx += 1
+            # base rolls
             speed = _roll_attr(rng, base["ath"], spread=8)
             strength = _roll_attr(rng, 70 if pos in {"OL","DL","TE","LB"} else 60, spread=8)
             agility = _roll_attr(rng, base["ath"], spread=8)
             awareness = _roll_attr(rng, base["awareness"], spread=6)
             overall = _roll_attr(rng, base["overall"], spread=5)
             potential = _roll_attr(rng, 75, spread=15)
+            # apply tiny deterministic jitter (±3) at generation time
+            jittered = _apply_small_jitter({
+                "overall": overall, "speed": speed, "strength": strength,
+                "agility": agility, "awareness": awareness, "potential": potential
+            }, rng, amount=3)
             session.add(Prospect(
-                season=season, name=name, pos=pos, overall=overall,
-                speed=speed, strength=strength, agility=agility,
-                awareness=awareness, potential=potential
+                season=season, name=name, pos=pos,
+                overall=jittered["overall"], speed=jittered["speed"], strength=jittered["strength"],
+                agility=jittered["agility"], awareness=jittered["awareness"], potential=jittered["potential"]
             ))
             count += 1
     dc = session.exec(select(DraftClass).where(DraftClass.season==season)).first()

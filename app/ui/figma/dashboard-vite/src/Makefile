@@ -88,3 +88,16 @@ save:
 
 load:
 	python scripts/load_league.py --path $(path) --strategy replace
+
+# Stats Aggregation + Records + HOF
+import-hof:
+	python app/scripts/import_hof_seeds.py
+
+rebuild-records:
+	python -c "from app.services.stats_pipeline import rebuild_records_for_season; from app.db import get_engine; from sqlmodel import Session; engine = get_engine(); sess = Session(engine); rebuild_records_for_season(sess, $(season)); sess.close()"
+
+rebuild-career-records:
+	python -c "from app.services.stats_pipeline import rebuild_all_career_records; from app.db import get_engine; from sqlmodel import Session; engine = get_engine(); sess = Session(engine); rebuild_all_career_records(sess); sess.close()"
+
+stats-hof-test:
+	pytest tests/test_stats_hof.py -v

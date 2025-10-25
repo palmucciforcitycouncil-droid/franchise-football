@@ -58,6 +58,16 @@ class Player(SQLModel, table=True):
     years_pro: int = 0
     potential: int = 50
     injury_proneness: int = 50
+    
+    # Rookie flags
+    is_rookie: bool = False
+    rookie_season: Optional[int] = None
+    
+    # Contract demand fields
+    desired_years: int = Field(default=3)
+    desired_aav: int = Field(default=5_000_000)  # per-year ask
+    trade_block: bool = Field(default=False, index=True)
+    cap_hit_current: int = 0  # computed from active contract; persisted for quick UI
 
     # ---- Compatibility aliases (do NOT create new columns) ----
     @property
@@ -73,3 +83,10 @@ class Player(SQLModel, table=True):
     @full_name.setter
     def full_name(self, v: str):
         self.name = v
+    
+    @property
+    def overall(self) -> int:     # legacy code reads .overall
+        return self.rating
+    @overall.setter
+    def overall(self, v: int):    # legacy code sets .overall
+        self.rating = v

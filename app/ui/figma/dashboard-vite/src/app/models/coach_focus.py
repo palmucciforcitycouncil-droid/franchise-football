@@ -73,3 +73,4 @@ class TeamSeasonFocusTally(SQLModel, table=True):
     scouting_points: float = 0.0
     special_teams_points: float = 0.0
     two_min_offense_points: float = 0.0
+

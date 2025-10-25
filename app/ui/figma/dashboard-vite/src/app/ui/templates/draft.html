@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFL Draft</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+            gap: 1rem;
+            padding: 1rem;
+        }
+        
+        .left-panel {
+            width: 60%;
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-y: auto;
+        }
+        
+        .right-panel {
+            width: 40%;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .draft-results {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .draft-board {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            height: 300px;
+            overflow-y: auto;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        
+        .round-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .round-tab {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .round-tab.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        
+        .round-tab:hover {
+            background: #f8f9fa;
+        }
+        
+        .round-tab.active:hover {
+            background: #0056b3;
+        }
+        
+        .status-chip {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        
+        .status-chip.user-clock {
+            background: #28a745;
+            color: white;
+        }
+        
+        .status-chip.simulating {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        th, td {
+            padding: 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+        
+        .btn {
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            background: #f8f9fa;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+            border-color: #28a745;
+        }
+        
+        .btn-success:hover {
+            background: #1e7e34;
+        }
+        
+        .prospect-row {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .prospect-row:hover {
+            background: #f8f9fa;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 2rem;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 500px;
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: black;
+        }
+        
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 1rem;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            z-index: 1001;
+            display: none;
+        }
+        
+        .toast.success {
+            background: #28a745;
+        }
+        
+        .toast.error {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Left Panel: Prospects -->
+        <div class="left-panel">
+            <h2>Prospects</h2>
+            <input type="text" class="search-box" id="searchBox" placeholder="Search prospects...">
+            
+            <table id="prospectsTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>POS</th>
+                        <th>OVR</th>
+                        <th>College</th>
+                        <th>Grade</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="prospectsBody">
+                    <!-- Populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Right Panel -->
+        <div class="right-panel">
+            <!-- Draft Results -->
+            <div class="draft-results">
+                <h2>Draft Results</h2>
+                
+                <div class="round-tabs" id="roundTabs">
+                    <div class="round-tab" data-round="1">Round 1</div>
+                    <div class="round-tab" data-round="2">Round 2</div>
+                    <div class="round-tab" data-round="3">Round 3</div>
+                    <div class="round-tab" data-round="4">Round 4</div>
+                    <div class="round-tab" data-round="5">Round 5</div>
+                    <div class="round-tab" data-round="6">Round 6</div>
+                    <div class="round-tab" data-round="7">Round 7</div>
+                </div>
+                
+                <div class="status-chip" id="statusChip">
+                    Loading...
+                </div>
+                
+                <table id="draftResultsTable">
+                    <thead>
+                        <tr>
+                            <th>Pick</th>
+                            <th>Team</th>
+                            <th>Prospect</th>
+                            <th>OVR</th>
+                            <th>POS</th>
+                            <th>College</th>
+                        </tr>
+                    </thead>
+                    <tbody id="draftResultsBody">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Draft Board -->
+            <div class="draft-board">
+                <h3>Your Draft Board</h3>
+                <div id="draftBoardContent">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Prospect Modal -->
+    <div id="prospectModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3 id="modalProspectName">Prospect Name</h3>
+            <div id="modalProspectDetails">
+                <!-- Populated by JavaScript -->
+            </div>
+            <button class="btn btn-primary" id="modalDraftBtn" style="margin-top: 1rem;">Draft</button>
+        </div>
+    </div>
+    
+    <!-- Toast Messages -->
+    <div id="toast" class="toast"></div>
+    
+    <script>
+        let currentRound = 1;
+        let userOnClock = false;
+        let pollingInterval = null;
+        let currentProspect = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProspects();
+            loadDraftResults(1);
+            loadDraftBoard();
+            
+            // Set up event listeners
+            document.getElementById('searchBox').addEventListener('input', debounce(handleSearch, 300));
+            document.getElementById('roundTabs').addEventListener('click', handleRoundTabClick);
+            document.getElementById('modalDraftBtn').addEventListener('click', handleModalDraft);
+            document.querySelector('.close').addEventListener('click', closeModal);
+            
+            // Start polling
+            startPolling();
+        });
+        
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+        
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            
+            pollingInterval = setInterval(() => {
+                if (!userOnClock) {
+                    loadDraftResults(currentRound);
+                }
+            }, 10000);
+        }
+        
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+        
+        async function loadProspects(query = '') {
+            try {
+                const url = query ? `/api/draft/prospects?q=${encodeURIComponent(query)}` : '/api/draft/prospects';
+                const response = await fetch(url);
+                const prospects = await response.json();
+                
+                const tbody = document.getElementById('prospectsBody');
+                tbody.innerHTML = '';
+                
+                prospects.forEach(prospect => {
+                    const row = document.createElement('tr');
+                    row.className = 'prospect-row';
+                    row.onclick = () => openProspectModal(prospect);
+                    
+                    row.innerHTML = `
+                        <td>${prospect.name}</td>
+                        <td>${prospect.pos}</td>
+                        <td>${prospect.ovr}</td>
+                        <td>${prospect.college}</td>
+                        <td>${prospect.grade.toFixed(1)}</td>
+                        <td>
+                            <button class="btn" onclick="event.stopPropagation(); addToBoard(${prospect.id})">+Board</button>
+                            <button class="btn btn-primary" onclick="event.stopPropagation(); draftProspect(${prospect.id})" ${!userOnClock ? 'disabled' : ''}>Draft</button>
+                        </td>
+                    `;
+                    
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                showToast('Error loading prospects', 'error');
+            }
+        }
+        
+        async function loadDraftResults(round) {
+            try {
+                const response = await fetch(`/api/draft/results?round=${round}`);
+                const data = await response.json();
+                
+                currentRound = round;
+                userOnClock = data.user_on_clock;
+                
+                // Update status chip
+                const statusChip = document.getElementById('statusChip');
+                if (userOnClock) {
+                    statusChip.textContent = `You are on the clock (Pick ${data.current_overall})`;
+                    statusChip.className = 'status-chip user-clock';
+                } else {
+                    statusChip.textContent = 'Simulating...';
+                    statusChip.className = 'status-chip simulating';
+                }
+                
+                // Update round tabs
+                document.querySelectorAll('.round-tab').forEach(tab => {
+                    tab.classList.remove('active');
+                    if (parseInt(tab.dataset.round) === round) {
+                        tab.classList.add('active');
+                    }
+                });
+                
+                // Update table
+                const tbody = document.getElementById('draftResultsBody');
+                tbody.innerHTML = '';
+                
+                data.rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.overall}</td>
+                        <td>${row.team_name}</td>
+                        <td>${row.prospect_name_or_dash}</td>
+                        <td>${row.ovr_or_dash}</td>
+                        <td>${row.pos_or_dash}</td>
+                        <td>${row.college_or_dash}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                
+                // Update button states
+                updateButtonStates();
+                
+            } catch (error) {
+                showToast('Error loading draft results', 'error');
+            }
+        }
+        
+        async function loadDraftBoard() {
+            try {
+                const response = await fetch('/api/draft/board');
+                const data = await response.json();
+                
+                const content = document.getElementById('draftBoardContent');
+                content.innerHTML = '';
+                
+                data.prospects.forEach(prospect => {
+                    const div = document.createElement('div');
+                    div.style.cssText = 'padding: 0.5rem; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;';
+                    
+                    div.innerHTML = `
+                        <div>
+                            <strong>${prospect.name}</strong> - ${prospect.pos} (${prospect.ovr}) - ${prospect.college}
+                        </div>
+                        <button class="btn btn-primary" onclick="draftProspect(${prospect.id})" ${!userOnClock ? 'disabled' : ''}>Draft</button>
+                    `;
+                    
+                    content.appendChild(div);
+                });
+                
+            } catch (error) {
+                showToast('Error loading draft board', 'error');
+            }
+        }
+        
+        function updateButtonStates() {
+            const draftButtons = document.querySelectorAll('button[onclick*="draftProspect"]');
+            draftButtons.forEach(btn => {
+                btn.disabled = !userOnClock;
+            });
+        }
+        
+        function handleSearch(event) {
+            loadProspects(event.target.value);
+        }
+        
+        function handleRoundTabClick(event) {
+            if (event.target.classList.contains('round-tab')) {
+                const round = parseInt(event.target.dataset.round);
+                loadDraftResults(round);
+            }
+        }
+        
+        async function addToBoard(prospectId) {
+            try {
+                const response = await fetch('/api/draft/board/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prospect_id: prospectId })
+                });
+                
+                const result = await response.json();
+                showToast(result.message, result.ok ? 'success' : 'error');
+                
+                if (result.ok) {
+                    loadDraftBoard();
+                }
+            } catch (error) {
+                showToast('Error adding to board', 'error');
+            }
+        }
+        
+        async function draftProspect(prospectId) {
+            if (!userOnClock) {
+                showToast('Not your turn to pick', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/draft/pick/make', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prospect_id: prospectId })
+                });
+                
+                const result = await response.json();
+                showToast(result.message, result.ok ? 'success' : 'error');
+                
+                if (result.ok) {
+                    loadDraftResults(currentRound);
+                    loadDraftBoard();
+                    closeModal();
+                }
+            } catch (error) {
+                showToast('Error making pick', 'error');
+            }
+        }
+        
+        async function simToNextUserPick() {
+            try {
+                const response = await fetch('/api/draft/sim/next-user', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                showToast(result.message, result.ok ? 'success' : 'error');
+                
+                if (result.ok) {
+                    loadDraftResults(currentRound);
+                }
+            } catch (error) {
+                showToast('Error simulating picks', 'error');
+            }
+        }
+        
+        function openProspectModal(prospect) {
+            currentProspect = prospect;
+            document.getElementById('modalProspectName').textContent = prospect.name;
+            document.getElementById('modalProspectDetails').innerHTML = `
+                <p><strong>Position:</strong> ${prospect.pos}</p>
+                <p><strong>Overall:</strong> ${prospect.ovr}</p>
+                <p><strong>College:</strong> ${prospect.college}</p>
+                <p><strong>Grade:</strong> ${prospect.grade.toFixed(1)}</p>
+            `;
+            
+            const draftBtn = document.getElementById('modalDraftBtn');
+            draftBtn.disabled = !userOnClock;
+            
+            document.getElementById('prospectModal').style.display = 'block';
+        }
+        
+        function closeModal() {
+            document.getElementById('prospectModal').style.display = 'none';
+            currentProspect = null;
+        }
+        
+        function handleModalDraft() {
+            if (currentProspect) {
+                draftProspect(currentProspect.id);
+            }
+        }
+        
+        function showToast(message, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            toast.style.display = 'block';
+            
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('prospectModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>

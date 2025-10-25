@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GM Dashboard - {{ team.name }}</title>
+    <style>
+        /* Basic styling for the salary cap box */
+        .salary-cap-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .salary-cap-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .salary-cap-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #212529;
+        }
+        
+        .cap-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .cap-tab {
+            padding: 8px 16px;
+            background: #e9ecef;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .cap-tab.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        
+        .cap-tab:hover:not(.active) {
+            background: #f8f9fa;
+        }
+        
+        .cap-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .cap-metric {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .cap-metric-label {
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+        
+        .cap-metric-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #212529;
+        }
+        
+        .cap-space-positive {
+            color: #28a745;
+        }
+        
+        .cap-space-negative {
+            color: #dc3545;
+        }
+        
+        .projected-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #ffc107;
+            color: #212529;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            margin-left: 8px;
+        }
+        
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            .cap-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .cap-tabs {
+                flex-wrap: wrap;
+            }
+        }
+        
+        /* Loading state */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 20px;
+            background: #f8d7da;
+            color: #721c24;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="salary-cap-box">
+        <div class="salary-cap-header">
+            <h2 class="salary-cap-title">Salary Cap</h2>
+        </div>
+        
+        <div id="cap-loading" class="loading">
+            Loading cap information...
+        </div>
+        
+        <div id="cap-error" class="error" style="display: none;">
+            Error loading cap information. Please try again.
+        </div>
+        
+        <div id="cap-content" style="display: none;">
+            <div class="cap-tabs" id="cap-tabs">
+                <!-- Tabs will be populated by JavaScript -->
+            </div>
+            
+            <div class="cap-content" id="cap-metrics">
+                <!-- Metrics will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Rest of GM page content would go here -->
+    <div>
+        <h1>GM Dashboard - {{ team.name }}</h1>
+        <p>Welcome to the General Manager dashboard for {{ team.name }}.</p>
+        <!-- Additional GM content... -->
+    </div>
+
+    <script>
+        // Salary Cap Management
+        class SalaryCapManager {
+            constructor(teamId, baseYear, horizon = 3) {
+                this.teamId = teamId;
+                this.baseYear = baseYear;
+                this.horizon = horizon;
+                this.capData = null;
+                this.currentTab = 0;
+            }
+            
+            async loadCapData() {
+                try {
+                    const response = await fetch(`/api/gm/${this.teamId}/cap-summary?base_year=${this.baseYear}&horizon=${this.horizon}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    this.capData = await response.json();
+                    this.renderCapBox();
+                } catch (error) {
+                    console.error('Error loading cap data:', error);
+                    this.showError();
+                }
+            }
+            
+            renderCapBox() {
+                if (!this.capData || !this.capData.items) {
+                    this.showError();
+                    return;
+                }
+                
+                // Hide loading, show content
+                document.getElementById('cap-loading').style.display = 'none';
+                document.getElementById('cap-error').style.display = 'none';
+                document.getElementById('cap-content').style.display = 'block';
+                
+                this.renderTabs();
+                this.renderMetrics();
+            }
+            
+            renderTabs() {
+                const tabsContainer = document.getElementById('cap-tabs');
+                tabsContainer.innerHTML = '';
+                
+                this.capData.items.forEach((item, index) => {
+                    const tab = document.createElement('div');
+                    tab.className = `cap-tab ${index === this.currentTab ? 'active' : ''}`;
+                    tab.textContent = item.year;
+                    tab.onclick = () => this.switchTab(index);
+                    tabsContainer.appendChild(tab);
+                });
+            }
+            
+            renderMetrics() {
+                const metricsContainer = document.getElementById('cap-metrics');
+                const currentItem = this.capData.items[this.currentTab];
+                
+                metricsContainer.innerHTML = `
+                    <div class="cap-metric">
+                        <div class="cap-metric-label">Team Obligations</div>
+                        <div class="cap-metric-value">$${this.formatCurrency(currentItem.team_obligations)}</div>
+                    </div>
+                    <div class="cap-metric">
+                        <div class="cap-metric-label">League Cap</div>
+                        <div class="cap-metric-value">
+                            $${this.formatCurrency(currentItem.league_cap)}
+                            ${currentItem.is_projected ? '<span class="projected-pill">Projected</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="cap-metric">
+                        <div class="cap-metric-label">Cap Space</div>
+                        <div class="cap-metric-value ${currentItem.cap_space >= 0 ? 'cap-space-positive' : 'cap-space-negative'}">
+                            $${this.formatCurrency(currentItem.cap_space)}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            switchTab(index) {
+                this.currentTab = index;
+                this.renderTabs();
+                this.renderMetrics();
+            }
+            
+            formatCurrency(amount) {
+                return Math.abs(amount).toLocaleString();
+            }
+            
+            showError() {
+                document.getElementById('cap-loading').style.display = 'none';
+                document.getElementById('cap-content').style.display = 'none';
+                document.getElementById('cap-error').style.display = 'block';
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            const teamId = {{ team.id }};
+            const baseYear = {{ league.year }};
+            const capManager = new SalaryCapManager(teamId, baseYear, 3);
+            capManager.loadCapData();
+        });
+    </script>
+</body>
+</html>

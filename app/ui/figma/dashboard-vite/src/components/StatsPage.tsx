@@ -249,3 +249,4 @@ export function StatsPage() {
     </div>
   );
 }
+

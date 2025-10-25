@@ -204,3 +204,4 @@ def development_progression_bonus(sess: Session, team_id: int, season: int) -> f
     # Each weighted "focus week" contributes +0.005 up to +0.05 cap
     bonus = min(0.05, 0.005 * tally.development_points)
     return bonus
+

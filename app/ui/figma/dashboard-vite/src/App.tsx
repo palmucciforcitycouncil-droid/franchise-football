@@ -1,17 +1,10 @@
-import { useState } from 'react';
-import { DivisionStandings } from './components/DivisionStandings';
-import { TeamSchedule } from './components/TeamSchedule';
-import { ScoutingPanel } from './components/ScoutingPanel';
-import { LeaguePowerRankings } from './components/LeaguePowerRankings';
-import { LeagueTopPerformers } from './components/LeagueTopPerformers';
-import { BoxScore } from './components/BoxScore';
-import { TeamTopPerformers } from './components/TeamTopPerformers';
-import { PlayByPlay } from './components/PlayByPlay';
-import { RosterPage } from './components/RosterPage';
+// App.tsx - Updated to showcase Stats Page
+import React, { useState } from 'react';
+import { StatsPage } from './components/StatsPage';
 import { Button } from './components/ui/button';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [currentPage, setCurrentPage] = useState('stats');
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard' },
@@ -25,112 +18,64 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a1929]">
-      {/* Sticky Header - Team Info & Controls */}
-      <header className="sticky top-0 z-50 bg-[#1e3a5f] border-b border-[#2d4a6f]">
-        <div className="max-w-[1920px] mx-auto px-6 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="bg-[#0a1929] px-3 py-1.5 rounded border border-[#d4af37]">
-                <span className="text-white">NE</span>
-              </div>
-              <div>
-                <h2 className="text-white">New England Patriots</h2>
-                <p className="text-[#94a3b8] text-sm">Record: 10-7 · AFC East · Power Rank: 8th</p>
-              </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Navigation Header */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <h1 className="text-xl font-bold text-gray-900">Franchise Football</h1>
             </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" className="bg-transparent border-[#d4af37] text-[#d4af37] hover:bg-[#d4af37]/10">
-                Sim Week
-              </Button>
-              <Button className="bg-[#d4af37] hover:bg-[#c49a2e] text-[#0a1929]">
-                Next
-              </Button>
-            </div>
+            
+            <nav className="flex space-x-8">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentPage(item.id)}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    currentPage === item.id
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
           </div>
         </div>
-      </header>
-
-      {/* Navigation Bar */}
-      <nav className="sticky top-[73px] z-40 bg-[#152238] border-b border-[#2d4a6f]">
-        <div className="max-w-[1920px] mx-auto px-6">
-          <div className="flex items-center gap-1">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`px-4 py-3 transition-colors relative ${
-                  activeTab === item.id
-                    ? 'text-white bg-[#1e3a5f]'
-                    : 'text-[#94a3b8] hover:text-white hover:bg-[#1a2f4a]'
-                }`}
-              >
-                {item.label}
-                {activeTab === item.id && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#d4af37]" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
+      </div>
 
       {/* Main Content */}
-      <div className="max-w-[1920px] mx-auto px-6 py-6">
-      {activeTab === 'dashboard' ? (
-        <div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Row 1: Three equal-height columns */}
-            {/* Column 1 - Left */}
-            <div>
-              <DivisionStandings />
-            </div>
-
-            {/* Column 2 - Middle */}
-            <div>
-              <TeamSchedule />
-            </div>
-
-            {/* Column 3 - Right */}
-            <div>
-              <ScoutingPanel />
-            </div>
-
-            {/* Column 1 - Continued (League Power Rankings, Top Performers, Team Top Performers) */}
-            <div className="lg:row-start-2 lg:row-span-2 space-y-6">
-              <LeaguePowerRankings />
-              <LeagueTopPerformers />
-              <TeamTopPerformers />
-            </div>
-
-            {/* Row 2: Box Score - Spans C2 & C3 */}
-            <div className="lg:col-start-2 lg:col-span-2 lg:row-start-2">
-              <BoxScore />
-            </div>
-
-            {/* Row 3: Play-by-Play - Spans C2 & C3 */}
-            <div className="lg:col-start-2 lg:col-span-2 lg:row-start-3">
-              <PlayByPlay />
-            </div>
+      <div className="max-w-7xl mx-auto">
+        {currentPage === 'stats' ? (
+          <StatsPage />
+        ) : (
+          <div className="p-8 text-center">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              {navItems.find(item => item.id === currentPage)?.label} Page
+            </h2>
+            <p className="text-gray-600 mb-6">
+              This page is under construction. The Stats page showcases the new Professional Football Stats Platform design.
+            </p>
+            <Button onClick={() => setCurrentPage('stats')}>
+              View Stats Page
+            </Button>
           </div>
-        </div>
-      ) : activeTab === 'roster' ? (
-        <RosterPage />
-      ) : (
-        /* Coming Soon Pages */
-        <div className="bg-[#1a2332] rounded-lg border border-[#2d4a6f] p-12 text-center">
-          <div className="max-w-md mx-auto">
-            <div className="w-16 h-16 bg-[#d4af37]/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-[#d4af37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <h2 className="text-white mb-2 capitalize">{activeTab.replace('-', ' ')}</h2>
-            <p className="text-[#94a3b8]">This feature is coming soon. Check back later!</p>
-          </div>
-        </div>
-      )}
+        )}
       </div>
+
+      {/* Footer */}
+      <footer className="bg-white border-t mt-12">
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <div className="text-center text-gray-500">
+            <p>Professional Football Stats Platform - Stats Page Redesign</p>
+            <p className="mt-2 text-sm">
+              Designed for Sports Analysts, Scouts, and Power Users
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

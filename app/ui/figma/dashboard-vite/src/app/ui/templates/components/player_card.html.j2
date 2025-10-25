@@ -1,0 +1,169 @@
+<!-- app/ui/templates/components/player_card.html.j2 -->
+<div class="player-card-modal" id="player-card-modal" style="display: none;">
+  <div class="modal-backdrop" onclick="closePlayerCard()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="player-card-name">Player Name</h3>
+      <button class="close-btn" onclick="closePlayerCard()">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <div id="player-card-details">
+        <!-- Player details will be populated here -->
+      </div>
+      
+      <div class="flex gap-2 mt-4">
+        <button class="btn" onclick="gmTradeFor()">Trade For</button>
+        <button class="btn" onclick="openNegotiateModal()">Negotiate</button>
+        <button class="btn btn-danger" onclick="confirmRelease()">Release</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentPlayerId = null;
+
+function openPlayerCard(pid) {
+  currentPlayerId = pid;
+  const modal = document.getElementById("player-card-modal");
+  modal.style.display = "block";
+  
+  // Load player details (simplified for demo)
+  document.getElementById("player-card-name").textContent = `Player ${pid}`;
+  document.getElementById("player-card-details").innerHTML = `
+    <div class="player-info">
+      <p><strong>Position:</strong> <span id="player-pos">QB</span></p>
+      <p><strong>Age:</strong> <span id="player-age">25</span></p>
+      <p><strong>Overall:</strong> <span id="player-ovr">85</span></p>
+      <p><strong>Team:</strong> <span id="player-team">Team Name</span></p>
+    </div>
+  `;
+}
+
+function closePlayerCard() {
+  const modal = document.getElementById("player-card-modal");
+  modal.style.display = "none";
+  currentPlayerId = null;
+}
+
+function gmTradeFor() {
+  if (!currentPlayerId) return;
+  // navigate to GM trade tab with this player targeted
+  window.location.href = `/gm?tab=trade&target_player_id=${currentPlayerId}`;
+}
+
+async function openNegotiateModal() {
+  if (!currentPlayerId) return;
+  // open a small prompt-based MVP negotiation
+  const aav = parseInt(prompt("Offer AAV ($ per year):", "10000000") || "0", 10);
+  const years = parseInt(prompt("Offer years:", "3") || "1", 10);
+  if (!aav || !years) return;
+  
+  const season = 2025; // Get from context
+  const res = await fetch(`/api/v1/contracts/${currentPlayerId}/negotiate?season=${season}`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({aav, years})
+  });
+  const data = await res.json();
+  alert(data.accepted ? "Offer accepted!" : `Declined: ${data.reason||"no reason"}`);
+  if (data.accepted) location.reload();
+}
+
+async function confirmRelease() {
+  if (!currentPlayerId) return;
+  if (!confirm("Release this player? This moves him to Free Agents.")) return;
+  const res = await fetch(`/api/v1/contracts/${currentPlayerId}/release`, {method:"POST"});
+  if ((await res.json()).ok) location.reload();
+}
+
+// Make functions globally available
+window.openPlayerCard = openPlayerCard;
+window.closePlayerCard = closePlayerCard;
+</script>
+
+<style>
+.player-card-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+}
+
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  position: relative;
+  background: #0f2435;
+  border: 1px solid #1d3b53;
+  border-radius: 10px;
+  margin: 50px auto;
+  width: 90%;
+  max-width: 500px;
+}
+
+.modal-header {
+  background: #0c1b29;
+  border-bottom: 1px solid #1d3b53;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #dbe8f5;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #dbe8f5;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.player-info p {
+  margin: 8px 0;
+  color: #dbe8f5;
+}
+
+.btn {
+  background: #0e6f43;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn:hover {
+  background: #0d5a37;
+}
+
+.btn-danger {
+  background: #dc3545;
+}
+
+.btn-danger:hover {
+  background: #c82333;
+}
+</style>
+
+

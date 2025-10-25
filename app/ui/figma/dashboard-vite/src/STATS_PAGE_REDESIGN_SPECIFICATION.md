@@ -268,3 +268,4 @@ Advanced Metrics
 - Clear focus indicators
 
 This design provides the granular control that sports analysts and scouts need while maintaining an intuitive interface for power users.
+

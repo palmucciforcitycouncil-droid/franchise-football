@@ -1,27 +1,32 @@
-﻿# Franchise Football Makefile
+# Franchise Football Makefile
 
 PYTHON=.\.venv\Scripts\python.exe
 
 init:
 	python -m venv .venv
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -e .
-	@echo "âœ… Virtual environment ready, dependencies installed"
-	$(PYTHON) -c "from app.models.database import create_db_and_tables; create_db_and_tables(); print('âœ… Database initialized')"
-	$(PYTHON) scripts\generate_roster.py --out app\data\generated
-	$(PYTHON) scripts\import_roster.py --from app\data\generated
-	@echo "âœ… Roster generated and imported with seed=$${LEAGUE_SEED:-2025}"
+	 -m pip install --upgrade pip
+	 -m pip install -e .
+	@echo "�o. Virtual environment ready, dependencies installed"
+	 -c "from app.models.database import create_db_and_tables; create_db_and_tables(); print('�o. Database initialized')"
+	 scripts\generate_roster.py --out app\data\generated
+	 scripts\import_roster.py --from app\data\generated
+	@echo "�o. Roster generated and imported with seed={LEAGUE_SEED:-2025}"
 
 run:
-	$(PYTHON) -m uvicorn app.ui.main:app --reload
+	 -m uvicorn app.main:app --reload
 
 test:
-	$(PYTHON) -m coverage run -m pytest
-	$(PYTHON) -m coverage report -m
+	 -m coverage run -m pytest
+	 -m coverage report -m
 
 lint:
-	$(PYTHON) -m ruff check .
+	 -m ruff check .
 
 fmt:
-	$(PYTHON) -m ruff format .
+	 -m ruff format .
 
+seed-draft:
+	 scripts\seed_draft.py
+
+seed-draft:
+	$(PYTHON) scripts\seed_draft.py

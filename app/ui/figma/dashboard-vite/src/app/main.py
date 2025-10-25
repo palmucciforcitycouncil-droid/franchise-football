@@ -25,6 +25,26 @@ from app.ui.api_awards import router as awards_api_router
 from app.ui.api_stats_derived import router as stats_derived_router
 from app.ui.api_gm_expiring import router as gm_expiring_router
 from app.ui.api_coach_focus import router as coach_focus_router
+from app.ui.api_gameplan import router as gameplan_router
+from app.ui.api_debug_gameplan import router as debug_gp_router
+from app.ui.api_gameplan_tools import router as gameplan_tools_router
+from app.ui.api_coach_market import router as coach_market_router
+from app.ui.api_save import router as save_router
+from app.ui.api_trades import router as trades_router
+from app.ui.api_injuries import router as injuries_router
+from app.ui.api_expiring import router as expiring_router
+from app.ui.api_standings import router as standings_router
+from app.ui.api_players_fa import router as players_fa_router
+from app.ui.api_roster_depth import router as roster_depth_router
+from app.ui.api_cards import router as cards_router
+from app.ui.api_schedule_results import router as schedule_results_router
+from app.api.draft import router as new_draft_router
+from app.ui.api_draft import router as draft_mvp_router
+from app.ui.api_draft_admin import router as draft_admin_router
+from app.ui.routers.gm import router as gm_router
+from app.ui.api_cap import router as cap_router, router_roster as roster_size_router
+from app.ui.api_awards_hof import router as awards_hof_router
+from app.ui.api_season_close import router as season_close_router
 
 app = FastAPI(title="Franchise Football API", version="v1")
 
@@ -53,3 +73,24 @@ app.include_router(awards_api_router)
 app.include_router(stats_derived_router)
 app.include_router(gm_expiring_router)
 app.include_router(coach_focus_router)
+app.include_router(gameplan_router)
+app.include_router(debug_gp_router)
+app.include_router(gameplan_tools_router)
+app.include_router(coach_market_router)
+app.include_router(save_router)
+app.include_router(trades_router)
+app.include_router(injuries_router)
+app.include_router(expiring_router)
+app.include_router(standings_router)
+app.include_router(players_fa_router)
+app.include_router(roster_depth_router)
+app.include_router(cards_router)
+app.include_router(schedule_results_router)
+app.include_router(new_draft_router)
+app.include_router(draft_mvp_router)
+app.include_router(draft_admin_router)
+app.include_router(gm_router)
+app.include_router(cap_router)
+app.include_router(roster_size_router)
+app.include_router(awards_hof_router)
+app.include_router(season_close_router)

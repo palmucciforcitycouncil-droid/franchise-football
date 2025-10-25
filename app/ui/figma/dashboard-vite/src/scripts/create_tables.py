@@ -16,6 +16,9 @@ from app.models.awards import AwardResult
 from app.models.savegame import SaveGameAudit
 from app.models.records import SingleSeasonRecord, CareerRecord
 from app.models.draft import DraftClass, Prospect, DraftPick
+from app.models.contracts import Contract
+from app.models.cap import TeamCap
+from app.services.contracts import FreeAgentBid, ReSignOffer
 
 def main():
     engine = create_engine("sqlite:///franchise.db", future=True)

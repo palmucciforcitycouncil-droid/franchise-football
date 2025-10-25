@@ -308,3 +308,4 @@ All components follow GDD v3.2 principles: typed, deterministic, idempotent, and
 
 The **GM Expiring Contracts + Trade-Block AI (≤25% cap) + Endpoints + Hooks** system is now complete and ready for production use!
 
+

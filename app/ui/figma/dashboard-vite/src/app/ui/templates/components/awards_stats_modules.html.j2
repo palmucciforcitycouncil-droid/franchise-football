@@ -1,0 +1,118 @@
+<!-- app/ui/templates/components/awards_stats_modules.html.j2 -->
+<div class="card">
+  <div class="card-header">Weekly Awards</div>
+  <div class="p-3 flex flex-col gap-3">
+    <div class="flex gap-2">
+      <input id="aw-season" class="input" type="number" placeholder="Season"/>
+      <input id="aw-week" class="input" type="number" placeholder="Week"/>
+      <button class="btn" onclick="loadWeeklyAwards()">Load</button>
+    </div>
+    <div id="weekly-awards"></div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header">Annual Awards — Live Projections</div>
+  <div class="p-3">
+    <div class="flex gap-2">
+      <input id="awp-season" class="input" type="number" placeholder="Season"/>
+      <button class="btn" onclick="loadAnnualProjections()">Refresh</button>
+    </div>
+    <div id="annual-proj"></div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header">Career & Single-Season Records</div>
+  <div class="p-3" id="records-box"></div>
+</div>
+
+<script>
+async function loadWeeklyAwards(){
+  const season = parseInt(document.getElementById("aw-season").value || "0", 10);
+  const week = parseInt(document.getElementById("aw-week").value || "0", 10);
+  if(!season || !week){ alert("Enter season and week"); return; }
+  const res = await fetch(`/api/v1/awards/weekly?season=${season}&week=${week}`);
+  const data = await res.json();
+  const box = document.getElementById("weekly-awards");
+  box.innerHTML = "";
+  data.forEach(w => {
+    const div = document.createElement("div");
+    div.className = "player-card";
+    const stats = JSON.parse(w.stats_blob || "{}");
+    div.innerHTML = `
+      <div class="flex justify-between">
+        <div><b>${w.award}</b> — Week ${w.week}, ${season}</div>
+        <div class="opacity-80">Score: ${w.score.toFixed(1)}</div>
+      </div>
+      <div class="text-sm opacity-80">Player ID: ${w.winner_player_id || "-" } · Team: ${w.winner_team_id || "-"}</div>
+      <pre class="mt-2 text-xs bg-black/20 p-2 rounded">${JSON.stringify(stats, null, 2)}</pre>
+    `;
+    box.appendChild(div);
+  });
+}
+
+async function loadAnnualProjections(){
+  const season = parseInt(document.getElementById("awp-season").value || "0", 10);
+  if(!season){ alert("Enter season"); return; }
+  const res = await fetch(`/api/v1/awards/annual/projections?season=${season}`);
+  const data = await res.json();
+  const byAward = {};
+  data.forEach(r => { (byAward[r.award] = byAward[r.award] || []).push(r); });
+  const box = document.getElementById("annual-proj");
+  box.innerHTML = "";
+  Object.entries(byAward).forEach(([award, rows]) => {
+    const wrap = document.createElement("div");
+    wrap.className = "mb-4";
+    wrap.innerHTML = `<div class="font-semibold mb-2">${award}</div>`;
+    rows.forEach(r => {
+      const stats = JSON.parse(r.stats_blob || "{}");
+      const item = document.createElement("div");
+      item.className = "player-card";
+      item.innerHTML = `
+        <div class="flex justify-between">
+          <div>#${r.rank} • ${r.candidate_type} ${r.candidate_id} (Team ${r.team_id||"-"})</div>
+          <div>Score: ${r.score.toFixed(1)}</div>
+        </div>
+        <pre class="mt-1 text-xs bg-black/20 p-2 rounded">${JSON.stringify(stats, null, 2)}</pre>
+      `;
+      wrap.appendChild(item);
+    });
+    box.appendChild(wrap);
+  });
+}
+
+async function loadRecords(){
+  const res = await fetch("/api/v1/awards/records");
+  const data = await res.json();
+  const box = document.getElementById("records-box");
+  box.innerHTML = "";
+  const tbl = document.createElement("table");
+  tbl.className = "w-full text-sm";
+  tbl.innerHTML = "<thead><tr><th class='text-left'>Type</th><th class='text-left'>Category</th><th>Season</th><th>Player</th><th class='text-right'>Value</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  data.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.record_type}</td>
+      <td>${r.category}</td>
+      <td>${r.season ?? "-"}</td>
+      <td>${r.player_id}</td>
+      <td class="text-right">${r.value}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  box.appendChild(tbl);
+}
+</script>
+
+<style>
+.card { background:#0f2435; border-radius:10px; border:1px solid #1d3b53; margin-bottom:12px; }
+.card-header { background:#0c1b29; border-bottom:1px solid #1d3b53; padding:10px 12px; font-weight:600; }
+.input { background:#10283c; border:1px solid #224860; color:#dbe8f5; padding:8px; border-radius:8px; }
+.btn { background:#1b6fb3; color:white; padding:8px 12px; border-radius:8px; }
+.player-card { background:#0e2234; border:1px solid #1f3f57; border-radius:10px; padding:10px; margin-top:8px; }
+</style>
+
+

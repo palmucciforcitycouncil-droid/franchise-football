@@ -101,3 +101,4 @@ def get_development_bonus(team_id: int, season: int, sess: Session = Depends(get
     from app.services.coach_focus_service import development_progression_bonus
     bonus = development_progression_bonus(sess, team_id, season)
     return {"team_id": team_id, "season": season, "development_bonus": bonus}
+

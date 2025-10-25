@@ -1,0 +1,90 @@
+<!-- app/ui/templates/components/expiring_contracts.html.j2 -->
+<div class="card">
+  <div class="card-header flex items-center gap-2">
+    <i class="icon-doc"></i>
+    <span>Expiring Contracts</span>
+  </div>
+
+  <div class="p-3">
+    <label class="text-sm">Team</label>
+    <select id="exp-contracts-team" class="select w-full"></select>
+  </div>
+
+  <div id="exp-contracts-list" class="p-3 flex flex-col gap-3"></div>
+</div>
+
+<script>
+async function loadTeamsIntoDropdown(selId, defaultTeamId) {
+  const sel = document.getElementById(selId);
+  sel.innerHTML = "";
+  const resp = await fetch("/api/v1/contracts/teams/list");
+  const data = await resp.json();
+  for (const t of data.teams) {
+    const opt = document.createElement("option");
+    opt.value = t.team_id;
+    opt.textContent = t.name;
+    if (t.team_id === defaultTeamId) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadExpiring(teamId, season) {
+  const container = document.getElementById("exp-contracts-list");
+  container.innerHTML = "";
+  const res = await fetch(`/api/v1/contracts/expiring?team_id=${teamId}&season=${season}`);
+  const data = await res.json();
+  for (const p of data.players) {
+    const card = document.createElement("div");
+    card.className = "player-card";
+    card.innerHTML = `
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-lg font-semibold cursor-pointer player-link" data-player="${p.player_id}">${p.name}</div>
+          <div class="text-xs opacity-80">${p.position} · Age ${p.age} · OVR ${p.overall}</div>
+        </div>
+        <div class="badge">${p.overall}</div>
+      </div>
+      <div class="mt-2 grid grid-cols-2 gap-4">
+        <div>
+          <div class="text-xs opacity-80">Current Cap Hit</div>
+          <div class="font-medium">$${(p.current_cap_hit/1_000_000).toFixed(1)}M</div>
+        </div>
+        <div>
+          <div class="text-xs opacity-80">Desired Contract</div>
+          <div class="font-medium">${p.desired_years}yr / $${((p.desired_aav*p.desired_years)/1_000_000).toFixed(0)}M</div>
+        </div>
+      </div>
+      <hr class="my-2 opacity-20">
+      <div class="text-sm opacity-80">Seeking $${(p.desired_aav/1_000_000).toFixed(0)}M per year</div>
+    `;
+    container.appendChild(card);
+  }
+
+  // click -> open player card modal (existing function hook)
+  container.querySelectorAll(".player-link").forEach(el => {
+    el.addEventListener("click", (e) => {
+      const pid = parseInt(e.target.dataset.player, 10);
+      window.openPlayerCard(pid); // implement to show modal
+    });
+  });
+}
+
+window.initExpiringContractsBox = async function(defaultTeamId, season) {
+  await loadTeamsIntoDropdown("exp-contracts-team", defaultTeamId);
+  const sel = document.getElementById("exp-contracts-team");
+  await loadExpiring(parseInt(sel.value, 10), season);
+  sel.addEventListener("change", async () => {
+    await loadExpiring(parseInt(sel.value, 10), season);
+  });
+}
+</script>
+
+<style>
+.card { background:#0f2435; border-radius:10px; border:1px solid #1d3b53; }
+.card-header { background:#0c1b29; border-bottom:1px solid #1d3b53; padding:10px 12px; font-weight:600; }
+.select { background:#10283c; border:1px solid #224860; color:#dbe8f5; padding:8px; border-radius:8px; }
+.player-card { background:#0e2234; border:1px solid #1f3f57; border-radius:10px; padding:12px; }
+.badge { background:#0e6f43; color:white; font-weight:700; border-radius:8px; padding:4px 8px; }
+</style>
+
+
