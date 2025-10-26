@@ -77,7 +77,7 @@ def get_all_teams(sess: Session = Depends(get_session)):
     return [
         {
             "id": t.id,
-            "name": t.name or f"{t.location_name} {t.nickname or ''}",
+            "name": f"{t.location_name} {t.nickname or ''}".strip(),
             "city": t.location_name,
             "abbreviation": t.abbr or ""
         }

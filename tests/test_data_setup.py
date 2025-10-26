@@ -15,9 +15,9 @@ def create_test_data():
     
     with Session(engine) as session:
         # Create test teams
-        team1 = Team(id=1, location_name="New York", nickname="Jets", abbr="NYJ", conference="AFC", division="East")
-        team2 = Team(id=2, location_name="Miami", nickname="Dolphins", abbr="MIA", conference="AFC", division="East")
-        team3 = Team(id=3, location_name="Buffalo", nickname="Bills", abbr="BUF", conference="AFC", division="East")
+        team1 = Team(id=1, location_name="New York", nickname="Jets", abbr="NYJ", conference="AFC", division="EAST")
+        team2 = Team(id=2, location_name="Miami", nickname="Dolphins", abbr="MIA", conference="AFC", division="EAST")
+        team3 = Team(id=3, location_name="Buffalo", nickname="Bills", abbr="BUF", conference="AFC", division="EAST")
         
         session.add(team1)
         session.add(team2)
