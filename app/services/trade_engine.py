@@ -24,7 +24,7 @@ def _validate_assets(sess: Session, season:int, team_id:int, assets:dict) -> Tup
             return False, f"Player {pid} not owned by team {team_id}"
     # Picks: owned
     for pk in assets.get("picks", []):
-        row = sess.exec(select(DraftPickInventory).where(DraftPickInventory.season==season, DraftPickInventory.round==pk["round"], DraftPickInventory.slot==pk["slot"])).first()
+        row = sess.exec(select(DraftPick).where(DraftPick.season==season, DraftPick.round==pk["round"], DraftPick.slot==pk["slot"])).first()
         if not row or row.owning_team_id != team_id:
             return False, f"Pick R{pk['round']}-S{pk['slot']} not owned by team {team_id}"
     if len(assets.get("players", [])) + len(assets.get("picks", [])) > MAX_ASSETS_PER_SIDE:
