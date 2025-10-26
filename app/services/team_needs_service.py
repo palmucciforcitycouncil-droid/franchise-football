@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 from statistics import mean
 from sqlmodel import Session, select
-from app.models.roster import DepthChart
+from app.models import DepthChart
 from app.services.depth_chart_service import ORDERED_SLOTS, ELIGIBILITY, auto_fill, list_depth_chart
 from app.models.player import Player
 

@@ -1,6 +1,7 @@
 ﻿from .team import Team, Conference, Division
 from .player import Player
-from .depth_chart import DepthChart
+from .depth_chart import DepthChart as DepthChartOld
+from .roster import DepthChart
 from .game_result import GameResult
 from .draft import DraftPickInventory  # noqa
 from .contract_models import PlayerContract, CapSummary  # noqa
