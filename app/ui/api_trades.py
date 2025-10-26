@@ -7,6 +7,8 @@ from app.models.database import get_session
 from app.services.trade_engine import propose, accept, list_trade_block, evaluate
 from app.models.team import Team
 from app.models.player import Player
+from app.services.trade import evaluate_trade, EvaluationInputs
+from app.services.trade.schemas import TradeOffer, TradeSide
 
 router = APIRouter(prefix="/api/v1/trades", tags=["trades"])
 teams_router = APIRouter(prefix="/api/v1/teams", tags=["teams"])
@@ -66,6 +68,46 @@ def api_value_preview(
 @router.get("/block")
 def api_trade_block(season: int, sess: Session = Depends(get_session)):
     return list_trade_block(sess, season)
+
+# CPU Trade Evaluation endpoint
+@router.post("/simulate")
+def api_simulate(body: ProposeReq, sess: Session = Depends(get_session)):
+    """Simulate a trade to get CPU evaluation decision and explanation."""
+    # Construct TradeOffer for evaluator
+    offer = TradeOffer(
+        from_side=TradeSide(
+            team_id=body.from_team_id,
+            player_ids=body.from_assets.players,
+            picks=[{"season": body.season, "round": p["round"], "slot": p["slot"]} for p in body.from_assets.picks],
+            cash=0
+        ),
+        to_side=TradeSide(
+            team_id=body.to_team_id,
+            player_ids=body.to_assets.players,
+            picks=[{"season": body.season, "round": p["round"], "slot": p["slot"]} for p in body.to_assets.picks],
+            cash=0
+        )
+    )
+    
+    # Default evaluation inputs
+    inputs = EvaluationInputs(
+        season_year=body.season,
+        salary_cap=200_000_000  # Placeholder
+    )
+    
+    # Evaluate from CPU (to_team) perspective
+    result = evaluate_trade(sess, offer, inputs, cpu_team_id=body.to_team_id)
+    
+    return {
+        "fairness": float(result.fairness),
+        "cpu_surplus": float(result.cpu_surplus),
+        "human_surplus": float(result.human_surplus),
+        "cpu_accepts": result.cpu_accepts,
+        "hard_veto": result.hard_veto,
+        "need_gain": result.need_gain,
+        "explanation": result.explanation,
+        "counter_suggestion": result.counter_suggestion
+    }
 
 
 # New endpoints for frontend data fetching
