@@ -47,6 +47,34 @@ export interface TradeValuePreviewResponse {
   error?: string;
 }
 
+// New interfaces for data fetching
+export interface Team {
+  id: number;
+  name: string;
+  city: string;
+  abbreviation: string;
+}
+
+export interface Player {
+  id: number;
+  name: string;
+  position: string;
+  overall: number;
+  age: number;
+}
+
+export interface DraftPick {
+  round: number;
+  slot: number;
+  year: number;
+}
+
+export interface SeasonContext {
+  season: number;
+  week: number;
+  current_user_team_id: number;
+}
+
 const API_BASE = 'http://localhost:8000/api/v1';
 
 // Propose a trade
@@ -96,5 +124,43 @@ export const getTradeValuePreview = async (
 // Get trade block items
 export const getTradeBlock = async (season: number): Promise<any> => {
   const response = await fetch(`${API_BASE}/trades/block?season=${season}`);
+  return await response.json();
+};
+
+// New functions for data fetching
+
+// Get all teams
+export const getAllTeams = async (): Promise<Team[]> => {
+  const response = await fetch(`${API_BASE}/teams/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch teams: ${response.statusText}`);
+  }
+  return await response.json();
+};
+
+// Get team roster
+export const getTeamRoster = async (teamId: number, season: number): Promise<Player[]> => {
+  const response = await fetch(`${API_BASE}/teams/${teamId}/roster?season=${season}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch roster: ${response.statusText}`);
+  }
+  return await response.json();
+};
+
+// Get team draft picks
+export const getTeamPicks = async (teamId: number, season: number): Promise<DraftPick[]> => {
+  const response = await fetch(`${API_BASE}/teams/${teamId}/picks?season=${season}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch picks: ${response.statusText}`);
+  }
+  return await response.json();
+};
+
+// Get current season context
+export const getCurrentSeason = async (): Promise<SeasonContext> => {
+  const response = await fetch(`${API_BASE}/season/current`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch season context: ${response.statusText}`);
+  }
   return await response.json();
 };
