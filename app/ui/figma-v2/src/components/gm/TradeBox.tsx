@@ -97,7 +97,8 @@ export function TradeBox() {
     if (type === 'player') {
       setOfferingAssets([...offeringAssets, {
         type: 'player',
-        id: item.id,
+        id: String(item.id),
+        player_id: item.id,
         name: item.name,
         position: item.position,
         overall: item.overall
@@ -105,11 +106,10 @@ export function TradeBox() {
     } else {
       setOfferingAssets([...offeringAssets, {
         type: 'pick',
-        id: item.id,
-        name: `${item.year} Round ${item.round}${item.pickNumber ? ` (Pick ${item.pickNumber})` : ''}`,
-        year: item.year,
+        id: `pick-${item.round}-${item.slot}`,
         round: item.round,
-        pickNumber: item.pickNumber
+        slot: item.slot,
+        name: `${item.season || currentSeason} Round ${item.round} (Pick ${item.slot})`
       }]);
     }
     setShowAddOffering(false);
@@ -119,7 +119,8 @@ export function TradeBox() {
     if (type === 'player') {
       setReceivingAssets([...receivingAssets, {
         type: 'player',
-        id: item.id,
+        id: String(item.id),
+        player_id: item.id,
         name: item.name,
         position: item.position,
         overall: item.overall
@@ -127,11 +128,10 @@ export function TradeBox() {
     } else {
       setReceivingAssets([...receivingAssets, {
         type: 'pick',
-        id: item.id,
-        name: `${item.year} Round ${item.round}${item.pickNumber ? ` (Pick ${item.pickNumber})` : ''}`,
-        year: item.year,
+        id: `pick-${item.round}-${item.slot}`,
         round: item.round,
-        pickNumber: item.pickNumber
+        slot: item.slot,
+        name: `${item.season || currentSeason} Round ${item.round} (Pick ${item.slot})`
       }]);
     }
     setShowAddReceiving(false);
@@ -146,7 +146,7 @@ export function TradeBox() {
   };
 
   const handleSubmitTrade = async () => {
-    if (!selectedTeam) {
+    if (!selectedTeam || !selectedTeamId) {
       toast.error('Please select a team to trade with');
       return;
     }
@@ -157,32 +157,47 @@ export function TradeBox() {
 
     setSubmitting(true);
     try {
-      const offer: TradeOffer = {
-        teamOffering: 'New England Patriots',
-        teamReceiving: selectedTeam,
-        offeringAssets,
-        receivingAssets
+      // Transform assets to backend format
+      const from_players = offeringAssets
+        .filter(a => a.type === 'player')
+        .map(a => (a as any).player_id || parseInt(a.id));
+      
+      const from_picks = offeringAssets
+        .filter(a => a.type === 'pick')
+        .map(a => ({ round: a.round!, slot: (a as any).slot }));
+      
+      const to_players = receivingAssets
+        .filter(a => a.type === 'player')
+        .map(a => (a as any).player_id || parseInt(a.id));
+      
+      const to_picks = receivingAssets
+        .filter(a => a.type === 'pick')
+        .map(a => ({ round: a.round!, slot: (a as any).slot }));
+
+      const request = {
+        season: currentSeason,
+        from_team_id: userTeamId,
+        to_team_id: selectedTeamId,
+        from_assets: {
+          players: from_players,
+          picks: from_picks
+        },
+        to_assets: {
+          players: to_players,
+          picks: to_picks
+        }
       };
 
-      const response = await submitTradeOffer(offer);
+      const response = await proposeTrade(request);
       
-      if (response.accepted) {
-        toast.success(response.message);
-        // Clear the trade
-        setOfferingAssets([]);
-        setReceivingAssets([]);
-        setSelectedTeam('');
-      } else {
-        toast.error(response.message);
-        if (response.counterOffer) {
-          // Add counter offer to the list with the original offer
-          setCounterOffers([...counterOffers, { original: offer, counter: response.counterOffer }]);
-          toast.info('Counter-offer received! Check below to review.');
-        }
+      if (response.ok) {
+        toast.success(`Trade proposed successfully! ${response.message || 'Waiting for response...'}`);
         // Clear the trade form
         setOfferingAssets([]);
         setReceivingAssets([]);
         setSelectedTeam('');
+      } else {
+        toast.error(response.error || response.message || 'Failed to submit trade');
       }
     } catch (err) {
       console.error('Failed to submit trade:', err);
@@ -192,16 +207,7 @@ export function TradeBox() {
     }
   };
 
-  const handleAcceptCounter = (counterOffer: TradeOffer, index: number) => {
-    toast.success(`Trade accepted! ${counterOffer.teamOffering} has agreed to the deal.`);
-    // Remove the counter offer from the list
-    setCounterOffers(counterOffers.filter((_, i) => i !== index));
-  };
 
-  const handleRejectCounter = (index: number) => {
-    toast.info('Counter-offer rejected');
-    setCounterOffers(counterOffers.filter((_, i) => i !== index));
-  };
 
   return (
     <div className="bg-[#1a2332] rounded-lg border border-[#2d4a6f] h-full">
@@ -514,156 +520,7 @@ export function TradeBox() {
           {submitting ? 'Submitting...' : 'Submit Trade Offer'}
         </Button>
 
-        {/* Counter Offers Section */}
-        {counterOffers.length > 0 && (
-          <div className="mt-6 pt-6 border-t border-[#2d4a6f]">
-            <h4 className="text-white text-sm mb-3">
-              Counter Offers ({counterOffers.length})
-            </h4>
-            <div className="space-y-4">
-              {counterOffers.map(({ original, counter }, index) => (
-                <div key={index} className="bg-[#0a1929] p-3 rounded border border-[#d4af37]">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-white text-sm">{counter.teamOffering}</div>
-                    <div className="text-xs text-[#94a3b8]">Original Offer</div>
-                  </div>
 
-                  {/* Your Original Offer */}
-                  <div className="mb-3 pb-3 border-b border-[#2d4a6f]">
-                    <div className="text-xs text-[#94a3b8] mb-2">Your Original Offer:</div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="text-xs text-[#94a3b8] mb-1">You Offered:</div>
-                        <div className="space-y-1">
-                          {original.offeringAssets.map(asset => (
-                            <div key={asset.id} className="flex items-center gap-2 bg-[#1a2332] p-1.5 rounded text-xs">
-                              {asset.type === 'player' ? (
-                                <>
-                                  <div className={`px-1.5 py-0.5 rounded text-xs ${
-                                    asset.overall! >= 90 ? 'bg-green-500/20 text-green-300' :
-                                    asset.overall! >= 85 ? 'bg-blue-500/20 text-blue-300' :
-                                    'bg-gray-500/20 text-gray-300'
-                                  }`}>
-                                    {asset.overall}
-                                  </div>
-                                  <span className="text-white">{asset.name}</span>
-                                  <span className="text-[#94a3b8]">{asset.position}</span>
-                                </>
-                              ) : (
-                                <span className="text-white">{asset.name}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-[#94a3b8] mb-1">You Requested:</div>
-                        <div className="space-y-1">
-                          {original.receivingAssets.map(asset => (
-                            <div key={asset.id} className="flex items-center gap-2 bg-[#1a2332] p-1.5 rounded text-xs">
-                              {asset.type === 'player' ? (
-                                <>
-                                  <div className={`px-1.5 py-0.5 rounded text-xs ${
-                                    asset.overall! >= 90 ? 'bg-green-500/20 text-green-300' :
-                                    asset.overall! >= 85 ? 'bg-blue-500/20 text-blue-300' :
-                                    'bg-gray-500/20 text-gray-300'
-                                  }`}>
-                                    {asset.overall}
-                                  </div>
-                                  <span className="text-white">{asset.name}</span>
-                                  <span className="text-[#94a3b8]">{asset.position}</span>
-                                </>
-                              ) : (
-                                <span className="text-white">{asset.name}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Their Counter Offer */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs text-[#d4af37]">Their Counter Proposal:</div>
-                      <div className="text-xs text-[#d4af37]">Counter Offer</div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="text-xs text-[#94a3b8] mb-1">They Offer:</div>
-                        <div className="space-y-1">
-                          {counter.offeringAssets.map(asset => (
-                            <div key={asset.id} className="flex items-center gap-2 bg-[#1a2332] p-1.5 rounded text-xs">
-                              {asset.type === 'player' ? (
-                                <>
-                                  <div className={`px-1.5 py-0.5 rounded text-xs ${
-                                    asset.overall! >= 90 ? 'bg-green-500/20 text-green-300' :
-                                    asset.overall! >= 85 ? 'bg-blue-500/20 text-blue-300' :
-                                    'bg-gray-500/20 text-gray-300'
-                                  }`}>
-                                    {asset.overall}
-                                  </div>
-                                  <span className="text-white">{asset.name}</span>
-                                  <span className="text-[#94a3b8]">{asset.position}</span>
-                                </>
-                              ) : (
-                                <span className="text-white">{asset.name}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-[#94a3b8] mb-1">You Receive:</div>
-                        <div className="space-y-1">
-                          {counter.receivingAssets.map(asset => (
-                            <div key={asset.id} className="flex items-center gap-2 bg-[#1a2332] p-1.5 rounded text-xs">
-                              {asset.type === 'player' ? (
-                                <>
-                                  <div className={`px-1.5 py-0.5 rounded text-xs ${
-                                    asset.overall! >= 90 ? 'bg-green-500/20 text-green-300' :
-                                    asset.overall! >= 85 ? 'bg-blue-500/20 text-blue-300' :
-                                    'bg-gray-500/20 text-gray-300'
-                                  }`}>
-                                    {asset.overall}
-                                  </div>
-                                  <span className="text-white">{asset.name}</span>
-                                  <span className="text-[#94a3b8]">{asset.position}</span>
-                                </>
-                              ) : (
-                                <span className="text-white">{asset.name}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => handleAcceptCounter(counter, index)}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-8"
-                    >
-                      Accept Counter
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleRejectCounter(index)}
-                      className="flex-1 bg-transparent border-red-500 text-red-400 hover:bg-red-500/10 text-xs h-8"
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
