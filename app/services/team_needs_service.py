@@ -23,9 +23,9 @@ def ensure_all_depth_charts(sess: Session, season: int, week: int = 0) -> None:
     teams = list(sess.exec(select(Team)))
     # Use opponent_id=0 and game_id composite dummy; availability hook tolerates this
     for t in teams:
-        rows = list_depth_chart(sess, t.team_id)
+        rows = list_depth_chart(sess, t.id)
         if not rows:
-            auto_fill(sess, t.team_id, season=season, week=week, game_id=10_000 + t.team_id, opponent_id=0)
+            auto_fill(sess, t.id, season=season, week=week, game_id=10_000 + t.id, opponent_id=0)
 
 def _starter_overall(sess: Session, player_id: Optional[int]) -> Optional[int]:
     if not player_id: return None
@@ -40,7 +40,7 @@ def league_starter_averages(sess: Session, season: int) -> Dict[str, float]:
     bucket_vals: Dict[str, List[int]] = {pos: [] for pos in NEEDS_POSITIONS}
 
     for t in teams:
-        rows = list(sess.exec(select(DepthChart).where(DepthChart.team_id==t.team_id)))
+        rows = list(sess.exec(select(DepthChart).where(DepthChart.team_id==t.id)))
         # starters = order_index == 0
         starters = [r for r in rows if r.order_index == 0 and r.slot in BUCKETS]
         for r in starters:
