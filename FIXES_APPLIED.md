@@ -10,9 +10,9 @@ ImportError: cannot import name 'DraftPick' from 'app.models.draft'
 
 ## Root Cause
 
-The `app.services.draft_admin.py` file was trying to import `DraftPick` from `app.models.draft`, but the actual model name in that file is `DraftPickInventory`.
-
-Additionally, there was a field name mismatch in `app.ui/api_trades.py` where `owner_team_id` was used instead of `owning_team_id`.
+1. The `app.services.draft_admin.py` file was trying to import `DraftPick` from `app.models.draft`, but the actual model name in that file is `DraftPickInventory`.
+2. There was a field name mismatch in `app.ui/api_trades.py` where `owner_team_id` was used instead of `owning_team_id`.
+3. The `evaluate` function was being imported from `trade_value` module, but it's actually defined in `trade_engine` module.
 
 ## Fixes Applied
 
@@ -45,10 +45,22 @@ DraftPickInventory.owner_team_id == team_id
 DraftPickInventory.owning_team_id == team_id
 ```
 
+### 3. Fixed Import Source in `app/ui/api_trades.py`
+
+**Changed:**
+```python
+from app.services.trade_value import evaluate as eval_value
+```
+
+**To:**
+```python
+from app.services.trade_engine import propose, accept, list_trade_block, evaluate
+```
+
 ## Files Modified
 
 1. `app/services/draft_admin.py` - Fixed model name import and usage
-2. `app/ui/api_trades.py` - Fixed field name from owner_team_id to owning_team_id
+2. `app/ui/api_trades.py` - Fixed field name from owner_team_id to owning_team_id, and fixed evaluate import
 
 ## Status
 
