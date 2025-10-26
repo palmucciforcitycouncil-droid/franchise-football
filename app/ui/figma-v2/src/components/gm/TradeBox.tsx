@@ -44,15 +44,18 @@ export function TradeBox() {
     setLoading(true);
     try {
       const context = await getCurrentSeason();
+      console.log('Season context:', context);
       setCurrentSeason(context.season);
       setUserTeamId(context.current_user_team_id);
       
       const teamList = await getAllTeamsAPI();
+      console.log('All teams loaded:', teamList);
       setTeamMap(teamList);
       // Filter out current user's team
       const otherTeams = teamList
         .filter(t => t.id !== context.current_user_team_id)
         .map(t => t.name);
+      console.log('Other teams (filtered):', otherTeams);
       setTeams(otherTeams);
       
       // Load user's roster and picks
@@ -60,6 +63,7 @@ export function TradeBox() {
         getTeamRoster(context.current_user_team_id, context.season),
         getTeamPicks(context.current_user_team_id, context.season)
       ]);
+      console.log('User roster loaded:', roster.length, 'players');
       setUserPlayers(roster);
       setUserPicks(picks);
     } catch (err) {
@@ -208,6 +212,8 @@ export function TradeBox() {
   };
 
 
+
+  console.log('TradeBox render - teams:', teams, 'selectedTeam:', selectedTeam);
 
   return (
     <div className="bg-[#1a2332] rounded-lg border border-[#2d4a6f] h-full">
