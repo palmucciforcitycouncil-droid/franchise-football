@@ -88,14 +88,14 @@ def get_all_teams(sess: Session = Depends(get_session)):
 def get_team_roster(team_id: int, season: int = Query(2025), sess: Session = Depends(get_session)):
     """Get team roster for trade asset selection"""
     players = sess.exec(
-        select(Player).where(Player.team_id == team_id, Player.season == season)
+        select(Player).where(Player.team_id == team_id)
     ).all()
     return [
         {
             "id": p.id,
             "name": getattr(p, 'first_name', '') + " " + getattr(p, 'last_name', ''),
             "position": getattr(p, 'position', ''),
-            "overall": getattr(p, 'overall', 0),
+            "overall": getattr(p, 'overall', 0) if hasattr(p, 'overall') else 50,
             "age": getattr(p, 'age', 0)
         }
         for p in players

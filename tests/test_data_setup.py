@@ -24,27 +24,27 @@ def create_test_data():
         session.add(team3)
         
         # Create test players for Team 1
-        player1 = Player(id=1, first_name="Aaron", last_name="Rodgers", position="QB", overall=95, age=40, team_id=1, season=2025)
-        player2 = Player(id=2, first_name="Sauce", last_name="Gardner", position="CB", overall=93, age=24, team_id=1, season=2025)
-        player3 = Player(id=3, first_name="Quinnen", last_name="Williams", position="DT", overall=92, age=26, team_id=1, season=2025)
+        player1 = Player(id=1, first_name="Aaron", last_name="Rodgers", position="QB", overall=95, age=40, team_id=1)
+        player2 = Player(id=2, first_name="Sauce", last_name="Gardner", position="CB", overall=93, age=24, team_id=1)
+        player3 = Player(id=3, first_name="Quinnen", last_name="Williams", position="DT", overall=92, age=26, team_id=1)
         
         session.add(player1)
         session.add(player2)
         session.add(player3)
         
         # Create test players for Team 2
-        player4 = Player(id=4, first_name="Tua", last_name="Tagovailoa", position="QB", overall=88, age=25, team_id=2, season=2025)
-        player5 = Player(id=5, first_name="Tyreek", last_name="Hill", position="WR", overall=97, age=30, team_id=2, season=2025)
-        player6 = Player(id=6, first_name="Jaylen", last_name="Waddle", position="WR", overall=87, age=25, team_id=2, season=2025)
+        player4 = Player(id=4, first_name="Tua", last_name="Tagovailoa", position="QB", overall=88, age=25, team_id=2)
+        player5 = Player(id=5, first_name="Tyreek", last_name="Hill", position="WR", overall=97, age=30, team_id=2)
+        player6 = Player(id=6, first_name="Jaylen", last_name="Waddle", position="WR", overall=87, age=25, team_id=2)
         
         session.add(player4)
         session.add(player5)
         session.add(player6)
         
         # Create test players for Team 3
-        player7 = Player(id=7, first_name="Josh", last_name="Allen", position="QB", overall=96, age=28, team_id=3, season=2025)
-        player8 = Player(id=8, first_name="Stefon", last_name="Diggs", position="WR", overall=94, age=31, team_id=3, season=2025)
-        player9 = Player(id=9, first_name="Von", last_name="Miller", position="OLB", overall=89, age=35, team_id=3, season=2025)
+        player7 = Player(id=7, first_name="Josh", last_name="Allen", position="QB", overall=96, age=28, team_id=3)
+        player8 = Player(id=8, first_name="Stefon", last_name="Diggs", position="WR", overall=94, age=31, team_id=3)
+        player9 = Player(id=9, first_name="Von", last_name="Miller", position="OLB", overall=89, age=35, team_id=3)
         
         session.add(player7)
         session.add(player8)
