@@ -2,6 +2,7 @@
 from .player import Player
 from .depth_chart import DepthChart
 from .game_result import GameResult
+from .draft import DraftPickInventory  # noqa
 
 __all__ = ["Team", "Conference", "Division", "Player", "DepthChart", "GameResult"]
 
