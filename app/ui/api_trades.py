@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from app.models.database import get_session
-from app.services.trade_engine import propose, accept, list_trade_block
-from app.services.trade_value import evaluate as eval_value
+from app.services.trade_engine import propose, accept, list_trade_block, evaluate
 from app.models.team import Team
 from app.models.player import Player
 
@@ -61,7 +60,7 @@ def api_value_preview(
 
     fa = {"players": parse_players(from_players or ""), "picks": parse_picks(from_picks or "")}
     ta = {"players": parse_players(to_players or ""), "picks": parse_picks(to_picks or "")}
-    return eval_value(sess, season=season, from_team_id=from_team_id, to_team_id=to_team_id, from_assets=fa, to_assets=ta)
+    return evaluate(sess, season=season, from_team_id=from_team_id, to_team_id=to_team_id, from_assets=fa, to_assets=ta)
 
 # Trade block browse
 @router.get("/block")
