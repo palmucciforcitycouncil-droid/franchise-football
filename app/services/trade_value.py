@@ -59,7 +59,7 @@ def player_trade_value(sess: Session, season: int, player_id: int, acquiring_tea
     if not p: return 0.0
     ov = getattr(p, "overall", 60)
     age = getattr(p, "age", 26)
-    base = ov * 10.0 * _age_curve(age)  # 80 OVR ~ 800 pts before modifiers
+    base = ov * 50.0 * _age_curve(age)  # 80 OVR ~ 4000 pts before modifiers (scaled to match pick values)
 
     # current AAV (active deal) + ask
     con = sess.exec(select(PlayerContract).where(PlayerContract.player_id==player_id, PlayerContract.is_active==True)).first()  # noqa: E712

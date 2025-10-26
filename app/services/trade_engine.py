@@ -12,8 +12,8 @@ from app.services.draft_admin import transfer_pick_ownership
 from app.services.event_log_service import emit_event
 
 MAX_ASSETS_PER_SIDE = 6
-FAIR_BAND = 0.90, 1.10   # accept if 0.90 <= from_value/to_value <= 1.10
-COUNTER_BAND = 0.80, 1.25  # else try a counter if within wider band
+FAIR_BAND = 0.75, 1.33   # accept if 0.75 <= from_value/to_value <= 1.33 (wider fair band)
+COUNTER_BAND = 0.60, 1.67  # else try a counter if within wider band
 
 def _validate_assets(sess: Session, season:int, team_id:int, assets:dict) -> Tuple[bool,str]:
     # Ensure ownership
