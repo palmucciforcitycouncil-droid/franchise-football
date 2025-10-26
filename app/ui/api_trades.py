@@ -108,7 +108,7 @@ def get_team_picks(team_id: int, season: int = Query(2025), sess: Session = Depe
     from app.models.draft import DraftPickInventory
     picks = sess.exec(
         select(DraftPickInventory).where(
-            DraftPickInventory.owner_team_id == team_id,
+            DraftPickInventory.owning_team_id == team_id,
             DraftPickInventory.season == season
         )
     ).all()

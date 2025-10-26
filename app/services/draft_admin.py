@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional, Dict, Any, List
 from sqlmodel import Session, select
-from app.models.draft import DraftState, DraftPick
+from app.models.draft import DraftState, DraftPickInventory
 from app.models.trade_block import TeamTradeBlock, TradeBlockItemType
 
 def draft_status(sess: Session, season: int) -> Dict[str, Any]:
@@ -29,11 +29,11 @@ def resume(sess: Session, season: int) -> Dict[str, Any]:
     sess.add(st); sess.commit()
     return {"ok": True, "paused": False}
 
-def list_owned_picks(sess: Session, season: int, team_id: int) -> List[DraftPick]:
-    return list(sess.exec(select(DraftPick).where(DraftPick.season==season, DraftPick.owning_team_id==team_id).order_by(DraftPick.round, DraftPick.slot)))
+def list_owned_picks(sess: Session, season: int, team_id: int) -> List[DraftPickInventory]:
+    return list(sess.exec(select(DraftPickInventory).where(DraftPickInventory.season==season, DraftPickInventory.owning_team_id==team_id).order_by(DraftPickInventory.round, DraftPickInventory.slot)))
 
 def add_pick_to_block(sess: Session, season: int, team_id: int, round: int, slot: int, note: str = "") -> Dict[str, Any]:
-    pk = sess.exec(select(DraftPick).where(DraftPick.season==season, DraftPick.round==round, DraftPick.slot==slot)).first()
+    pk = sess.exec(select(DraftPickInventory).where(DraftPickInventory.season==season, DraftPickInventory.round==round, DraftPickInventory.slot==slot)).first()
     if not pk or pk.owning_team_id != team_id:
         return {"error": "pick not owned"}
     row = TeamTradeBlock(season=season, team_id=team_id, item_type=TradeBlockItemType.PICK, round=round, slot=slot, note=note)
@@ -50,7 +50,7 @@ def remove_pick_from_block(sess: Session, season: int, team_id: int, round: int,
 
 def transfer_pick_ownership(sess: Session, season: int, round: int, slot: int, to_team_id: int) -> Dict[str, Any]:
     """Call this from your Trade Engine when a trade is accepted. Safe no-op if not found."""
-    pk = sess.exec(select(DraftPick).where(DraftPick.season==season, DraftPick.round==round, DraftPick.slot==slot)).first()
+    pk = sess.exec(select(DraftPickInventory).where(DraftPickInventory.season==season, DraftPickInventory.round==round, DraftPickInventory.slot==slot)).first()
     if not pk: return {"error": "pick not found"}
     pk.owning_team_id = to_team_id
     sess.add(pk); sess.commit()
