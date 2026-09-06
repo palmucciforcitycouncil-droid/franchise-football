@@ -181,7 +181,7 @@ def test_interception_is_credited_to_the_defender_not_the_intended_receiver():
     rng = RNG.with_seed(11)
     found_interception = False
     for _ in range(3000):
-        _, outcome, who = _resolve_pass(rng, ctx, off.qb, no_blitz)
+        _, outcome, who, _ = _resolve_pass(rng, ctx, off.qb, no_blitz)
         if outcome == "turnover":
             found_interception = True
             assert who not in offense_names, f"interception credited to an offensive player: {who}"

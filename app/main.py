@@ -13,6 +13,7 @@ from app.data.teams import TEAMS, TEAMS_BY_ABBR
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG
 from app.engine.game_sim import simulate_game, TeamSim
+from app.engine.box_score import build_box_score
 from app.services import season_state
 
 app = FastAPI(title="Franchise Football")
@@ -73,6 +74,8 @@ def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form
     rng = RNG.with_seed(game_seed)
 
     result = simulate_game(rng, home, away)
+    home_box = build_box_score(result.plays, home_info.abbr)
+    away_box = build_box_score(result.plays, away_info.abbr)
 
     return templates.TemplateResponse(
         request,
@@ -83,5 +86,7 @@ def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form
             "result": result,
             "league_seed": league_seed,
             "game_seed": game_seed,
+            "home_box": home_box,
+            "away_box": away_box,
         },
     )

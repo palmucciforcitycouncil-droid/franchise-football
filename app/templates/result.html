@@ -26,6 +26,42 @@
   </table>
 </div>
 
+{% for team, box in [(away, away_box), (home, home_box)] %}
+<div class="card">
+  <h3>Box Score &mdash; {{ team.name }}</h3>
+  {% if box.passing %}
+  <table class="boxtable">
+    <thead><tr><th>Passing</th><th>C/ATT</th><th>Yds</th><th>TD</th><th>INT</th><th>Sk</th></tr></thead>
+    <tbody>
+      {% for p in box.passing %}
+      <tr><td>{{ p.name }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td><td>{{ p.sacks }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if box.rushing %}
+  <table class="boxtable">
+    <thead><tr><th>Rushing</th><th>Car</th><th>Yds</th><th>TD</th><th>Fum</th></tr></thead>
+    <tbody>
+      {% for r in box.rushing %}
+      <tr><td>{{ r.name }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td><td>{{ r.fumbles_lost }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if box.receiving %}
+  <table class="boxtable">
+    <thead><tr><th>Receiving</th><th>Rec</th><th>Tgt</th><th>Yds</th><th>TD</th></tr></thead>
+    <tbody>
+      {% for r in box.receiving %}
+      <tr><td>{{ r.name }}</td><td>{{ r.receptions }}</td><td>{{ r.targets }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endfor %}
+
 <div class="card">
   <h3>Drive-by-Drive</h3>
   {% for e in result.events %}

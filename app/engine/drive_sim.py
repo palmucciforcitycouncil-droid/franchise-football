@@ -91,7 +91,7 @@ def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCa
     return yards, "gain", rb.full_name
 
 
-def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall) -> Tuple[int, str, str]:
+def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall) -> Tuple[int, str, str, str]:
     """GDD Sec 6.6.2 (pass) + Sec 6.6.6: target chosen from real
     route-running-vs-coverage mismatches, pressure from real OL-vs-DL
     protection, completion from real QB accuracy (by depth) + receiver
@@ -101,7 +101,17 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     advantage; Zone coverage dampens the mismatch's effect (keep it in
     front, per the GDD's own rationale) while Man leaves it live
     (boom-or-bust); a "Pass Defense" primary trims completion odds a
-    touch, "Run Defense" caught looking gives a bump."""
+    touch, "Run Defense" caught looking gives a bump.
+
+    Returns (yards, outcome, who, receiver_name). `who` is whoever the
+    play should be NARRATED as -- the receiver on a completion or
+    incompletion, the QB on a sack, but the DEFENDER on an interception
+    (the defender made the play, not the receiver who got beaten).
+    `receiver_name` is always the actual intended target (empty on a
+    sack, which the GDD/real stat convention doesn't count as a target
+    at all) -- app/engine/box_score.py needs this to credit an
+    interception as a target/no-catch to the right receiver, since
+    `who` alone can't carry both names on that play."""
     target = choose_pass_target(ctx)
 
     pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
@@ -109,7 +119,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         pressure_prob = max(0.05, min(0.85, pressure_prob + 0.15 + defcall.blitz.advantage * 0.01))
     if rng.prob(pressure_prob) and rng.prob(0.35):
         sack_yards = -int(abs(rng.gauss(6.5, 3)))
-        return sack_yards, "sack", qb.full_name
+        return sack_yards, "sack", qb.full_name, ""
 
     coverage_factor = 0.6 if defcall.coverage == "zone" else 1.15
     effective_mismatch = target.mismatch_score * coverage_factor
@@ -139,13 +149,13 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         if rng.prob(int_rate):
             # who = the player who made the play, not the intended target --
             # an interception is credited to the defender who caught it.
-            return 0, "turnover", target.defender.full_name
-        return 0, "incomplete", target.receiver.full_name
+            return 0, "turnover", target.defender.full_name, target.receiver.full_name
+        return 0, "incomplete", target.receiver.full_name, target.receiver.full_name
 
     air_yards = {"short": 5, "medium": 10, "deep": 19}[depth]
     yac = max(0, rng.gauss((target.receiver.change_of_direction - 75) * 0.08, 2.5))
     yards = int(air_yards + yac)
-    return yards, "gain", target.receiver.full_name
+    return yards, "gain", target.receiver.full_name, target.receiver.full_name
 
 
 def _fg_distance_bucket(attempt_yards: int) -> str:
@@ -293,17 +303,18 @@ def simulate_drive(
         is_pass = rng.prob(pass_prob)
 
         if is_pass:
-            yards, outcome, who = _resolve_pass(rng, ctx, qb, defcall)
+            yards, outcome, who, receiver_name = _resolve_pass(rng, ctx, qb, defcall)
             play_type = "pass"
         else:
             yards, outcome, who = _resolve_run(rng, ctx, rb, defcall)
             play_type = "run"
+            receiver_name = ""
 
         if outcome == "turnover":
             turnovers += 1
             spot = max(0, min(100, pos + yards))
             kind = f"Interception ({who})" if is_pass else f"Fumble lost ({who})"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description, receiver_name=receiver_name))
             return 0, kind, max(2, 100 - spot), total_plays, total_yards, turnovers, play_events
 
         total_yards += max(0, yards)
@@ -315,7 +326,7 @@ def simulate_drive(
             # (game_sim.py) special-cases the "Safety" summary text to award
             # them there, since this function only reports the offense's score.
             desc = f"{who} {'sacked' if outcome == 'sack' else 'tackled'} for a safety"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description, receiver_name=receiver_name))
             return 0, "Safety", 35, total_plays, total_yards, turnovers, play_events
 
         pos = min(100, raw_pos)
@@ -325,7 +336,7 @@ def simulate_drive(
             pts = 7 if made_pat else 6
             verb = "pass to" if is_pass else "run by"
             desc = f"{qb.full_name if is_pass else ''} {verb} {who} for {yards} yards, TOUCHDOWN".strip()
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown", defensive_call=defcall.description))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown", defensive_call=defcall.description, receiver_name=receiver_name))
             return pts, "TD", 25, total_plays, total_yards, turnovers, play_events
 
         gained_first_down = yards >= distance
@@ -339,14 +350,14 @@ def simulate_drive(
             desc = f"{who} run for {yards} yards"
 
         if gained_first_down:
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down", defensive_call=defcall.description))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down", defensive_call=defcall.description, receiver_name=receiver_name))
             down, distance = 1, 10
             continue
 
         # A loss (sack, tackle for loss) must increase distance-to-go, not
         # just fail to decrease it -- max(0, yards) was silently treating
         # every loss as a 0-yard play for down/distance purposes.
-        play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, outcome, defensive_call=defcall.description))
+        play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, outcome, defensive_call=defcall.description, receiver_name=receiver_name))
         distance -= yards
         down += 1
 
