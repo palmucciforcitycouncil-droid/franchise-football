@@ -1,9 +1,8 @@
 """
 Imports the real roster data into the Player table.
 
-Source files (local Desktop folder, not part of the repo -- see the
---source-dir flag): players.csv (2368 rows, full Madden attributes, all
-32 teams) is the attribute source of truth. players_with FA.csv is used
+Source files: players.csv (2368 rows, full Madden attributes, all 32
+teams) is the attribute source of truth. players_with FA.csv is used
 only to determine which players should be reclassified as free agents
 (team_abbr=None) -- its own attribute columns for FA players are mostly
 zeroed/sentinel placeholder data (a real data quality issue in that
@@ -11,7 +10,13 @@ export), so we don't trust them; see the module-level check this script
 prints for the small number of FA players who have no full-attribute
 match in players.csv and had to fall back to that thin data anyway.
 
+These now live in the repo at data/raw/rosters/ (this is a private repo,
+so committing real Madden-derived player data was a deliberate choice --
+see HANDOFF.md). --source-dir overrides the default if you're working
+from the original Desktop export instead.
+
 Usage:
+    .venv/Scripts/python.exe scripts/import_players.py
     .venv/Scripts/python.exe scripts/import_players.py --source-dir "C:\\Users\\bpalm\\OneDrive\\Desktop\\Franchise Football game"
 """
 from __future__ import annotations
@@ -143,7 +148,9 @@ def build_player(row: dict, team_abbr: str | None, used_ids: set[str]) -> Player
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-dir", required=True, help="Folder containing players.csv and players_with FA.csv")
+    default_source_dir = Path(__file__).resolve().parent.parent / "data" / "raw" / "rosters"
+    parser.add_argument("--source-dir", default=str(default_source_dir),
+                         help="Folder containing players.csv and players_with FA.csv (default: data/raw/rosters in the repo)")
     args = parser.parse_args()
 
     source_dir = Path(args.source_dir)

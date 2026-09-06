@@ -8,7 +8,7 @@
 - **GitHub:** https://github.com/palmucciforcitycouncil-droid/franchise-football
 - **Working branch:** `docs/gdd-v3-2` — **not `main`**. `main` is a thin, stale early snapshot (Sep 24, 2025). Everything described below lives on `docs/gdd-v3-2`, which has been the working branch all session. Nothing has been merged to `main` or opened as a PR yet — that's an open decision, not done by accident.
 - **Design doc (authoritative):** `docs/gdd/Franchise_Football_GDD_v4.2.docx` in the repo. This is the single source of truth for scope/formulas — read it before making design calls. It has a Version History section at the top explaining how it got here (synthesized from 9 previously-separate, never-merged GDD exports).
-- **Real roster data (NOT in the repo, lives on this machine only):** `C:\Users\bpalm\OneDrive\Desktop\Franchise Football game\players.csv` and `players_with FA.csv`. Madden-derived, real player names/attributes — local-use-only project, so that's a deliberate choice, not an oversight. `data/franchise_football.db` (gitignored) is built from these via `scripts/import_players.py`; a fresh clone or new machine needs to re-run that import (see below).
+- **Real roster data (committed to the repo as of 2026-09-06):** `data/raw/rosters/players.csv` and `players_with FA.csv`. Madden-derived, real player names/attributes. Originally kept out of the repo entirely (local-Desktop-only) since the repo's visibility was unclear; now committed as a deliberate choice, confirmed with Brian, on the understanding that this repo is **private** — if it's ever made public, these two CSVs should come out first (copyright/licensing exposure on commercial Madden data). `data/franchise_football.db` (gitignored, still a build artifact) is built from these via `scripts/import_players.py`, which now defaults its `--source-dir` to `data/raw/rosters/`; a fresh clone just needs to run the import with no flags (see below).
 
 ## Architecture (decided this session, not inherited)
 
@@ -29,10 +29,11 @@ python -m venv .venv                    # if .venv doesn't exist yet
 
 Create `.env` with `LEAGUE_SEED=2025` (required — the app fails to start without it, by design, per GDD §1.3's "no DEFAULT_SEED fallback" policy).
 
-**If `data/franchise_football.db` doesn't exist yet** (fresh clone, or a machine without the roster CSVs), the app will still start but most routes will crash — you need real player data first:
+**If `data/franchise_football.db` doesn't exist yet** (fresh clone), the app will still start but most routes will crash — you need real player data first:
 ```bash
-./.venv/Scripts/python.exe scripts/import_players.py --source-dir "C:\Users\bpalm\OneDrive\Desktop\Franchise Football game"
+./.venv/Scripts/python.exe scripts/import_players.py
 ```
+(The roster CSVs now ship in the repo at `data/raw/rosters/`, so no `--source-dir` flag is needed on a fresh clone. Pass `--source-dir` only if importing from a different export.)
 
 **Run the server** (do this directly via Bash/PowerShell, not the Browser pane's `preview_start` — that tool reads `.claude/launch.json` from the *session's original working directory*, which caused it to launch an unrelated project once this session; safer to just run uvicorn directly and `navigate` to it):
 ```bash
