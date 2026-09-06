@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Season — Franchise Football{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Season — LEAGUE_SEED={{ season.league_seed }}</h2>
+  {% if season.is_complete %}
+    <p><strong>Season complete</strong> — all {{ n_weeks }} weeks simulated.</p>
+  {% else %}
+    <p class="muted">Week {{ season.current_week }} of {{ n_weeks }}</p>
+    <form method="post" action="/season/simulate-week">
+      <button type="submit">Simulate Week {{ season.current_week }}</button>
+    </form>
+  {% endif %}
+  <form method="post" action="/season/reset" style="margin-top: 0.75rem;">
+    <button type="submit" style="background:#3a3f52; border-color:#3a3f52;">Reset Season</button>
+  </form>
+</div>
+
+{% if this_week %}
+<div class="card">
+  <h3>This Week's Matchups</h3>
+  <table>
+    <thead><tr><th>Away</th><th>Home</th><th>Result</th></tr></thead>
+    <tbody>
+      {% for g in this_week %}
+      <tr>
+        <td>{{ g.away_abbr }}</td>
+        <td>{{ g.home_abbr }}</td>
+        <td>{% if g.result %}{{ g.result.away_score }}&ndash;{{ g.result.home_score }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Standings</h3>
+  <table>
+    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th></tr></thead>
+    <tbody>
+      {% for r in standings %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ r.location }} ({{ r.abbr }})</td>
+        <td>{{ r.wins }}</td>
+        <td>{{ r.losses }}</td>
+        <td>{{ "%.3f"|format(r.win_pct) }}</td>
+        <td>{{ r.points_for }}</td>
+        <td>{{ r.points_against }}</td>
+        <td>{{ r.point_diff }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p><a href="/">&larr; Back to single-game simulator</a></p>
+{% endblock %}

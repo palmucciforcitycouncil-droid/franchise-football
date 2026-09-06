@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -13,6 +13,7 @@ from app.data.teams import TEAMS, TEAMS_BY_ABBR
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG
 from app.engine.game_sim import simulate_game, TeamSim
+from app.services import season_state
 
 app = FastAPI(title="Franchise Football")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -22,6 +23,36 @@ templates = Jinja2Templates(directory="app/templates")
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"teams": TEAMS})
+
+
+@app.get("/season", response_class=HTMLResponse)
+def season_view(request: Request):
+    season = season_state.get_season()
+    this_week = None
+    if not season.is_complete:
+        this_week = season.schedule[season.current_week - 1]
+    return templates.TemplateResponse(
+        request,
+        "season.html",
+        {
+            "season": season,
+            "standings": season.standings(),
+            "this_week": this_week,
+            "n_weeks": season_state.N_WEEKS,
+        },
+    )
+
+
+@app.post("/season/simulate-week")
+def season_simulate_week():
+    season_state.simulate_current_week()
+    return RedirectResponse(url="/season", status_code=303)
+
+
+@app.post("/season/reset")
+def season_reset():
+    season_state.reset_season()
+    return RedirectResponse(url="/season", status_code=303)
 
 
 @app.post("/simulate", response_class=HTMLResponse)
