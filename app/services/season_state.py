@@ -1,12 +1,13 @@
 """
-In-memory season state: schedule, results, and standings.
+Season state: schedule, results, and standings.
 
-This is intentionally NOT wired to real save/load yet (GDD Part 1 Sec 8
-calls for JSON LeagueState persistence) -- state lives in this process
-and resets on restart. That's an honest, known limitation for this
-milestone, not an oversight: the goal right now is "simulate a full
-season week by week and see standings update," not persistence. Real
-save/load is the natural next increment once this shape is proven out.
+Persisted to data/saves/current_season.json (GDD Part 1 Sec 8: JSON
+save/export) via app.services.save_service. get_season() loads that
+file on first use if it exists; simulate_current_week() saves after
+every simulated week, so a season survives a server restart. Reset
+Season explicitly rebuilds from the current LEAGUE_SEED and overwrites
+the save file -- loading never mixes a stale save with a changed seed
+silently.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -82,13 +83,17 @@ _season: Season | None = None
 def get_season() -> Season:
     global _season
     if _season is None:
-        _season = _build_season(get_league_seed())
+        from app.services import save_service
+        loaded = save_service.load_season()
+        _season = loaded if loaded is not None else _build_season(get_league_seed())
     return _season
 
 
 def reset_season() -> Season:
     global _season
+    from app.services import save_service
     _season = _build_season(get_league_seed())
+    save_service.save_season(_season)
     return _season
 
 
@@ -129,4 +134,8 @@ def simulate_current_week() -> int:
             home_rec.losses += 1
 
     season.current_week += 1
+
+    from app.services import save_service
+    save_service.save_season(season)
+
     return week_num

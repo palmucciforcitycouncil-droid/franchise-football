@@ -15,6 +15,7 @@ Thumbs.db
 .idea/
 
 data/raw/pbp_csv/*.csv
+data/saves/*.json
 
 # Local env & coverage
 .venv/
