@@ -1,0 +1,38 @@
+"""Maps the roster CSV's real team nicknames to this project's location-only
+team abbreviations (app/data/teams.py). Local-use-only project; the
+nicknames themselves aren't used anywhere past this import step."""
+
+NICKNAME_TO_ABBR: dict[str, str] = {
+    "49ers": "SF",
+    "Bears": "CHI",
+    "Bengals": "CIN",
+    "Bills": "BUF",
+    "Broncos": "DEN",
+    "Browns": "CLE",
+    "Buccaneers": "TB",
+    "Cardinals": "ARI",
+    "Chargers": "LAC",
+    "Chiefs": "KC",
+    "Colts": "IND",
+    "Commanders": "WAS",
+    "Cowboys": "DAL",
+    "Dolphins": "MIA",
+    "Eagles": "PHI",
+    "Falcons": "ATL",
+    "Giants": "NYG",
+    "Jaguars": "JAX",
+    "Jets": "NYJ",
+    "Lions": "DET",
+    "Packers": "GB",
+    "Panthers": "CAR",
+    "Patriots": "NE",
+    "Raiders": "LV",
+    "Rams": "LAR",
+    "Ravens": "BAL",
+    "Saints": "NO",
+    "Seahawks": "SEA",
+    "Steelers": "PIT",
+    "Texans": "HOU",
+    "Titans": "TEN",
+    "Vikings": "MIN",
+}
