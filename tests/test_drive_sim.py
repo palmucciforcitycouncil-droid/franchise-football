@@ -157,3 +157,32 @@ def test_score_distribution_is_plausible_across_many_games():
     avg = sum(totals) / len(totals)
     assert 20 <= avg <= 70, f"average combined score {avg} is not plausible for a football game"
     assert min(totals) >= 0
+
+
+def test_interception_is_credited_to_the_defender_not_the_intended_receiver():
+    """Real bug (caught by manual play-by-play inspection, not by any
+    existing test): _resolve_pass's interception branch returned
+    target.receiver.full_name -- the offensive player who got beaten --
+    instead of the defender who actually made the interception. Every
+    "Interception (name)" in the play log was naming an offensive
+    player, e.g. "Interception (Stefon Diggs)" for a WR who never
+    touched the ball on the play."""
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.player_ai import build_matchup_context
+    from app.engine.defensive_ai import DefensiveCall, BlitzCall
+    from app.engine.drive_sim import _resolve_pass
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+    ctx = build_matchup_context(off, defn)
+    no_blitz = DefensiveCall(primary="standard", blitz=BlitzCall(called=False), coverage="man", run_tactic=None)
+    offense_names = {p.full_name for p in off.receivers} | {off.qb.full_name}
+
+    rng = RNG.with_seed(11)
+    found_interception = False
+    for _ in range(3000):
+        _, outcome, who = _resolve_pass(rng, ctx, off.qb, no_blitz)
+        if outcome == "turnover":
+            found_interception = True
+            assert who not in offense_names, f"interception credited to an offensive player: {who}"
+    assert found_interception, "expected at least one interception across 3000 pass attempts"

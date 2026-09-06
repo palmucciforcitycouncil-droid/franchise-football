@@ -137,7 +137,9 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     if rng.prob(1 - completion_pct):
         int_rate = max(0.01, 0.05 - (accuracy - 70) * 0.0005 + (coverage_rating(target.defender) - 70) * 0.0004)
         if rng.prob(int_rate):
-            return 0, "turnover", target.receiver.full_name
+            # who = the player who made the play, not the intended target --
+            # an interception is credited to the defender who caught it.
+            return 0, "turnover", target.defender.full_name
         return 0, "incomplete", target.receiver.full_name
 
     air_yards = {"short": 5, "medium": 10, "deep": 19}[depth]
