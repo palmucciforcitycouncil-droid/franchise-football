@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Simulate a Game — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Simulate a Game</h2>
+  <p class="muted">The vertical slice: pick two teams, run one simulated game end-to-end through the Drive Engine.</p>
+  <form method="post" action="/simulate">
+    <div class="row">
+      <div>
+        <label for="home_abbr">Home</label>
+        <select name="home_abbr" id="home_abbr">
+          {% for t in teams %}
+          <option value="{{ t.abbr }}" {% if loop.first %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="away_abbr">Away</label>
+        <select name="away_abbr" id="away_abbr">
+          {% for t in teams %}
+          <option value="{{ t.abbr }}" {% if loop.index == 2 %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button type="submit">Simulate Game</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Franchise Football{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0f1420;
+      --panel: #161d2e;
+      --border: #2a3450;
+      --text: #e8ecf5;
+      --muted: #8b95ad;
+      --accent: #4f7cff;
+      --gold: #d8b34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: var(--panel);
+      border-bottom: 2px solid var(--gold);
+      padding: 1rem 2rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.3rem;
+      letter-spacing: 0.02em;
+    }
+    header h1 span { color: var(--gold); }
+    main {
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    select, button {
+      background: #1c2438;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font-size: 1rem;
+    }
+    button {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+    label { display: block; margin-bottom: 0.35rem; color: var(--muted); font-size: 0.9rem; }
+    .row { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
+    .scoreboard {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 1.8rem; font-weight: 700; margin-bottom: 1rem;
+    }
+    .scoreboard .vs { color: var(--muted); font-size: 1rem; }
+    .winner { color: var(--gold); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header><h1>Franchise <span>Football</span></h1></header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

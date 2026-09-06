@@ -1,7 +1,7 @@
 from typing import Tuple, Optional
 from .rng import RNG
 from .rating import TeamRatings
-from .tuning import PARAMS as P
+from .tuning import DRIVE_SIM_PARAMS as P
 
 def simulate_drive(
     rng: RNG,

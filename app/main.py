@@ -1,49 +1,56 @@
 from __future__ import annotations
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.config import BACKEND_BASE_URL
 
-# Routers
-from app.routers import diag
-from app.routers import sim           # <- hard include
-from app.routers import stats         # Stats API
-from app.ui import routes as ui_routes
-from app.ui.api_schedule_results import router as schedule_results_router
-from app.api.draft import router as new_draft_router  # New import
-from app.ui.api_season import router as season_router, feed_router as feed_api_router
+from dotenv import load_dotenv
+load_dotenv()
 
-app = FastAPI(
-    title="Franchise Football API",
-    version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-# CORS (local)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://127.0.0.1:8015",
-        "http://localhost:8015",
-        "*"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.config import get_league_seed
+from app.data.teams import TEAMS, TEAMS_BY_ABBR
+from app.engine.placeholder_ratings import ratings_for
+from app.engine.rng import RNG
+from app.engine.game_sim import simulate_game, TeamSim
 
-# Mount routers (no try/except so failures show up loudly)
-app.include_router(diag.router)
-app.include_router(sim.router, prefix="")          # /api/sim/...
-app.include_router(stats.router, prefix="")       # /api/stats/...
-app.include_router(ui_routes.router, prefix="")    # /ui
-app.include_router(schedule_results_router)        # /api/v1/schedule/... and /api/v1/results/...
-app.include_router(new_draft_router)               # /api/v1/draft/...
-app.include_router(season_router)                  # /api/v1/season/...
-app.include_router(feed_api_router)                # /api/v1/feed
+app = FastAPI(title="Franchise Football")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+templates = Jinja2Templates(directory="app/templates")
 
-@app.get("/")
-def root():
-    return {"ok": True, "service": "franchise-football", "docs": "/docs"}
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request):
+    return templates.TemplateResponse(request, "index.html", {"teams": TEAMS})
+
+
+@app.post("/simulate", response_class=HTMLResponse)
+def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form(...)):
+    league_seed = get_league_seed()
+
+    home_info = TEAMS_BY_ABBR[home_abbr]
+    away_info = TEAMS_BY_ABBR[away_abbr]
+
+    home = TeamSim(name=home_info.location, abbr=home_info.abbr, ratings=ratings_for(home_info, league_seed))
+    away = TeamSim(name=away_info.location, abbr=away_info.abbr, ratings=ratings_for(away_info, league_seed))
+
+    # Derived per-game RNG, distinct from the placeholder-rating RNG above,
+    # matching the "derived, not global" spirit of GDD Part 1 Sec 1.3
+    # (a full make_rng(season_year, week, game_id, subsystem) helper comes
+    # later, once there's a real season/week/game_id to key off of).
+    game_seed = hash((league_seed, home_abbr, away_abbr, "demo_game")) & 0xFFFFFFFF
+    rng = RNG.with_seed(game_seed)
+
+    result = simulate_game(rng, home, away)
+
+    return templates.TemplateResponse(
+        request,
+        "result.html",
+        {
+            "home": home,
+            "away": away,
+            "result": result,
+            "league_seed": league_seed,
+            "game_seed": game_seed,
+        },
+    )

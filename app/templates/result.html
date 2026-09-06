@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ away.name }} @ {{ home.name }} — Result{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="scoreboard">
+    <span class="{% if result.winner == 'away' %}winner{% endif %}">{{ away.name }} {{ result.away_score }}</span>
+    <span class="vs">at</span>
+    <span class="{% if result.winner == 'home' %}winner{% endif %}">{{ home.name }} {{ result.home_score }}</span>
+  </div>
+  <p class="muted">LEAGUE_SEED={{ league_seed }} &middot; game_seed={{ game_seed }} &middot; deterministic: replaying these two teams with this seed always produces this result.</p>
+</div>
+
+<div class="card">
+  <h3>Team Totals</h3>
+  <table>
+    <thead>
+      <tr><th></th><th>{{ away.name }}</th><th>{{ home.name }}</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Total Yards</td><td>{{ result.away_totals.yards }}</td><td>{{ result.home_totals.yards }}</td></tr>
+      <tr><td>Pass Yards</td><td>{{ result.away_totals.pass_yards }}</td><td>{{ result.home_totals.pass_yards }}</td></tr>
+      <tr><td>Rush Yards</td><td>{{ result.away_totals.rush_yards }}</td><td>{{ result.home_totals.rush_yards }}</td></tr>
+      <tr><td>Plays</td><td>{{ result.away_totals.plays }}</td><td>{{ result.home_totals.plays }}</td></tr>
+      <tr><td>Turnovers</td><td>{{ result.away_totals.turnovers }}</td><td>{{ result.home_totals.turnovers }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Drive-by-Drive</h3>
+  <table>
+    <thead><tr><th>#</th><th>Drive</th><th>Score</th></tr></thead>
+    <tbody>
+      {% for e in result.events %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ e.desc }}</td>
+        <td>{{ e.away_score }}&ndash;{{ e.home_score }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p><a href="/">&larr; Simulate another game</a></p>
+{% endblock %}
