@@ -25,6 +25,7 @@ class PlayEvent:
     desc: str
     outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs"
     offense_abbr: str = ""
+    defensive_call: str = ""  # e.g. "Blitz (J. Smith)" -- empty for non-scrimmage plays (penalty/punt/FG)
 
 @dataclass
 class GameResult:
