@@ -24,25 +24,91 @@ def setup_function(_):
 
 
 def test_schedule_shape():
-    schedule = generate_season_schedule(2025)
-    assert len(schedule) == N_WEEKS
-    for week in schedule:
-        assert len(week) == 16  # 32 teams / 2
-        teams_this_week = [t for pair in week for t in pair]
-        assert len(teams_this_week) == len(set(teams_this_week)), "team double-booked in one week"
-    # every team plays exactly N_WEEKS games, each against a distinct opponent
+    """Verifies the real GDD opponent formula (Part 1 Sec 5.1): 18 weeks,
+    17 games per team against 14 distinct opponents (6 divisional games
+    are the doubled leg against 3 division mates), exactly one bye per
+    team, no team double-booked in a week. Bye-week *timing* is not
+    constrained to weeks 5-14 -- see app/engine/schedule.py's docstring
+    for why that's a deliberate simplification, not a bug."""
     from collections import defaultdict
+
+    schedule = generate_season_schedule(2025, season_number=0)
+    assert len(schedule) == N_WEEKS == 18
+
     opponents = defaultdict(set)
     games_played = defaultdict(int)
-    for week in schedule:
+    weeks_played = defaultdict(set)
+    total_games = 0
+    for week_num, week in enumerate(schedule, start=1):
+        teams_this_week = [t for pair in week for t in pair]
+        assert len(teams_this_week) == len(set(teams_this_week)), "team double-booked in one week"
         for home, away in week:
+            total_games += 1
             games_played[home] += 1
             games_played[away] += 1
             opponents[home].add(away)
             opponents[away].add(home)
+            weeks_played[home].add(week_num)
+            weeks_played[away].add(week_num)
+
+    assert total_games == len(TEAMS) * 17 // 2 == 272
     for t in TEAMS:
-        assert games_played[t.abbr] == N_WEEKS
-        assert len(opponents[t.abbr]) == N_WEEKS, "team played the same opponent twice"
+        assert games_played[t.abbr] == 17, f"{t.abbr} played {games_played[t.abbr]} games, expected 17"
+        assert len(opponents[t.abbr]) == 14, f"{t.abbr} faced {len(opponents[t.abbr])} distinct opponents, expected 14"
+        bye_weeks = set(range(1, N_WEEKS + 1)) - weeks_played[t.abbr]
+        assert len(bye_weeks) == 1, f"{t.abbr} has {len(bye_weeks)} bye weeks, expected exactly 1"
+
+
+def test_schedule_opponent_formula_breakdown():
+    """Every team's 17 games break down as 6 divisional + 4 intra-conference
+    rotation + 4 inter-conference rotation + 2 standings-based + 1
+    seventeenth game, per the GDD formula -- checked against the raw game
+    list before week-placement, since that's what encodes each game's
+    source."""
+    from app.engine.schedule import _generate_games, _bootstrap_prior_standings
+    from collections import defaultdict
+
+    prior = _bootstrap_prior_standings()
+    games = _generate_games(0, prior)
+    by_team_source = defaultdict(lambda: defaultdict(int))
+    for g in games:
+        by_team_source[g.home][g.source] += 1
+        by_team_source[g.away][g.source] += 1
+
+    for t in TEAMS:
+        counts = by_team_source[t.abbr]
+        assert counts["DIV"] == 6
+        assert counts["INTRA_ROT"] == 4
+        assert counts["INTER_ROT"] == 4
+        assert counts["INTRA_PLACE"] == 2
+        assert counts["INTER_PLACE_17"] == 1
+        assert sum(counts.values()) == 17
+
+
+def test_schedule_generation_is_deterministic():
+    a = generate_season_schedule(2025, season_number=0)
+    b = generate_season_schedule(2025, season_number=0)
+    assert a == b
+
+
+def test_schedule_generation_reliable_across_many_seeds():
+    """The week-placement search (app/engine/schedule.py's
+    _try_place_attempt) has internal randomness and isn't guaranteed to
+    succeed on a given attempt -- it retries with different seeds until
+    one works. This checks that it actually does converge, and stays
+    fast, across a spread of league seeds and season numbers, not just
+    the one or two used in the other tests above."""
+    import time
+
+    t0 = time.time()
+    for seed in [1, 2, 3, 100, 2025, 999999]:
+        for season_number in [0, 1, 2, 3]:
+            schedule = generate_season_schedule(seed, season_number=season_number)
+            assert len(schedule) == N_WEEKS
+            total = sum(len(week) for week in schedule)
+            assert total == 272
+    elapsed = time.time() - t0
+    assert elapsed < 30, f"schedule generation took {elapsed:.1f}s for 24 combinations -- too slow"
 
 
 def test_season_page_loads():
@@ -67,8 +133,9 @@ def test_full_season_completes():
         season_state.simulate_current_week()
     season = season_state.get_season()
     assert season.is_complete
+    # 17 games per team (not N_WEEKS=18) -- each team has exactly one bye week.
     total_games = sum(r.wins + r.losses for r in season.records.values())
-    assert total_games == len(TEAMS) * N_WEEKS
+    assert total_games == len(TEAMS) * 17
 
 
 def test_reset_clears_results():
