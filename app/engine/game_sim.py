@@ -73,6 +73,7 @@ def simulate_game(rng: RNG, home: TeamSim, away: TeamSim) -> GameResult:
 
         for pe in drive_play_events:
             pe.offense_abbr = off.abbr
+            pe.drive_number = i + 1  # 1-based, matches this drive's index in `events` below
         all_plays.extend(drive_play_events)
 
         pass_yards = sum(pe.yards for pe in drive_play_events if pe.play_type == "pass" and pe.outcome != "turnover")

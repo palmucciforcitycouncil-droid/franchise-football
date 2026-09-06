@@ -28,18 +28,28 @@
 
 <div class="card">
   <h3>Drive-by-Drive</h3>
-  <table>
-    <thead><tr><th>#</th><th>Drive</th><th>Score</th></tr></thead>
-    <tbody>
-      {% for e in result.events %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        <td>{{ e.desc }}</td>
-        <td>{{ e.away_score }}&ndash;{{ e.home_score }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% for e in result.events %}
+  {% set drive_plays = result.plays | selectattr('drive_number', 'equalto', loop.index) | list %}
+  <details class="drive">
+    <summary>
+      <span>#{{ loop.index }} &middot; {{ e.desc }}</span>
+      <span class="drive-score">{{ e.away_score }}&ndash;{{ e.home_score }}</span>
+    </summary>
+    <table class="playlog">
+      <thead><tr><th>Down</th><th>Ball on</th><th>Play</th><th>Defensive Call</th></tr></thead>
+      <tbody>
+        {% for p in drive_plays %}
+        <tr class="outcome-{{ p.outcome }}">
+          <td class="dd">{% if p.play_type in ('punt', 'field_goal') %}&mdash;{% else %}{{ p.down }} &amp; {{ p.distance }}{% endif %}</td>
+          <td class="dd">{{ p.field_pos }}</td>
+          <td class="desc">{{ p.desc }}</td>
+          <td class="defcall">{{ p.defensive_call }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endfor %}
 </div>
 
 <p><a href="/">&larr; Simulate another game</a></p>

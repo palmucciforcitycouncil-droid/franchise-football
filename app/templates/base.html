@@ -74,6 +74,23 @@
     th { color: var(--muted); font-weight: 600; }
     .muted { color: var(--muted); font-size: 0.85rem; }
     a { color: var(--accent); }
+    details.drive { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.6rem; padding: 0; overflow: hidden; }
+    details.drive summary {
+      cursor: pointer; padding: 0.6rem 0.9rem; list-style: none;
+      display: flex; justify-content: space-between; gap: 1rem;
+      background: #1c2438;
+    }
+    details.drive summary::-webkit-details-marker { display: none; }
+    details.drive summary::before { content: "▸ "; color: var(--muted); }
+    details.drive[open] summary::before { content: "▾ "; }
+    details.drive summary .drive-score { color: var(--muted); font-variant-numeric: tabular-nums; }
+    table.playlog { font-size: 0.82rem; }
+    table.playlog th, table.playlog td { padding: 0.3rem 0.6rem; }
+    table.playlog td.dd { white-space: nowrap; color: var(--muted); }
+    table.playlog td.defcall { color: var(--muted); font-size: 0.78rem; }
+    table.playlog tr.outcome-touchdown td { color: var(--gold); font-weight: 600; }
+    table.playlog tr.outcome-turnover td { color: #e0685f; }
+    table.playlog tr.outcome-first_down td.desc { color: var(--text); font-weight: 600; }
   </style>
 </head>
 <body>

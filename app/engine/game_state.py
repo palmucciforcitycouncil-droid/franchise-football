@@ -26,6 +26,7 @@ class PlayEvent:
     outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs"
     offense_abbr: str = ""
     defensive_call: str = ""  # e.g. "Blitz (J. Smith)" -- empty for non-scrimmage plays (penalty/punt/FG)
+    drive_number: int = 0     # 1-based, set by game_sim.py -- matches this drive's position in GameResult.events
 
 @dataclass
 class GameResult:
