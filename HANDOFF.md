@@ -2,6 +2,10 @@
 
 **Read this first in any new session working on this project.**
 
+## Session state right now (2026-09-06)
+
+Working tree is clean. Local `docs/gdd-v3-2` is **1 commit ahead of `origin/docs/gdd-v3-2`** (the box score commit, item 9 below) — Brian hadn't said yet whether to push it when this handoff was written, so check with him before pushing (every earlier commit this session was pushed after he explicitly said yes each time — don't assume that carries forward automatically). All 47 tests pass. No server was left running.
+
 ## Where everything lives
 
 - **Local repo:** `C:\FranchiseFootballGame`
@@ -45,7 +49,7 @@ Then open `http://127.0.0.1:8010/` (single-game simulator) or `http://127.0.0.1:
 ```bash
 ./.venv/Scripts/python.exe -m pytest tests/ -v
 ```
-31 tests, all passing as of the last commit. Several are `skipif`-guarded on `data/franchise_football.db` existing (the roster DB isn't part of the repo).
+47 tests, all passing as of the last commit. Several are `skipif`-guarded on `data/franchise_football.db` existing (though that's less likely to bite now — the roster CSVs it's built from ship in the repo, see above).
 
 ## What's actually built and verified (not just claimed)
 
