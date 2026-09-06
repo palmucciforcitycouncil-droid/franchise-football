@@ -5,6 +5,7 @@ __pycache__/
 .coverage
 htmlcov/
 franchise.db
+franchise_football.db
 *.sqlite*
 db/
 .env
@@ -26,3 +27,8 @@ __pycache__/
 *.py[cod]
 .venv/
 app/models/player.py.pre_*
+
+# Node (Figma/Vite UI prototypes)
+node_modules/
+dist/
+.vite/
