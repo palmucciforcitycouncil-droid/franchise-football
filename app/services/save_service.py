@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from dataclasses import asdict
 
-from app.engine.game_state import DriveEvent, GameResult
+from app.engine.game_state import DriveEvent, GameResult, PlayEvent
 from app.engine.game_sim import TeamTotals
 
 DEFAULT_SAVE_PATH = Path("data/saves/current_season.json")
@@ -37,6 +37,7 @@ def _result_to_dict(result: GameResult | None) -> dict | None:
         "away_score": result.away_score,
         "winner": result.winner,
         "events": [asdict(e) for e in result.events],
+        "plays": [asdict(p) for p in result.plays],
         "home_totals": _totals_to_dict(getattr(result, "home_totals", None)),
         "away_totals": _totals_to_dict(getattr(result, "away_totals", None)),
     }
@@ -50,6 +51,7 @@ def _result_from_dict(d: dict | None) -> GameResult | None:
         away_score=d["away_score"],
         winner=d["winner"],
         events=[DriveEvent(**e) for e in d["events"]],
+        plays=[PlayEvent(**p) for p in d.get("plays", [])],
     )
     result.home_totals = _totals_from_dict(d.get("home_totals"))  # type: ignore[attr-defined]
     result.away_totals = _totals_from_dict(d.get("away_totals"))  # type: ignore[attr-defined]
