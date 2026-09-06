@@ -15,9 +15,12 @@ AVG = TeamRatings(offense=70, defense=70, special=70, run_bias=0.5, aggression=0
 
 
 def _play_game(seed: int):
+    # Real team abbreviations required now -- get_offensive_starters/
+    # get_defensive_starters (app/services/depth_chart.py) look real teams
+    # up in the roster DB, so a fake "HOM"/"AWY" abbr would fail.
     rng = RNG.with_seed(seed)
-    home = TeamSim(name="Home", abbr="HOM", ratings=AVG)
-    away = TeamSim(name="Away", abbr="AWY", ratings=AVG)
+    home = TeamSim(name="Kansas City", abbr="KC", ratings=AVG)
+    away = TeamSim(name="Buffalo", abbr="BUF", ratings=AVG)
     return simulate_game(rng, home, away)
 
 
@@ -65,8 +68,8 @@ def test_safety_awards_two_points_to_the_defense_not_the_offense():
     found_a_safety = False
     for seed in range(200):
         rng = RNG.with_seed(seed)
-        home = TeamSim(name="Home", abbr="HOM", ratings=AVG)
-        away = TeamSim(name="Away", abbr="AWY", ratings=AVG)
+        home = TeamSim(name="Kansas City", abbr="KC", ratings=AVG)
+        away = TeamSim(name="Buffalo", abbr="BUF", ratings=AVG)
         result = simulate_game(rng, home, away)
 
         for p in result.plays:
@@ -84,7 +87,7 @@ def test_safety_awards_two_points_to_the_defense_not_the_offense():
                 offense_abbr = e.desc.split(" ", 1)[0]
                 home_delta = e.home_score - prev_home
                 away_delta = e.away_score - prev_away
-                if offense_abbr == "HOM":
+                if offense_abbr == "KC":
                     assert home_delta == 0, "the offense that got safety'd should score 0"
                     assert away_delta == 2, "the defense should get the 2 safety points"
                 else:
@@ -134,7 +137,7 @@ def test_total_yards_matches_sum_of_positive_play_yards():
     that distinction isn't implemented yet, so this test checks the
     engine's actual current behavior, not the eventually-more-correct one."""
     result = _play_game(2025)
-    for totals, abbr in [(result.home_totals, "HOM"), (result.away_totals, "AWY")]:
+    for totals, abbr in [(result.home_totals, "KC"), (result.away_totals, "BUF")]:
         expected = sum(
             max(0, p.yards) for p in result.plays
             if p.offense_abbr == abbr and p.outcome != "turnover"

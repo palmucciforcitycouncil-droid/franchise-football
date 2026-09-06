@@ -1,25 +1,18 @@
 """
-Down-by-down drive simulation.
+Down-by-down drive simulation, using real player data for play-calling
+and outcome resolution (GDD Part 1 Sec 6.6), not team-level aggregates.
 
-This replaces the earlier single-Gaussian-per-drive model (one dice roll
-decided the whole drive) with an actual down/distance/field-position loop:
-a real sequence of plays, each one a run/pass decision, a yardage result,
-a first-down check, and (on 4th down) a go/kick/punt decision -- much
-closer to how a football drive actually unfolds.
-
-What this is NOT: the GDD's full player-level play-calling AI (Part 1
-Sec 6.6) -- the 4-layer offensive model, zone-based blocking-advantage
-scoring, receiver mismatch identification, pass-rush-vs-protection
-pipelines, and so on. All of that is specified in terms of individual
-player attributes (QB accuracy, WR route running, OL/DL matchups, RB
-traits) that don't exist yet -- there is no Player model or roster data
-in this project yet, only team-level ratings (offense, defense, special,
-run_bias, aggression, pace). This implements the same *structure* (a
-down-by-down loop with situational decisions) using only those team-level
-inputs. Swapping in real player-level formulas later means replacing the
-decision functions below (_pass_probability, _resolve_run, _resolve_pass,
-_decide_fourth_down) -- the drive loop itself and the PlayEvent log shape
-don't need to change.
+History: this started as a single-Gaussian-per-drive model (one dice roll
+decided the whole drive), then became a down-by-down loop using only
+team-level ratings (no Player/roster data existed yet), and now uses the
+real roster import (app/models/player.py) plus the starting-lineup and
+matchup-composite helpers in app/services/depth_chart.py and
+app/engine/player_ai.py. What's still NOT here: the full defensive
+play-calling decision tree (Sec 6.6.3 -- anticipate/blitz/coverage as
+its own explicit AI, rather than folded into the offense's matchup
+math), weather modifiers, and the full penalty-type catalog (Sec 6.9).
+Coaching-tendency inputs (aggression, pace) still come from the
+placeholder TeamRatings, since there's no Coach entity yet (Post-MVP).
 """
 from __future__ import annotations
 from typing import List, Tuple
@@ -28,15 +21,17 @@ from .rng import RNG
 from .rating import TeamRatings
 from .tuning import PARAMS, DRIVE_SIM_PARAMS as P
 from .game_state import PlayEvent
+from .player_ai import MatchupContext, choose_run_point_of_attack, choose_pass_target, coverage_rating, matchup_adjustment
+from app.models.player import Player
 
 MAX_PLAYS_PER_DRIVE = 20  # safety valve against pathological loops
 
 
-def _pass_probability(down: int, distance: int, trailing: bool, is_two_minute: bool, run_bias: float) -> float:
-    """Simplified stand-in for the GDD's 4-layer offensive play-calling
-    model (Sec 6.6.1), using team-level run_bias instead of player/coach
-    attributes. Layer 1 (situational baseline by down & distance), then
-    Layer 2 (game-state adjustment for score/clock)."""
+def _pass_probability(down: int, distance: int, trailing: bool, is_two_minute: bool, matchup_adjustment: float) -> float:
+    """GDD Sec 6.6.1: Layer 1 (situational baseline by down & distance),
+    Layer 2 (game-state adjustment), Layer 3 (performance/matchup
+    adjustment -- now the real OL/DL-vs-DL/OL composite from
+    player_ai.matchup_adjustment(), not a team-level run_bias knob)."""
     base = PARAMS["mix"]["pass"]  # 0.56 league-average target
 
     if down == 2:
@@ -55,42 +50,71 @@ def _pass_probability(down: int, distance: int, trailing: bool, is_two_minute: b
     if is_two_minute:
         base += 0.15 if trailing else -0.20  # urgency vs. milking the clock
 
-    base -= (run_bias - 0.5) * 0.30  # team identity nudge
+    base += matchup_adjustment
 
     return max(0.1, min(0.92, base))
 
 
-def _resolve_run(rng: RNG, offense: TeamRatings, defense: TeamRatings) -> Tuple[int, str]:
-    rating_diff = offense.offense - defense.defense
-    mean = 4.2 + rating_diff * 0.03
-    yards = int(round(rng.gauss(mean, 4.5)))
+def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player) -> Tuple[int, str, str]:
+    """GDD Sec 6.6.2 (run) + Sec 6.6.7: point-of-attack chosen from real
+    zone blocking advantages, yardage shaped by the winning zone's
+    advantage and the RB's own vision/explosiveness, fumble risk shaped
+    by the RB's actual ball-security (carrying) rating."""
+    choice = choose_run_point_of_attack(ctx, rb, rng)
+    advantage = choice.advantage  # roughly -20..+20
 
-    fumble_rate = max(0.002, PARAMS["turnover"]["fumble_per_rush"] - rating_diff * 0.00005)
+    mean = 3.6 + advantage * 0.06 + (rb.ball_carrier_vision - 70) * 0.015
+    yards = int(round(rng.gauss(mean, 3.8)))
+
+    if advantage > 8 and rng.prob(0.05 + max(0, rb.juke_move - 70) * 0.001):
+        yards += int(abs(rng.gauss(6, 4)))  # explosive run
+
+    fumble_rate = max(0.002, PARAMS["turnover"]["fumble_per_rush"] - (rb.carrying - 70) * 0.0002)
     if rng.prob(fumble_rate):
-        return max(yards, -2), "turnover"
+        return max(yards, -2), "turnover", rb.full_name
 
-    return yards, "gain"
+    return yards, "gain", rb.full_name
 
 
-def _resolve_pass(rng: RNG, offense: TeamRatings, defense: TeamRatings) -> Tuple[int, str]:
-    rating_diff = offense.offense - defense.defense
-    completion_pct = max(0.35, min(0.75, 0.62 + rating_diff * 0.003))
+def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player) -> Tuple[int, str, str]:
+    """GDD Sec 6.6.2 (pass) + Sec 6.6.6: target chosen from real
+    route-running-vs-coverage mismatches, pressure from real OL-vs-DL
+    protection, completion from real QB accuracy (by depth) + receiver
+    catching + the mismatch score, interception risk from accuracy vs.
+    the covering defender's real coverage rating."""
+    target = choose_pass_target(ctx)
+
+    pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
+    if rng.prob(pressure_prob) and rng.prob(0.35):
+        sack_yards = -int(abs(rng.gauss(6.5, 3)))
+        return sack_yards, "sack", qb.full_name
+
+    # Depth distribution shifted toward short (real NFL is roughly
+    # 55% short / 30% medium / 15% deep by target depth) -- the original
+    # weighting leaned medium/deep too often relative to how often a
+    # double-digit mismatch score actually occurs, which was a big part
+    # of why per-completion yardage came out at ~18 instead of ~11-12.
+    if target.mismatch_score > 18:
+        depth = "deep" if rng.prob(0.35) else "medium"
+    elif target.mismatch_score < -8:
+        depth = "short"
+    else:
+        depth = "short" if rng.prob(0.6) else "medium"
+
+    accuracy = {"short": qb.throw_accuracy_short, "medium": qb.throw_accuracy_mid, "deep": qb.throw_accuracy_deep}[depth]
+    completion_pct = 0.50 + (accuracy - 70) * 0.004 + (target.receiver.catching - 70) * 0.003 + target.mismatch_score * 0.005
+    completion_pct = max(0.20, min(0.88, completion_pct))
 
     if rng.prob(1 - completion_pct):
-        # incompletion, or a sack if pressure "wins" (simplified: flat share of incompletions are sacks)
-        if rng.prob(0.12):
-            sack_yards = -int(abs(rng.gauss(6.5, 3)))
-            return sack_yards, "sack"
-        return 0, "incomplete"
+        int_rate = max(0.01, 0.05 - (accuracy - 70) * 0.0005 + (coverage_rating(target.defender) - 70) * 0.0004)
+        if rng.prob(int_rate):
+            return 0, "turnover", target.receiver.full_name
+        return 0, "incomplete", target.receiver.full_name
 
-    mean = 8.5 + rating_diff * 0.04
-    yards = int(round(max(-3, rng.gauss(mean, 8))))
-
-    int_rate = max(0.005, PARAMS["turnover"]["int_per_pass_att"] - rating_diff * 0.0001)
-    if rng.prob(int_rate):
-        return max(yards, 0), "turnover"
-
-    return yards, "gain"
+    air_yards = {"short": 5, "medium": 10, "deep": 19}[depth]
+    yac = max(0, rng.gauss((target.receiver.change_of_direction - 75) * 0.08, 2.5))
+    yards = int(air_yards + yac)
+    return yards, "gain", target.receiver.full_name
 
 
 def _fg_distance_bucket(attempt_yards: int) -> str:
@@ -103,16 +127,20 @@ def _fg_distance_bucket(attempt_yards: int) -> str:
     return "50+"
 
 
-def _attempt_field_goal(rng: RNG, pos: int) -> Tuple[bool, int]:
+def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool, int]:
     attempt_yards = (100 - pos) + 17  # line of scrimmage to goal + snap/hold depth
-    make_prob = PARAMS["special"]["fg_make_prob"][_fg_distance_bucket(attempt_yards)]
-    return rng.prob(make_prob), attempt_yards
+    base_prob = PARAMS["special"]["fg_make_prob"][_fg_distance_bucket(attempt_yards)]
+    if kicker is not None:
+        # Real kicker rating nudges the league-average bucket probability
+        # up or down rather than replacing it outright.
+        base_prob = max(0.35, min(0.99, base_prob + (kicker.kick_accuracy - 80) * 0.004))
+    return rng.prob(base_prob), attempt_yards
 
 
 def _decide_fourth_down(pos: int, distance: int, trailing: bool, aggression: float, rng: RNG) -> str:
     """Simplified stand-in for the GDD's EP-based 4th-down model (Sec
-    6.6.4), which needs P(convert)/P(make_FG) tables keyed to real kicker
-    and offensive-line data that doesn't exist yet. Returns "go", "field_goal", or "punt"."""
+    6.6.4), which needs full P(convert) tables this project doesn't have
+    yet. Returns "go", "field_goal", or "punt"."""
     in_fg_range = pos >= 62  # roughly a <=55-yard attempt
     short_yardage = distance <= 2
 
@@ -142,8 +170,8 @@ def _punt_result(rng: RNG, pos: int) -> int:
 
 def simulate_drive(
     rng: RNG,
-    offense: TeamRatings,
-    defense: TeamRatings,
+    ctx: MatchupContext,
+    offense_ratings: TeamRatings,
     field_pos: int,
     *,
     is_two_minute: bool = False,
@@ -151,13 +179,13 @@ def simulate_drive(
     fourth_down_ok: bool = False,
 ) -> Tuple[int, str, int, int, int, int, List[PlayEvent]]:
     """
-    Simulates one drive down-by-down. Returns:
+    Simulates one drive down-by-down using real starters (ctx). Returns:
         points, summary, next_field_pos, plays, yards, turnovers, play_events
 
     field_pos is 0..100: the offense's distance traveled toward the
-    opponent's end zone (100 = touchdown). fourth_down_ok mirrors the
-    caller's existing "is this team willing to be aggressive" signal from
-    game_sim.py and is folded into the 4th-down decision's aggression term.
+    opponent's end zone (100 = touchdown). offense_ratings is only used
+    for aggression (4th-down tendency) -- a coaching-tendency proxy until
+    a real Coach entity exists (Post-MVP).
     """
     down = 1
     distance = 10
@@ -167,7 +195,11 @@ def simulate_drive(
     turnovers = 0
     play_events: List[PlayEvent] = []
 
-    aggression = offense.aggression + (0.15 if fourth_down_ok else 0.0)
+    aggression = offense_ratings.aggression + (0.15 if fourth_down_ok else 0.0)
+    matchup_adj = matchup_adjustment(ctx)
+    qb = ctx.offense.qb
+    rb = ctx.offense.hb
+    kicker = None  # no dedicated K in OffensiveStarters yet -- see Known Gaps
 
     while total_plays < MAX_PLAYS_PER_DRIVE:
         total_plays += 1
@@ -179,7 +211,7 @@ def simulate_drive(
                 play_events.append(PlayEvent(down, distance, pos, "punt", 0, "Punt", "punt"))
                 return 0, "Punt", next_pos, total_plays, total_yards, turnovers, play_events
             if decision == "field_goal":
-                made, attempt_yards = _attempt_field_goal(rng, pos)
+                made, attempt_yards = _attempt_field_goal(rng, pos, kicker)
                 if made:
                     play_events.append(PlayEvent(down, distance, pos, "field_goal", 0,
                                                   f"{attempt_yards}-yard field goal is GOOD", "field_goal"))
@@ -214,20 +246,20 @@ def simulate_drive(
         # before -- e.g. a 2nd-and-9 sack was being logged as "3rd & 19").
         play_down, play_distance, play_start_pos = down, distance, pos
 
-        pass_prob = _pass_probability(down, distance, trailing, is_two_minute, offense.run_bias)
+        pass_prob = _pass_probability(down, distance, trailing, is_two_minute, matchup_adj)
         is_pass = rng.prob(pass_prob)
 
         if is_pass:
-            yards, outcome = _resolve_pass(rng, offense, defense)
+            yards, outcome, who = _resolve_pass(rng, ctx, qb)
             play_type = "pass"
         else:
-            yards, outcome = _resolve_run(rng, offense, defense)
+            yards, outcome, who = _resolve_run(rng, ctx, rb)
             play_type = "run"
 
         if outcome == "turnover":
             turnovers += 1
             spot = max(0, min(100, pos + yards))
-            kind = "Interception" if is_pass else "Fumble lost"
+            kind = f"Interception ({who})" if is_pass else f"Fumble lost ({who})"
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover"))
             return 0, kind, max(2, 100 - spot), total_plays, total_yards, turnovers, play_events
 
@@ -239,7 +271,7 @@ def simulate_drive(
             # go to the *defense*, not this (offense's) drive -- the caller
             # (game_sim.py) special-cases the "Safety" summary text to award
             # them there, since this function only reports the offense's score.
-            desc = f"{'Sacked' if outcome == 'sack' else ('Pass' if is_pass else 'Run')} for a safety"
+            desc = f"{who} {'sacked' if outcome == 'sack' else 'tackled'} for a safety"
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety"))
             return 0, "Safety", 35, total_plays, total_yards, turnovers, play_events
 
@@ -248,17 +280,20 @@ def simulate_drive(
         if pos >= 100:
             made_pat = rng.prob(P.pat_make)
             pts = 7 if made_pat else 6
-            desc = f"{'Pass' if is_pass else 'Run'} for {yards} yards, TOUCHDOWN"
+            verb = "pass to" if is_pass else "run by"
+            desc = f"{qb.full_name if is_pass else ''} {verb} {who} for {yards} yards, TOUCHDOWN".strip()
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown"))
             return pts, "TD", 25, total_plays, total_yards, turnovers, play_events
 
         gained_first_down = yards >= distance
         if outcome == "sack":
-            desc = f"Sacked for a loss of {-yards} yards" if yards < 0 else "Sacked, no loss"
+            desc = f"{who} sacked for a loss of {-yards} yards" if yards < 0 else f"{who} sacked, no loss"
         elif outcome == "incomplete":
-            desc = "Incomplete pass"
+            desc = f"Incomplete pass intended for {who}"
+        elif is_pass:
+            desc = f"Pass to {who} for {yards} yards"
         else:
-            desc = f"{'Pass' if is_pass else 'Run'} for {yards} yards"
+            desc = f"{who} run for {yards} yards"
 
         if gained_first_down:
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down"))
