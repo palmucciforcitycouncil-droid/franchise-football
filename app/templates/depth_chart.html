@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>Depth Chart</h2>
-  <p class="muted">Set who starts at each position with the &uarr;/&darr; buttons. QB/HB/WR/TE/OL/DL/LB/CB/S orders are wired into the Drive Engine (the top player in each group is who actually plays); FB/K/P orders are saved but not consumed by the engine yet.</p>
+  <p class="muted">Set who starts at each position with the &uarr;/&darr; buttons. QB/HB/WR/TE/OL/DL/LB/CB/S orders are wired into the Drive Engine (the gold rows at the top of each group are who actually plays -- 3 for WR, 2 for DT/CB, 1 for every other position); FB/K/P orders are saved but not consumed by the engine yet.</p>
   <form method="get" action="/depth-chart">
     <div class="row">
       <div>
@@ -29,7 +29,7 @@
     <thead><tr><th></th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th><th></th></tr></thead>
     <tbody>
       {% for p in group.players %}
-      <tr class="{% if loop.first %}starter{% endif %}">
+      <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}">
         <td>{{ loop.index }}</td>
         <td>{{ p.full_name }}</td>
         <td>{{ p.age }}</td>

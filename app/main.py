@@ -35,6 +35,13 @@ def index(request: Request):
 
 FREE_AGENTS_TEAM = TeamInfo(abbr="FA", location="Free Agents", conference="", division="")
 
+# How many players at each position actually start, per depth_chart.py's
+# OffensiveStarters/DefensiveStarters (wr1/wr2/wr3, dt1/dt2, cb1/cb2) --
+# every other position starts exactly one. Used to highlight the right
+# NUMBER of starters on /roster and /depth-chart, not just the top player
+# at every position regardless of how many the engine actually plays.
+STARTER_COUNTS: dict[Position, int] = {Position.WR: 3, Position.DT: 2, Position.CB: 2}
+
 
 @app.get("/roster", response_class=HTMLResponse)
 def roster_view(request: Request, team_abbr: str | None = None):
@@ -45,13 +52,12 @@ def roster_view(request: Request, team_abbr: str | None = None):
     `team_abbr=FA` is a pseudo-team (Player.team_abbr is None for a free
     agent) rather than a real TEAMS entry -- FREE_AGENTS_TEAM stands in
     so the template's `team.location`/`team.abbr` access works the same
-    way for both. `starters` marks the highest-overall_rating player at
-    each position actually present on the roster (independent of
-    depth_chart.py's OffensiveStarters/DefensiveStarters, which model
-    the fixed 11/11 personnel package the engine plays with, not a
-    display concern, and would crash on positions like K/P that aren't
-    part of that package) -- always empty for free agents, since
-    "starter" isn't a meaningful concept for players with no team."""
+    way for both. `starters` marks the top N highest-overall_rating
+    players at each position (STARTER_COUNTS -- 3 for WR, 2 for DT/CB,
+    1 otherwise, matching how many depth_chart.py's OffensiveStarters/
+    DefensiveStarters actually start at each position) -- always empty
+    for free agents, since "starter" isn't a meaningful concept for
+    players with no team."""
     if team_abbr is None:
         return templates.TemplateResponse(request, "roster.html", {"teams": TEAMS, "team": None, "players": None})
     if team_abbr != "FA" and team_abbr not in TEAMS_BY_ABBR:
@@ -68,11 +74,12 @@ def roster_view(request: Request, team_abbr: str | None = None):
 
     starters: set[str] = set()
     if team_abbr != "FA":
-        seen_positions = set()
+        seen_counts: dict[Position, int] = {}
         for p in players:
-            if p.position not in seen_positions:
+            count_so_far = seen_counts.get(p.position, 0)
+            if count_so_far < STARTER_COUNTS.get(p.position, 1):
                 starters.add(p.player_id)
-                seen_positions.add(p.position)
+            seen_counts[p.position] = count_so_far + 1
 
     team = FREE_AGENTS_TEAM if team_abbr == "FA" else TEAMS_BY_ABBR[team_abbr]
     return templates.TemplateResponse(
@@ -105,7 +112,11 @@ def depth_chart_view(request: Request, team_abbr: str | None = None):
 
     by_position = _roster_by_position(team_abbr)
     groups = [
-        {"position": pos.value, "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players)}
+        {
+            "position": pos.value,
+            "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players),
+            "starter_count": STARTER_COUNTS.get(pos, 1),
+        }
         for pos, players in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
     ]
 
