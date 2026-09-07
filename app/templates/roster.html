@@ -3,12 +3,13 @@
 {% block content %}
 <div class="card">
   <h2>Roster</h2>
-  <p class="muted">Pick a team to browse its full roster, sorted by position then overall rating. The gold name at the top of each position group is the current starter (highest overall_rating — there's no coach-assigned depth chart yet).</p>
+  <p class="muted">Pick a team to browse its full roster, sorted by position then overall rating. The gold name at the top of each position group is the current starter — see the <a href="/depth-chart">Depth Chart</a> page to change it.</p>
   <form method="get" action="/roster">
     <div class="row">
       <div>
         <label for="team_abbr">Team</label>
         <select name="team_abbr" id="team_abbr">
+          <option value="FA" {% if team and team.abbr == "FA" %}selected{% endif %}>Free Agents</option>
           {% for t in teams %}
           <option value="{{ t.abbr }}" {% if team and t.abbr == team.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
           {% endfor %}
