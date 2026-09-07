@@ -123,7 +123,10 @@ def test_play_events_reflect_pre_play_state_not_post_play():
             if prev.outcome == "first_down":
                 assert cur.down == 1
             elif prev.outcome == "penalty":
-                assert cur.down == prev.down, "a penalty should replay the same down, not advance it"
+                if "automatic first down" in prev.desc:
+                    assert cur.down == 1, "a penalty with an automatic first down should reset to 1st down"
+                else:
+                    assert cur.down == prev.down, "a penalty should replay the same down, not advance it"
             elif prev.outcome in ("gain", "incomplete", "sack"):
                 assert cur.down == prev.down + 1
 
@@ -181,7 +184,7 @@ def test_interception_is_credited_to_the_defender_not_the_intended_receiver():
     rng = RNG.with_seed(11)
     found_interception = False
     for _ in range(3000):
-        _, outcome, who, _ = _resolve_pass(rng, ctx, off.qb, no_blitz)
+        _, outcome, who, _, _ = _resolve_pass(rng, ctx, off.qb, no_blitz)
         if outcome == "turnover":
             found_interception = True
             assert who not in offense_names, f"interception credited to an offensive player: {who}"
@@ -226,3 +229,77 @@ def test_field_goal_and_pat_odds_scale_with_the_real_kicker():
     made_great = sum(1 for _ in range(300) if _attempt_field_goal(rng_great, pos=65, kicker=great_kicker)[0])
     made_bad = sum(1 for _ in range(300) if _attempt_field_goal(rng_bad, pos=65, kicker=bad_kicker)[0])
     assert made_great > made_bad
+
+
+def test_holding_accept_decline_favors_the_defense_correctly():
+    """Pure decision logic (no RNG): the defense should only accept a
+    holding call if enforcing it leaves the offense worse off than the
+    real play already did."""
+    from app.engine.drive_sim import _holding_would_be_accepted
+
+    # A modest gain (5 on 2nd & 10): accepting (10-yard penalty, distance
+    # becomes 20) is worse for the offense than declining (distance 5) --
+    # defense accepts.
+    assert _holding_would_be_accepted(distance=10, real_yards=5) is True
+
+    # A big loss (-20 on 2nd & 10): the real result (distance becomes 30)
+    # is already worse for the offense than accepting would be (distance
+    # 20) -- defense declines and lets the sack/stuff stand.
+    assert _holding_would_be_accepted(distance=10, real_yards=-20) is False
+
+
+def test_pre_snap_penalties_are_always_enforced_and_attributed_to_a_real_player():
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.player_ai import build_matchup_context
+    from app.engine.drive_sim import _check_pre_snap_penalty
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+    ctx = build_matchup_context(off, defn)
+    ol_names = {p.full_name for p in off.offensive_line}
+    dl_names = {p.full_name for p in defn.defensive_line}
+
+    rng = RNG.with_seed(5)
+    found_offense, found_defense = False, False
+    for _ in range(2000):
+        result = _check_pre_snap_penalty(rng, ctx)
+        if result is None:
+            continue
+        desc, side = result
+        if side == "offense":
+            found_offense = True
+            assert any(name in desc for name in ol_names) or off.qb.full_name in desc
+        else:
+            found_defense = True
+            assert any(name in desc for name in dl_names)
+    assert found_offense and found_defense, "expected both offensive and defensive pre-snap penalties across 2000 rolls"
+
+
+def test_defensive_pass_interference_is_attributed_to_the_real_covering_defender():
+    """Not a random guess -- the actual defender from that specific pass
+    attempt's target/coverage matchup (choose_pass_target), threaded
+    through _resolve_pass's new defender_name return value."""
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.player_ai import build_matchup_context
+    from app.engine.defensive_ai import DefensiveCall, BlitzCall
+    from app.engine.drive_sim import _resolve_pass, _check_defensive_pass_interference
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+    ctx = build_matchup_context(off, defn)
+    no_blitz = DefensiveCall(primary="standard", blitz=BlitzCall(called=False), coverage="man", run_tactic=None)
+    defender_names = {p.full_name for p in [defn.cb1, defn.cb2, defn.ss, defn.fs]}
+
+    rng = RNG.with_seed(9)
+    found = False
+    for _ in range(3000):
+        _, outcome, _, _, defender_name = _resolve_pass(rng, ctx, off.qb, no_blitz)
+        if outcome != "incomplete":
+            continue
+        penalty = _check_defensive_pass_interference(rng, pos=50, defender_name=defender_name)
+        if penalty is not None:
+            found = True
+            assert defender_name in penalty.desc
+            assert defender_name in defender_names
+            assert penalty.down == 1
+    assert found, "expected at least one DPI call across 3000 incomplete-pass checks"

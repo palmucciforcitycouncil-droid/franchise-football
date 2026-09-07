@@ -37,6 +37,30 @@ PARAMS: Dict[str, Any] = {
         "strip_sack_bonus": 0.0015,
     },
 
+    # Penalty System (GDD Sec 6.9) -- a real weighted type table with
+    # attribution and situational accept/decline, replacing the earlier
+    # flat-rate "Holding, offense: 5 yards" / "Defensive penalty: 5 yards"
+    # 50/50 coin flip. Still a deliberate subset of the GDD's full catalog
+    # (5 types, not the dozen-plus real NFL penalties), and there's no
+    # Team_Discipline_Modifier/Coach_Modifier here since neither a
+    # "discipline" player attribute nor a Coach entity exists in the real
+    # data -- see app/engine/drive_sim.py's penalty section for the full
+    # list of scope cuts and why. Pre-snap probabilities are independent
+    # per-type rolls; their sum (~2.5%) is close to the old flat 3%.
+    "penalty": {
+        "pre_snap": {
+            "false_start": 0.014,
+            "delay_of_game": 0.003,
+            "offside": 0.009,
+        },
+        "in_play": {
+            "offensive_holding": 0.045,             # per run play only
+            "defensive_pass_interference": 0.022,   # per incomplete pass only
+        },
+        "dpi_yards": 12,
+        "holding_yards": 10,
+    },
+
     # Field goal & special teams — coarse buckets are fine for MVP
     "special": {
         "fg_make_prob": {

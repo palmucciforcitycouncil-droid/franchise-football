@@ -11,13 +11,14 @@ app/engine/player_ai.py. It now also runs the full defensive
 play-calling decision tree (Sec 6.6.3, app/engine/defensive_ai.py) once
 per play -- anticipate/blitz/coverage/run-tactic -- and that call
 actually changes pressure, completion odds, and run yardage, not just
-narration. What's still NOT here: weather modifiers and the full
-penalty-type catalog (Sec 6.9). Coaching-tendency inputs (aggression,
-pace) still come from the placeholder TeamRatings, since there's no
-Coach entity yet (Post-MVP).
+narration. A real (if deliberately partial) Penalty System (Sec 6.9) is
+wired in -- see the module-level PENALTY_TYPES comment below for what's
+modeled and what's cut. What's still NOT here: weather modifiers.
+Coaching-tendency inputs (aggression, pace) still come from the
+placeholder TeamRatings, since there's no Coach entity yet (Post-MVP).
 """
 from __future__ import annotations
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import List, Tuple
 
 from .rng import RNG
@@ -91,7 +92,7 @@ def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCa
     return yards, "gain", rb.full_name
 
 
-def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str]:
+def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str, str]:
     """GDD Sec 6.6.2 (pass) + Sec 6.6.6: target chosen from real
     route-running-vs-coverage mismatches, pressure from real OL-vs-DL
     protection, completion from real QB accuracy (by depth) + receiver
@@ -103,15 +104,19 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     (boom-or-bust); a "Pass Defense" primary trims completion odds a
     touch, "Run Defense" caught looking gives a bump.
 
-    Returns (yards, outcome, who, receiver_name). `who` is whoever the
-    play should be NARRATED as -- the receiver on a completion or
-    incompletion, the QB on a sack, but the DEFENDER on an interception
-    (the defender made the play, not the receiver who got beaten).
-    `receiver_name` is always the actual intended target (empty on a
-    sack, which the GDD/real stat convention doesn't count as a target
-    at all) -- app/engine/box_score.py needs this to credit an
-    interception as a target/no-catch to the right receiver, since
-    `who` alone can't carry both names on that play."""
+    Returns (yards, outcome, who, receiver_name, defender_name). `who` is
+    whoever the play should be NARRATED as -- the receiver on a
+    completion or incompletion, the QB on a sack, but the DEFENDER on an
+    interception (the defender made the play, not the receiver who got
+    beaten). `receiver_name` is always the actual intended target (empty
+    on a sack, which the GDD/real stat convention doesn't count as a
+    target at all) -- app/engine/box_score.py needs this to credit an
+    interception as a target/no-catch to the right receiver, since `who`
+    alone can't carry both names on that play. `defender_name` is the
+    real covering defender on this specific attempt (empty on a sack,
+    which never got to a throw) -- the Penalty System (Sec 6.9) needs it
+    to attribute a defensive pass interference call to the actual player
+    in coverage, not a random guess."""
     target = choose_pass_target(ctx, rng, distance)
 
     pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
@@ -119,7 +124,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         pressure_prob = max(0.05, min(0.85, pressure_prob + 0.15 + defcall.blitz.advantage * 0.01))
     if rng.prob(pressure_prob) and rng.prob(0.35):
         sack_yards = -int(abs(rng.gauss(6.5, 3)))
-        return sack_yards, "sack", qb.full_name, ""
+        return sack_yards, "sack", qb.full_name, "", ""
 
     coverage_factor = 0.6 if defcall.coverage == "zone" else 1.15
     effective_mismatch = target.mismatch_score * coverage_factor
@@ -149,13 +154,13 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         if rng.prob(int_rate):
             # who = the player who made the play, not the intended target --
             # an interception is credited to the defender who caught it.
-            return 0, "turnover", target.defender.full_name, target.receiver.full_name
-        return 0, "incomplete", target.receiver.full_name, target.receiver.full_name
+            return 0, "turnover", target.defender.full_name, target.receiver.full_name, target.defender.full_name
+        return 0, "incomplete", target.receiver.full_name, target.receiver.full_name, target.defender.full_name
 
     air_yards = {"short": 5, "medium": 10, "deep": 19}[depth]
     yac = max(0, rng.gauss((target.receiver.change_of_direction - 75) * 0.08, 2.5))
     yards = int(air_yards + yac)
-    return yards, "gain", target.receiver.full_name, target.receiver.full_name
+    return yards, "gain", target.receiver.full_name, target.receiver.full_name, target.defender.full_name
 
 
 def _fg_distance_bucket(attempt_yards: int) -> str:
@@ -181,6 +186,101 @@ def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool
     attempt_yards = (100 - pos) + 17  # line of scrimmage to goal + snap/hold depth
     base_prob = PARAMS["special"]["fg_make_prob"][_fg_distance_bucket(attempt_yards)]
     return rng.prob(_kicker_adjusted_prob(base_prob, kicker)), attempt_yards
+
+
+# GDD Sec 6.9 Penalty System -- a real weighted type table + attribution +
+# situational accept/decline, but a deliberate SUBSET of the full catalog:
+# 5 types total (false start, delay of game, offside, offensive holding,
+# defensive pass interference), not the dozen-plus real penalty types the
+# GDD lists. No Team_Discipline_Modifier/Coach_Modifier: neither a
+# "discipline" player attribute nor a Coach entity exists in the real
+# (Madden-derived) data, so attribution picks from the relevant personnel
+# group rather than being rating-weighted -- the same category of gap as
+# player_ai.py's documented composite-attribute mappings. Also scoped
+# out entirely: penalties on touchdowns, turnovers, and safeties (real
+# NFL accept/decline gets genuinely complicated there -- e.g. a defense
+# can decline a holding call to let an interception return stand) --
+# in-play penalties here only apply to "normal" continuing plays.
+@dataclass(frozen=True)
+class PenaltyOutcome:
+    desc: str
+    down: int
+    distance: int
+    pos: int
+
+
+def _check_pre_snap_penalty(rng: RNG, ctx: MatchupContext) -> Tuple[str, str] | None:
+    """False start / delay of game / offside -- rolled before the play
+    type is even decided, since these happen before anyone knows what
+    was coming. Always enforced (no accept/decline: there's no completed
+    play yet to compare against, matching real NFL practice). Returns
+    (description, side) or None."""
+    off, defn = ctx.offense, ctx.defense
+    p = PARAMS["penalty"]["pre_snap"]
+    if rng.prob(p["false_start"]):
+        return f"False start, {rng.choice(off.offensive_line).full_name}: 5 yards", "offense"
+    if rng.prob(p["delay_of_game"]):
+        return f"Delay of game, {off.qb.full_name}: 5 yards", "offense"
+    if rng.prob(p["offside"]):
+        return f"Offside, {rng.choice(defn.defensive_line).full_name}: 5 yards", "defense"
+    return None
+
+
+def _check_offensive_holding(rng: RNG, ctx: MatchupContext, down: int, distance: int, pos: int, real_yards: int) -> PenaltyOutcome | None:
+    """Rolled only on run plays. Real accept/decline: the defense (the
+    beneficiary -- holding is called against the offense) compares the
+    real play's result against enforcing the penalty, and only accepts
+    if enforcement leaves the offense worse off. This is the one case in
+    this subset where the comparison is genuinely non-trivial: a run
+    stuffed for a bigger loss than the penalty yardage is worse for the
+    offense already, so the defense should (and here does) decline and
+    let the real result stand."""
+    if not rng.prob(PARAMS["penalty"]["in_play"]["offensive_holding"]):
+        return None
+    if not _holding_would_be_accepted(distance, real_yards):
+        return None  # real result already worse for the offense -- defense declines
+    holding_yards = PARAMS["penalty"]["holding_yards"]
+    who = rng.choice(ctx.offense.offensive_line).full_name
+    return PenaltyOutcome(
+        desc=f"Holding, {who}: {holding_yards} yards, repeat {down}{_ordinal_suffix(down)} down",
+        down=down, distance=distance + holding_yards, pos=max(0, pos - holding_yards),
+    )
+
+
+def _holding_would_be_accepted(distance: int, real_yards: int) -> bool:
+    """Pure accept/decline decision, split out from _check_offensive_holding
+    so the logic itself (not just the RNG-gated wrapper) is directly
+    testable: the defense accepts only if enforcing the 10-yard penalty
+    leaves the offense with MORE distance-to-go than the real play result
+    already did."""
+    holding_yards = PARAMS["penalty"]["holding_yards"]
+    distance_if_declined = max(0, distance - real_yards)
+    distance_if_accepted = distance + holding_yards
+    return distance_if_accepted > distance_if_declined
+
+
+def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str) -> PenaltyOutcome | None:
+    """Rolled only on incomplete passes, attributed to the real covering
+    defender from that specific attempt (app/engine/player_ai.py's
+    choose_pass_target result, threaded through _resolve_pass) rather
+    than a random guess. No accept/decline needed -- a spot foul +
+    automatic first down is essentially always better for the offense
+    than the 0 yards of an incomplete pass. Enforced yardage is a flat
+    value (tuning.py's dpi_yards), not the real spot of the (simulated)
+    foul -- modeling exactly where downfield the pass was broken up is
+    more precision than this subset aims for. Capped so it can't itself
+    produce a touchdown, matching the "no penalties on scores" scope cut."""
+    if not defender_name or not rng.prob(PARAMS["penalty"]["in_play"]["defensive_pass_interference"]):
+        return None
+    new_pos = min(99, pos + PARAMS["penalty"]["dpi_yards"])
+    return PenaltyOutcome(
+        desc=f"Defensive pass interference, {defender_name}: {PARAMS['penalty']['dpi_yards']} yards, automatic first down",
+        down=1, distance=10, pos=new_pos,
+    )
+
+
+def _ordinal_suffix(n: int) -> str:
+    return {1: "st", 2: "nd", 3: "rd"}.get(n, "th")
 
 
 def _decide_fourth_down(pos: int, distance: int, trailing: bool, aggression: float, rng: RNG) -> str:
@@ -274,20 +374,19 @@ def simulate_drive(
                 return 0, "Missed FG", max(2, 100 - pos), total_plays, total_yards, turnovers, play_events
             # else "go" -- fall through to a normal play below
 
-        # Small pre-snap penalty chance, independent of play type (GDD Sec
-        # 6.9's full type catalog / accept-decline logic isn't implemented
-        # yet -- this is just a flat-rate yardage nudge for texture).
-        if rng.prob(0.03):
+        # Pre-snap penalty check (GDD Sec 6.9, see PenaltyOutcome section
+        # above for what's modeled and what's cut). Independent of play
+        # type -- rolled before is_pass is even decided.
+        pre_snap = _check_pre_snap_penalty(rng, ctx)
+        if pre_snap is not None:
             pre_down, pre_distance, pre_pos = down, distance, pos
-            offense_penalty = rng.prob(0.5)
-            if offense_penalty:
+            desc, side = pre_snap
+            if side == "offense":
                 pos = max(0, pos - 5)
                 distance += 5
-                desc = "Holding, offense: 5 yards"
             else:
                 pos = min(99, pos + 5)
                 distance = max(1, distance - 5)
-                desc = "Defensive penalty: 5 yards"
                 if distance <= 0:
                     down, distance = 1, 10
             play_events.append(PlayEvent(pre_down, pre_distance, pre_pos, "penalty", 0, desc, "penalty"))
@@ -308,12 +407,13 @@ def simulate_drive(
         is_pass = rng.prob(pass_prob)
 
         if is_pass:
-            yards, outcome, who, receiver_name = _resolve_pass(rng, ctx, qb, defcall, distance)
+            yards, outcome, who, receiver_name, defender_name = _resolve_pass(rng, ctx, qb, defcall, distance)
             play_type = "pass"
         else:
             yards, outcome, who = _resolve_run(rng, ctx, rb, defcall)
             play_type = "run"
             receiver_name = ""
+            defender_name = ""
 
         if outcome == "turnover":
             turnovers += 1
@@ -333,6 +433,22 @@ def simulate_drive(
             desc = f"{who} {'sacked' if outcome == 'sack' else 'tackled'} for a safety"
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description, receiver_name=receiver_name))
             return 0, "Safety", 35, total_plays, total_yards, turnovers, play_events
+
+        # In-play penalty check (GDD Sec 6.9) -- only for plays that stay
+        # in the "normal" zone: the safety case already returned above,
+        # and raw_pos < 100 excludes a would-be touchdown here (see the
+        # PenaltyOutcome section's docstring for why TDs/turnovers/
+        # safeties are scoped out of in-play penalty consideration).
+        if raw_pos < 100:
+            penalty = None
+            if not is_pass:
+                penalty = _check_offensive_holding(rng, ctx, down, distance, pos, yards)
+            elif outcome == "incomplete":
+                penalty = _check_defensive_pass_interference(rng, pos, defender_name)
+            if penalty is not None:
+                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name))
+                down, distance, pos = penalty.down, penalty.distance, penalty.pos
+                continue
 
         pos = min(100, raw_pos)
 
