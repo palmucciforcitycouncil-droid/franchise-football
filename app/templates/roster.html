@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{% if team %}{{ team.location }} Roster{% else %}Roster{% endif %} — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Roster</h2>
+  <p class="muted">Pick a team to browse its full roster, sorted by position then overall rating. The gold name at the top of each position group is the current starter (highest overall_rating — there's no coach-assigned depth chart yet).</p>
+  <form method="get" action="/roster">
+    <div class="row">
+      <div>
+        <label for="team_abbr">Team</label>
+        <select name="team_abbr" id="team_abbr">
+          {% for t in teams %}
+          <option value="{{ t.abbr }}" {% if team and t.abbr == team.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button type="submit">View Roster</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if team %}
+<div class="card">
+  <h3>{{ team.location }} ({{ team.abbr }}) &mdash; {{ players | length }} players</h3>
+  <table>
+    <thead><tr><th>Pos</th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th></tr></thead>
+    <tbody>
+      {% for p in players %}
+      <tr class="{% if p.player_id in starters %}starter{% endif %}">
+        <td>{{ p.position.value }}</td>
+        <td>{{ p.full_name }}</td>
+        <td>{{ p.age }}</td>
+        <td>{{ p.overall_rating }}</td>
+        <td>{{ p.potential }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

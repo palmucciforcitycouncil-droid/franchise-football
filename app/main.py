@@ -15,6 +15,9 @@ from app.engine.rng import RNG
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
 from app.services import season_state
+from app.core.db import get_session
+from app.models.player import Player, Position
+from sqlmodel import select
 
 app = FastAPI(title="Franchise Football")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -24,6 +27,42 @@ templates = Jinja2Templates(directory="app/templates")
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"teams": TEAMS})
+
+
+@app.get("/roster", response_class=HTMLResponse)
+def roster_view(request: Request, team_abbr: str | None = None):
+    """Real player data (2,365 players across 32 teams) has existed since
+    the roster import but was only ever consumed internally by the engine
+    -- this is the first page that actually shows it. No team selected
+    yet -> just the picker. `starters` marks the highest-overall_rating
+    player at each position actually present on the roster (independent
+    of depth_chart.py's OffensiveStarters/DefensiveStarters, which model
+    the fixed 11/11 personnel package the engine plays with, not a
+    display concern, and would crash on positions like K/P that aren't
+    part of that package)."""
+    if team_abbr is None:
+        return templates.TemplateResponse(request, "roster.html", {"teams": TEAMS, "team": None, "players": None})
+    if team_abbr not in TEAMS_BY_ABBR:
+        raise HTTPException(404, "No such team")
+
+    with get_session() as s:
+        players = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+
+    position_rank = {pos: i for i, pos in enumerate(Position)}
+    players.sort(key=lambda p: (position_rank[p.position], -p.overall_rating))
+
+    starters: set[str] = set()
+    seen_positions = set()
+    for p in players:
+        if p.position not in seen_positions:
+            starters.add(p.player_id)
+            seen_positions.add(p.position)
+
+    return templates.TemplateResponse(
+        request,
+        "roster.html",
+        {"teams": TEAMS, "team": TEAMS_BY_ABBR[team_abbr], "players": players, "starters": starters},
+    )
 
 
 @app.get("/season", response_class=HTMLResponse)

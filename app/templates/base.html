@@ -95,11 +95,15 @@
     table.boxtable:last-child { margin-bottom: 0; }
     table.boxtable th:first-child, table.boxtable td:first-child { text-align: left; }
     table.boxtable th:not(:first-child), table.boxtable td:not(:first-child) { text-align: right; }
+    tr.starter td:first-child { color: var(--gold); font-weight: 600; }
+    nav.subnav { margin: -0.5rem 0 1.5rem; font-size: 0.9rem; }
+    nav.subnav a { margin-right: 1rem; }
   </style>
 </head>
 <body>
   <header><h1>Franchise <span>Football</span></h1></header>
   <main>
+    <nav class="subnav"><a href="/">Simulate</a><a href="/season">Season</a><a href="/roster">Roster</a></nav>
     {% block content %}{% endblock %}
   </main>
 </body>
