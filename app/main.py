@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -128,6 +130,102 @@ def depth_chart_move(team_abbr: str, position_value: str, player_id: str = Form(
     clear_starters_cache()  # the override just changed -- don't serve a stale cached starter
 
     return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
+
+
+@dataclass
+class SeasonPassingLine:
+    name: str
+    team_abbr: str
+    completions: int = 0
+    attempts: int = 0
+    yards: int = 0
+    touchdowns: int = 0
+    interceptions: int = 0
+
+
+@dataclass
+class SeasonRushingLine:
+    name: str
+    team_abbr: str
+    carries: int = 0
+    yards: int = 0
+    touchdowns: int = 0
+
+
+@dataclass
+class SeasonReceivingLine:
+    name: str
+    team_abbr: str
+    receptions: int = 0
+    targets: int = 0
+    yards: int = 0
+    touchdowns: int = 0
+
+
+def _season_stat_leaders(season, top_n: int = 15):
+    """Aggregates every played game's box score (build_box_score, already
+    computed per-game for result.html) into season totals, keyed by
+    (team_abbr, name) so two players who happen to share a name on
+    different teams don't get merged. Reuses build_box_score rather than
+    re-deriving stats from raw plays -- same convention/caveat as that
+    function: the passing/rushing line's name comes from the team's
+    CURRENT starting QB/HB (get_offensive_starters), not necessarily who
+    actually played in an older game if the depth chart has since
+    changed -- a pre-existing simplification (single active passer/
+    rusher per team, no in-season substitution modeled), not something
+    new introduced here."""
+    passing: dict[tuple[str, str], SeasonPassingLine] = {}
+    rushing: dict[tuple[str, str], SeasonRushingLine] = {}
+    receiving: dict[tuple[str, str], SeasonReceivingLine] = {}
+
+    for week in season.schedule:
+        for g in week:
+            if g.result is None:
+                continue
+            for abbr in (g.home_abbr, g.away_abbr):
+                box = build_box_score(g.result.plays, abbr)
+                for p in box.passing:
+                    line = passing.setdefault((abbr, p.name), SeasonPassingLine(name=p.name, team_abbr=abbr))
+                    line.completions += p.completions
+                    line.attempts += p.attempts
+                    line.yards += p.yards
+                    line.touchdowns += p.touchdowns
+                    line.interceptions += p.interceptions
+                for r in box.rushing:
+                    line = rushing.setdefault((abbr, r.name), SeasonRushingLine(name=r.name, team_abbr=abbr))
+                    line.carries += r.carries
+                    line.yards += r.yards
+                    line.touchdowns += r.touchdowns
+                for rc in box.receiving:
+                    line = receiving.setdefault((abbr, rc.name), SeasonReceivingLine(name=rc.name, team_abbr=abbr))
+                    line.receptions += rc.receptions
+                    line.targets += rc.targets
+                    line.yards += rc.yards
+                    line.touchdowns += rc.touchdowns
+
+    return (
+        sorted(passing.values(), key=lambda l: -l.yards)[:top_n],
+        sorted(rushing.values(), key=lambda l: -l.yards)[:top_n],
+        sorted(receiving.values(), key=lambda l: -l.yards)[:top_n],
+    )
+
+
+@app.get("/stats", response_class=HTMLResponse)
+def stats_view(request: Request):
+    season = season_state.get_season()
+    games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
+    passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season)
+    return templates.TemplateResponse(
+        request,
+        "stats.html",
+        {
+            "season": season,
+            "games_played": games_played,
+            "passing_leaders": passing_leaders,
+            "rushing_leaders": rushing_leaders,
+            "receiving_leaders": receiving_leaders,
+        },
+    )
 
 
 @app.get("/season", response_class=HTMLResponse)
