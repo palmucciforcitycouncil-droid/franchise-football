@@ -91,7 +91,7 @@ def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCa
     return yards, "gain", rb.full_name
 
 
-def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall) -> Tuple[int, str, str, str]:
+def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str]:
     """GDD Sec 6.6.2 (pass) + Sec 6.6.6: target chosen from real
     route-running-vs-coverage mismatches, pressure from real OL-vs-DL
     protection, completion from real QB accuracy (by depth) + receiver
@@ -112,7 +112,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     at all) -- app/engine/box_score.py needs this to credit an
     interception as a target/no-catch to the right receiver, since
     `who` alone can't carry both names on that play."""
-    target = choose_pass_target(ctx)
+    target = choose_pass_target(ctx, rng, distance)
 
     pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
     if defcall.blitz.called:
@@ -303,7 +303,7 @@ def simulate_drive(
         is_pass = rng.prob(pass_prob)
 
         if is_pass:
-            yards, outcome, who, receiver_name = _resolve_pass(rng, ctx, qb, defcall)
+            yards, outcome, who, receiver_name = _resolve_pass(rng, ctx, qb, defcall, distance)
             play_type = "pass"
         else:
             yards, outcome, who = _resolve_run(rng, ctx, rb, defcall)

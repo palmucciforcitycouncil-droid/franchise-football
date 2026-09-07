@@ -25,3 +25,6 @@ class RNG:
 
     def prob(self, p: float) -> bool:
         return self._rng.random() < p
+
+    def weighted_choice(self, seq, weights):
+        return self._rng.choices(seq, weights=weights, k=1)[0]

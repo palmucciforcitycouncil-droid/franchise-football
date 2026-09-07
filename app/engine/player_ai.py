@@ -25,6 +25,7 @@ prose assumed would exist:
                     depth's rating is used once a pass type is picked.
 """
 from __future__ import annotations
+import math
 from dataclasses import dataclass
 
 from app.models.player import Player
@@ -145,9 +146,26 @@ class PassTarget:
     protection_score: float
 
 
-def choose_pass_target(ctx: MatchupContext) -> PassTarget:
+def choose_pass_target(ctx: MatchupContext, rng, distance: int | None = None) -> PassTarget:
     """GDD Sec 6.6.2: simplified coverage assignment (WR1-CB1, WR2-CB2,
-    slot/TE-safety), then target whoever has the biggest mismatch."""
+    slot/TE-safety), then target whoever has the biggest mismatch --
+    "the receiver with the highest MismatchScore becomes the QB's primary
+    read." The GDD's own wording is "primary read," not "only possible
+    target": read literally as "always pick argmax," this was a pure
+    function of static per-game ratings with nothing that varies play to
+    play, so the same (receiver, defender) pair won the calculation on
+    every single pass attempt of a game -- a real bug found via the box
+    score (item 9/GDD's per-player stat lines), where a 30/30 or 37/37
+    target share for one receiver made it obvious in a way play-by-play
+    text alone hadn't.
+
+    Fix: weighted-random selection (softmax over mismatch scores) so the
+    best mismatch is still targeted most often -- a real "primary read"
+    -- but not deterministically every play. `distance` (yards to go)
+    tightens the distribution on a clear passing-down / must-convert
+    situation (3rd/4th & 7+): a QB going through progressions still
+    gravitates hardest to his best matchup when he has to convert, so
+    less exploration there than on an early-down shot play."""
     off, defn = ctx.offense, ctx.defense
     assignments = [
         (off.wr1, defn.cb1),
@@ -157,11 +175,13 @@ def choose_pass_target(ctx: MatchupContext) -> PassTarget:
     if off.wr3 is not None:
         assignments.append((off.wr3, defn.fs))
 
-    best_receiver, best_defender, best_score = assignments[0][0], assignments[0][1], -999.0
-    for receiver, defender in assignments:
-        score = route_running_avg(receiver) - coverage_rating(defender)
-        if score > best_score:
-            best_receiver, best_defender, best_score = receiver, defender, score
+    scores = [route_running_avg(receiver) - coverage_rating(defender) for receiver, defender in assignments]
+
+    temperature = 4.0 if distance is not None and distance >= 7 else 7.0
+    top_score = max(scores)
+    weights = [math.exp((s - top_score) / temperature) for s in scores]
+    receiver, defender = rng.weighted_choice(assignments, weights)
+    score = scores[assignments.index((receiver, defender))]
 
     protection = ctx.ol_pass_block - ctx.dl_pass_rush
-    return PassTarget(receiver=best_receiver, defender=best_defender, mismatch_score=best_score, protection_score=protection)
+    return PassTarget(receiver=receiver, defender=defender, mismatch_score=score, protection_score=protection)

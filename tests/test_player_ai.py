@@ -82,14 +82,19 @@ def test_run_point_of_attack_matches_best_blocking_zone_most_of_the_time():
     assert matches / 200 > 0.4
 
 
-def test_pass_target_is_the_biggest_real_mismatch():
+def test_pass_target_favors_the_biggest_real_mismatch_but_varies():
+    """Weighted-random selection (softmax over mismatch scores): the best
+    real mismatch should win more often than any other receiver, but not
+    every single time -- unlike the old pure-argmax version, which sent
+    100% of a game's targets to one receiver (a real bug found via the
+    box score, see player_ai.choose_pass_target's docstring)."""
     from app.services.depth_chart import get_offensive_starters, get_defensive_starters
     from app.engine.player_ai import build_matchup_context, choose_pass_target, route_running_avg, coverage_rating
+    from app.engine.rng import RNG
 
     off = get_offensive_starters("KC")
     defn = get_defensive_starters("BUF")
     ctx = build_matchup_context(off, defn)
-    target = choose_pass_target(ctx)
 
     candidates = [
         (off.wr1, defn.cb1), (off.wr2, defn.cb2), (off.te, defn.ss),
@@ -98,8 +103,13 @@ def test_pass_target_is_the_biggest_real_mismatch():
         candidates.append((off.wr3, defn.fs))
     expected_best = max(candidates, key=lambda pair: route_running_avg(pair[0]) - coverage_rating(pair[1]))
 
-    assert target.receiver.player_id == expected_best[0].player_id
-    assert target.defender.player_id == expected_best[1].player_id
+    rng = RNG.with_seed(1)
+    targets = [choose_pass_target(ctx, rng, distance=8) for _ in range(200)]
+    best_share = sum(1 for t in targets if t.receiver.player_id == expected_best[0].player_id) / 200
+
+    assert best_share > 1 / len(candidates)
+    assert best_share < 1.0
+    assert len({t.receiver.player_id for t in targets}) > 1
 
 
 def test_different_matchups_produce_different_advantages():
