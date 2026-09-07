@@ -93,9 +93,10 @@ class MatchupContext:
     dl_run_stop: float
     dl_pass_rush: float
     zones: ZoneAdvantage
+    ep_multiplier: float = 1.0  # Score Fidelity System (app/engine/score_fidelity.py) -- see that module's docstring
 
 
-def build_matchup_context(offense: OffensiveStarters, defense: DefensiveStarters) -> MatchupContext:
+def build_matchup_context(offense: OffensiveStarters, defense: DefensiveStarters, ep_multiplier: float = 1.0) -> MatchupContext:
     return MatchupContext(
         offense=offense,
         defense=defense,
@@ -104,6 +105,7 @@ def build_matchup_context(offense: OffensiveStarters, defense: DefensiveStarters
         dl_run_stop=dl_run_stop(defense),
         dl_pass_rush=dl_pass_rush(defense),
         zones=run_zone_advantages(offense, defense),
+        ep_multiplier=ep_multiplier,
     )
 
 

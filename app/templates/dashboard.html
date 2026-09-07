@@ -12,7 +12,7 @@
 <div class="card">
   <h3>Standings (Top 10)</h3>
   <table>
-    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>Diff</th></tr></thead>
+    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>Diff</th><th>Power Ranking</th></tr></thead>
     <tbody>
       {% for r in standings %}
       <tr>
@@ -22,6 +22,7 @@
         <td>{{ r.losses }}</td>
         <td>{{ "%.3f"|format(r.win_pct) }}</td>
         <td>{{ r.point_diff }}</td>
+        <td>{{ r.power_rating | round | int }}</td>
       </tr>
       {% endfor %}
     </tbody>

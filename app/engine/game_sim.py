@@ -31,7 +31,13 @@ class TeamTotals:
     def ypa(self) -> float:
         return self.pass_yards / self.pass_attempts if self.pass_attempts else LEAGUE_AVG_YPA
 
-def simulate_game(rng: RNG, home: TeamSim, away: TeamSim) -> GameResult:
+def simulate_game(rng: RNG, home: TeamSim, away: TeamSim, home_ep_multiplier: float = 1.0, away_ep_multiplier: float = 1.0) -> GameResult:
+    """home_ep_multiplier/away_ep_multiplier: the Score Fidelity System's
+    (app/engine/score_fidelity.py) per-game scoring nudge, computed from
+    Team Power Ratings by whoever has season context (season_state.py).
+    Default 1.0 (no effect) for callers with no season -- e.g. the
+    standalone single-game simulator (app/main.py's /simulate route),
+    which has no Team Power Rating to derive a multiplier from."""
     drives_total = int((home.ratings.pace_drives() + away.ratings.pace_drives()) / 2)
     home_first = rng.prob(0.5)
     field_pos = 65
@@ -46,8 +52,8 @@ def simulate_game(rng: RNG, home: TeamSim, away: TeamSim) -> GameResult:
     home_def_starters = get_defensive_starters(home.abbr)
     away_off_starters = get_offensive_starters(away.abbr)
     away_def_starters = get_defensive_starters(away.abbr)
-    ctx_home_offense = build_matchup_context(home_off_starters, away_def_starters)
-    ctx_away_offense = build_matchup_context(away_off_starters, home_def_starters)
+    ctx_home_offense = build_matchup_context(home_off_starters, away_def_starters, home_ep_multiplier)
+    ctx_away_offense = build_matchup_context(away_off_starters, home_def_starters, away_ep_multiplier)
 
     for i in range(drives_total):
         side_home = (i % 2 == 0) == home_first

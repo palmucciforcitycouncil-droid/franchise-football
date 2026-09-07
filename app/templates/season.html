@@ -46,7 +46,7 @@
 <div class="card">
   <h3>Standings</h3>
   <table>
-    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th></tr></thead>
+    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th><th>Power Ranking</th></tr></thead>
     <tbody>
       {% for r in standings %}
       <tr>
@@ -58,6 +58,7 @@
         <td>{{ r.points_for }}</td>
         <td>{{ r.points_against }}</td>
         <td>{{ r.point_diff }}</td>
+        <td>{{ r.power_rating | round | int }}</td>
       </tr>
       {% endfor %}
     </tbody>

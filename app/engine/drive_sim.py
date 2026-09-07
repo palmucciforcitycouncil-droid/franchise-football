@@ -80,6 +80,7 @@ def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCa
         mean -= 1.2
     elif defcall.primary == "pass_defense":
         mean += 1.0
+    mean *= ctx.ep_multiplier  # Score Fidelity System (app/engine/score_fidelity.py)
     yards = int(round(rng.gauss(mean, 3.8)))
 
     if advantage > 8 and rng.prob(0.05 + max(0, rb.juke_move - 70) * 0.001):
@@ -147,6 +148,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         completion_pct -= 0.03
     elif defcall.primary == "run_defense":
         completion_pct += 0.05
+    completion_pct *= ctx.ep_multiplier  # Score Fidelity System (app/engine/score_fidelity.py)
     completion_pct = max(0.20, min(0.88, completion_pct))
 
     if rng.prob(1 - completion_pct):
@@ -159,7 +161,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
 
     air_yards = {"short": 5, "medium": 10, "deep": 19}[depth]
     yac = max(0, rng.gauss((target.receiver.change_of_direction - 75) * 0.08, 2.5))
-    yards = int(air_yards + yac)
+    yards = int((air_yards + yac) * ctx.ep_multiplier)  # Score Fidelity System (app/engine/score_fidelity.py)
     return yards, "gain", target.receiver.full_name, target.receiver.full_name, target.defender.full_name
 
 

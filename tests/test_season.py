@@ -167,6 +167,30 @@ def test_save_load_round_trip_preserves_results_and_events():
     assert len(reloaded_game.result.events) == len(orig_game.result.events)
     assert reloaded_game.result.events[0].desc == orig_game.result.events[0].desc
 
+    assert reloaded.sfs == original.sfs
+
+
+def test_simulating_weeks_moves_power_ratings_off_the_baseline():
+    """Score Fidelity System (GDD Sec 7.2): Team Power Ratings start at
+    the league baseline (1500) and should diverge as real results come
+    in -- a season where every team is stuck at exactly 1500 after
+    several weeks would mean the Elo update never actually ran."""
+    from app.engine import power_rating
+
+    for _ in range(4):
+        season_state.simulate_current_week()
+    season = season_state.get_season()
+    ratings = [r.power_rating for r in season.records.values()]
+    assert any(r != power_rating.INITIAL_RATING for r in ratings)
+
+
+def test_weekly_feedback_telemetry_accumulates_one_entry_per_simulated_week():
+    for week in range(1, 4):
+        season_state.simulate_current_week()
+        season = season_state.get_season()
+        assert len(season.sfs.telemetry) == week
+        assert season.sfs.telemetry[-1]["week"] == week
+
 
 def test_season_survives_a_simulated_restart():
     """Simulates a server restart: clear the in-memory season, then confirm

@@ -19,6 +19,8 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
+from app.engine import power_rating, score_fidelity
+from app.engine.score_fidelity import SFSState
 
 
 @dataclass
@@ -29,6 +31,7 @@ class TeamRecord:
     losses: int = 0
     points_for: int = 0
     points_against: int = 0
+    power_rating: float = power_rating.INITIAL_RATING  # GDD Sec 7.2 -- UI label "Power Ranking"
 
     @property
     def win_pct(self) -> float:
@@ -38,6 +41,10 @@ class TeamRecord:
     @property
     def point_diff(self) -> int:
         return self.points_for - self.points_against
+
+    @property
+    def games_played(self) -> int:
+        return self.wins + self.losses
 
 
 @dataclass
@@ -53,6 +60,7 @@ class Season:
     schedule: list[list[WeekGame]]
     records: dict[str, TeamRecord]
     current_week: int = 1  # 1-indexed; next week to simulate
+    sfs: SFSState = field(default_factory=SFSState)  # Score Fidelity System weekly-feedback state
 
     @property
     def is_complete(self) -> bool:
@@ -98,14 +106,18 @@ def reset_season() -> Season:
 
 
 def simulate_current_week() -> int:
-    """Simulates every game in the current week, updates records, advances
-    current_week. Returns the week number that was just simulated."""
+    """Simulates every game in the current week, updates records and
+    Team Power Ratings, runs the Score Fidelity System's weekly feedback
+    update, advances current_week. Returns the week number that was just
+    simulated."""
     season = get_season()
     if season.is_complete:
         return season.current_week - 1
 
     week_num = season.current_week
     week_games = season.schedule[week_num - 1]
+    week_total_points = 0
+    week_total_teams = 0
 
     for game in week_games:
         home_info = TEAMS_BY_ABBR[game.home_abbr]
@@ -115,13 +127,30 @@ def simulate_current_week() -> int:
         away = TeamSim(name=away_info.location, abbr=away_info.abbr,
                         ratings=ratings_for(away_info, season.league_seed))
 
-        game_seed = stable_seed(season.league_seed, week_num, game.home_abbr, game.away_abbr)
-        rng = RNG.with_seed(game_seed)
-        result = simulate_game(rng, home, away)
-        game.result = result
-
         home_rec = season.records[game.home_abbr]
         away_rec = season.records[game.away_abbr]
+
+        # Score Fidelity System (GDD Sec 6.2): pre-game win probability
+        # from current Team Power Ratings drives each team's EP-anchoring
+        # multiplier for this game -- computed BEFORE simulating, using
+        # each team's record entering this week (not updated by it).
+        win_prob = power_rating.home_win_probability(
+            home_rec.power_rating, home_rec.wins, home_rec.games_played,
+            away_rec.power_rating, away_rec.wins, away_rec.games_played,
+            week_num,
+        )
+
+        game_seed = stable_seed(season.league_seed, week_num, game.home_abbr, game.away_abbr)
+        rng = RNG.with_seed(game_seed)
+        # Consumed from the same seeded rng as the game itself, so a
+        # season replay with the same LEAGUE_SEED stays fully
+        # deterministic (see score_fidelity.ep_multiplier's docstring).
+        home_mult = score_fidelity.ep_multiplier(rng, win_prob, True, season.sfs.scoring_feedback_multiplier)
+        away_mult = score_fidelity.ep_multiplier(rng, win_prob, False, season.sfs.scoring_feedback_multiplier)
+
+        result = simulate_game(rng, home, away, home_mult, away_mult)
+        game.result = result
+
         home_rec.points_for += result.home_score
         home_rec.points_against += result.away_score
         away_rec.points_for += result.away_score
@@ -133,7 +162,18 @@ def simulate_current_week() -> int:
             away_rec.wins += 1
             home_rec.losses += 1
 
+        home_rec.power_rating, away_rec.power_rating = power_rating.update_ratings(
+            home_rec.power_rating, away_rec.power_rating, result.home_score, result.away_score,
+        )
+
+        week_total_points += result.home_score + result.away_score
+        week_total_teams += 2
+
     season.current_week += 1
+
+    if week_total_teams:
+        measured_ppg = week_total_points / week_total_teams
+        score_fidelity.weekly_feedback_update(season.sfs, week_num, measured_ppg)
 
     from app.services import save_service
     save_service.save_season(season)

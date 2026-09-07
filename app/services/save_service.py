@@ -62,6 +62,7 @@ def season_to_dict(season) -> dict:
     return {
         "league_seed": season.league_seed,
         "current_week": season.current_week,
+        "sfs": asdict(season.sfs),
         "schedule": [
             [
                 {
@@ -82,6 +83,7 @@ def season_to_dict(season) -> dict:
 def season_from_dict(d: dict):
     # Imported lazily to avoid a circular import (season_state imports this module).
     from app.services.season_state import Season, WeekGame, TeamRecord
+    from app.engine.score_fidelity import SFSState
 
     schedule = [
         [
@@ -95,11 +97,16 @@ def season_from_dict(d: dict):
         for week in d["schedule"]
     ]
     records = {abbr: TeamRecord(**rec) for abbr, rec in d["records"].items()}
+    # .get(...) with a fresh-default fallback: a save file from before the
+    # Score Fidelity System existed won't have "sfs" (or "power_rating" on
+    # each record, but TeamRecord's own field default covers that case).
+    sfs = SFSState(**d["sfs"]) if "sfs" in d else SFSState()
     return Season(
         league_seed=d["league_seed"],
         schedule=schedule,
         records=records,
         current_week=d["current_week"],
+        sfs=sfs,
     )
 
 
