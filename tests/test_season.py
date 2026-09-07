@@ -207,3 +207,39 @@ def test_season_survives_a_simulated_restart():
     assert after.current_week == before_week
     after_standings = [(r.abbr, r.wins, r.losses) for r in after.standings()]
     assert after_standings == before_standings
+
+
+def test_concurrent_simulate_week_calls_dont_corrupt_state():
+    """Regression test for a real bug found via live manual testing: a team
+    ended up 20-0 with current_week at 21 in an 18-week season.
+    /season/simulate-week is a plain `def` route, thread-pooled by FastAPI,
+    so concurrent requests (a double-click, a slow request retried, a page
+    reload resubmitting the form) could genuinely race: two threads both
+    read the same current_week before either incremented it, both simulated
+    the same week (inflating that week's teams' win/loss counts), and
+    current_week could end up past N_WEEKS entirely. season_state._STATE_LOCK
+    fixes this by fully serializing every mutating call -- fire way more
+    concurrent calls than there are weeks and confirm the season still ends
+    up in an exactly-correct state, not merely a plausible-looking one."""
+    import threading
+
+    n_threads = 25  # more than N_WEEKS=18, so some calls MUST safely no-op post-completion
+    barrier = threading.Barrier(n_threads)
+
+    def hammer():
+        barrier.wait()  # start all threads at (as close to) the same instant as possible
+        season_state.simulate_current_week()
+
+    threads = [threading.Thread(target=hammer) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    season = season_state.get_season()
+    assert season.is_complete
+    assert season.current_week == N_WEEKS + 1  # never past this, no matter how many extra calls raced in
+    for r in season.records.values():
+        assert r.wins + r.losses == 17, f"{r.abbr} played {r.wins + r.losses} games, not the scheduled 17"
+    total_games = sum(r.wins + r.losses for r in season.records.values())
+    assert total_games == len(TEAMS) * 17
