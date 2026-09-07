@@ -65,5 +65,29 @@
   </table>
 </div>
 
+<div class="card">
+  <h3>Score Fidelity</h3>
+  <p class="muted">The scoring feedback multiplier self-corrects toward a {{ "%.1f"|format(target_ppg) }} PPG/team target as weeks are simulated (<code>app/engine/score_fidelity.py</code>).</p>
+  <p>Current scoring feedback multiplier: <strong>{{ "%.4f"|format(season.sfs.scoring_feedback_multiplier) }}</strong></p>
+  {% if season.sfs.telemetry %}
+  <table>
+    <thead><tr><th>Week</th><th>Measured PPG</th><th>Target</th><th>Error</th><th>Multiplier</th></tr></thead>
+    <tbody>
+      {% for t in season.sfs.telemetry | reverse %}
+      <tr>
+        <td>{{ t.week }}</td>
+        <td>{{ t.measured_ppg }}</td>
+        <td>{{ t.target_ppg }}</td>
+        <td>{{ t.error }}</td>
+        <td>{{ t.multiplier_before }} &rarr; {{ t.multiplier_after }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No weeks simulated yet — the feedback loop updates after each simulated week.</p>
+  {% endif %}
+</div>
+
 <p><a href="/">&larr; Back to single-game simulator</a></p>
 {% endblock %}

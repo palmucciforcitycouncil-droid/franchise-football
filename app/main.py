@@ -16,6 +16,7 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
+from app.engine import score_fidelity
 from app.services import season_state, depth_chart_overrides
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
@@ -275,6 +276,7 @@ def season_view(request: Request):
             "season": season,
             "standings": season.standings(),
             "n_weeks": season_state.N_WEEKS,
+            "target_ppg": score_fidelity.TARGET_PPG_PER_TEAM,
         },
     )
 
