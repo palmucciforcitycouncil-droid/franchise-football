@@ -16,7 +16,7 @@ from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.engine.placeholder_ratings import ratings_for
-from app.engine.rng import RNG
+from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
 
@@ -115,7 +115,7 @@ def simulate_current_week() -> int:
         away = TeamSim(name=away_info.location, abbr=away_info.abbr,
                         ratings=ratings_for(away_info, season.league_seed))
 
-        game_seed = hash((season.league_seed, week_num, game.home_abbr, game.away_abbr)) & 0xFFFFFFFF
+        game_seed = stable_seed(season.league_seed, week_num, game.home_abbr, game.away_abbr)
         rng = RNG.with_seed(game_seed)
         result = simulate_game(rng, home, away)
         game.result = result
