@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Dashboard — LEAGUE_SEED={{ season.league_seed }}</h2>
+  <p class="muted">
+    {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
+    See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.
+  </p>
+</div>
+
+<div class="card">
+  <h3>Standings (Top 10)</h3>
+  <table>
+    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>Diff</th></tr></thead>
+    <tbody>
+      {% for r in standings %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ r.location }} ({{ r.abbr }})</td>
+        <td>{{ r.wins }}</td>
+        <td>{{ r.losses }}</td>
+        <td>{{ "%.3f"|format(r.win_pct) }}</td>
+        <td>{{ r.point_diff }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>{% if last_played_week %}Week {{ last_played_week }} Results{% else %}Latest Results{% endif %}</h3>
+  {% if last_week_games %}
+  <table>
+    <thead><tr><th>Away</th><th>Home</th><th>Result</th></tr></thead>
+    <tbody>
+      {% for g in last_week_games %}
+      <tr>
+        <td>{{ g.away_abbr }}</td>
+        <td>{{ g.home_abbr }}</td>
+        <td><a href="/season/week/{{ last_played_week }}/game/{{ g.home_abbr }}/{{ g.away_abbr }}">{{ g.result.away_score }}&ndash;{{ g.result.home_score }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No games played yet — simulate a week on the <a href="/season">Season</a> page.</p>
+  {% endif %}
+</div>
+
+{% if passing_leaders %}
+<div class="card">
+  <h3>League Leaders</h3>
+  <table class="boxtable">
+    <thead><tr><th>Passing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
+    <tbody>
+      {% for p in passing_leaders %}
+      <tr><td>{{ p.name }}</td><td>{{ p.team_abbr }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <table class="boxtable">
+    <thead><tr><th>Rushing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
+    <tbody>
+      {% for r in rushing_leaders %}
+      <tr><td>{{ r.name }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <table class="boxtable">
+    <thead><tr><th>Receiving</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
+    <tbody>
+      {% for r in receiving_leaders %}
+      <tr><td>{{ r.name }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/stats">See full leaderboards &rarr;</a></p>
+</div>
+{% endif %}
+{% endblock %}

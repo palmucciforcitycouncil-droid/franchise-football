@@ -210,6 +210,43 @@ def _season_stat_leaders(season, top_n: int = 15):
     )
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_view(request: Request):
+    """League-at-a-glance landing page, pulling from pieces that already
+    exist rather than introducing new state: season.standings() (top 10
+    by record), the most recently completed week's scores, and the top
+    5 stat leaders per category (_season_stat_leaders). Doesn't replace
+    `/`, which stays the single-game simulator -- the GDD lists Dashboard
+    and "Simulate a Game" as distinct screens."""
+    season = season_state.get_season()
+    standings = season.standings()[:10]
+
+    last_played_week = None
+    last_week_games = []
+    for week_num in range(season.current_week - 1, 0, -1):
+        games = [g for g in season.schedule[week_num - 1] if g.result is not None]
+        if games:
+            last_played_week = week_num
+            last_week_games = games
+            break
+
+    passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season, top_n=5)
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "season": season,
+            "standings": standings,
+            "last_played_week": last_played_week,
+            "last_week_games": last_week_games,
+            "passing_leaders": passing_leaders,
+            "rushing_leaders": rushing_leaders,
+            "receiving_leaders": receiving_leaders,
+        },
+    )
+
+
 @app.get("/stats", response_class=HTMLResponse)
 def stats_view(request: Request):
     season = season_state.get_season()
