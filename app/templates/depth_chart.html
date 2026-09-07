@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{% if team %}{{ team.location }} Depth Chart{% else %}Depth Chart{% endif %} — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Depth Chart</h2>
+  <p class="muted">Set who starts at each position with the &uarr;/&darr; buttons. QB/HB/WR/TE/OL/DL/LB/CB/S orders are wired into the Drive Engine (the top player in each group is who actually plays); FB/K/P orders are saved but not consumed by the engine yet.</p>
+  <form method="get" action="/depth-chart">
+    <div class="row">
+      <div>
+        <label for="team_abbr">Team</label>
+        <select name="team_abbr" id="team_abbr">
+          {% for t in teams %}
+          <option value="{{ t.abbr }}" {% if team and t.abbr == team.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button type="submit">View Depth Chart</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if team %}
+{% for group in groups %}
+<div class="card">
+  <h3>{{ group.position }}</h3>
+  <table>
+    <thead><tr><th></th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th><th></th></tr></thead>
+    <tbody>
+      {% for p in group.players %}
+      <tr class="{% if loop.first %}starter{% endif %}">
+        <td>{{ loop.index }}</td>
+        <td>{{ p.full_name }}</td>
+        <td>{{ p.age }}</td>
+        <td>{{ p.overall_rating }}</td>
+        <td>{{ p.potential }}</td>
+        <td class="depth-actions">
+          {% if not loop.first %}
+          <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move">
+            <input type="hidden" name="player_id" value="{{ p.player_id }}">
+            <input type="hidden" name="direction" value="up">
+            <button type="submit" title="Move up">&uarr;</button>
+          </form>
+          {% endif %}
+          {% if not loop.last %}
+          <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move">
+            <input type="hidden" name="player_id" value="{{ p.player_id }}">
+            <input type="hidden" name="direction" value="down">
+            <button type="submit" title="Move down">&darr;</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -14,7 +14,8 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
-from app.services import season_state
+from app.services import season_state, depth_chart_overrides
+from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
 from sqlmodel import select
@@ -63,6 +64,57 @@ def roster_view(request: Request, team_abbr: str | None = None):
         "roster.html",
         {"teams": TEAMS, "team": TEAMS_BY_ABBR[team_abbr], "players": players, "starters": starters},
     )
+
+
+def _roster_by_position(team_abbr: str) -> dict[Position, list[Player]]:
+    with get_session() as s:
+        players = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+    by_position: dict[Position, list[Player]] = {}
+    for p in players:
+        by_position.setdefault(p.position, []).append(p)
+    return by_position
+
+
+@app.get("/depth-chart", response_class=HTMLResponse)
+def depth_chart_view(request: Request, team_abbr: str | None = None):
+    """The real depth chart (app/services/depth_chart_overrides.py) --
+    lets the user actually set who starts at each position, replacing
+    the highest-overall_rating stand-in depth_chart.py used alone. Each
+    position group is ordered via resolve_order (override, falling back
+    to rating) so this page shows exactly what the engine will use."""
+    if team_abbr is None:
+        return templates.TemplateResponse(request, "depth_chart.html", {"teams": TEAMS, "team": None, "groups": None})
+    if team_abbr not in TEAMS_BY_ABBR:
+        raise HTTPException(404, "No such team")
+
+    by_position = _roster_by_position(team_abbr)
+    groups = [
+        {"position": pos.value, "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players)}
+        for pos, players in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
+    ]
+
+    return templates.TemplateResponse(
+        request,
+        "depth_chart.html",
+        {"teams": TEAMS, "team": TEAMS_BY_ABBR[team_abbr], "groups": groups},
+    )
+
+
+@app.post("/depth-chart/{team_abbr}/{position_value}/move")
+def depth_chart_move(team_abbr: str, position_value: str, player_id: str = Form(...), direction: str = Form(...)):
+    if team_abbr not in TEAMS_BY_ABBR:
+        raise HTTPException(404, "No such team")
+    try:
+        position = Position(position_value)
+    except ValueError:
+        raise HTTPException(404, "No such position")
+
+    players = _roster_by_position(team_abbr).get(position, [])
+    current_order = [p.player_id for p in depth_chart_overrides.resolve_order(team_abbr, position_value, players)]
+    depth_chart_overrides.move_player(team_abbr, position_value, current_order, player_id, direction)
+    clear_starters_cache()  # the override just changed -- don't serve a stale cached starter
+
+    return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
 
 
 @app.get("/season", response_class=HTMLResponse)

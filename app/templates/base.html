@@ -98,12 +98,15 @@
     tr.starter td:first-child { color: var(--gold); font-weight: 600; }
     nav.subnav { margin: -0.5rem 0 1.5rem; font-size: 0.9rem; }
     nav.subnav a { margin-right: 1rem; }
+    td.depth-actions { white-space: nowrap; text-align: right; }
+    td.depth-actions form { display: inline-block; margin-left: 0.25rem; }
+    td.depth-actions button { padding: 0.15rem 0.5rem; font-size: 0.85rem; }
   </style>
 </head>
 <body>
   <header><h1>Franchise <span>Football</span></h1></header>
   <main>
-    <nav class="subnav"><a href="/">Simulate</a><a href="/season">Season</a><a href="/roster">Roster</a></nav>
+    <nav class="subnav"><a href="/">Simulate</a><a href="/season">Season</a><a href="/roster">Roster</a><a href="/depth-chart">Depth Chart</a></nav>
     {% block content %}{% endblock %}
   </main>
 </body>

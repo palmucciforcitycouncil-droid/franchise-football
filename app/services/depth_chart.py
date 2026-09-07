@@ -4,9 +4,10 @@ Starting lineup selection.
 The GDD's play-calling AI (Part 1 Sec 6.6) references specific matchups --
 "LT & LG vs. opponent RDE & RDT", "WR1 vs. CB1" -- which requires knowing
 which specific players are on the field, not just team-level aggregates.
-There's no coach-assigned depth chart yet (that's a real future feature:
-letting the user set it), so starters are chosen by highest overall_rating
-per position, which is a reasonable stand-in until that exists.
+Starters are chosen by highest overall_rating per position by default,
+overridable per (team, position) via depth_chart_overrides.py (the real
+coach-settable depth chart, GET/POST /depth-chart in app/main.py) -- see
+that module's docstring for the persistence format.
 
 11 offensive starters (11-personnel: 1 RB, 1 TE, 3 WR) and 11 defensive
 starters (a 4-3-ish base: 2 DT, 2 edge, 3 LB, 2 CB, 2 S) are selected per
@@ -21,6 +22,7 @@ from sqlmodel import select
 
 from app.core.db import get_session
 from app.models.player import Player, Position
+from app.services import depth_chart_overrides
 
 
 @dataclass
@@ -73,8 +75,9 @@ class DefensiveStarters:
         return [self.cb1, self.cb2, self.fs, self.ss]
 
 
-def _top(players: list[Player], position: Position, n: int = 1) -> list[Player]:
-    pool = sorted((p for p in players if p.position == position), key=lambda p: -p.overall_rating)
+def _top(players: list[Player], position: Position, n: int, team_abbr: str) -> list[Player]:
+    pool = [p for p in players if p.position == position]
+    pool = depth_chart_overrides.resolve_order(team_abbr, position.value, pool)
     return pool[:n]
 
 
@@ -86,35 +89,35 @@ def _load_roster(team_abbr: str) -> list[Player]:
 @lru_cache(maxsize=64)
 def get_offensive_starters(team_abbr: str) -> OffensiveStarters:
     roster = _load_roster(team_abbr)
-    wrs = _top(roster, Position.WR, 3)
+    wrs = _top(roster, Position.WR, 3, team_abbr)
     return OffensiveStarters(
-        qb=_top(roster, Position.QB, 1)[0],
-        hb=_top(roster, Position.HB, 1)[0],
+        qb=_top(roster, Position.QB, 1, team_abbr)[0],
+        hb=_top(roster, Position.HB, 1, team_abbr)[0],
         wr1=wrs[0], wr2=wrs[1], wr3=wrs[2] if len(wrs) > 2 else None,
-        te=_top(roster, Position.TE, 1)[0],
-        lt=_top(roster, Position.LT, 1)[0],
-        lg=_top(roster, Position.LG, 1)[0],
-        c=_top(roster, Position.C, 1)[0],
-        rg=_top(roster, Position.RG, 1)[0],
-        rt=_top(roster, Position.RT, 1)[0],
+        te=_top(roster, Position.TE, 1, team_abbr)[0],
+        lt=_top(roster, Position.LT, 1, team_abbr)[0],
+        lg=_top(roster, Position.LG, 1, team_abbr)[0],
+        c=_top(roster, Position.C, 1, team_abbr)[0],
+        rg=_top(roster, Position.RG, 1, team_abbr)[0],
+        rt=_top(roster, Position.RT, 1, team_abbr)[0],
     )
 
 
 @lru_cache(maxsize=64)
 def get_defensive_starters(team_abbr: str) -> DefensiveStarters:
     roster = _load_roster(team_abbr)
-    dts = _top(roster, Position.DT, 2)
-    cbs = _top(roster, Position.CB, 2)
+    dts = _top(roster, Position.DT, 2, team_abbr)
+    cbs = _top(roster, Position.CB, 2, team_abbr)
     return DefensiveStarters(
         dt1=dts[0], dt2=dts[1],
-        le=_top(roster, Position.LE, 1)[0],
-        re=_top(roster, Position.RE, 1)[0],
-        lolb=_top(roster, Position.LOLB, 1)[0],
-        mlb=_top(roster, Position.MLB, 1)[0],
-        rolb=_top(roster, Position.ROLB, 1)[0],
+        le=_top(roster, Position.LE, 1, team_abbr)[0],
+        re=_top(roster, Position.RE, 1, team_abbr)[0],
+        lolb=_top(roster, Position.LOLB, 1, team_abbr)[0],
+        mlb=_top(roster, Position.MLB, 1, team_abbr)[0],
+        rolb=_top(roster, Position.ROLB, 1, team_abbr)[0],
         cb1=cbs[0], cb2=cbs[1],
-        fs=_top(roster, Position.FS, 1)[0],
-        ss=_top(roster, Position.SS, 1)[0],
+        fs=_top(roster, Position.FS, 1, team_abbr)[0],
+        ss=_top(roster, Position.SS, 1, team_abbr)[0],
     )
 
 
