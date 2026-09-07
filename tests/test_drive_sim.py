@@ -303,3 +303,30 @@ def test_defensive_pass_interference_is_attributed_to_the_real_covering_defender
             assert defender_name in defender_names
             assert penalty.down == 1
     assert found, "expected at least one DPI call across 3000 incomplete-pass checks"
+
+
+def test_roughing_the_passer_is_attributed_to_the_real_blitzer_when_blitzed():
+    """When the play was a blitz, the penalty should name the actual
+    blitzer (app/engine/defensive_ai.py's DefensiveCall.blitz), not a
+    random defensive lineman -- that's who's most likely to have hit the
+    QB a beat late in real football."""
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.player_ai import build_matchup_context
+    from app.engine.defensive_ai import DefensiveCall, BlitzCall
+    from app.engine.drive_sim import _check_roughing_the_passer
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+    ctx = build_matchup_context(off, defn)
+    blitzer = defn.mlb
+    blitz_call = DefensiveCall(primary="pass_defense", blitz=BlitzCall(called=True, blitzer=blitzer, target=off.hb, advantage=15.0), coverage="man", run_tactic=None)
+
+    rng = RNG.with_seed(13)
+    found = False
+    for _ in range(500):
+        penalty = _check_roughing_the_passer(rng, ctx, blitz_call, pos=50)
+        if penalty is not None:
+            found = True
+            assert blitzer.full_name in penalty.desc
+            assert penalty.down == 1
+    assert found, "expected at least one roughing-the-passer call across 500 rolls"

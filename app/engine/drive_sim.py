@@ -190,9 +190,10 @@ def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool
 
 # GDD Sec 6.9 Penalty System -- a real weighted type table + attribution +
 # situational accept/decline, but a deliberate SUBSET of the full catalog:
-# 5 types total (false start, delay of game, offside, offensive holding,
-# defensive pass interference), not the dozen-plus real penalty types the
-# GDD lists. No Team_Discipline_Modifier/Coach_Modifier: neither a
+# 7 types total (false start, delay of game, illegal formation, offside,
+# offensive holding, defensive pass interference, roughing the passer),
+# not the dozen-plus real penalty types the GDD lists. No
+# Team_Discipline_Modifier/Coach_Modifier: neither a
 # "discipline" player attribute nor a Coach entity exists in the real
 # (Madden-derived) data, so attribution picks from the relevant personnel
 # group rather than being rating-weighted -- the same category of gap as
@@ -210,17 +211,19 @@ class PenaltyOutcome:
 
 
 def _check_pre_snap_penalty(rng: RNG, ctx: MatchupContext) -> Tuple[str, str] | None:
-    """False start / delay of game / offside -- rolled before the play
-    type is even decided, since these happen before anyone knows what
-    was coming. Always enforced (no accept/decline: there's no completed
-    play yet to compare against, matching real NFL practice). Returns
-    (description, side) or None."""
+    """False start / delay of game / illegal formation / offside --
+    rolled before the play type is even decided, since these happen
+    before anyone knows what was coming. Always enforced (no
+    accept/decline: there's no completed play yet to compare against,
+    matching real NFL practice). Returns (description, side) or None."""
     off, defn = ctx.offense, ctx.defense
     p = PARAMS["penalty"]["pre_snap"]
     if rng.prob(p["false_start"]):
         return f"False start, {rng.choice(off.offensive_line).full_name}: 5 yards", "offense"
     if rng.prob(p["delay_of_game"]):
         return f"Delay of game, {off.qb.full_name}: 5 yards", "offense"
+    if rng.prob(p["illegal_formation"]):
+        return f"Illegal formation, {rng.choice(off.offensive_line).full_name}: 5 yards", "offense"
     if rng.prob(p["offside"]):
         return f"Offside, {rng.choice(defn.defensive_line).full_name}: 5 yards", "defense"
     return None
@@ -275,6 +278,26 @@ def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str) -
     new_pos = min(99, pos + PARAMS["penalty"]["dpi_yards"])
     return PenaltyOutcome(
         desc=f"Defensive pass interference, {defender_name}: {PARAMS['penalty']['dpi_yards']} yards, automatic first down",
+        down=1, distance=10, pos=new_pos,
+    )
+
+
+def _check_roughing_the_passer(rng: RNG, ctx: MatchupContext, defcall: DefensiveCall, pos: int) -> PenaltyOutcome | None:
+    """Rolled only on sacks. Attributed to the real blitzer if this play
+    was a blitz call (app/engine/defensive_ai.py's DefensiveCall.blitz),
+    since that's the specific defender most likely to have hit the QB a
+    beat late -- otherwise a random defensive lineman, since a
+    non-blitzed sack still came from someone up front. No accept/decline
+    needed, same reasoning as DPI: automatic first down + 15 yards from
+    the previous spot is always better for the offense than the sack
+    that just happened."""
+    if not rng.prob(PARAMS["penalty"]["in_play"]["roughing_the_passer"]):
+        return None
+    who = defcall.blitz.blitzer.full_name if defcall.blitz.called and defcall.blitz.blitzer is not None else rng.choice(ctx.defense.defensive_line).full_name
+    yards = PARAMS["penalty"]["roughing_yards"]
+    new_pos = min(99, pos + yards)
+    return PenaltyOutcome(
+        desc=f"Roughing the passer, {who}: {yards} yards, automatic first down",
         down=1, distance=10, pos=new_pos,
     )
 
@@ -445,6 +468,8 @@ def simulate_drive(
                 penalty = _check_offensive_holding(rng, ctx, down, distance, pos, yards)
             elif outcome == "incomplete":
                 penalty = _check_defensive_pass_interference(rng, pos, defender_name)
+            elif outcome == "sack":
+                penalty = _check_roughing_the_passer(rng, ctx, defcall, pos)
             if penalty is not None:
                 play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name))
                 down, distance, pos = penalty.down, penalty.distance, penalty.pos
