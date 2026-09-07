@@ -17,23 +17,31 @@
   </form>
 </div>
 
-{% if this_week %}
 <div class="card">
-  <h3>This Week's Matchups</h3>
-  <table>
-    <thead><tr><th>Away</th><th>Home</th><th>Result</th></tr></thead>
-    <tbody>
-      {% for g in this_week %}
-      <tr>
-        <td>{{ g.away_abbr }}</td>
-        <td>{{ g.home_abbr }}</td>
-        <td>{% if g.result %}{{ g.result.away_score }}&ndash;{{ g.result.home_score }}{% else %}&mdash;{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <h3>Weeks</h3>
+  {% for week_games in season.schedule %}
+  {% set week_num = loop.index %}
+  <details class="drive" {% if week_num == season.current_week or (season.is_complete and week_num == n_weeks) %}open{% endif %}>
+    <summary>Week {{ week_num }}</summary>
+    <table>
+      <thead><tr><th>Away</th><th>Home</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for g in week_games %}
+        <tr>
+          <td>{{ g.away_abbr }}</td>
+          <td>{{ g.home_abbr }}</td>
+          <td>
+            {% if g.result %}
+            <a href="/season/week/{{ week_num }}/game/{{ g.home_abbr }}/{{ g.away_abbr }}">{{ g.result.away_score }}&ndash;{{ g.result.home_score }}</a>
+            {% else %}&mdash;{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endfor %}
 </div>
-{% endif %}
 
 <div class="card">
   <h3>Standings</h3>

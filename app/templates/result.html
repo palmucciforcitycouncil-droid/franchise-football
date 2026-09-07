@@ -88,5 +88,5 @@
   {% endfor %}
 </div>
 
-<p><a href="/">&larr; Simulate another game</a></p>
+<p><a href="{{ back_url | default('/') }}">&larr; {{ back_label | default('Simulate another game') }}</a></p>
 {% endblock %}

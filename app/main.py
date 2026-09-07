@@ -3,7 +3,7 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,17 +29,59 @@ def index(request: Request):
 @app.get("/season", response_class=HTMLResponse)
 def season_view(request: Request):
     season = season_state.get_season()
-    this_week = None
-    if not season.is_complete:
-        this_week = season.schedule[season.current_week - 1]
     return templates.TemplateResponse(
         request,
         "season.html",
         {
             "season": season,
             "standings": season.standings(),
-            "this_week": this_week,
             "n_weeks": season_state.N_WEEKS,
+        },
+    )
+
+
+@app.get("/season/week/{week_num}/game/{home_abbr}/{away_abbr}", response_class=HTMLResponse)
+def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr: str):
+    """Reuses result.html (the single-game simulator's play-by-play +
+    box score view) for an already-simulated season game -- season_state
+    already retains each game's full GameResult (plays, per-team totals,
+    see save_service.py's round-trip), it just had no route/link to view
+    one. 404s on an unplayed or nonexistent week/matchup rather than
+    rendering an empty page, since there's nothing to show yet."""
+    season = season_state.get_season()
+    if not (1 <= week_num <= season_state.N_WEEKS):
+        raise HTTPException(404, "No such week")
+
+    game = next(
+        (g for g in season.schedule[week_num - 1] if g.home_abbr == home_abbr and g.away_abbr == away_abbr),
+        None,
+    )
+    if game is None or game.result is None:
+        raise HTTPException(404, "That game hasn't been played yet")
+
+    home_info = TEAMS_BY_ABBR[home_abbr]
+    away_info = TEAMS_BY_ABBR[away_abbr]
+    home = TeamSim(name=home_info.location, abbr=home_info.abbr, ratings=None)
+    away = TeamSim(name=away_info.location, abbr=away_info.abbr, ratings=None)
+
+    result = game.result
+    home_box = build_box_score(result.plays, home_info.abbr)
+    away_box = build_box_score(result.plays, away_info.abbr)
+    game_seed = hash((season.league_seed, week_num, home_abbr, away_abbr)) & 0xFFFFFFFF
+
+    return templates.TemplateResponse(
+        request,
+        "result.html",
+        {
+            "home": home,
+            "away": away,
+            "result": result,
+            "league_seed": season.league_seed,
+            "game_seed": game_seed,
+            "home_box": home_box,
+            "away_box": away_box,
+            "back_url": "/season",
+            "back_label": "Back to season",
         },
     )
 
