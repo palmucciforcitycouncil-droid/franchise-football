@@ -186,3 +186,43 @@ def test_interception_is_credited_to_the_defender_not_the_intended_receiver():
             found_interception = True
             assert who not in offense_names, f"interception credited to an offensive player: {who}"
     assert found_interception, "expected at least one interception across 3000 pass attempts"
+
+
+def test_field_goal_and_pat_odds_scale_with_the_real_kicker():
+    """OffensiveStarters.k used to not exist (Known Gaps: "no dedicated
+    kicker in the starting lineup"); FG/PAT odds were a fixed league
+    bucket regardless of who was kicking. Now a real kicker's
+    kick_accuracy should measurably move both."""
+    from app.engine.drive_sim import _kicker_adjusted_prob, _attempt_field_goal
+    from app.models.player import Player, Position
+
+    def _kicker(accuracy: int) -> Player:
+        return Player(
+            player_id=f"test_k_{accuracy}", first_name="Test", last_name="Kicker",
+            position=Position.K, team_abbr="KC", age=25, overall_rating=accuracy,
+            potential=accuracy, morale=80, speed=50, acceleration=50, strength=50,
+            agility=50, jumping=50, stamina=50, toughness=50, durability=80,
+            throw_power=0, throw_accuracy_short=0, throw_accuracy_mid=0, throw_accuracy_deep=0,
+            play_action=0, throw_on_the_run=0, throw_under_pressure=0, break_sack=0,
+            catching=0, spectacular_catch=0, catch_in_traffic=0, short_route_running=0,
+            medium_route_running=0, deep_route_running=0, release=0, carrying=0,
+            trucking=0, change_of_direction=0, ball_carrier_vision=0, stiff_arm=0,
+            spin_move=0, juke_move=0, break_tackle=0, run_block=0, pass_block=0,
+            run_block_power=0, run_block_finesse=0, pass_block_power=0, pass_block_finesse=0,
+            lead_block=0, impact_blocking=0, tackle=0, hit_power=0, block_shedding=0,
+            pursuit=0, play_recognition=0, man_coverage=0, zone_coverage=0, press=0,
+            power_moves=0, finesse_moves=0, kick_power=90, kick_accuracy=accuracy,
+            kick_return=0, awareness=80,
+        )
+
+    great_kicker = _kicker(99)
+    bad_kicker = _kicker(50)
+
+    assert _kicker_adjusted_prob(0.70, great_kicker) > _kicker_adjusted_prob(0.70, bad_kicker)
+    assert _kicker_adjusted_prob(0.70, None) == 0.70
+
+    rng_great = RNG.with_seed(3)
+    rng_bad = RNG.with_seed(3)
+    made_great = sum(1 for _ in range(300) if _attempt_field_goal(rng_great, pos=65, kicker=great_kicker)[0])
+    made_bad = sum(1 for _ in range(300) if _attempt_field_goal(rng_bad, pos=65, kicker=bad_kicker)[0])
+    assert made_great > made_bad

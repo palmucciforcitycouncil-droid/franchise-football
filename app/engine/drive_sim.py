@@ -168,14 +168,19 @@ def _fg_distance_bucket(attempt_yards: int) -> str:
     return "50+"
 
 
+def _kicker_adjusted_prob(base_prob: float, kicker: Player | None) -> float:
+    """A real kicker's rating nudges a league-average bucket probability
+    up or down rather than replacing it outright -- used for both field
+    goals and PATs (a PAT is functionally a ~33-yard field goal)."""
+    if kicker is None:
+        return base_prob
+    return max(0.35, min(0.99, base_prob + (kicker.kick_accuracy - 80) * 0.004))
+
+
 def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool, int]:
     attempt_yards = (100 - pos) + 17  # line of scrimmage to goal + snap/hold depth
     base_prob = PARAMS["special"]["fg_make_prob"][_fg_distance_bucket(attempt_yards)]
-    if kicker is not None:
-        # Real kicker rating nudges the league-average bucket probability
-        # up or down rather than replacing it outright.
-        base_prob = max(0.35, min(0.99, base_prob + (kicker.kick_accuracy - 80) * 0.004))
-    return rng.prob(base_prob), attempt_yards
+    return rng.prob(_kicker_adjusted_prob(base_prob, kicker)), attempt_yards
 
 
 def _decide_fourth_down(pos: int, distance: int, trailing: bool, aggression: float, rng: RNG) -> str:
@@ -247,7 +252,7 @@ def simulate_drive(
     matchup_adj = matchup_adjustment(ctx)
     qb = ctx.offense.qb
     rb = ctx.offense.hb
-    kicker = None  # no dedicated K in OffensiveStarters yet -- see Known Gaps
+    kicker = ctx.offense.k
 
     while total_plays < MAX_PLAYS_PER_DRIVE:
         total_plays += 1
@@ -332,7 +337,7 @@ def simulate_drive(
         pos = min(100, raw_pos)
 
         if pos >= 100:
-            made_pat = rng.prob(P.pat_make)
+            made_pat = rng.prob(_kicker_adjusted_prob(P.pat_make, kicker))
             pts = 7 if made_pat else 6
             verb = "pass to" if is_pass else "run by"
             desc = f"{qb.full_name if is_pass else ''} {verb} {who} for {yards} yards, TOUCHDOWN".strip()

@@ -9,10 +9,10 @@ overridable per (team, position) via depth_chart_overrides.py (the real
 coach-settable depth chart, GET/POST /depth-chart in app/main.py) -- see
 that module's docstring for the persistence format.
 
-11 offensive starters (11-personnel: 1 RB, 1 TE, 3 WR) and 11 defensive
-starters (a 4-3-ish base: 2 DT, 2 edge, 3 LB, 2 CB, 2 S) are selected per
-team and cached, since a full roster query + sort per team is wasted work
-to repeat every play.
+11 offensive starters (11-personnel: 1 RB, 1 TE, 3 WR), a kicker, and 11
+defensive starters (a 4-3-ish base: 2 DT, 2 edge, 3 LB, 2 CB, 2 S) are
+selected per team and cached, since a full roster query + sort per team
+is wasted work to repeat every play.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -38,6 +38,7 @@ class OffensiveStarters:
     c: Player
     rg: Player
     rt: Player
+    k: Player  # not part of the 11-man personnel package -- see class docstring history; used for FG/PAT odds
 
     @property
     def receivers(self) -> list[Player]:
@@ -100,6 +101,7 @@ def get_offensive_starters(team_abbr: str) -> OffensiveStarters:
         c=_top(roster, Position.C, 1, team_abbr)[0],
         rg=_top(roster, Position.RG, 1, team_abbr)[0],
         rt=_top(roster, Position.RT, 1, team_abbr)[0],
+        k=_top(roster, Position.K, 1, team_abbr)[0],
     )
 
 

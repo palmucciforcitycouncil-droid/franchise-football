@@ -24,6 +24,7 @@ def test_starters_selected_for_every_team():
     catches a team missing a required position outright (e.g. a roster
     with zero kickers would raise IndexError in _top())."""
     from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.models.player import Position
 
     for t in TEAMS:
         off = get_offensive_starters(t.abbr)
@@ -32,6 +33,8 @@ def test_starters_selected_for_every_team():
         assert len(off.offensive_line) == 5
         assert len(defn.defensive_line) == 4
         assert len(defn.secondary) == 4
+        assert off.k.team_abbr == t.abbr
+        assert off.k.position == Position.K
 
 
 def test_starters_are_the_actual_highest_rated_at_each_position():
