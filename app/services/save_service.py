@@ -109,6 +109,7 @@ def season_to_dict(season) -> dict:
         "current_week": season.current_week,
         "sfs": asdict(season.sfs),
         "user_team_abbr": season.user_team_abbr,
+        "season_number": season.season_number,
         "playoffs": _bracket_to_dict(season.playoffs),
         "schedule": [
             [
@@ -159,6 +160,7 @@ def season_from_dict(d: dict):
         sfs=sfs,
         user_team_abbr=d.get("user_team_abbr"),
         playoffs=_bracket_from_dict(d.get("playoffs")),
+        season_number=d.get("season_number", 0),
     )
 
 

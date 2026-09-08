@@ -471,3 +471,21 @@ def build_next_round(bracket: PlayoffBracket) -> list[PlayoffMatchup]:
         )]
 
     raise ValueError(f"No round follows {last_name!r}")
+
+
+def final_division_standings(season) -> dict[tuple[str, str], list[str]]:
+    """Real final standings for every division -- (conference, division)
+    -> team abbrs ranked 1st..4th -- using the SAME real tie-break chain
+    as playoff division-winner seeding (Sec 7.3.A). Feeds
+    schedule.py's `prior_standings` parameter for the next season's
+    standings-based games (GDD Sec 5.1), replacing the bootstrap order
+    schedule.py falls back to when no real prior season exists yet --
+    see app/services/season_state.py's start_new_season()."""
+    grouped: dict[str, dict[str, list[str]]] = {}
+    for t in TEAMS:
+        grouped.setdefault(t.conference, {}).setdefault(t.division, []).append(t.abbr)
+    return {
+        (conf, div): rank_teams(season, teams, _division_steps)
+        for conf, divisions in grouped.items()
+        for div, teams in divisions.items()
+    }

@@ -31,10 +31,13 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
-from app.engine import power_rating, score_fidelity, playoffs
+from app.engine import power_rating, score_fidelity, playoffs, progression, season_stats, awards
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
 from app.services import gameplan_store
+from app.core.db import get_session
+from app.models.player import Player
+from sqlmodel import select
 
 
 @dataclass
@@ -77,6 +80,7 @@ class Season:
     sfs: SFSState = field(default_factory=SFSState)  # Score Fidelity System weekly-feedback state
     user_team_abbr: str | None = None  # GDD Sec 10.1: the team the player runs as GM/Coach, chosen once at franchise creation
     playoffs: PlayoffBracket | None = None  # GDD Sec 7.3 -- None until the regular season completes and Sim Week is pressed once more
+    season_number: int = 0  # 0-indexed; feeds schedule.py's 3-/4-year rotation formulas and is incremented by start_new_season()
 
     @property
     def is_complete(self) -> bool:
@@ -89,8 +93,11 @@ class Season:
         )
 
 
-def _build_season(league_seed: int) -> Season:
-    raw_schedule = generate_season_schedule(league_seed)
+def _build_season(
+    league_seed: int, season_number: int = 0,
+    prior_standings: dict[tuple[str, str], list[str]] | None = None,
+) -> Season:
+    raw_schedule = generate_season_schedule(league_seed, season_number=season_number, prior_standings=prior_standings)
     schedule = [
         [WeekGame(home_abbr=h, away_abbr=a) for h, a in week]
         for week in raw_schedule
@@ -98,7 +105,7 @@ def _build_season(league_seed: int) -> Season:
     records = {
         t.abbr: TeamRecord(abbr=t.abbr, location=t.location) for t in TEAMS
     }
-    return Season(league_seed=league_seed, schedule=schedule, records=records)
+    return Season(league_seed=league_seed, schedule=schedule, records=records, season_number=season_number)
 
 
 _season: Season | None = None
@@ -209,7 +216,7 @@ def simulate_current_week() -> int:
         for game in week_games:
             result = _simulate_matchup(
                 season, game.home_abbr, game.away_abbr, week_num,
-                (week_num, game.home_abbr, game.away_abbr),
+                (season.season_number, week_num, game.home_abbr, game.away_abbr),
             )
             game.result = result
 
@@ -270,7 +277,7 @@ def simulate_playoff_round() -> str:
         for matchup in current_round:
             matchup.result = _simulate_matchup(
                 season, matchup.home_abbr, matchup.away_abbr, pseudo_week,
-                ("playoffs", round_name, matchup.home_abbr, matchup.away_abbr),
+                (season.season_number, "playoffs", round_name, matchup.home_abbr, matchup.away_abbr),
             )
 
         if round_name != "SB":
@@ -279,3 +286,84 @@ def simulate_playoff_round() -> str:
         from app.services import save_service
         save_service.save_season(season)
         return round_name
+
+
+def apply_progression_to_roster(season: Season) -> int:
+    """GDD Sec 7.6: ages and develops every real, rostered player
+    (free agents are skipped -- they didn't play a snap this season, so
+    there's no usage/performance signal to progress them against).
+    Returns the number of players updated. A player's usage input
+    (app/engine/progression.py's F_use) comes from this season's real
+    touches (QB attempts / RB carries / WR-TE targets from
+    season_stats.py, or interceptions from awards.py for a DB) --
+    every other position gets progression.py's documented neutral
+    default."""
+    passing, rushing, receiving = season_stats.aggregate_season_stats(season)
+    touches: dict[tuple[str, str], int] = {}
+    for key, line in passing.items():
+        touches[key] = touches.get(key, 0) + line.attempts
+    for key, line in rushing.items():
+        touches[key] = touches.get(key, 0) + line.carries
+    for key, line in receiving.items():
+        touches[key] = touches.get(key, 0) + line.targets
+    for key, ints in awards._interception_counts(season).items():
+        touches[key] = touches.get(key, 0) + ints
+
+    updated = 0
+    with get_session() as s:
+        players = s.exec(select(Player).where(Player.team_abbr != None)).all()  # noqa: E711
+        for player in players:
+            key = (player.team_abbr, player.full_name)
+            rng = RNG.with_seed(stable_seed(season.league_seed, season.season_number, player.player_id, "progression"))
+            result = progression.progress_player(player, touches.get(key), season.season_number, rng)
+            progression.apply_progression(player, result)
+            s.add(player)
+            updated += 1
+        s.commit()
+    return updated
+
+
+def start_new_season() -> Season:
+    """GDD Sec 4's Offseason step + Sec 7.6 (Player Progression &
+    Regression): moves a completed franchise into its next season.
+    Requires the playoffs to be fully decided -- this isn't a
+    mid-season operation.
+
+    What carries forward vs. resets, and why:
+    - season_number increments, so schedule.py's 3-year intra-conference
+      / 4-year inter-conference rotations actually rotate.
+    - Real final division standings (playoffs.final_division_standings,
+      the SAME tie-break chain as playoff seeding) feed the new
+      schedule's standings-based games -- replacing schedule.py's
+      season-0-only bootstrap order.
+    - Every real rostered player ages and develops for real
+      (apply_progression_to_roster), mutating the actual DB rows.
+    - The user's chosen team (Sec 10.1) carries forward -- a new season
+      isn't a new franchise.
+    - The Score Fidelity System's weekly-feedback multiplier (Sec 6.2.4)
+      carries forward -- it's meant to self-correct over time, not
+      reset every year.
+    - Weekly Gameplan settings (gameplan_store) are untouched -- keyed
+      by team abbr, not by season.
+    - Everything else per-season (records, schedule, playoffs) is
+      fresh, same as reset_season() already does for a brand-new
+      franchise.
+    """
+    with _STATE_LOCK:
+        season = get_season()
+        if season.playoffs is None or not season.playoffs.is_complete:
+            raise ValueError("Playoffs aren't finished yet")
+
+        prior_standings = playoffs.final_division_standings(season)
+        apply_progression_to_roster(season)
+
+        next_number = season.season_number + 1
+        new_season = _build_season(season.league_seed, season_number=next_number, prior_standings=prior_standings)
+        new_season.user_team_abbr = season.user_team_abbr
+        new_season.sfs = season.sfs
+
+        global _season
+        _season = new_season
+        from app.services import save_service
+        save_service.save_season(new_season)
+        return new_season

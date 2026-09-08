@@ -162,7 +162,7 @@
 </div>
 
 <div class="card">
-  <h2>Dashboard — LEAGUE_SEED={{ season.league_seed }}</h2>
+  <h2>Dashboard — Season {{ season.season_number + 1 }} &middot; LEAGUE_SEED={{ season.league_seed }}</h2>
   <p class="muted">
     {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
     See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.

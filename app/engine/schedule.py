@@ -327,14 +327,24 @@ def _place_games_into_weeks(games: list[ScheduledGame], seed: int) -> list[list[
     )
 
 
-def generate_season_schedule(league_seed: int, season_number: int = 0) -> list[list[tuple[str, str]]]:
+def generate_season_schedule(
+    league_seed: int, season_number: int = 0,
+    prior_standings: dict[tuple[str, str], list[str]] | None = None,
+) -> list[list[tuple[str, str]]]:
     """
     Returns a list of N_WEEKS (18) weeks; each week is a list of
     (home_abbr, away_abbr) tuples. Every team plays in 17 of the 18 weeks
     -- its one bye week is simply whichever week doesn't end up with a
     game for it, not confined to a specific window (see module docstring).
+
+    prior_standings: real final division standings from the season that
+    just ended (app/engine/playoffs.py's final_division_standings()),
+    used for this season's standings-based games. Defaults to the
+    season-0-only bootstrap order (teams.py's listed order) when None --
+    the case for a brand-new franchise with no real prior season yet.
     """
-    prior_standings = _bootstrap_prior_standings()
+    if prior_standings is None:
+        prior_standings = _bootstrap_prior_standings()
     games = _generate_games(season_number, prior_standings)
     weeks = _place_games_into_weeks(games, league_seed)
     return [[(g.home, g.away) for g in week] for week in weeks]

@@ -492,6 +492,19 @@ def season_reset():
     return RedirectResponse(url="/season", status_code=303)
 
 
+@app.post("/season/new-season")
+def season_new_season():
+    """GDD Sec 4's Offseason step + Sec 7.6 (Player Progression &
+    Regression): moves the franchise into its next season once the
+    playoffs are fully decided. 404s rather than silently no-op'ing if
+    called too early."""
+    try:
+        season_state.start_new_season()
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+
 @app.post("/simulate", response_class=HTMLResponse)
 def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form(...)):
     league_seed = get_league_seed()

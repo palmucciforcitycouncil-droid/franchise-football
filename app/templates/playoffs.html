@@ -7,6 +7,10 @@
   <p class="muted">The playoff bracket is set once the regular season finishes (GDD &sect;7.3). See the <a href="/season">Season</a> page to keep simulating weeks &mdash; Week {{ season.current_week }} of {{ season.schedule | length }} up next.</p>
   {% elif bracket.is_complete %}
   <p class="muted">Champion: <strong>{{ bracket.champion_abbr }}</strong></p>
+  <form method="post" action="/season/new-season">
+    <button type="submit">Start Next Season</button>
+  </form>
+  <p class="muted" style="margin-top: 0.5rem;">Every rostered player ages and develops for real (GDD &sect;7.6) before the new schedule is generated.</p>
   {% else %}
   <p class="muted">Current round: {{ round_labels[bracket.current_round_name] }}. Press "Sim Week" on the <a href="/season">Season</a> page to simulate it.</p>
   {% endif %}
