@@ -13,6 +13,7 @@ from dataclasses import asdict
 
 from app.engine.game_state import DriveEvent, GameResult, PlayEvent
 from app.engine.game_sim import TeamTotals
+from app.engine.playoffs import PlayoffBracket, PlayoffMatchup
 
 DEFAULT_SAVE_PATH = Path("data/saves/current_season.json")
 
@@ -58,12 +59,57 @@ def _result_from_dict(d: dict | None) -> GameResult | None:
     return result
 
 
+def _matchup_to_dict(m: PlayoffMatchup) -> dict:
+    return {
+        "round_name": m.round_name,
+        "conference": m.conference,
+        "home_abbr": m.home_abbr,
+        "away_abbr": m.away_abbr,
+        "home_seed": m.home_seed,
+        "away_seed": m.away_seed,
+        "result": _result_to_dict(m.result),
+    }
+
+
+def _matchup_from_dict(d: dict) -> PlayoffMatchup:
+    return PlayoffMatchup(
+        round_name=d["round_name"],
+        conference=d["conference"],
+        home_abbr=d["home_abbr"],
+        away_abbr=d["away_abbr"],
+        home_seed=d["home_seed"],
+        away_seed=d["away_seed"],
+        result=_result_from_dict(d["result"]),
+    )
+
+
+def _bracket_to_dict(bracket: PlayoffBracket | None) -> dict | None:
+    if bracket is None:
+        return None
+    return {
+        "afc_seeds": bracket.afc_seeds,
+        "nfc_seeds": bracket.nfc_seeds,
+        "rounds": [[_matchup_to_dict(m) for m in round_] for round_ in bracket.rounds],
+    }
+
+
+def _bracket_from_dict(d: dict | None) -> PlayoffBracket | None:
+    if d is None:
+        return None
+    return PlayoffBracket(
+        afc_seeds=d["afc_seeds"],
+        nfc_seeds=d["nfc_seeds"],
+        rounds=[[_matchup_from_dict(m) for m in round_] for round_ in d["rounds"]],
+    )
+
+
 def season_to_dict(season) -> dict:
     return {
         "league_seed": season.league_seed,
         "current_week": season.current_week,
         "sfs": asdict(season.sfs),
         "user_team_abbr": season.user_team_abbr,
+        "playoffs": _bracket_to_dict(season.playoffs),
         "schedule": [
             [
                 {
@@ -112,6 +158,7 @@ def season_from_dict(d: dict):
         current_week=d["current_week"],
         sfs=sfs,
         user_team_abbr=d.get("user_team_abbr"),
+        playoffs=_bracket_from_dict(d.get("playoffs")),
     )
 
 

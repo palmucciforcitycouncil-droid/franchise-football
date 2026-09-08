@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Playoffs — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Playoffs</h2>
+  {% if bracket is none %}
+  <p class="muted">The playoff bracket is set once the regular season finishes (GDD &sect;7.3). See the <a href="/season">Season</a> page to keep simulating weeks &mdash; Week {{ season.current_week }} of {{ season.schedule | length }} up next.</p>
+  {% elif bracket.is_complete %}
+  <p class="muted">Champion: <strong>{{ bracket.champion_abbr }}</strong></p>
+  {% else %}
+  <p class="muted">Current round: {{ round_labels[bracket.current_round_name] }}. Press "Sim Week" on the <a href="/season">Season</a> page to simulate it.</p>
+  {% endif %}
+</div>
+
+{% if bracket %}
+<div class="card">
+  <h3>Seeds</h3>
+  <div class="row" style="align-items: flex-start;">
+    <table style="width: auto; min-width: 220px;">
+      <thead><tr><th colspan="2">AFC</th></tr></thead>
+      <tbody>
+        {% for abbr in bracket.afc_seeds %}
+        <tr><td>#{{ loop.index }}</td><td>{{ abbr }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <table style="width: auto; min-width: 220px;">
+      <thead><tr><th colspan="2">NFC</th></tr></thead>
+      <tbody>
+        {% for abbr in bracket.nfc_seeds %}
+        <tr><td>#{{ loop.index }}</td><td>{{ abbr }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% for round_ in bracket.rounds %}
+<div class="card">
+  <h3>{{ round_labels[round_[0].round_name] }}</h3>
+  <table>
+    <thead><tr><th>Conf</th><th>Away (seed)</th><th>Home (seed)</th><th>Result</th></tr></thead>
+    <tbody>
+      {% for m in round_ %}
+      <tr>
+        <td>{{ m.conference or "—" }}</td>
+        <td>{{ m.away_abbr }} (#{{ m.away_seed }})</td>
+        <td>{{ m.home_abbr }} (#{{ m.home_seed }})</td>
+        <td>
+          {% if m.is_complete %}
+          <a href="/playoffs/game/{{ m.round_name }}/{{ m.home_abbr }}/{{ m.away_abbr }}">{{ m.result.away_score }}&ndash;{{ m.result.home_score }}</a>
+          &mdash; {{ m.winner_abbr }} wins
+          {% else %}
+          <span class="muted">Not yet played</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

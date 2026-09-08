@@ -31,8 +31,9 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
-from app.engine import power_rating, score_fidelity
+from app.engine import power_rating, score_fidelity, playoffs
 from app.engine.score_fidelity import SFSState
+from app.engine.playoffs import PlayoffBracket
 from app.services import gameplan_store
 
 
@@ -75,6 +76,7 @@ class Season:
     current_week: int = 1  # 1-indexed; next week to simulate
     sfs: SFSState = field(default_factory=SFSState)  # Score Fidelity System weekly-feedback state
     user_team_abbr: str | None = None  # GDD Sec 10.1: the team the player runs as GM/Coach, chosen once at franchise creation
+    playoffs: PlayoffBracket | None = None  # GDD Sec 7.3 -- None until the regular season completes and Sim Week is pressed once more
 
     @property
     def is_complete(self) -> bool:
@@ -139,6 +141,52 @@ def set_user_team(team_abbr: str) -> Season:
         return season
 
 
+def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple) -> GameResult:
+    """The per-game simulation core shared by simulate_current_week
+    (regular season) and simulate_playoff_round (postseason): real
+    starters/ratings, the Score Fidelity System's EP-anchoring
+    multiplier, the Weekly Gameplan lookup, and the resulting
+    points/Power Rating updates. Deliberately does NOT touch
+    TeamRecord.wins/losses -- those are a regular-season-only concept;
+    playoff wins/losses live in the bracket itself
+    (PlayoffMatchup.winner_abbr), not in TeamRecord."""
+    home_info = TEAMS_BY_ABBR[home_abbr]
+    away_info = TEAMS_BY_ABBR[away_abbr]
+    home = TeamSim(name=home_info.location, abbr=home_info.abbr,
+                    ratings=ratings_for(home_info, season.league_seed))
+    away = TeamSim(name=away_info.location, abbr=away_info.abbr,
+                    ratings=ratings_for(away_info, season.league_seed))
+
+    home_rec = season.records[home_abbr]
+    away_rec = season.records[away_abbr]
+
+    win_prob = power_rating.home_win_probability(
+        home_rec.power_rating, home_rec.wins, home_rec.games_played,
+        away_rec.power_rating, away_rec.wins, away_rec.games_played,
+        week_for_parity,
+    )
+
+    game_seed = stable_seed(season.league_seed, *seed_parts)
+    rng = RNG.with_seed(game_seed)
+    home_mult = score_fidelity.ep_multiplier(rng, win_prob, True, season.sfs.scoring_feedback_multiplier)
+    away_mult = score_fidelity.ep_multiplier(rng, win_prob, False, season.sfs.scoring_feedback_multiplier)
+
+    home_gameplan = gameplan_store.get_gameplan(home_abbr) if home_abbr == season.user_team_abbr else None
+    away_gameplan = gameplan_store.get_gameplan(away_abbr) if away_abbr == season.user_team_abbr else None
+
+    result = simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan)
+
+    home_rec.points_for += result.home_score
+    home_rec.points_against += result.away_score
+    away_rec.points_for += result.away_score
+    away_rec.points_against += result.home_score
+
+    home_rec.power_rating, away_rec.power_rating = power_rating.update_ratings(
+        home_rec.power_rating, away_rec.power_rating, result.home_score, result.away_score,
+    )
+    return result
+
+
 def simulate_current_week() -> int:
     """Simulates every game in the current week, updates records and
     Team Power Ratings, runs the Score Fidelity System's weekly feedback
@@ -159,59 +207,20 @@ def simulate_current_week() -> int:
         week_total_teams = 0
 
         for game in week_games:
-            home_info = TEAMS_BY_ABBR[game.home_abbr]
-            away_info = TEAMS_BY_ABBR[game.away_abbr]
-            home = TeamSim(name=home_info.location, abbr=home_info.abbr,
-                            ratings=ratings_for(home_info, season.league_seed))
-            away = TeamSim(name=away_info.location, abbr=away_info.abbr,
-                            ratings=ratings_for(away_info, season.league_seed))
+            result = _simulate_matchup(
+                season, game.home_abbr, game.away_abbr, week_num,
+                (week_num, game.home_abbr, game.away_abbr),
+            )
+            game.result = result
 
             home_rec = season.records[game.home_abbr]
             away_rec = season.records[game.away_abbr]
-
-            # Score Fidelity System (GDD Sec 6.2): pre-game win probability
-            # from current Team Power Ratings drives each team's EP-anchoring
-            # multiplier for this game -- computed BEFORE simulating, using
-            # each team's record entering this week (not updated by it).
-            win_prob = power_rating.home_win_probability(
-                home_rec.power_rating, home_rec.wins, home_rec.games_played,
-                away_rec.power_rating, away_rec.wins, away_rec.games_played,
-                week_num,
-            )
-
-            game_seed = stable_seed(season.league_seed, week_num, game.home_abbr, game.away_abbr)
-            rng = RNG.with_seed(game_seed)
-            # Consumed from the same seeded rng as the game itself, so a
-            # season replay with the same LEAGUE_SEED stays fully
-            # deterministic (see score_fidelity.ep_multiplier's docstring).
-            home_mult = score_fidelity.ep_multiplier(rng, win_prob, True, season.sfs.scoring_feedback_multiplier)
-            away_mult = score_fidelity.ep_multiplier(rng, win_prob, False, season.sfs.scoring_feedback_multiplier)
-
-            # Weekly Gameplan (GDD Sec 10.4.1): only the user's own team
-            # ever has one set (app/main.py's /gameplan route only
-            # accepts season.user_team_abbr) -- every AI team gets None,
-            # which the engine treats as "no override, use the default
-            # play-calling AI" (see app/engine/gameplan.py).
-            home_gameplan = gameplan_store.get_gameplan(game.home_abbr) if game.home_abbr == season.user_team_abbr else None
-            away_gameplan = gameplan_store.get_gameplan(game.away_abbr) if game.away_abbr == season.user_team_abbr else None
-
-            result = simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan)
-            game.result = result
-
-            home_rec.points_for += result.home_score
-            home_rec.points_against += result.away_score
-            away_rec.points_for += result.away_score
-            away_rec.points_against += result.home_score
             if result.winner == "home":
                 home_rec.wins += 1
                 away_rec.losses += 1
             else:
                 away_rec.wins += 1
                 home_rec.losses += 1
-
-            home_rec.power_rating, away_rec.power_rating = power_rating.update_ratings(
-                home_rec.power_rating, away_rec.power_rating, result.home_score, result.away_score,
-            )
 
             week_total_points += result.home_score + result.away_score
             week_total_teams += 2
@@ -226,3 +235,47 @@ def simulate_current_week() -> int:
         save_service.save_season(season)
 
         return week_num
+
+
+def simulate_playoff_round() -> str:
+    """GDD Sec 7.3: simulates every remaining matchup in the current
+    playoff round, building the Wild Card round the first time this is
+    called after the regular season completes, and building the next
+    round's matchups once the current one finishes -- one round per
+    call, same "Sim Week" cadence as simulate_current_week. Returns the
+    round name just simulated ("WC"/"DIV"/"CONF"/"SB"). Raises if the
+    regular season isn't finished yet -- app/main.py's route is what
+    decides which of these two functions to call, based on
+    season.is_complete.
+
+    A call once the Super Bowl is already decided safely no-ops and
+    returns "SB" again, same post-completion-no-op convention as
+    simulate_current_week."""
+    with _STATE_LOCK:
+        season = get_season()
+        if not season.is_complete:
+            raise ValueError("Regular season isn't finished yet")
+
+        if season.playoffs is None:
+            season.playoffs = playoffs.build_wild_card_round(season)
+
+        bracket = season.playoffs
+        current_round = bracket.rounds[-1]
+        round_name = current_round[0].round_name
+
+        if all(m.is_complete for m in current_round):
+            return round_name  # Super Bowl already decided -- no-op
+
+        pseudo_week = N_WEEKS + {"WC": 1, "DIV": 2, "CONF": 3, "SB": 4}[round_name]
+        for matchup in current_round:
+            matchup.result = _simulate_matchup(
+                season, matchup.home_abbr, matchup.away_abbr, pseudo_week,
+                ("playoffs", round_name, matchup.home_abbr, matchup.away_abbr),
+            )
+
+        if round_name != "SB":
+            bracket.rounds.append(playoffs.build_next_round(bracket))
+
+        from app.services import save_service
+        save_service.save_season(season)
+        return round_name

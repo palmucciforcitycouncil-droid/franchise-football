@@ -444,6 +444,73 @@ def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
     return grouped
 
 
+ROUND_LABELS = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Conference Championship", "SB": "Super Bowl"}
+
+
+@app.get("/playoffs", response_class=HTMLResponse)
+def playoffs_view(request: Request):
+    """GDD Sec 10.4.6: AFC/NFC bracket view through the Super Bowl. This
+    build renders every round in one page (no AFC/NFC/SB tab-switching
+    JS yet -- see Sec 10.5's htmx notes for that) rather than the
+    Figma-derived three-tab layout; the underlying bracket data is the
+    same either way."""
+    season = season_state.get_season()
+    if not season.is_complete:
+        return templates.TemplateResponse(request, "playoffs.html", {
+            "season": season, "bracket": None, "round_labels": ROUND_LABELS,
+        })
+    if season.playoffs is None:
+        season_state.simulate_playoff_round()  # builds the Wild Card round on first visit
+        season = season_state.get_season()
+    return templates.TemplateResponse(request, "playoffs.html", {
+        "season": season, "bracket": season.playoffs, "round_labels": ROUND_LABELS,
+    })
+
+
+@app.get("/playoffs/game/{round_name}/{home_abbr}/{away_abbr}", response_class=HTMLResponse)
+def playoffs_game_view(request: Request, round_name: str, home_abbr: str, away_abbr: str):
+    """Same result.html play-by-play + box score view as a regular-season
+    game (app/main.py's season_game_view) -- playoff games are simulated
+    with the same engine and retain the same full GameResult."""
+    season = season_state.get_season()
+    if season.playoffs is None:
+        raise HTTPException(404, "No playoff bracket yet")
+
+    matchup = next(
+        (m for round_ in season.playoffs.rounds for m in round_
+         if m.round_name == round_name and m.home_abbr == home_abbr and m.away_abbr == away_abbr),
+        None,
+    )
+    if matchup is None or matchup.result is None:
+        raise HTTPException(404, "That playoff game hasn't been played yet")
+
+    home_info = TEAMS_BY_ABBR[home_abbr]
+    away_info = TEAMS_BY_ABBR[away_abbr]
+    home = TeamSim(name=home_info.location, abbr=home_info.abbr, ratings=None)
+    away = TeamSim(name=away_info.location, abbr=away_info.abbr, ratings=None)
+
+    result = matchup.result
+    home_box = build_box_score(result.plays, home_info.abbr)
+    away_box = build_box_score(result.plays, away_info.abbr)
+    game_seed = stable_seed(season.league_seed, "playoffs", round_name, home_abbr, away_abbr)
+
+    return templates.TemplateResponse(
+        request,
+        "result.html",
+        {
+            "home": home,
+            "away": away,
+            "result": result,
+            "league_seed": season.league_seed,
+            "game_seed": game_seed,
+            "home_box": home_box,
+            "away_box": away_box,
+            "back_url": "/playoffs",
+            "back_label": "Back to playoffs",
+        },
+    )
+
+
 @app.get("/team-select", response_class=HTMLResponse)
 def team_select_view(request: Request):
     """GDD Sec 10.1: the one-time, conference/division-grouped team grid
@@ -468,6 +535,15 @@ def team_select_submit(team_abbr: str = Form(...)):
 
 @app.post("/season/simulate-week")
 def season_simulate_week():
+    """GDD Sec 4's game loop (Regular Season -> Playoffs -> Championship)
+    is one continuous cycle from the player's perspective -- a single
+    "Sim Week" control, matching the Figma header's one sim button
+    (Sec 10.3). Once the regular season is done, the same button just
+    starts simulating playoff rounds instead."""
+    season = season_state.get_season()
+    if season.is_complete:
+        season_state.simulate_playoff_round()
+        return RedirectResponse(url="/playoffs", status_code=303)
     season_state.simulate_current_week()
     return RedirectResponse(url="/season", status_code=303)
 
