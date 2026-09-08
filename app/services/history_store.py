@@ -39,19 +39,24 @@ Deliberate, disclosed interpretations:
   is still "the leader," matching how history.html already reads it).
 - Hall of Fame induction criteria are NOT specified by any GDD source
   document (same situation as the MVP weight formula and DPOY's
-  interception-only basis in awards.py). This module's own bar: a
-  player becomes a HOF candidate at a position (QB/RB/WR-TE) once they
-  have at least MIN_HOF_SEASONS archived seasons of real production
-  AND a composite score -- 0.5*normalized career yards + 0.5*normalized
-  career touchdowns (normalized within their own position's whole
-  eligible pool, same technique awards.py uses per-season) plus
-  AWARD_BONUS_PER_WIN per MVP/OPOY/DPOY/ROY actually WON (the season's
-  #1 candidate, not a nomination) -- clears HOF_SCORE_THRESHOLD. A
-  threshold (not a fixed top-N) is deliberate: it lets the Hall be
-  empty early in a league's history and grow into a real class of
-  standouts as more seasons separate elite careers from average ones,
-  rather than always forcing exactly N players in regardless of how
-  the league has actually played out.
+  formula in awards.py). This module's own bar: a player becomes a HOF
+  candidate at a position (QB/RB/WR-TE/DEF) once they have at least
+  MIN_HOF_SEASONS archived seasons of real production AND a composite
+  score clears HOF_SCORE_THRESHOLD. For QB/RB/WR-TE: 0.5*normalized
+  career yards + 0.5*normalized career touchdowns (normalized within
+  their own position's whole eligible pool, same technique awards.py
+  uses per-season). For DEF: the SAME weighted composite awards.py's
+  DPOY now uses (0.30 sacks + 0.30 interceptions + 0.15 TFL + 0.10 solo
+  tackles + 0.10 forced fumbles + 0.05 passes defended, each normalized
+  within the whole defensive candidate pool -- no positional split,
+  matching how DPOY itself is position-agnostic), applied to CAREER
+  totals instead of a single season's. Either way, AWARD_BONUS_PER_WIN
+  is then added per MVP/OPOY/DPOY/ROY season actually WON (the season's
+  #1 candidate, not a nomination). A threshold (not a fixed top-N) is
+  deliberate: it lets the Hall be empty early in a league's history and
+  grow into a real class of standouts as more seasons separate elite
+  careers from average ones, rather than always forcing exactly N
+  players in regardless of how the league has actually played out.
 """
 from __future__ import annotations
 import json
@@ -59,7 +64,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.engine.awards import AwardCandidate, AwardsRace, season_awards
-from app.engine.season_stats import SeasonPassingLine, SeasonRushingLine, SeasonReceivingLine, aggregate_season_stats
+from app.engine.season_stats import (
+    SeasonPassingLine, SeasonRushingLine, SeasonReceivingLine, SeasonDefensiveLine,
+    aggregate_season_stats, aggregate_season_defensive_stats,
+)
 
 DEFAULT_PATH = Path("data/saves/history.json")
 
@@ -86,6 +94,7 @@ class SeasonRecord:
     passing_leaders: list[SeasonPassingLine]
     rushing_leaders: list[SeasonRushingLine]
     receiving_leaders: list[SeasonReceivingLine]
+    defensive_leaders: list[SeasonDefensiveLine]
 
 
 def _load(path: Path | None) -> list[dict]:
@@ -115,6 +124,7 @@ def _record_to_dict(record: SeasonRecord) -> dict:
         "passing_leaders": [asdict(p) for p in record.passing_leaders],
         "rushing_leaders": [asdict(r) for r in record.rushing_leaders],
         "receiving_leaders": [asdict(r) for r in record.receiving_leaders],
+        "defensive_leaders": [asdict(d) for d in record.defensive_leaders],
     }
 
 
@@ -134,6 +144,9 @@ def _record_from_dict(d: dict) -> SeasonRecord:
         passing_leaders=[SeasonPassingLine(**p) for p in d["passing_leaders"]],
         rushing_leaders=[SeasonRushingLine(**r) for r in d["rushing_leaders"]],
         receiving_leaders=[SeasonReceivingLine(**r) for r in d["receiving_leaders"]],
+        # .get() with a [] default: a season archived before this field existed
+        # shouldn't fail to load, just have no defensive leaders recorded.
+        defensive_leaders=[SeasonDefensiveLine(**d_) for d_ in d.get("defensive_leaders", [])],
     )
 
 
@@ -155,6 +168,7 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
     nfc_seeds = season.playoffs.nfc_seeds if season.playoffs else None
 
     passing, rushing, receiving = aggregate_season_stats(season)
+    defense = aggregate_season_defensive_stats(season)
 
     record = SeasonRecord(
         season_number=season.season_number,
@@ -166,6 +180,7 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
         passing_leaders=sorted(passing.values(), key=lambda l: -l.yards),
         rushing_leaders=sorted(rushing.values(), key=lambda l: -l.yards),
         receiving_leaders=sorted(receiving.values(), key=lambda l: -l.yards),
+        defensive_leaders=sorted(defense.values(), key=lambda l: -l.solo_tackles),
     )
 
     records = _load(path)
@@ -212,16 +227,31 @@ class CareerReceivingLine:
     touchdowns: int = 0
 
 
-def career_stats(path: Path | None = None) -> tuple[dict, dict, dict]:
-    """Sums every archived season's full passing/rushing/receiving line
-    for a player into a running career total, keyed by (team_abbr, name)
-    -- see this module's docstring for why that key is safe here.
-    Returns (passing, rushing, receiving) dicts of
+@dataclass
+class CareerDefensiveLine:
+    name: str
+    team_abbr: str
+    seasons: int = 0
+    solo_tackles: int = 0
+    tackles_for_loss: int = 0
+    sacks: int = 0
+    interceptions: int = 0
+    passes_defended: int = 0
+    forced_fumbles: int = 0
+    fumble_recoveries: int = 0
+
+
+def career_stats(path: Path | None = None) -> tuple[dict, dict, dict, dict]:
+    """Sums every archived season's full passing/rushing/receiving/
+    defensive line for a player into a running career total, keyed by
+    (team_abbr, name) -- see this module's docstring for why that key is
+    safe here. Returns (passing, rushing, receiving, defense) dicts of
     (team_abbr, name) -> Career*Line. No truncation; callers slice
     however they need (hall_of_fame() below is one such caller)."""
     passing: dict[tuple[str, str], CareerPassingLine] = {}
     rushing: dict[tuple[str, str], CareerRushingLine] = {}
     receiving: dict[tuple[str, str], CareerReceivingLine] = {}
+    defense: dict[tuple[str, str], CareerDefensiveLine] = {}
 
     for rec in get_history(path):
         for p in rec.passing_leaders:
@@ -248,8 +278,19 @@ def career_stats(path: Path | None = None) -> tuple[dict, dict, dict]:
             line.targets += rc.targets
             line.yards += rc.yards
             line.touchdowns += rc.touchdowns
+        for dl in rec.defensive_leaders:
+            key = (dl.team_abbr, dl.name)
+            line = defense.setdefault(key, CareerDefensiveLine(name=dl.name, team_abbr=dl.team_abbr))
+            line.seasons += 1
+            line.solo_tackles += dl.solo_tackles
+            line.tackles_for_loss += dl.tackles_for_loss
+            line.sacks += dl.sacks
+            line.interceptions += dl.interceptions
+            line.passes_defended += dl.passes_defended
+            line.forced_fumbles += dl.forced_fumbles
+            line.fumble_recoveries += dl.fumble_recoveries
 
-    return passing, rushing, receiving
+    return passing, rushing, receiving, defense
 
 
 def _normalize(value: float, pool: list[float]) -> float:
@@ -286,7 +327,7 @@ AWARD_BONUS_PER_WIN = 0.1
 class HOFCandidate:
     name: str
     team_abbr: str
-    position: str  # "QB" | "RB" | "WR/TE"
+    position: str  # "QB" | "RB" | "WR/TE" | "DEF"
     seasons: int
     stat_line: str
     award_wins: int
@@ -301,19 +342,18 @@ def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
     currently clears the bar, ranked highest score first; empty until a
     league has enough archived seasons to clear it."""
     history = get_history(path)
-    passing, rushing, receiving = career_stats(path)
+    passing, rushing, receiving, defense = career_stats(path)
     award_wins = _award_win_counts(history)
 
     candidates: list[HOFCandidate] = []
 
-    def _induct(pool: dict, position: str, stat_fmt):
+    def _induct(pool: dict, position: str, stat_fmt, score_fn):
         eligible = [(k, l) for k, l in pool.items() if l.seasons >= MIN_HOF_SEASONS]
         if not eligible:
             return
-        yards_pool = [l.yards for _, l in eligible]
-        td_pool = [l.touchdowns for _, l in eligible]
+        production_fn = score_fn(eligible)
         for (abbr, name), line in eligible:
-            production = 0.5 * _normalize(line.yards, yards_pool) + 0.5 * _normalize(line.touchdowns, td_pool)
+            production = production_fn(line)
             wins = award_wins.get((abbr, name), 0)
             score = min(1.0, production + AWARD_BONUS_PER_WIN * wins)
             if score >= HOF_SCORE_THRESHOLD:
@@ -322,8 +362,30 @@ def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
                     stat_line=stat_fmt(line), award_wins=wins, score=score,
                 ))
 
-    _induct(passing, "QB", lambda l: f"{l.yards:,} career pass yds, {l.touchdowns} TD, {l.seasons} seasons")
-    _induct(rushing, "RB", lambda l: f"{l.yards:,} career rush yds, {l.touchdowns} TD, {l.seasons} seasons")
-    _induct(receiving, "WR/TE", lambda l: f"{l.yards:,} career rec yds, {l.touchdowns} TD, {l.seasons} seasons")
+    def _offensive_score_fn(eligible):
+        yards_pool = [l.yards for _, l in eligible]
+        td_pool = [l.touchdowns for _, l in eligible]
+        return lambda l: 0.5 * _normalize(l.yards, yards_pool) + 0.5 * _normalize(l.touchdowns, td_pool)
+
+    def _defensive_score_fn(eligible):
+        sacks_pool = [l.sacks for _, l in eligible]
+        ints_pool = [l.interceptions for _, l in eligible]
+        tfl_pool = [l.tackles_for_loss for _, l in eligible]
+        tkl_pool = [l.solo_tackles for _, l in eligible]
+        ff_pool = [l.forced_fumbles for _, l in eligible]
+        pd_pool = [l.passes_defended for _, l in eligible]
+        return lambda l: (
+            0.30 * _normalize(l.sacks, sacks_pool)
+            + 0.30 * _normalize(l.interceptions, ints_pool)
+            + 0.15 * _normalize(l.tackles_for_loss, tfl_pool)
+            + 0.10 * _normalize(l.solo_tackles, tkl_pool)
+            + 0.10 * _normalize(l.forced_fumbles, ff_pool)
+            + 0.05 * _normalize(l.passes_defended, pd_pool)
+        )
+
+    _induct(passing, "QB", lambda l: f"{l.yards:,} career pass yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)
+    _induct(rushing, "RB", lambda l: f"{l.yards:,} career rush yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)
+    _induct(receiving, "WR/TE", lambda l: f"{l.yards:,} career rec yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)
+    _induct(defense, "DEF", lambda l: f"{l.solo_tackles} career tkl, {l.sacks} sacks, {l.interceptions} INT, {l.seasons} seasons", _defensive_score_fn)
 
     return sorted(candidates, key=lambda c: -c.score)

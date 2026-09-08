@@ -16,7 +16,8 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
-from app.engine.season_stats import aggregate_season_stats
+from app.engine.defensive_box_score import build_defensive_box_score
+from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 from app.engine import score_fidelity, awards
 from app.engine.scouting import find_next_opponent, build_scouting_report
 from app.engine.gameplan import (
@@ -171,6 +172,15 @@ def _season_stat_leaders(season, top_n: int = 15):
     )
 
 
+def _defensive_stat_leaders(season, top_n: int = 15):
+    """Same pattern as _season_stat_leaders, sorted by solo tackles
+    (the closest single-number analog to "yards" for a defensive
+    leaderboard) -- see app/engine/defensive_box_score.py for what's
+    real here (Defensive TD is the one disclosed gap, not modeled)."""
+    defense = aggregate_season_defensive_stats(season)
+    return sorted(defense.values(), key=lambda l: -l.solo_tackles)[:top_n]
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_view(request: Request):
     """League-at-a-glance landing page, pulling from pieces that already
@@ -289,6 +299,7 @@ def stats_view(request: Request):
     season = season_state.get_season()
     games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
     passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season)
+    defensive_leaders = _defensive_stat_leaders(season)
     awards_race = awards.season_awards(season) if games_played else None
     return templates.TemplateResponse(
         request,
@@ -299,6 +310,7 @@ def stats_view(request: Request):
             "passing_leaders": passing_leaders,
             "rushing_leaders": rushing_leaders,
             "receiving_leaders": receiving_leaders,
+            "defensive_leaders": defensive_leaders,
             "awards_race": awards_race,
         },
     )
@@ -346,6 +358,8 @@ def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr:
     result = game.result
     home_box = build_box_score(result.plays, home_info.abbr)
     away_box = build_box_score(result.plays, away_info.abbr)
+    home_defense = build_defensive_box_score(result.plays, home_info.abbr)
+    away_defense = build_defensive_box_score(result.plays, away_info.abbr)
     game_seed = stable_seed(season.league_seed, week_num, home_abbr, away_abbr)
 
     return templates.TemplateResponse(
@@ -359,6 +373,8 @@ def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr:
             "game_seed": game_seed,
             "home_box": home_box,
             "away_box": away_box,
+            "home_defense": home_defense,
+            "away_defense": away_defense,
             "back_url": "/season",
             "back_label": "Back to season",
         },
@@ -492,6 +508,8 @@ def playoffs_game_view(request: Request, round_name: str, home_abbr: str, away_a
     result = matchup.result
     home_box = build_box_score(result.plays, home_info.abbr)
     away_box = build_box_score(result.plays, away_info.abbr)
+    home_defense = build_defensive_box_score(result.plays, home_info.abbr)
+    away_defense = build_defensive_box_score(result.plays, away_info.abbr)
     game_seed = stable_seed(season.league_seed, "playoffs", round_name, home_abbr, away_abbr)
 
     return templates.TemplateResponse(
@@ -505,6 +523,8 @@ def playoffs_game_view(request: Request, round_name: str, home_abbr: str, away_a
             "game_seed": game_seed,
             "home_box": home_box,
             "away_box": away_box,
+            "home_defense": home_defense,
+            "away_defense": away_defense,
             "back_url": "/playoffs",
             "back_label": "Back to playoffs",
         },
@@ -585,6 +605,8 @@ def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form
     result = simulate_game(rng, home, away)
     home_box = build_box_score(result.plays, home_info.abbr)
     away_box = build_box_score(result.plays, away_info.abbr)
+    home_defense = build_defensive_box_score(result.plays, home_info.abbr)
+    away_defense = build_defensive_box_score(result.plays, away_info.abbr)
 
     return templates.TemplateResponse(
         request,
@@ -597,5 +619,7 @@ def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form
             "game_seed": game_seed,
             "home_box": home_box,
             "away_box": away_box,
+            "home_defense": home_defense,
+            "away_defense": away_defense,
         },
     )

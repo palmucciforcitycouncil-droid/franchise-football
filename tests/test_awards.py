@@ -33,10 +33,17 @@ def _pass_gain(offense_abbr, receiver, yards=8):
 def _interception(defense_offense_abbr, defender):
     """A pass play by `defense_offense_abbr`'s OPPONENT that gets picked
     off -- offense_abbr on the PlayEvent is whoever was throwing (the
-    team NOT credited with the INT)."""
+    team NOT credited with the INT). defender_name (not the desc text)
+    is what app/engine/defensive_box_score.py actually reads."""
     return PlayEvent(down=1, distance=10, field_pos=40, play_type="pass", yards=0,
                       desc=f"Interception ({defender})", outcome="turnover",
-                      offense_abbr=defense_offense_abbr)
+                      offense_abbr=defense_offense_abbr, defender_name=defender)
+
+
+def _sack(defense_offense_abbr, defender, yards=-7):
+    return PlayEvent(down=2, distance=10, field_pos=40, play_type="pass", yards=yards,
+                      desc=f"{defender} sack", outcome="sack",
+                      offense_abbr=defense_offense_abbr, defender_name=defender)
 
 
 def _played_game(home_abbr, away_abbr, home_score, away_score, plays=None):
@@ -81,10 +88,15 @@ def test_normalize_handles_edge_cases():
     assert _normalize(5, [5]) == 0.5  # a single-value pool can't discriminate -- neutral
 
 
-def test_dpoy_interception_parsing_and_team_attribution():
+def test_dpoy_credits_real_defender_stats_via_defender_name_not_desc_text():
+    """The rewritten DPOY reads PlayEvent.defender_name (structured data)
+    via defensive_box_score.py, not the old desc-text regex -- a
+    defender who racks up both sacks and interceptions should clearly
+    outrank one with a single INT."""
     plays = [
         _interception("BUF", "T. White"),   # BUF was throwing -> defender's team (the opponent) gets credit
-        _interception("BUF", "T. White"),
+        _sack("BUF", "T. White"),
+        _sack("BUF", "T. White"),
         _interception("BUF", "R. Jones"),
     ]
     schedule = [[_played_game("BUF", "MIA", 10, 20, plays=plays)]]
@@ -94,15 +106,15 @@ def test_dpoy_interception_parsing_and_team_attribution():
     assert len(dpoy) == 2
     assert dpoy[0].name == "T. White"
     assert dpoy[0].team_abbr == "MIA"  # MIA was on defense against BUF's throws
-    assert dpoy[0].stat_line == "2 INT"
+    assert "2 sacks" in dpoy[0].stat_line and "1 INT" in dpoy[0].stat_line
     assert dpoy[1].name == "R. Jones"
-    assert dpoy[1].stat_line == "1 INT"
+    assert dpoy[0].score > dpoy[1].score
 
 
-def test_dpoy_ignores_non_interception_turnovers_and_non_pass_plays():
-    fumble = PlayEvent(down=1, distance=10, field_pos=40, play_type="run", yards=-2,
-                        desc="Fumble lost (D. Back)", outcome="turnover", offense_abbr="BUF")
-    schedule = [[_played_game("BUF", "MIA", 10, 20, plays=[fumble])]]
+def test_dpoy_ignores_offenses_own_plays_and_non_credited_turnovers():
+    fumble_no_credit = PlayEvent(down=1, distance=10, field_pos=40, play_type="run", yards=-2,
+                                  desc="Fumble lost (D. Back)", outcome="turnover", offense_abbr="BUF")
+    schedule = [[_played_game("BUF", "MIA", 10, 20, plays=[fumble_no_credit])]]
     season = _season(schedule)
     assert awards.defensive_player_of_the_year(season) == []
 
@@ -159,6 +171,39 @@ def test_season_awards_against_a_real_simulated_season_returns_sane_shapes():
     rookie_keys = awards._rookie_keys(season)
     for c in race.roy:
         assert (c.team_abbr, c.name) in rookie_keys
+
+
+@needs_db
+def test_roy_can_be_won_by_a_real_rookie_defender():
+    """The gap this module's docstring used to flag (ROY was offense-only
+    because DPOY's interception-only basis was too thin to fairly weigh
+    against a full offensive stat line) is resolved -- a standout rookie
+    defender can now genuinely win ROY. Uses a real rookie CB/S/LB/DL
+    from the DB (not a fabricated name) so the DB-backed rookie filter
+    is exercised for real, credited with a dominant defensive line via
+    synthetic plays, on a schedule with no offensive rookie production
+    at all so there's nothing to be outranked by."""
+    from app.core.db import get_session
+    from app.models.player import Player, Position
+    from sqlmodel import select
+
+    defensive_positions = [Position.CB, Position.SS, Position.FS, Position.MLB, Position.LOLB, Position.ROLB, Position.DT, Position.LE, Position.RE]
+    with get_session() as s:
+        rookie = s.exec(
+            select(Player).where(Player.years_pro == 0, Player.team_abbr == "MIA", Player.position.in_(defensive_positions))
+        ).first()
+    assert rookie is not None, "expected at least one real rookie defender on MIA"
+
+    plays = [
+        _interception("BUF", rookie.full_name),
+        _sack("BUF", rookie.full_name),
+        _sack("BUF", rookie.full_name),
+    ]
+    schedule = [[_played_game("BUF", "MIA", 10, 20, plays=plays)]]
+    season = _season(schedule)
+
+    roy = awards.rookie_of_the_year(season)
+    assert any(c.name == rookie.full_name and c.position == "DEF" for c in roy)
 
 
 @needs_db

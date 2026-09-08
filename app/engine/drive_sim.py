@@ -29,6 +29,7 @@ from .player_ai import MatchupContext, choose_run_point_of_attack, choose_pass_t
 from .defensive_ai import DefensiveCall, decide_defensive_call, apply_run_tactic, LEAGUE_AVG_YPC, LEAGUE_AVG_YPA
 from .gameplan import Gameplan, offense_pass_bias, offense_fourth_down_bias, defense_run_tactic_extra_penalty
 from app.models.player import Player
+from app.services.depth_chart import DefensiveStarters
 
 MAX_PLAYS_PER_DRIVE = 20  # safety valve against pathological loops
 
@@ -68,10 +69,35 @@ def _pass_probability(
     return max(0.1, min(0.92, base))
 
 
+def _point_of_attack_defenders(defense: DefensiveStarters, zone: str) -> list[Player]:
+    """The specific DL pair engaged at a given run zone -- same pairing
+    run_zone_advantages() (player_ai.py) itself uses, e.g. "left" zone is
+    the offense's LT/LG vs. the defense's RE/DT1 (mirrored sides)."""
+    if zone == "left":
+        return [defense.re, defense.dt1]
+    if zone == "right":
+        return [defense.le, defense.dt2]
+    return [defense.dt1, defense.dt2]
+
+
+def _run_tackler(rng: RNG, defense: DefensiveStarters, zone: str, yards: int) -> str:
+    """Solo-tackle/forced-fumble attribution for a run play -- a
+    disclosed, GDD-underspecified heuristic (no formula is given): a run
+    stuffed at or behind the line (yards <= 2, i.e. the DL actually won
+    the point-of-attack battle) credits the real DL pair engaged at that
+    zone; a run that gets real yardage past the line credits a real
+    linebacker instead (pursuit-and-tackle, not the line), since crediting
+    the same point-of-attack DL on every single run regardless of how far
+    it went would be unrealistic."""
+    if yards <= 2:
+        return rng.choice(_point_of_attack_defenders(defense, zone)).full_name
+    return rng.choice(defense.linebackers).full_name
+
+
 def _resolve_run(
     rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCall,
     field_pos: int = 0, defense_gameplan: Gameplan | None = None,
-) -> Tuple[int, str, str]:
+) -> Tuple[int, str, str, str, str]:
     """GDD Sec 6.6.2 (run) + Sec 6.6.7: point-of-attack chosen from real
     zone blocking advantages, yardage shaped by the winning zone's
     advantage and the RB's own vision/explosiveness, fumble risk shaped
@@ -82,7 +108,17 @@ def _resolve_run(
     regardless of direction, and a "Pass Defense" primary (light box)
     helps the offense if it runs into it anyway. `defense_gameplan`
     (GDD Sec 10.4.1) can add an extra red-zone penalty on top of that via
-    its Run-Sellout Red Zone Defense style -- None for every AI team."""
+    its Run-Sellout Red Zone Defense style -- None for every AI team.
+
+    Returns (yards, outcome, who, defender_name, fumble_recovered_by).
+    defender_name is the real tackler on a "gain" (see _run_tackler) or
+    the real defender who forced a "turnover" (fumble) -- same
+    attribution logic either way. fumble_recovered_by is only set on a
+    fumble, and can be a different player than defender_name (forcing
+    and recovering are separate GDD stat categories, Sec 6.7.2) --
+    picked from the front seven (DL+LB), not the whole defense, since a
+    run-play fumble is recovered in the box, not by a deep secondary
+    player."""
     extra_penalty = defense_run_tactic_extra_penalty(defense_gameplan, in_red_zone=field_pos >= 80)
     zones = apply_run_tactic(ctx.zones, defcall.run_tactic, extra_penalty=extra_penalty)
     run_ctx = replace(ctx, zones=zones) if defcall.run_tactic else ctx
@@ -102,12 +138,29 @@ def _resolve_run(
 
     fumble_rate = max(0.002, PARAMS["turnover"]["fumble_per_rush"] - (rb.carrying - 70) * 0.0002)
     if rng.prob(fumble_rate):
-        return max(yards, -2), "turnover", rb.full_name
+        yards = max(yards, -2)
+        forced_by = _run_tackler(rng, ctx.defense, choice.point_of_attack, yards)
+        recovered_by = rng.choice(ctx.defense.defensive_line + ctx.defense.linebackers).full_name
+        return yards, "turnover", rb.full_name, forced_by, recovered_by
 
-    return yards, "gain", rb.full_name
+    tackler = _run_tackler(rng, ctx.defense, choice.point_of_attack, yards)
+    return yards, "gain", rb.full_name, tackler, ""
 
 
-def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str, str]:
+def _sack_defender(rng: RNG, ctx: MatchupContext, defcall: DefensiveCall) -> str:
+    """Who gets sack credit: the real blitzer if this was a blitz call
+    (they're the specific defender most likely to have gotten home), a
+    random defensive lineman otherwise (a non-blitzed sack still came
+    from someone up front) -- the SAME heuristic _check_roughing_the_passer
+    already used independently; factored out so the sacker and a roughing
+    penalty on that same sack are guaranteed to name the same player
+    instead of two independent random picks."""
+    if defcall.blitz.called and defcall.blitz.blitzer is not None:
+        return defcall.blitz.blitzer.full_name
+    return rng.choice(ctx.defense.defensive_line).full_name
+
+
+def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str, str, bool]:
     """GDD Sec 6.6.2 (pass) + Sec 6.6.6: target chosen from real
     route-running-vs-coverage mismatches, pressure from real OL-vs-DL
     protection, completion from real QB accuracy (by depth) + receiver
@@ -119,19 +172,22 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     (boom-or-bust); a "Pass Defense" primary trims completion odds a
     touch, "Run Defense" caught looking gives a bump.
 
-    Returns (yards, outcome, who, receiver_name, defender_name). `who` is
-    whoever the play should be NARRATED as -- the receiver on a
-    completion or incompletion, the QB on a sack, but the DEFENDER on an
-    interception (the defender made the play, not the receiver who got
-    beaten). `receiver_name` is always the actual intended target (empty
-    on a sack, which the GDD/real stat convention doesn't count as a
-    target at all) -- app/engine/box_score.py needs this to credit an
-    interception as a target/no-catch to the right receiver, since `who`
-    alone can't carry both names on that play. `defender_name` is the
-    real covering defender on this specific attempt (empty on a sack,
-    which never got to a throw) -- the Penalty System (Sec 6.9) needs it
-    to attribute a defensive pass interference call to the actual player
-    in coverage, not a random guess."""
+    Returns (yards, outcome, who, receiver_name, defender_name,
+    pass_defended). `who` is whoever the play should be NARRATED as --
+    the receiver on a completion or incompletion, the QB on a sack, but
+    the DEFENDER on an interception (the defender made the play, not the
+    receiver who got beaten). `receiver_name` is always the actual
+    intended target (empty on a sack, which the GDD/real stat convention
+    doesn't count as a target at all) -- app/engine/box_score.py needs
+    this to credit an interception as a target/no-catch to the right
+    receiver, since `who` alone can't carry both names on that play.
+    `defender_name` is the real covering defender on this specific
+    attempt (the SACKER on a sack, via _sack_defender) -- the Penalty
+    System (Sec 6.9) needs it to attribute DPI/Roughing the Passer to the
+    actual player involved, not a random guess. `pass_defended` is only
+    ever True on an incomplete pass, and only when the defender's real
+    coverage (not just an inaccurate throw) is judged to have caused the
+    incompletion -- see the PD roll below for the disclosed heuristic."""
     target = choose_pass_target(ctx, rng, distance)
 
     pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
@@ -139,7 +195,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         pressure_prob = max(0.05, min(0.85, pressure_prob + 0.15 + defcall.blitz.advantage * 0.01))
     if rng.prob(pressure_prob) and rng.prob(0.35):
         sack_yards = -int(abs(rng.gauss(6.5, 3)))
-        return sack_yards, "sack", qb.full_name, "", ""
+        return sack_yards, "sack", qb.full_name, "", _sack_defender(rng, ctx, defcall), False
 
     coverage_factor = 0.6 if defcall.coverage == "zone" else 1.15
     effective_mismatch = target.mismatch_score * coverage_factor
@@ -170,13 +226,20 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
         if rng.prob(int_rate):
             # who = the player who made the play, not the intended target --
             # an interception is credited to the defender who caught it.
-            return 0, "turnover", target.defender.full_name, target.receiver.full_name, target.defender.full_name
-        return 0, "incomplete", target.receiver.full_name, target.receiver.full_name, target.defender.full_name
+            return 0, "turnover", target.defender.full_name, target.receiver.full_name, target.defender.full_name, False
+        # Pass Defended (PD) roll: a disclosed, GDD-underspecified split
+        # between a real pass breakup (the defender won the coverage
+        # matchup) and a plain incompletion (an inaccurate/uncontested
+        # throw with no real defensive play) -- more negative
+        # effective_mismatch (the defender winning) raises the odds.
+        pd_prob = max(0.05, min(0.55, 0.15 - effective_mismatch * 0.01))
+        pass_defended = rng.prob(pd_prob)
+        return 0, "incomplete", target.receiver.full_name, target.receiver.full_name, target.defender.full_name, pass_defended
 
     air_yards = {"short": 5, "medium": 10, "deep": 19}[depth]
     yac = max(0, rng.gauss((target.receiver.change_of_direction - 75) * 0.08, 2.5))
     yards = int((air_yards + yac) * ctx.ep_multiplier)  # Score Fidelity System (app/engine/score_fidelity.py)
-    return yards, "gain", target.receiver.full_name, target.receiver.full_name, target.defender.full_name
+    return yards, "gain", target.receiver.full_name, target.receiver.full_name, target.defender.full_name, False
 
 
 def _fg_distance_bucket(attempt_yards: int) -> str:
@@ -298,18 +361,20 @@ def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str) -
     )
 
 
-def _check_roughing_the_passer(rng: RNG, ctx: MatchupContext, defcall: DefensiveCall, pos: int) -> PenaltyOutcome | None:
-    """Rolled only on sacks. Attributed to the real blitzer if this play
-    was a blitz call (app/engine/defensive_ai.py's DefensiveCall.blitz),
-    since that's the specific defender most likely to have hit the QB a
-    beat late -- otherwise a random defensive lineman, since a
-    non-blitzed sack still came from someone up front. No accept/decline
-    needed, same reasoning as DPI: automatic first down + 15 yards from
-    the previous spot is always better for the offense than the sack
-    that just happened."""
+def _check_roughing_the_passer(rng: RNG, sacker_name: str, pos: int) -> PenaltyOutcome | None:
+    """Rolled only on sacks. Attributed to the SAME real defender who got
+    sack credit on this exact play (drive_sim.py's _sack_defender,
+    computed once in _resolve_pass and threaded through as
+    defender_name) -- previously this rolled its own independent random
+    pick, which could (and did) name a different player than the sack
+    itself for the same play; a real hit on the QB and the resulting
+    penalty should always be the same person. No accept/decline needed,
+    same reasoning as DPI: automatic first down + 15 yards from the
+    previous spot is always better for the offense than the sack that
+    just happened."""
     if not rng.prob(PARAMS["penalty"]["in_play"]["roughing_the_passer"]):
         return None
-    who = defcall.blitz.blitzer.full_name if defcall.blitz.called and defcall.blitz.blitzer is not None else rng.choice(ctx.defense.defensive_line).full_name
+    who = sacker_name
     yards = PARAMS["penalty"]["roughing_yards"]
     new_pos = min(99, pos + yards)
     return PenaltyOutcome(
@@ -461,22 +526,23 @@ def simulate_drive(
         )
         is_pass = rng.prob(pass_prob)
 
+        fumble_recovered_by = ""
         if is_pass:
-            yards, outcome, who, receiver_name, defender_name = _resolve_pass(rng, ctx, qb, defcall, distance)
+            yards, outcome, who, receiver_name, defender_name, pass_defended = _resolve_pass(rng, ctx, qb, defcall, distance)
             play_type = "pass"
         else:
-            yards, outcome, who = _resolve_run(
+            yards, outcome, who, defender_name, fumble_recovered_by = _resolve_run(
                 rng, ctx, rb, defcall, field_pos=pos, defense_gameplan=defense_gameplan,
             )
             play_type = "run"
             receiver_name = ""
-            defender_name = ""
+            pass_defended = False
 
         if outcome == "turnover":
             turnovers += 1
             spot = max(0, min(100, pos + yards))
             kind = f"Interception ({who})" if is_pass else f"Fumble lost ({who})"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description, receiver_name=receiver_name))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, fumble_recovered_by=fumble_recovered_by))
             return 0, kind, max(2, 100 - spot), total_plays, total_yards, turnovers, play_events
 
         total_yards += max(0, yards)
@@ -488,7 +554,7 @@ def simulate_drive(
             # (game_sim.py) special-cases the "Safety" summary text to award
             # them there, since this function only reports the offense's score.
             desc = f"{who} {'sacked' if outcome == 'sack' else 'tackled'} for a safety"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description, receiver_name=receiver_name))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name))
             return 0, "Safety", 35, total_plays, total_yards, turnovers, play_events
 
         # In-play penalty check (GDD Sec 6.9) -- only for plays that stay
@@ -503,9 +569,9 @@ def simulate_drive(
             elif outcome == "incomplete":
                 penalty = _check_defensive_pass_interference(rng, pos, defender_name)
             elif outcome == "sack":
-                penalty = _check_roughing_the_passer(rng, ctx, defcall, pos)
+                penalty = _check_roughing_the_passer(rng, defender_name, pos)
             if penalty is not None:
-                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name))
+                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name))
                 down, distance, pos = penalty.down, penalty.distance, penalty.pos
                 continue
 
@@ -530,14 +596,14 @@ def simulate_drive(
             desc = f"{who} run for {yards} yards"
 
         if gained_first_down:
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down", defensive_call=defcall.description, receiver_name=receiver_name))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, pass_defended=pass_defended))
             down, distance = 1, 10
             continue
 
         # A loss (sack, tackle for loss) must increase distance-to-go, not
         # just fail to decrease it -- max(0, yards) was silently treating
         # every loss as a 0-yard play for down/distance purposes.
-        play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, outcome, defensive_call=defcall.description, receiver_name=receiver_name))
+        play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, outcome, defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, pass_defended=pass_defended))
         distance -= yards
         down += 1
 

@@ -184,7 +184,7 @@ def test_interception_is_credited_to_the_defender_not_the_intended_receiver():
     rng = RNG.with_seed(11)
     found_interception = False
     for _ in range(3000):
-        _, outcome, who, _, _ = _resolve_pass(rng, ctx, off.qb, no_blitz)
+        _, outcome, who, _, _, _ = _resolve_pass(rng, ctx, off.qb, no_blitz)
         if outcome == "turnover":
             found_interception = True
             assert who not in offense_names, f"interception credited to an offensive player: {who}"
@@ -293,7 +293,7 @@ def test_defensive_pass_interference_is_attributed_to_the_real_covering_defender
     rng = RNG.with_seed(9)
     found = False
     for _ in range(3000):
-        _, outcome, _, _, defender_name = _resolve_pass(rng, ctx, off.qb, no_blitz)
+        _, outcome, _, _, defender_name, _ = _resolve_pass(rng, ctx, off.qb, no_blitz)
         if outcome != "incomplete":
             continue
         penalty = _check_defensive_pass_interference(rng, pos=50, defender_name=defender_name)
@@ -305,15 +305,99 @@ def test_defensive_pass_interference_is_attributed_to_the_real_covering_defender
     assert found, "expected at least one DPI call across 3000 incomplete-pass checks"
 
 
-def test_roughing_the_passer_is_attributed_to_the_real_blitzer_when_blitzed():
-    """When the play was a blitz, the penalty should name the actual
-    blitzer (app/engine/defensive_ai.py's DefensiveCall.blitz), not a
-    random defensive lineman -- that's who's most likely to have hit the
-    QB a beat late in real football."""
+def test_sack_defender_falls_back_to_a_real_dl_player_without_a_blitz():
+    """No blitz called -- the sacker should still be a real, named
+    defensive lineman (a non-blitzed sack still came from someone up
+    front), not an empty string or a non-DL player."""
     from app.services.depth_chart import get_offensive_starters, get_defensive_starters
     from app.engine.player_ai import build_matchup_context
     from app.engine.defensive_ai import DefensiveCall, BlitzCall
-    from app.engine.drive_sim import _check_roughing_the_passer
+    from app.engine.drive_sim import _sack_defender
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+    ctx = build_matchup_context(off, defn)
+    no_blitz = DefensiveCall(primary="pass_defense", blitz=BlitzCall(called=False), coverage="man", run_tactic=None)
+    dl_names = {p.full_name for p in defn.defensive_line}
+
+    rng = RNG.with_seed(21)
+    for _ in range(50):
+        name = _sack_defender(rng, ctx, no_blitz)
+        assert name in dl_names
+
+
+def test_run_tackler_credits_the_point_of_attack_dl_when_stuffed_and_a_linebacker_on_a_real_gain():
+    """Disclosed heuristic (drive_sim.py's _run_tackler docstring): a run
+    stopped at or behind the line credits the real DL pair engaged at
+    that zone; a run that gets meaningful yardage past the line credits
+    a real linebacker instead."""
+    from app.services.depth_chart import get_defensive_starters
+    from app.engine.drive_sim import _run_tackler, _point_of_attack_defenders
+
+    defn = get_defensive_starters("BUF")
+    lb_names = {p.full_name for p in defn.linebackers}
+
+    rng = RNG.with_seed(3)
+    for zone in ("left", "center", "right"):
+        poa_names = {p.full_name for p in _point_of_attack_defenders(defn, zone)}
+        stuffed = _run_tackler(rng, defn, zone, yards=0)
+        assert stuffed in poa_names
+        broke_through = _run_tackler(rng, defn, zone, yards=8)
+        assert broke_through in lb_names
+
+
+def test_real_simulated_game_attributes_real_defenders_across_tackles_sacks_ff_fr_pd():
+    """End-to-end proof (not just the isolated helpers above) that a real
+    simulated game produces real, named defender attribution on the
+    categories drive_sim.py now populates -- statistical since not every
+    category is guaranteed to fire in any single game."""
+    from app.services.depth_chart import get_defensive_starters
+
+    found = {"solo_tackle": False, "sack": False, "forced_fumble": False, "fumble_recovery": False, "pass_defended": False}
+    for seed in range(30):
+        result = _play_game(seed)
+        for abbr, opp_defense in (("KC", get_defensive_starters("BUF")), ("BUF", get_defensive_starters("KC"))):
+            real_names = {p.full_name for p in [
+                opp_defense.dt1, opp_defense.dt2, opp_defense.le, opp_defense.re,
+                opp_defense.lolb, opp_defense.mlb, opp_defense.rolb,
+                opp_defense.cb1, opp_defense.cb2, opp_defense.fs, opp_defense.ss,
+            ]}
+            for p in result.plays:
+                if p.offense_abbr != abbr:
+                    continue
+                if p.outcome == "sack" and p.defender_name:
+                    found["sack"] = True
+                    assert p.defender_name in real_names
+                elif p.outcome in ("gain", "first_down") and p.defender_name:
+                    found["solo_tackle"] = True
+                    assert p.defender_name in real_names
+                elif p.outcome == "turnover" and p.play_type == "run":
+                    if p.defender_name:
+                        found["forced_fumble"] = True
+                        assert p.defender_name in real_names
+                    if p.fumble_recovered_by:
+                        found["fumble_recovery"] = True
+                        assert p.fumble_recovered_by in real_names
+                elif p.outcome == "incomplete" and p.pass_defended:
+                    found["pass_defended"] = True
+                    assert p.defender_name in real_names
+    assert all(found.values()), f"expected every category to fire across 30 games x 2 sides: {found}"
+
+
+def test_roughing_the_passer_is_attributed_to_the_real_blitzer_when_blitzed():
+    """When the play was a blitz, sack (and therefore any resulting
+    roughing-the-passer penalty) credit should go to the actual blitzer
+    (app/engine/defensive_ai.py's DefensiveCall.blitz), not a random
+    defensive lineman -- that's who's most likely to have hit the QB a
+    beat late in real football. _check_roughing_the_passer no longer
+    resolves this itself -- it just reuses whatever sacker_name it's
+    given, guaranteeing the sack and any resulting penalty always name
+    the same player -- so this tests _sack_defender's own attribution
+    plus _check_roughing_the_passer honoring it."""
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.player_ai import build_matchup_context
+    from app.engine.defensive_ai import DefensiveCall, BlitzCall
+    from app.engine.drive_sim import _check_roughing_the_passer, _sack_defender
 
     off = get_offensive_starters("KC")
     defn = get_defensive_starters("BUF")
@@ -322,9 +406,12 @@ def test_roughing_the_passer_is_attributed_to_the_real_blitzer_when_blitzed():
     blitz_call = DefensiveCall(primary="pass_defense", blitz=BlitzCall(called=True, blitzer=blitzer, target=off.hb, advantage=15.0), coverage="man", run_tactic=None)
 
     rng = RNG.with_seed(13)
+    sacker_name = _sack_defender(rng, ctx, blitz_call)
+    assert sacker_name == blitzer.full_name
+
     found = False
     for _ in range(500):
-        penalty = _check_roughing_the_passer(rng, ctx, blitz_call, pos=50)
+        penalty = _check_roughing_the_passer(rng, sacker_name, pos=50)
         if penalty is not None:
             found = True
             assert blitzer.full_name in penalty.desc

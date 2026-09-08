@@ -33,12 +33,13 @@
   </div>
 
   <table class="boxtable" style="margin-top: 1rem;">
-    <thead><tr><th>Passing Leader</th><th>Rushing Leader</th><th>Receiving Leader</th></tr></thead>
+    <thead><tr><th>Passing Leader</th><th>Rushing Leader</th><th>Receiving Leader</th><th>Tackles Leader</th></tr></thead>
     <tbody>
       <tr>
         <td>{% if rec.passing_leaders %}{{ rec.passing_leaders[0].name }} ({{ rec.passing_leaders[0].team_abbr }}) &mdash; {{ rec.passing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
         <td>{% if rec.rushing_leaders %}{{ rec.rushing_leaders[0].name }} ({{ rec.rushing_leaders[0].team_abbr }}) &mdash; {{ rec.rushing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
         <td>{% if rec.receiving_leaders %}{{ rec.receiving_leaders[0].name }} ({{ rec.receiving_leaders[0].team_abbr }}) &mdash; {{ rec.receiving_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.defensive_leaders %}{{ rec.defensive_leaders[0].name }} ({{ rec.defensive_leaders[0].team_abbr }}) &mdash; {{ rec.defensive_leaders[0].solo_tackles }} tkl{% else %}&mdash;{% endif %}</td>
       </tr>
     </tbody>
   </table>

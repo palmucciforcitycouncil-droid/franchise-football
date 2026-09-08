@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.engine.box_score import build_box_score
+from app.engine.defensive_box_score import build_defensive_box_score
 
 
 @dataclass
@@ -43,6 +44,19 @@ class SeasonReceivingLine:
     targets: int = 0
     yards: int = 0
     touchdowns: int = 0
+
+
+@dataclass
+class SeasonDefensiveLine:
+    name: str
+    team_abbr: str
+    solo_tackles: int = 0
+    tackles_for_loss: int = 0
+    sacks: int = 0
+    interceptions: int = 0
+    passes_defended: int = 0
+    forced_fumbles: int = 0
+    fumble_recoveries: int = 0
 
 
 def aggregate_season_stats(season):
@@ -81,3 +95,31 @@ def aggregate_season_stats(season):
                     line.touchdowns += rc.touchdowns
 
     return passing, rushing, receiving
+
+
+def aggregate_season_defensive_stats(season):
+    """Returns a dict keyed by (team_abbr, name) -> SeasonDefensiveLine,
+    covering every defender credited with at least one stat in any game
+    played so far this season. A separate function (not folded into
+    aggregate_season_stats' 3-tuple) so every existing offensive-stats
+    call site keeps working unchanged -- see app/engine/
+    defensive_box_score.py for what's real here and what's a disclosed
+    scope cut (Defensive TD)."""
+    defense: dict[tuple[str, str], SeasonDefensiveLine] = {}
+
+    for week in season.schedule:
+        for g in week:
+            if g.result is None:
+                continue
+            for abbr in (g.home_abbr, g.away_abbr):
+                for d in build_defensive_box_score(g.result.plays, abbr):
+                    line = defense.setdefault((abbr, d.name), SeasonDefensiveLine(name=d.name, team_abbr=abbr))
+                    line.solo_tackles += d.solo_tackles
+                    line.tackles_for_loss += d.tackles_for_loss
+                    line.sacks += d.sacks
+                    line.interceptions += d.interceptions
+                    line.passes_defended += d.passes_defended
+                    line.forced_fumbles += d.forced_fumbles
+                    line.fumble_recoveries += d.fumble_recoveries
+
+    return defense

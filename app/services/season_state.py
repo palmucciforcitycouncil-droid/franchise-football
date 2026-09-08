@@ -31,7 +31,7 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
-from app.engine import power_rating, score_fidelity, playoffs, progression, season_stats, awards
+from app.engine import power_rating, score_fidelity, playoffs, progression, season_stats
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
 from app.services import gameplan_store, history_store
@@ -294,10 +294,17 @@ def apply_progression_to_roster(season: Season) -> int:
     there's no usage/performance signal to progress them against).
     Returns the number of players updated. A player's usage input
     (app/engine/progression.py's F_use) comes from this season's real
-    touches (QB attempts / RB carries / WR-TE targets from
-    season_stats.py, or interceptions from awards.py for a DB) --
-    every other position gets progression.py's documented neutral
-    default."""
+    touches: QB attempts / RB carries / WR-TE targets (season_stats.py's
+    offensive aggregation) for offensive skill players, or a defensive
+    activity proxy -- solo tackles + interceptions + forced fumbles +
+    passes defended (season_stats.py's aggregate_season_defensive_stats,
+    now real for every DL/LB/DB via app/engine/defensive_box_score.py,
+    not interception-only) -- for defenders. Sacks and tackles-for-loss
+    are deliberately NOT added again on top of solo_tackles here, since
+    defensive_box_score.py already folds a sack/TFL into its own
+    solo-tackle count; adding them again would double-count the same
+    play. OL/K/P still get progression.py's documented neutral default
+    -- no real per-play usage stat exists for them in this engine."""
     passing, rushing, receiving = season_stats.aggregate_season_stats(season)
     touches: dict[tuple[str, str], int] = {}
     for key, line in passing.items():
@@ -306,8 +313,8 @@ def apply_progression_to_roster(season: Season) -> int:
         touches[key] = touches.get(key, 0) + line.carries
     for key, line in receiving.items():
         touches[key] = touches.get(key, 0) + line.targets
-    for key, ints in awards._interception_counts(season).items():
-        touches[key] = touches.get(key, 0) + ints
+    for key, line in season_stats.aggregate_season_defensive_stats(season).items():
+        touches[key] = touches.get(key, 0) + line.solo_tackles + line.interceptions + line.forced_fumbles + line.passes_defended
 
     updated = 0
     with get_session() as s:

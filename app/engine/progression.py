@@ -18,11 +18,15 @@ Deliberate, disclosed scope decisions:
   GDD doesn't specify per-attribute growth curves either.
 - F_use (the "on-field performance" input) can only be computed where
   this engine actually tracks individual stats: QB attempts, RB
-  carries, WR/TE targets (app/engine/season_stats.py), and defensive-
-  back interceptions (app/engine/awards.py's _interception_counts).
-  Every other position (OL/DL/LB/K/P, and any offensive skill player
-  with zero recorded touches) gets a neutral 1.0 usage multiplier --
-  disclosed, not silently assumed to be "average."
+  carries, WR/TE targets, and DL/LB/DB defensive activity -- solo
+  tackles + interceptions + forced fumbles + passes defended (both via
+  app/engine/season_stats.py, the defensive side now real for every
+  defender via app/engine/defensive_box_score.py, not interception-only
+  as it used to be). OL/K/P still get a neutral 1.0 usage multiplier --
+  no real per-play usage stat exists for them in this engine -- disclosed,
+  not silently assumed to be "average." See app/services/season_state.py's
+  apply_progression_to_roster() for exactly how touches is computed and
+  handed to progress_player() below.
 - No lifetime cap is tracked (would need per-player cumulative-change
   history this project doesn't retain) -- the natural 0-99 attribute
   bounds are the practical ceiling/floor. An annual per-attribute cap

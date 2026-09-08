@@ -205,7 +205,7 @@ from app.services.history_store import (
 )
 
 
-def _synthetic_record(season_number, passing=None, mvp=None, opoy=None, dpoy=None, roy=None):
+def _synthetic_record(season_number, passing=None, defensive=None, mvp=None, opoy=None, dpoy=None, roy=None):
     return history_store.SeasonRecord(
         season_number=season_number,
         team_results=[],
@@ -216,6 +216,7 @@ def _synthetic_record(season_number, passing=None, mvp=None, opoy=None, dpoy=Non
         passing_leaders=passing or [],
         rushing_leaders=[],
         receiving_leaders=[],
+        defensive_leaders=defensive or [],
     )
 
 
@@ -228,7 +229,7 @@ def test_career_stats_sums_a_players_passing_across_seasons(tmp_path):
         _record_to_dict(_synthetic_record(1, passing=[s2])),
     ], path)
 
-    passing, rushing, receiving = career_stats(path=path)
+    passing, rushing, receiving, defense = career_stats(path=path)
     line = passing[("KC", "Test QB")]
     assert line.seasons == 2
     assert line.completions == 420
@@ -273,6 +274,27 @@ def test_hall_of_fame_inducts_by_score_and_award_bonus(tmp_path):
     # Ranked highest score first.
     scores = [c.score for c in hall_of_fame(path=path)]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_hall_of_fame_inducts_a_real_defender(tmp_path):
+    """Same induction machinery, DEF category -- proves the gap flagged
+    when the defensive box score system was built (HOF could only ever
+    evaluate QB/RB/WR-TE) is actually closed, not just documented as
+    fixed."""
+    from app.engine.season_stats import SeasonDefensiveLine
+
+    path = tmp_path / "history.json"
+    star = SeasonDefensiveLine(name="Star LB", team_abbr="BUF", solo_tackles=120, sacks=15, interceptions=4, tackles_for_loss=18, forced_fumbles=3, passes_defended=8)
+    scrub = SeasonDefensiveLine(name="Bench DB", team_abbr="BUF", solo_tackles=5, sacks=0, interceptions=0, tackles_for_loss=1, forced_fumbles=0, passes_defended=0)
+
+    record0 = _synthetic_record(0, defensive=[star, scrub])
+    record1 = _synthetic_record(1, defensive=[star, scrub])
+    _save([_record_to_dict(record0), _record_to_dict(record1)], path)
+
+    inductees = {c.name: c for c in hall_of_fame(path=path)}
+    assert "Star LB" in inductees
+    assert inductees["Star LB"].position == "DEF"
+    assert "Bench DB" not in inductees
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
@@ -320,8 +342,9 @@ def test_hof_route_renders_through_real_multi_season_rollover():
         history = history_store.get_history()
         assert len(history) == 2
 
-        passing, rushing, receiving = history_store.career_stats()
+        passing, rushing, receiving, defense = history_store.career_stats()
         assert any(line.seasons == 2 for line in passing.values())
+        assert any(line.seasons == 2 for line in defense.values())
 
         resp = client.get("/hof")
         assert resp.status_code == 200

@@ -30,6 +30,22 @@ class PlayEvent:
     receiver_name: str = ""  # the actual intended target on every pass attempt (not sacks) -- set even on an
                               # interception, where `desc`/the narrated player is the DEFENDER, not this target.
                               # Needed by app/engine/box_score.py to credit a target/no-catch to the right WR.
+    defender_name: str = ""  # the ONE defender credited with the primary defensive impact on this play --
+                              # the sacker (sack), the interceptor (turnover on a pass), the covering defender
+                              # (a completed reception, credited with the solo tackle) or the point-of-attack/
+                              # pursuing defender (a run, same), a pass-breakup defender (an incomplete pass,
+                              # ALSO used by drive_sim.py's DPI attribution regardless of pass_defended below),
+                              # or the defender who forced a fumble (a run-play turnover). Empty on plays with
+                              # no clean single-defender attribution (touchdowns -- nobody made the tackle;
+                              # penalties; kicks). See app/engine/defensive_box_score.py for how this is read.
+    pass_defended: bool = False  # true only when an incomplete pass's defender_name reflects a REAL pass
+                                  # breakup (the defender won the coverage matchup), not just an inaccurate
+                                  # throw with no real defensive play -- see _resolve_pass's PD-roll docstring.
+                                  # A disclosed, GDD-underspecified distinction (no PD formula is given).
+    fumble_recovered_by: str = ""  # set only on a run-play turnover (a fumble) -- the defender who recovered
+                                    # it, independent of defender_name (the defender who FORCED it); the two
+                                    # can be the same player or different, matching real Forced Fumble vs.
+                                    # Fumble Recovery being separate GDD stat categories (Sec 6.7.2).
 
 @dataclass
 class GameResult:

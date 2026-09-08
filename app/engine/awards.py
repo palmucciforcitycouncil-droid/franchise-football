@@ -30,34 +30,42 @@ these choices are this module's own, not GDD-literal:
   yards, not against RBs') before the categories are compared, since
   raw yardage isn't on the same scale across positions -- production
   score = 0.5 * normalized_yards + 0.5 * normalized_touchdowns.
-- DPOY ("statistical dominance at the position") can only be computed
-  from real interceptions -- the ONLY individual defensive stat this
-  engine attributes to a named player anywhere. A sack's play
-  description names the QB who got sacked, not the defender who made
-  the play (see drive_sim.py's _resolve_pass docstring); tackles are
-  never attributed to anyone. Building a real multi-stat DPOY needs a
-  defensive box score system this project doesn't have yet (see
-  HANDOFF.md's Known Gaps). DPOY here is real but a much narrower stat
-  basis than "statistical dominance" implies: whoever recorded the
-  most interceptions this season, full stop.
-- ROY draws from the SAME offense-only candidate pool as MVP/OPOY,
-  restricted to years_pro == 0. A standout rookie defender could in
-  principle be a stronger real-world ROY case than any offensive
-  rookie, but interceptions alone are too thin a basis to fairly weigh
-  against a full offensive stat line for this award -- a documented
-  simplification, not an oversight.
+- DPOY ("statistical dominance at the position") is now a real,
+  multi-stat composite built on app/engine/defensive_box_score.py's real
+  per-player defensive attribution (solo tackles, sacks, TFL, INT, PD,
+  FF -- see that module's own docstring for the one thing it still
+  doesn't model, Defensive TD, and drive_sim.py's _run_tackler/
+  _sack_defender docstrings for exactly how each defender is chosen).
+  No GDD formula/weights are given for this either, so this module's own
+  choice: DPOY score = 0.30 * normalized(sacks) + 0.30 *
+  normalized(interceptions) + 0.15 * normalized(tackles_for_loss) +
+  0.10 * normalized(solo_tackles) + 0.10 * normalized(forced_fumbles) +
+  0.05 * normalized(passes_defended), each normalized within the whole
+  defensive candidate pool (there's no positional split like offense's
+  QB/RB/WR-TE -- DL/LB/DB are all compared on the same defensive stat
+  line, matching how DPOY is a single, position-agnostic real NFL award
+  too). Weighted toward sacks/INTs since those are what actually
+  decides most real-world AP DPOY votes; fumble_recoveries is tracked
+  and shown but excluded from the score itself (more a product of luck/
+  opportunity than of individual defensive dominance).
+- ROY now draws from BOTH the offensive AND defensive candidate pools
+  (previously offense-only, since DPOY's interception-only basis was
+  judged too thin to fairly weigh a rookie defender against a rookie
+  QB/RB/WR -- resolved now that a real defensive box score exists).
+  Each side is normalized within its OWN rookie sub-pool first (same
+  technique MVP/OPOY already use to compare QB/RB/WR on one scale)
+  before the two [0,1]-ish scores are merged into one ranking -- a
+  standout rookie defender can now genuinely win ROY over a rookie
+  offensive skill player, not just place behind one by construction.
 """
 from __future__ import annotations
-import re
 from dataclasses import dataclass
 
 from sqlmodel import select
 
 from app.core.db import get_session
 from app.models.player import Player
-from app.engine.season_stats import aggregate_season_stats
-
-_INTERCEPTION_RE = re.compile(r"^Interception \((.+)\)$")
+from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 
 
 def _normalize(value: float, pool: list[float]) -> float:
@@ -140,7 +148,12 @@ def offensive_player_of_the_year(season, top_n: int = 5) -> list[AwardCandidate]
 
 
 def rookie_of_the_year(season, top_n: int = 5) -> list[AwardCandidate]:
-    return sorted(_offensive_candidates(season, rookies_only=True), key=lambda c: -c.score)[:top_n]
+    """Offensive AND defensive rookies, each normalized within their OWN
+    rookie sub-pool first (same cross-position technique MVP/OPOY use)
+    before being merged into one ranking -- see this module's docstring
+    for why this changed from offense-only."""
+    candidates = _offensive_candidates(season, rookies_only=True) + _defensive_candidates(season, rookies_only=True)
+    return sorted(candidates, key=lambda c: -c.score)[:top_n]
 
 
 def most_valuable_player(season, top_n: int = 5) -> list[AwardCandidate]:
@@ -156,35 +169,50 @@ def most_valuable_player(season, top_n: int = 5) -> list[AwardCandidate]:
     return sorted(blended, key=lambda c: -c.score)[:top_n]
 
 
-def _interception_counts(season) -> dict[tuple[str, str], int]:
-    """(team_abbr, defender_name) -> interception count, parsed from the
-    real "Interception (Name)" desc text -- see this module's docstring
-    for why this is the only individual defensive stat available."""
-    counts: dict[tuple[str, str], int] = {}
-    for week in season.schedule:
-        for g in week:
-            if g.result is None:
-                continue
-            for p in g.result.plays:
-                if p.outcome != "turnover" or p.play_type != "pass":
-                    continue
-                m = _INTERCEPTION_RE.match(p.desc)
-                if not m:
-                    continue
-                defender_name = m.group(1)
-                defense_abbr = g.away_abbr if p.offense_abbr == g.home_abbr else g.home_abbr
-                key = (defense_abbr, defender_name)
-                counts[key] = counts.get(key, 0) + 1
-    return counts
+def _defensive_candidates(season, rookies_only: bool = False) -> list[AwardCandidate]:
+    """See this module's docstring for the disclosed DPOY weighting.
+    Candidate pool: every defender credited with at least one stat this
+    season (app/engine/season_stats.py's aggregate_season_defensive_stats,
+    built on the real per-play defender attribution in drive_sim.py/
+    defensive_box_score.py) -- no positional split, matching how DPOY is
+    a single, position-agnostic real NFL award."""
+    defense = aggregate_season_defensive_stats(season)
+    rookie_keys = _rookie_keys(season) if rookies_only else None
+
+    def _keep(key):
+        return rookie_keys is None or key in rookie_keys
+
+    pool = [(k, l) for k, l in defense.items() if _keep(k)]
+    if not pool:
+        return []
+
+    sacks_pool = [l.sacks for _, l in pool]
+    ints_pool = [l.interceptions for _, l in pool]
+    tfl_pool = [l.tackles_for_loss for _, l in pool]
+    tkl_pool = [l.solo_tackles for _, l in pool]
+    ff_pool = [l.forced_fumbles for _, l in pool]
+    pd_pool = [l.passes_defended for _, l in pool]
+
+    candidates: list[AwardCandidate] = []
+    for (abbr, name), line in pool:
+        score = (
+            0.30 * _normalize(line.sacks, sacks_pool)
+            + 0.30 * _normalize(line.interceptions, ints_pool)
+            + 0.15 * _normalize(line.tackles_for_loss, tfl_pool)
+            + 0.10 * _normalize(line.solo_tackles, tkl_pool)
+            + 0.10 * _normalize(line.forced_fumbles, ff_pool)
+            + 0.05 * _normalize(line.passes_defended, pd_pool)
+        )
+        candidates.append(AwardCandidate(
+            name=name, team_abbr=abbr, position="DEF",
+            stat_line=f"{line.solo_tackles} tkl, {line.sacks} sacks, {line.tackles_for_loss} TFL, {line.interceptions} INT, {line.passes_defended} PD",
+            score=score,
+        ))
+    return candidates
 
 
 def defensive_player_of_the_year(season, top_n: int = 5) -> list[AwardCandidate]:
-    counts = _interception_counts(season)
-    ranked = sorted(counts.items(), key=lambda kv: -kv[1])[:top_n]
-    return [
-        AwardCandidate(name=name, team_abbr=abbr, position="DEF", stat_line=f"{ints} INT", score=float(ints))
-        for (abbr, name), ints in ranked
-    ]
+    return sorted(_defensive_candidates(season), key=lambda c: -c.score)[:top_n]
 
 
 @dataclass

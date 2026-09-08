@@ -26,7 +26,7 @@
   </table>
 </div>
 
-{% for team, box in [(away, away_box), (home, home_box)] %}
+{% for team, box, defense in [(away, away_box, away_defense), (home, home_box, home_defense)] %}
 <div class="card">
   <h3>Box Score &mdash; {{ team.name }}</h3>
   {% if box.passing %}
@@ -55,6 +55,16 @@
     <tbody>
       {% for r in box.receiving %}
       <tr><td>{{ r.name }}</td><td>{{ r.receptions }}</td><td>{{ r.targets }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if defense %}
+  <table class="boxtable">
+    <thead><tr><th>Defense</th><th>Tkl</th><th>TFL</th><th>Sk</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th></tr></thead>
+    <tbody>
+      {% for d in defense %}
+      <tr><td>{{ d.name }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

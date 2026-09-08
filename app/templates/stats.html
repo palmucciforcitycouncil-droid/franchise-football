@@ -11,7 +11,7 @@
 {% else %}
 <div class="card">
   <h3>Awards Race</h3>
-  <p class="muted">GDD &sect;7.4. DPOY is interception-based only &mdash; see HANDOFF.md's Known Gaps for why (this engine doesn't attribute sacks/tackles to a specific defender yet).</p>
+  <p class="muted">GDD &sect;7.4. DPOY is a real multi-stat composite (sacks, INT, TFL, tackles, forced fumbles, PD) &mdash; see HANDOFF.md and app/engine/awards.py's docstring for the disclosed weighting.</p>
   <div class="row" style="align-items: flex-start;">
     {% for label, candidates in [("MVP", awards_race.mvp), ("OPOY", awards_race.opoy), ("DPOY", awards_race.dpoy), ("ROY", awards_race.roy)] %}
     <table style="width: auto; min-width: 220px;">
@@ -61,6 +61,19 @@
     <tbody>
       {% for r in receiving_leaders %}
       <tr><td>{{ r.name }}</td><td>{{ r.team_abbr }}</td><td>{{ r.receptions }}</td><td>{{ r.targets }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Defensive Leaders</h3>
+  <p class="muted">Real per-player defensive attribution (GDD &sect;6.7.2) &mdash; Defensive TD isn't modeled yet (no interception/fumble return mechanic exists in this engine).</p>
+  <table class="boxtable">
+    <thead><tr><th>Player</th><th>Team</th><th>Tkl</th><th>TFL</th><th>Sacks</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th></tr></thead>
+    <tbody>
+      {% for d in defensive_leaders %}
+      <tr><td>{{ d.name }}</td><td>{{ d.team_abbr }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
