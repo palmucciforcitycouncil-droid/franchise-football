@@ -23,7 +23,7 @@ from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
     COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
 )
-from app.services import season_state, depth_chart_overrides, gameplan_store
+from app.services import season_state, depth_chart_overrides, gameplan_store, history_store
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
@@ -383,6 +383,17 @@ def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
 
 
 ROUND_LABELS = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Conference Championship", "SB": "Super Bowl"}
+
+
+@app.get("/history", response_class=HTMLResponse)
+def history_view(request: Request):
+    """League History: every season archived by season_state.start_new_season()
+    right before it's replaced -- final standings/champion/awards/stat
+    leaders, permanently. Most recent season first. Season-level totals
+    only (not career-cumulative) -- see history_store.py's own
+    docstring for that scope decision."""
+    records = list(reversed(history_store.get_history()))
+    return templates.TemplateResponse(request, "history.html", {"records": records})
 
 
 @app.get("/playoffs", response_class=HTMLResponse)

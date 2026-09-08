@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}League History — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>League History</h2>
+  <p class="muted">Every completed season, archived permanently once "Start Next Season" is pressed on the <a href="/playoffs">Playoffs</a> page. Season-level totals, not career-cumulative &mdash; see HANDOFF.md's Known Gaps for that scope decision.</p>
+</div>
+
+{% if not records %}
+<div class="card"><p class="muted">No seasons completed yet.</p></div>
+{% else %}
+{% for rec in records %}
+<div class="card">
+  <h3>Season {{ rec.season_number + 1 }}{% if rec.champion_abbr %} &mdash; Champion: {{ rec.champion_abbr }}{% endif %}</h3>
+
+  {% if rec.afc_seeds %}
+  <p class="muted">AFC #1 seed: {{ rec.afc_seeds[0] }} &middot; NFC #1 seed: {{ rec.nfc_seeds[0] }}</p>
+  {% endif %}
+
+  <div class="row" style="align-items: flex-start; margin-top: 0.75rem;">
+    {% for label, candidates in [("MVP", rec.awards.mvp), ("OPOY", rec.awards.opoy), ("DPOY", rec.awards.dpoy), ("ROY", rec.awards.roy)] %}
+    <table style="width: auto; min-width: 200px;">
+      <thead><tr><th colspan="2">{{ label }}</th></tr></thead>
+      <tbody>
+        {% if candidates %}
+        <tr><td>{{ candidates[0].name }} ({{ candidates[0].team_abbr }})</td><td class="muted">{{ candidates[0].stat_line }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="muted">&mdash;</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </div>
+
+  <table class="boxtable" style="margin-top: 1rem;">
+    <thead><tr><th>Passing Leader</th><th>Rushing Leader</th><th>Receiving Leader</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{% if rec.passing_leaders %}{{ rec.passing_leaders[0].name }} ({{ rec.passing_leaders[0].team_abbr }}) &mdash; {{ rec.passing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.rushing_leaders %}{{ rec.rushing_leaders[0].name }} ({{ rec.rushing_leaders[0].team_abbr }}) &mdash; {{ rec.rushing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.receiving_leaders %}{{ rec.receiving_leaders[0].name }} ({{ rec.receiving_leaders[0].team_abbr }}) &mdash; {{ rec.receiving_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

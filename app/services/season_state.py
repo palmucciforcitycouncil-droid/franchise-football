@@ -34,7 +34,7 @@ from app.engine.game_state import GameResult
 from app.engine import power_rating, score_fidelity, playoffs, progression, season_stats, awards
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
-from app.services import gameplan_store
+from app.services import gameplan_store, history_store
 from app.core.db import get_session
 from app.models.player import Player
 from sqlmodel import select
@@ -348,6 +348,11 @@ def start_new_season() -> Season:
     - Everything else per-season (records, schedule, playoffs) is
       fresh, same as reset_season() already does for a brand-new
       franchise.
+    - The just-completed season's final standings, champion, awards,
+      and stat leaders are archived permanently (history_store.py)
+      BEFORE any of the above resets happen -- otherwise that season's
+      numbers would simply be lost, which is exactly the gap this
+      whole function exists to close.
     """
     with _STATE_LOCK:
         season = get_season()
@@ -355,6 +360,7 @@ def start_new_season() -> Season:
             raise ValueError("Playoffs aren't finished yet")
 
         prior_standings = playoffs.final_division_standings(season)
+        history_store.archive_season(season)
         apply_progression_to_roster(season)
 
         next_number = season.season_number + 1
