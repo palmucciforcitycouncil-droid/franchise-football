@@ -107,6 +107,7 @@ def test_start_new_season_archives_the_completed_season_for_real():
     from app.engine.schedule import N_WEEKS
 
     real_db_path = db_module.DB_PATH
+    real_history_path = history_store.DEFAULT_PATH
     temp_db_path = Path("data/_test_history_roster.db")
     shutil.copyfile(real_db_path, temp_db_path)
     db_module.DB_PATH = temp_db_path
@@ -114,6 +115,7 @@ def test_start_new_season_archives_the_completed_season_for_real():
     save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_history_season.json")
     gameplan_store.DEFAULT_PATH = Path("data/saves/_test_history_gameplans.json")
     history_store.DEFAULT_PATH = Path("data/saves/_test_history.json")
+    history_store.DEFAULT_PATH.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
 
     try:
         season_state.reset_season()
@@ -141,6 +143,7 @@ def test_start_new_season_archives_the_completed_season_for_real():
         Path("data/saves/_test_history_season.json").unlink(missing_ok=True)
         Path("data/saves/_test_history_gameplans.json").unlink(missing_ok=True)
         Path("data/saves/_test_history.json").unlink(missing_ok=True)
+        history_store.DEFAULT_PATH = real_history_path
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
@@ -154,6 +157,7 @@ def test_history_route_renders_empty_and_populated_states():
     from app.main import app
 
     real_db_path = db_module.DB_PATH
+    real_history_path = history_store.DEFAULT_PATH
     temp_db_path = Path("data/_test_history_route_roster.db")
     shutil.copyfile(real_db_path, temp_db_path)
     db_module.DB_PATH = temp_db_path
@@ -161,6 +165,7 @@ def test_history_route_renders_empty_and_populated_states():
     save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_history_route_season.json")
     gameplan_store.DEFAULT_PATH = Path("data/saves/_test_history_route_gameplans.json")
     history_store.DEFAULT_PATH = Path("data/saves/_test_history_route.json")
+    history_store.DEFAULT_PATH.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
 
     try:
         client = TestClient(app)
@@ -188,3 +193,4 @@ def test_history_route_renders_empty_and_populated_states():
         Path("data/saves/_test_history_route_season.json").unlink(missing_ok=True)
         Path("data/saves/_test_history_route_gameplans.json").unlink(missing_ok=True)
         Path("data/saves/_test_history_route.json").unlink(missing_ok=True)
+        history_store.DEFAULT_PATH = real_history_path

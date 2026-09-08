@@ -20,10 +20,11 @@ os.environ.setdefault("LEAGUE_SEED", "2025")
 import pytest
 
 from app.core import db as db_module
-from app.services import season_state, save_service, gameplan_store
+from app.services import season_state, save_service, gameplan_store, history_store
 from app.engine.schedule import N_WEEKS
 
 REAL_DB_PATH = db_module.DB_PATH
+REAL_HISTORY_PATH = history_store.DEFAULT_PATH
 TEMP_DB_PATH = Path("data/_test_progression_roster.db")
 
 pytestmark = pytest.mark.skipif(
@@ -41,6 +42,11 @@ def _isolated_db_and_saves():
     db_module._engine = None  # force get_engine() to rebuild against the new path
     save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_rollover_season.json")
     gameplan_store.DEFAULT_PATH = Path("data/saves/_test_rollover_gameplans.json")
+    # start_new_season() calls history_store.archive_season() internally --
+    # redirect this too, or every test here would archive real simulated
+    # seasons into the live app's real data/saves/history.json.
+    history_store.DEFAULT_PATH = Path("data/saves/_test_rollover_history.json")
+    history_store.DEFAULT_PATH.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
     try:
         yield
     finally:
@@ -51,6 +57,8 @@ def _isolated_db_and_saves():
         TEMP_DB_PATH.unlink(missing_ok=True)
         Path("data/saves/_test_rollover_season.json").unlink(missing_ok=True)
         Path("data/saves/_test_rollover_gameplans.json").unlink(missing_ok=True)
+        Path("data/saves/_test_rollover_history.json").unlink(missing_ok=True)
+        history_store.DEFAULT_PATH = REAL_HISTORY_PATH
 
 
 def _play_full_season_and_playoffs(user_team_abbr: str | None = None):
