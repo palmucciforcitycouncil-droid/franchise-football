@@ -16,7 +16,8 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
-from app.engine import score_fidelity
+from app.engine.season_stats import aggregate_season_stats
+from app.engine import score_fidelity, awards
 from app.engine.scouting import find_next_opponent, build_scouting_report
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
@@ -157,77 +158,12 @@ def depth_chart_move(team_abbr: str, position_value: str, player_id: str = Form(
     return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
 
 
-@dataclass
-class SeasonPassingLine:
-    name: str
-    team_abbr: str
-    completions: int = 0
-    attempts: int = 0
-    yards: int = 0
-    touchdowns: int = 0
-    interceptions: int = 0
-
-
-@dataclass
-class SeasonRushingLine:
-    name: str
-    team_abbr: str
-    carries: int = 0
-    yards: int = 0
-    touchdowns: int = 0
-
-
-@dataclass
-class SeasonReceivingLine:
-    name: str
-    team_abbr: str
-    receptions: int = 0
-    targets: int = 0
-    yards: int = 0
-    touchdowns: int = 0
-
-
 def _season_stat_leaders(season, top_n: int = 15):
-    """Aggregates every played game's box score (build_box_score, already
-    computed per-game for result.html) into season totals, keyed by
-    (team_abbr, name) so two players who happen to share a name on
-    different teams don't get merged. Reuses build_box_score rather than
-    re-deriving stats from raw plays -- same convention/caveat as that
-    function: the passing/rushing line's name comes from the team's
-    CURRENT starting QB/HB (get_offensive_starters), not necessarily who
-    actually played in an older game if the depth chart has since
-    changed -- a pre-existing simplification (single active passer/
-    rusher per team, no in-season substitution modeled), not something
-    new introduced here."""
-    passing: dict[tuple[str, str], SeasonPassingLine] = {}
-    rushing: dict[tuple[str, str], SeasonRushingLine] = {}
-    receiving: dict[tuple[str, str], SeasonReceivingLine] = {}
-
-    for week in season.schedule:
-        for g in week:
-            if g.result is None:
-                continue
-            for abbr in (g.home_abbr, g.away_abbr):
-                box = build_box_score(g.result.plays, abbr)
-                for p in box.passing:
-                    line = passing.setdefault((abbr, p.name), SeasonPassingLine(name=p.name, team_abbr=abbr))
-                    line.completions += p.completions
-                    line.attempts += p.attempts
-                    line.yards += p.yards
-                    line.touchdowns += p.touchdowns
-                    line.interceptions += p.interceptions
-                for r in box.rushing:
-                    line = rushing.setdefault((abbr, r.name), SeasonRushingLine(name=r.name, team_abbr=abbr))
-                    line.carries += r.carries
-                    line.yards += r.yards
-                    line.touchdowns += r.touchdowns
-                for rc in box.receiving:
-                    line = receiving.setdefault((abbr, rc.name), SeasonReceivingLine(name=rc.name, team_abbr=abbr))
-                    line.receptions += rc.receptions
-                    line.targets += rc.targets
-                    line.yards += rc.yards
-                    line.touchdowns += rc.touchdowns
-
+    """Thin wrapper: aggregate_season_stats does the real work (shared
+    with app/engine/awards.py, which needs the full untruncated
+    aggregation); this just sorts by yards and slices to top_n for
+    Dashboard/Stats display."""
+    passing, rushing, receiving = aggregate_season_stats(season)
     return (
         sorted(passing.values(), key=lambda l: -l.yards)[:top_n],
         sorted(rushing.values(), key=lambda l: -l.yards)[:top_n],
@@ -353,6 +289,7 @@ def stats_view(request: Request):
     season = season_state.get_season()
     games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
     passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season)
+    awards_race = awards.season_awards(season) if games_played else None
     return templates.TemplateResponse(
         request,
         "stats.html",
@@ -362,6 +299,7 @@ def stats_view(request: Request):
             "passing_leaders": passing_leaders,
             "rushing_leaders": rushing_leaders,
             "receiving_leaders": receiving_leaders,
+            "awards_race": awards_race,
         },
     )
 
