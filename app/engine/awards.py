@@ -98,6 +98,16 @@ def _rookie_keys(season) -> set[tuple[str, str]]:
 def _offensive_candidates(season, rookies_only: bool = False) -> list[AwardCandidate]:
     passing, rushing, receiving = aggregate_season_stats(season)
     rookie_keys = _rookie_keys(season) if rookies_only else None
+    return offensive_candidates_from_stats(passing, rushing, receiving, rookie_keys)
+
+
+def offensive_candidates_from_stats(passing: dict, rushing: dict, receiving: dict, rookie_keys: set | None = None) -> list[AwardCandidate]:
+    """Pure version of _offensive_candidates, decoupled from a live
+    Season object -- takes the same-shaped dicts aggregate_season_stats()
+    produces (keyed by (team_abbr, name) -> Season*Line) directly. Split
+    out so real historical NFL data (scripts/import_nfl_history.py) can
+    score real players by this exact same formula, not a re-implemented
+    copy that could silently drift from the live one."""
 
     def _keep(key):
         return rookie_keys is None or key in rookie_keys
@@ -160,13 +170,21 @@ def most_valuable_player(season, top_n: int = 5) -> list[AwardCandidate]:
     """MVP = the same normalized offensive-production score OPOY uses,
     blended with the player's own team's win% (Sec 7.4's "team wins"
     term)."""
-    blended = []
-    for c in _offensive_candidates(season):
-        win_pct = season.records[c.team_abbr].win_pct
-        mvp_score = 0.4 * win_pct + 0.6 * c.score
-        blended.append(AwardCandidate(name=c.name, team_abbr=c.team_abbr, position=c.position,
-                                       stat_line=c.stat_line, score=mvp_score))
-    return sorted(blended, key=lambda c: -c.score)[:top_n]
+    win_pct_by_abbr = {abbr: r.win_pct for abbr, r in season.records.items()}
+    return mvp_from_candidates(_offensive_candidates(season), win_pct_by_abbr)[:top_n]
+
+
+def mvp_from_candidates(offensive_candidates: list[AwardCandidate], win_pct_by_abbr: dict) -> list[AwardCandidate]:
+    """Pure version of the MVP blend -- takes OPOY-shaped candidates and
+    a plain {team_abbr: win_pct} dict rather than a live Season.records.
+    Split out for the same reason offensive_candidates_from_stats() was:
+    real historical seasons need the identical formula, not a copy."""
+    blended = [
+        AwardCandidate(name=c.name, team_abbr=c.team_abbr, position=c.position, stat_line=c.stat_line,
+                        score=0.4 * win_pct_by_abbr.get(c.team_abbr, 0.0) + 0.6 * c.score)
+        for c in offensive_candidates
+    ]
+    return sorted(blended, key=lambda c: -c.score)
 
 
 def _defensive_candidates(season, rookies_only: bool = False) -> list[AwardCandidate]:
@@ -178,6 +196,12 @@ def _defensive_candidates(season, rookies_only: bool = False) -> list[AwardCandi
     a single, position-agnostic real NFL award."""
     defense = aggregate_season_defensive_stats(season)
     rookie_keys = _rookie_keys(season) if rookies_only else None
+    return defensive_candidates_from_stats(defense, rookie_keys)
+
+
+def defensive_candidates_from_stats(defense: dict, rookie_keys: set | None = None) -> list[AwardCandidate]:
+    """Pure version of _defensive_candidates -- see offensive_candidates_
+    from_stats' docstring for why this split exists."""
 
     def _keep(key):
         return rookie_keys is None or key in rookie_keys

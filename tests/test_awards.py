@@ -127,6 +127,52 @@ def test_dpoy_top_n_is_respected():
     assert len(awards.defensive_player_of_the_year(season, top_n=3)) == 3
 
 
+def test_offensive_candidates_from_stats_builds_real_candidates_from_plain_dicts():
+    """The pure dict-based function (built for scripts/import_nfl_
+    history.py to reuse) works directly off plain Season*Line dicts, no
+    live Season object needed -- a solo candidate normalizes to the
+    neutral 0.5 in a single-value pool, matching _normalize's own
+    documented single-value-pool behavior."""
+    from app.engine.season_stats import SeasonPassingLine
+    from app.engine.awards import offensive_candidates_from_stats
+
+    passing = {("KC", "Test QB"): SeasonPassingLine(name="Test QB", team_abbr="KC", attempts=400, yards=4000, touchdowns=30, interceptions=10)}
+    candidates = offensive_candidates_from_stats(passing, {}, {})
+    assert len(candidates) == 1
+    assert candidates[0].name == "Test QB"
+    assert candidates[0].position == "QB"
+    assert candidates[0].score == 0.5
+
+
+def test_offensive_candidates_from_stats_rookie_filter():
+    from app.engine.season_stats import SeasonPassingLine
+    from app.engine.awards import offensive_candidates_from_stats
+
+    passing = {
+        ("KC", "Veteran QB"): SeasonPassingLine(name="Veteran QB", team_abbr="KC", attempts=400, yards=5000, touchdowns=40),
+        ("MIA", "Rookie QB"): SeasonPassingLine(name="Rookie QB", team_abbr="MIA", attempts=300, yards=2000, touchdowns=10),
+    }
+    all_candidates = offensive_candidates_from_stats(passing, {}, {})
+    assert len(all_candidates) == 2
+    rookie_only = offensive_candidates_from_stats(passing, {}, {}, rookie_keys={("MIA", "Rookie QB")})
+    assert [c.name for c in rookie_only] == ["Rookie QB"]
+
+
+def test_defensive_candidates_from_stats_and_mvp_from_candidates():
+    from app.engine.season_stats import SeasonDefensiveLine
+    from app.engine.awards import defensive_candidates_from_stats, mvp_from_candidates, AwardCandidate
+
+    defense = {("BUF", "Star LB"): SeasonDefensiveLine(name="Star LB", team_abbr="BUF", solo_tackles=100, sacks=10, interceptions=3)}
+    candidates = defensive_candidates_from_stats(defense)
+    assert len(candidates) == 1
+    assert candidates[0].position == "DEF"
+
+    offensive = [AwardCandidate(name="A", team_abbr="KC", position="QB", stat_line="", score=0.5),
+                 AwardCandidate(name="B", team_abbr="MIA", position="QB", stat_line="", score=0.5)]
+    mvp = mvp_from_candidates(offensive, {"KC": 1.0, "MIA": 0.0})
+    assert mvp[0].name == "A"  # same production, better record wins
+
+
 def test_mvp_blends_offensive_production_with_team_win_pct():
     """Two teams' win% differ, but this test isolates just the win%
     blending logic against a hand-built candidate list (avoiding a full
@@ -153,10 +199,15 @@ def test_mvp_blends_offensive_production_with_team_win_pct():
 
 @needs_db
 def test_season_awards_against_a_real_simulated_season_returns_sane_shapes():
-    from app.services import season_state, save_service
+    from app.services import season_state, save_service, history_store
     from pathlib import Path
 
     save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_season_awards.json")
+    # season_state._build_season() now reads history_store (a fresh franchise's
+    # season_number bootstraps to AFTER whatever's archived) -- redirect + clear so
+    # this test never depends on the REAL data/saves/history.json's ambient content.
+    history_store.DEFAULT_PATH = Path("data/saves/_test_history_awards.json")
+    history_store.DEFAULT_PATH.unlink(missing_ok=True)
     season_state.reset_season()
     for _ in range(3):
         season_state.simulate_current_week()

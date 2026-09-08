@@ -6,7 +6,7 @@ os.environ.setdefault("LEAGUE_SEED", "2025")
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import season_state, save_service, gameplan_store
+from app.services import season_state, save_service, gameplan_store, history_store
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.data.teams import TEAMS
 
@@ -17,10 +17,17 @@ client = TestClient(app)
 # throwaway path for the duration of this test module.
 save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_season.json")
 gameplan_store.DEFAULT_PATH = Path("data/saves/_test_gameplans.json")
+# Also redirect history_store: season_state._build_season() now reads it (a fresh
+# franchise's season_number bootstraps to AFTER whatever's archived, see
+# season_state._bootstrap_season_number()) -- without this, tests here would read the
+# REAL data/saves/history.json and get a non-zero, environment-dependent season_number,
+# breaking the season_number=0 assumption several of these tests make.
+history_store.DEFAULT_PATH = Path("data/saves/_test_season_history.json")
 
 
 def setup_function(_):
     # Each test gets a fresh season so they don't interact via shared module state.
+    history_store.DEFAULT_PATH.unlink(missing_ok=True)
     season_state.reset_season()
     gameplan_store.DEFAULT_PATH.unlink(missing_ok=True)
 

@@ -97,6 +97,29 @@ def test_start_new_season_increments_season_number_and_resets_per_season_state()
     assert len(new_season.schedule) == N_WEEKS
 
 
+def test_a_fresh_franchise_bootstraps_season_number_after_whatever_is_already_archived():
+    """A brand-new franchise's first season should continue chronologically
+    AFTER whatever's already permanently archived in history_store.py --
+    real-NFL-seeded seasons (scripts/import_nfl_history.py) or a previous
+    franchise's own simulated seasons -- rather than always restarting at
+    0. See season_state._bootstrap_season_number()'s own docstring."""
+    from app.services.history_store import SeasonRecord, TeamSeasonResult, _record_to_dict, _save
+    from app.engine.awards import AwardsRace
+
+    fake_real_seasons = [
+        _record_to_dict(SeasonRecord(
+            season_number=i, team_results=[], champion_abbr=None, afc_seeds=None, nfc_seeds=None,
+            awards=AwardsRace(mvp=[], opoy=[], dpoy=[], roy=[]),
+            passing_leaders=[], rushing_leaders=[], receiving_leaders=[], defensive_leaders=[],
+        ))
+        for i in range(5)
+    ]
+    _save(fake_real_seasons, history_store.DEFAULT_PATH)
+
+    season = season_state.reset_season()
+    assert season.season_number == 5
+
+
 def test_start_new_season_preserves_user_team_and_sfs_state():
     _play_full_season_and_playoffs(user_team_abbr="KC")
     old_sfs = season_state.get_season().sfs

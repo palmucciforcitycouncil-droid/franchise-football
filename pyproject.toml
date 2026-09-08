@@ -28,6 +28,12 @@ dev = [
   "ruff>=0.6",
   "anyio>=4.4"
 ]
+# Only needed to run scripts/import_nfl_history.py (a one-off real-NFL-data
+# import for League History/HOF, not the app's own runtime) -- CC-BY 4.0
+# licensed real NFL data via the nflverse project, see that script's docstring.
+history-import = [
+  "nflreadpy>=0.1.5"
+]
 
 [tool.ruff]
 line-length = 100

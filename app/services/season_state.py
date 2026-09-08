@@ -93,10 +93,23 @@ class Season:
         )
 
 
+def _bootstrap_season_number() -> int:
+    """A brand-new franchise's first season continues chronologically
+    AFTER whatever's already permanently archived in history_store.py
+    (real-NFL-seeded seasons via scripts/import_nfl_history.py, or a
+    previous franchise's own simulated seasons -- history.json is never
+    cleared on reset, by design, so it's one continuous, ever-growing
+    league timeline, not a per-franchise save slot) rather than always
+    restarting at 0."""
+    return len(history_store.get_history())
+
+
 def _build_season(
-    league_seed: int, season_number: int = 0,
+    league_seed: int, season_number: int | None = None,
     prior_standings: dict[tuple[str, str], list[str]] | None = None,
 ) -> Season:
+    if season_number is None:
+        season_number = _bootstrap_season_number()
     raw_schedule = generate_season_schedule(league_seed, season_number=season_number, prior_standings=prior_standings)
     schedule = [
         [WeekGame(home_abbr=h, away_abbr=a) for h, a in week]

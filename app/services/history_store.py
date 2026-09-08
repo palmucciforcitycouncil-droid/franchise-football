@@ -194,6 +194,19 @@ def get_history(path: Path | None = None) -> list[SeasonRecord]:
     return [_record_from_dict(d) for d in _load(path)]
 
 
+def append_season_record(record: SeasonRecord, path: Path | None = None) -> None:
+    """Appends an already-built SeasonRecord directly, bypassing
+    archive_season()'s live-Season-object requirement -- for a caller
+    that already has real data in this exact shape (e.g. scripts/
+    import_nfl_history.py building SeasonRecords from real NFL stats,
+    not a simulated Season). Same append-oldest-first ordering as
+    archive_season(); the caller is responsible for calling this in the
+    order the records should appear."""
+    records = _load(path)
+    records.append(_record_to_dict(record))
+    _save(records, path)
+
+
 @dataclass
 class CareerPassingLine:
     name: str

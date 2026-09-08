@@ -85,26 +85,80 @@ def test_run_point_of_attack_matches_best_blocking_zone_most_of_the_time():
     assert matches / 200 > 0.4
 
 
+def _synthetic_player(**overrides):
+    """A hand-built Player with every attribute pinned to a fixed
+    baseline (75), for tests that need a CONTROLLED matchup rather than
+    whatever the live roster DB's ratings currently happen to be. The
+    live DB is mutable in this project (Player Progression, item 26,
+    permanently ages/develops it every real "Start Next Season") -- a
+    test that computes its own expectation from live ratings can start
+    failing months later for reasons that have nothing to do with the
+    code under test, simply because some other session's live
+    verification aged a specific real player's rating far enough to
+    change which matchup is "the biggest mismatch" (confirmed: this is
+    exactly what happened here, not a regression -- see git history)."""
+    from app.models.player import Player, Position
+
+    defaults = dict(
+        player_id="synthetic", first_name="Synthetic", last_name="Player",
+        position=Position.WR, team_abbr="KC", age=25,
+        overall_rating=75, potential=80, morale=75,
+        speed=75, acceleration=75, strength=75, agility=75, jumping=75,
+        stamina=75, toughness=75, durability=75,
+        throw_power=75, throw_accuracy_short=75, throw_accuracy_mid=75, throw_accuracy_deep=75,
+        play_action=75, throw_on_the_run=75, throw_under_pressure=75, break_sack=75,
+        catching=75, spectacular_catch=75, catch_in_traffic=75,
+        short_route_running=75, medium_route_running=75, deep_route_running=75, release=75,
+        carrying=75, trucking=75, change_of_direction=75, ball_carrier_vision=75,
+        stiff_arm=75, spin_move=75, juke_move=75, break_tackle=75,
+        run_block=75, pass_block=75, run_block_power=75, run_block_finesse=75,
+        pass_block_power=75, pass_block_finesse=75, lead_block=75, impact_blocking=75,
+        tackle=75, hit_power=75, block_shedding=75, pursuit=75, play_recognition=75,
+        man_coverage=75, zone_coverage=75, press=75, power_moves=75, finesse_moves=75,
+        kick_power=75, kick_accuracy=75, kick_return=75, awareness=75,
+    )
+    defaults.update(overrides)
+    return Player(**defaults)
+
+
 def test_pass_target_favors_the_biggest_real_mismatch_but_varies():
     """Weighted-random selection (softmax over mismatch scores): the best
-    real mismatch should win more often than any other receiver, but not
+    mismatch should win more often than any other receiver, but not
     every single time -- unlike the old pure-argmax version, which sent
     100% of a game's targets to one receiver (a real bug found via the
-    box score, see player_ai.choose_pass_target's docstring)."""
-    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    box score, see player_ai.choose_pass_target's docstring). Uses
+    synthetic players with a CONTROLLED, moderate mismatch gap (not the
+    live roster DB -- see _synthetic_player's docstring for why)."""
+    from app.services.depth_chart import OffensiveStarters, DefensiveStarters
     from app.engine.player_ai import build_matchup_context, choose_pass_target, route_running_avg, coverage_rating
     from app.engine.rng import RNG
 
-    off = get_offensive_starters("KC")
-    defn = get_defensive_starters("BUF")
+    wr1 = _synthetic_player(player_id="wr1", short_route_running=88, medium_route_running=88, deep_route_running=88)  # the clear best mismatch
+    wr2 = _synthetic_player(player_id="wr2")
+    te = _synthetic_player(player_id="te")
+    cb1 = _synthetic_player(player_id="cb1", position="CB", man_coverage=68, zone_coverage=68)  # a real but moderate mismatch, not an extreme one
+    cb2 = _synthetic_player(player_id="cb2", position="CB")
+    ss = _synthetic_player(player_id="ss", position="SS")
+
+    off = OffensiveStarters(
+        qb=_synthetic_player(player_id="qb", position="QB"), hb=_synthetic_player(player_id="hb", position="HB"),
+        wr1=wr1, wr2=wr2, wr3=None, te=te,
+        lt=_synthetic_player(player_id="lt", position="LT"), lg=_synthetic_player(player_id="lg", position="LG"),
+        c=_synthetic_player(player_id="c", position="C"), rg=_synthetic_player(player_id="rg", position="RG"),
+        rt=_synthetic_player(player_id="rt", position="RT"), k=_synthetic_player(player_id="k", position="K"),
+    )
+    defn = DefensiveStarters(
+        dt1=_synthetic_player(player_id="dt1", position="DT"), dt2=_synthetic_player(player_id="dt2", position="DT"),
+        le=_synthetic_player(player_id="le", position="LE"), re=_synthetic_player(player_id="re", position="RE"),
+        lolb=_synthetic_player(player_id="lolb", position="LOLB"), mlb=_synthetic_player(player_id="mlb", position="MLB"),
+        rolb=_synthetic_player(player_id="rolb", position="ROLB"),
+        cb1=cb1, cb2=cb2, fs=_synthetic_player(player_id="fs", position="FS"), ss=ss,
+    )
     ctx = build_matchup_context(off, defn)
 
-    candidates = [
-        (off.wr1, defn.cb1), (off.wr2, defn.cb2), (off.te, defn.ss),
-    ]
-    if off.wr3 is not None:
-        candidates.append((off.wr3, defn.fs))
+    candidates = [(wr1, cb1), (wr2, cb2), (te, ss)]
     expected_best = max(candidates, key=lambda pair: route_running_avg(pair[0]) - coverage_rating(pair[1]))
+    assert expected_best[0] is wr1  # sanity-check the synthetic setup actually produces the intended mismatch
 
     rng = RNG.with_seed(1)
     targets = [choose_pass_target(ctx, rng, distance=8) for _ in range(200)]

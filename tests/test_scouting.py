@@ -18,7 +18,7 @@ from app.services.season_state import Season, WeekGame, TeamRecord
 from app.engine.game_state import GameResult, PlayEvent
 from app.engine.game_sim import TeamTotals
 from app.engine import scouting
-from app.services import save_service
+from app.services import save_service, history_store
 
 # The end-to-end test below calls season_state.reset_season()/
 # simulate_current_week() for real -- must never touch the live app's
@@ -26,6 +26,11 @@ from app.services import save_service
 # can't rely on that module having already run first (e.g. `pytest
 # tests/test_scouting.py` in isolation).
 save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_season.json")
+# season_state._build_season() now reads history_store (a fresh franchise's
+# season_number bootstraps to AFTER whatever's archived) -- redirect + clear so this
+# module never depends on the REAL data/saves/history.json's ambient content.
+history_store.DEFAULT_PATH = Path("data/saves/_test_history_scouting.json")
+history_store.DEFAULT_PATH.unlink(missing_ok=True)
 
 
 def _totals(pass_yards=0, rush_yards=0, turnovers=0):

@@ -268,12 +268,17 @@ def test_full_bracket_progression_to_a_champion():
 
 # --- season_state integration ------------------------------------------------
 
-from app.services import save_service, gameplan_store
+from app.services import save_service, gameplan_store, history_store
 from app.services import season_state
 from app.core.db import DB_PATH
 
 save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_season_playoffs.json")
 gameplan_store.DEFAULT_PATH = Path("data/saves/_test_gameplans_playoffs.json")
+# season_state._build_season() now reads history_store (a fresh franchise's
+# season_number bootstraps to AFTER whatever's archived) -- redirect + clear so these
+# tests never depend on the REAL data/saves/history.json's ambient content.
+history_store.DEFAULT_PATH = Path("data/saves/_test_history_playoffs.json")
+history_store.DEFAULT_PATH.unlink(missing_ok=True)
 
 DB_EXISTS = DB_PATH.exists()
 
