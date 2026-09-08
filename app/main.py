@@ -17,6 +17,7 @@ from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
 from app.engine import score_fidelity
+from app.engine.scouting import find_next_opponent, build_scouting_report
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
     COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
@@ -260,6 +261,14 @@ def dashboard_view(request: Request):
     user_rank_ordinal = _ordinal(user_rank) if user_rank is not None else None
     gameplan = gameplan_store.get_gameplan(season.user_team_abbr)
 
+    next_opponent = find_next_opponent(season, season.user_team_abbr)
+    scouting = None
+    if next_opponent is not None:
+        opponent_abbr, team_is_home = next_opponent
+        scouting = build_scouting_report(season, opponent_abbr)
+        scouting["opponent_team"] = TEAMS_BY_ABBR[opponent_abbr]
+        scouting["is_home_game"] = team_is_home
+
     standings = season.standings()[:10]
 
     last_played_week = None
@@ -282,6 +291,7 @@ def dashboard_view(request: Request):
             "user_record": user_record,
             "user_rank_ordinal": user_rank_ordinal,
             "gameplan": gameplan,
+            "scouting": scouting,
             "offensive_aggressiveness_options": OFFENSIVE_AGGRESSIVENESS,
             "defensive_aggressiveness_options": DEFENSIVE_AGGRESSIVENESS,
             "coverage_options": COVERAGE_SCHEMES,
