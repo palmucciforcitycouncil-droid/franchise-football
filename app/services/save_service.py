@@ -63,6 +63,7 @@ def season_to_dict(season) -> dict:
         "league_seed": season.league_seed,
         "current_week": season.current_week,
         "sfs": asdict(season.sfs),
+        "user_team_abbr": season.user_team_abbr,
         "schedule": [
             [
                 {
@@ -101,12 +102,16 @@ def season_from_dict(d: dict):
     # Score Fidelity System existed won't have "sfs" (or "power_rating" on
     # each record, but TeamRecord's own field default covers that case).
     sfs = SFSState(**d["sfs"]) if "sfs" in d else SFSState()
+    # .get(...) fallback: a save file from before user-team selection existed
+    # (GDD Sec 10.1) won't have this key -- treated as "no team chosen yet",
+    # not an error.
     return Season(
         league_seed=d["league_seed"],
         schedule=schedule,
         records=records,
         current_week=d["current_week"],
         sfs=sfs,
+        user_team_abbr=d.get("user_team_abbr"),
     )
 
 

@@ -2,6 +2,13 @@
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
+  <h2>{{ user_team.location }} <span class="muted" style="font-size: 0.85em;">({{ user_team.abbr }})</span></h2>
+  <p class="muted">
+    Record: {{ user_record.wins }}-{{ user_record.losses }} &middot; {{ user_team.conference }} {{ user_team.division }}{% if user_rank_ordinal %} &middot; Power Rank: {{ user_rank_ordinal }}{% endif %}
+  </p>
+</div>
+
+<div class="card">
   <h2>Dashboard — LEAGUE_SEED={{ season.league_seed }}</h2>
   <p class="muted">
     {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}

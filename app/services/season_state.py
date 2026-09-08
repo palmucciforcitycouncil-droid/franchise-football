@@ -73,6 +73,7 @@ class Season:
     records: dict[str, TeamRecord]
     current_week: int = 1  # 1-indexed; next week to simulate
     sfs: SFSState = field(default_factory=SFSState)  # Score Fidelity System weekly-feedback state
+    user_team_abbr: str | None = None  # GDD Sec 10.1: the team the player runs as GM/Coach, chosen once at franchise creation
 
     @property
     def is_complete(self) -> bool:
@@ -120,6 +121,21 @@ def reset_season() -> Season:
         _season = _build_season(get_league_seed())
         save_service.save_season(_season)
         return _season
+
+
+def set_user_team(team_abbr: str) -> Season:
+    """Sets the franchise's user-controlled team (GDD Sec 10.1). Chosen
+    once, at franchise creation -- there's no mid-season re-pick route;
+    starting a new franchise (reset_season) is what clears it, since
+    _build_season's fresh Season defaults user_team_abbr to None."""
+    if team_abbr not in TEAMS_BY_ABBR:
+        raise ValueError(f"No such team: {team_abbr!r}")
+    with _STATE_LOCK:
+        season = get_season()
+        season.user_team_abbr = team_abbr
+        from app.services import save_service
+        save_service.save_season(season)
+        return season
 
 
 def simulate_current_week() -> int:

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Choose Your Team — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Choose Your Team</h2>
+  <p class="muted">Pick the team you'll run as GM and Head Coach for this franchise (GDD &sect;10.1). This is a one-time choice &mdash; there's no mid-season switcher; starting a new franchise is how you'd pick a different team.</p>
+</div>
+
+{% for conference, divisions in grouped.items() %}
+<div class="card">
+  <h3>{{ conference }}</h3>
+  {% for division, teams in divisions.items() %}
+  <p class="muted" style="margin-bottom: 0.5rem;">{{ division }}</p>
+  <div class="row" style="margin-bottom: 1.25rem;">
+    {% for t in teams %}
+    <form method="post" action="/team-select">
+      <input type="hidden" name="team_abbr" value="{{ t.abbr }}">
+      <button type="submit"{% if t.abbr == current %} style="filter: brightness(1.3);"{% endif %}>{{ t.location }} ({{ t.abbr }})</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

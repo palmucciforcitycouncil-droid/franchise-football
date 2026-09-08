@@ -59,6 +59,10 @@ def roster_view(request: Request, team_abbr: str | None = None):
     for free agents, since "starter" isn't a meaningful concept for
     players with no team."""
     if team_abbr is None:
+        # GDD Sec 10.1: default screen state resolves to the user's team
+        # without a picker interaction, once one has been chosen.
+        team_abbr = season_state.get_season().user_team_abbr
+    if team_abbr is None:
         return templates.TemplateResponse(request, "roster.html", {"teams": TEAMS, "team": None, "players": None})
     if team_abbr != "FA" and team_abbr not in TEAMS_BY_ABBR:
         raise HTTPException(404, "No such team")
@@ -105,6 +109,10 @@ def depth_chart_view(request: Request, team_abbr: str | None = None):
     the highest-overall_rating stand-in depth_chart.py used alone. Each
     position group is ordered via resolve_order (override, falling back
     to rating) so this page shows exactly what the engine will use."""
+    if team_abbr is None:
+        # GDD Sec 10.1: default screen state resolves to the user's team
+        # without a picker interaction, once one has been chosen.
+        team_abbr = season_state.get_season().user_team_abbr
     if team_abbr is None:
         return templates.TemplateResponse(request, "depth_chart.html", {"teams": TEAMS, "team": None, "groups": None})
     if team_abbr not in TEAMS_BY_ABBR:
@@ -229,8 +237,24 @@ def dashboard_view(request: Request):
     by record), the most recently completed week's scores, and the top
     5 stat leaders per category (_season_stat_leaders). Doesn't replace
     `/`, which stays the single-game simulator -- the GDD lists Dashboard
-    and "Simulate a Game" as distinct screens."""
+    and "Simulate a Game" as distinct screens.
+
+    GDD Sec 10.1: Dashboard is the default landing page and always
+    resolves to the user's team -- if no team has been chosen yet for
+    this franchise, redirect to the one-time team-selection screen
+    rather than rendering a teamless dashboard."""
     season = season_state.get_season()
+    if season.user_team_abbr is None:
+        return RedirectResponse(url="/team-select", status_code=303)
+
+    user_team = TEAMS_BY_ABBR[season.user_team_abbr]
+    user_record = season.records[season.user_team_abbr]
+    user_rank = next(
+        (i for i, r in enumerate(season.standings(), start=1) if r.abbr == season.user_team_abbr),
+        None,
+    )
+    user_rank_ordinal = _ordinal(user_rank) if user_rank is not None else None
+
     standings = season.standings()[:10]
 
     last_played_week = None
@@ -249,6 +273,9 @@ def dashboard_view(request: Request):
         "dashboard.html",
         {
             "season": season,
+            "user_team": user_team,
+            "user_record": user_record,
+            "user_rank_ordinal": user_rank_ordinal,
             "standings": standings,
             "last_played_week": last_played_week,
             "last_week_games": last_week_games,
@@ -336,6 +363,45 @@ def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr:
             "back_label": "Back to season",
         },
     )
+
+
+def _ordinal(n: int) -> str:
+    """1 -> '1st', 2 -> '2nd', 11 -> '11th', 22 -> '22nd', etc. -- the
+    11-13 exception is why this can't be a simple `n % 10` lookup."""
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
+    grouped: dict[str, dict[str, list[TeamInfo]]] = {}
+    for t in TEAMS:
+        grouped.setdefault(t.conference, {}).setdefault(t.division, []).append(t)
+    return grouped
+
+
+@app.get("/team-select", response_class=HTMLResponse)
+def team_select_view(request: Request):
+    """GDD Sec 10.1: the one-time, conference/division-grouped team grid
+    shown at franchise creation. No records or power rankings shown --
+    a brand-new league has no history yet (see Sec 10.1's note that this
+    step deliberately does exactly one job)."""
+    season = season_state.get_season()
+    return templates.TemplateResponse(
+        request,
+        "team_select.html",
+        {"grouped": _grouped_teams(), "current": season.user_team_abbr},
+    )
+
+
+@app.post("/team-select")
+def team_select_submit(team_abbr: str = Form(...)):
+    if team_abbr not in TEAMS_BY_ABBR:
+        raise HTTPException(404, "No such team")
+    season_state.set_user_team(team_abbr)
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.post("/season/simulate-week")

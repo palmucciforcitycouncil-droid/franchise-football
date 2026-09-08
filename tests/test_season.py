@@ -243,3 +243,93 @@ def test_concurrent_simulate_week_calls_dont_corrupt_state():
         assert r.wins + r.losses == 17, f"{r.abbr} played {r.wins + r.losses} games, not the scheduled 17"
     total_games = sum(r.wins + r.losses for r in season.records.values())
     assert total_games == len(TEAMS) * 17
+
+
+def test_user_team_starts_unset():
+    """GDD Sec 10.1: a fresh franchise has no user team until one is
+    explicitly chosen -- this is what drives the /dashboard redirect to
+    /team-select."""
+    assert season_state.get_season().user_team_abbr is None
+
+
+def test_set_user_team_persists_and_round_trips():
+    season_state.set_user_team("KC")
+    assert season_state.get_season().user_team_abbr == "KC"
+
+    save_service.save_season(season_state.get_season())
+    reloaded = save_service.load_season()
+    assert reloaded.user_team_abbr == "KC"
+
+
+def test_set_user_team_rejects_unknown_team():
+    import pytest
+    with pytest.raises(ValueError):
+        season_state.set_user_team("ZZZ")
+    assert season_state.get_season().user_team_abbr is None
+
+
+def test_reset_season_clears_user_team():
+    """GDD Sec 10.1: there's no mid-season re-pick -- starting a new
+    franchise (reset) is what clears the choice, not a settings toggle."""
+    season_state.set_user_team("KC")
+    season_state.reset_season()
+    assert season_state.get_season().user_team_abbr is None
+
+
+def test_dashboard_redirects_to_team_select_when_no_team_chosen():
+    resp = client.get("/dashboard", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/team-select"
+
+
+def test_dashboard_shows_user_team_once_chosen():
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Kansas City" in resp.text
+    assert "AFC West" in resp.text
+
+
+def test_dashboard_power_rank_ordinal_suffix_handles_11_13_exception():
+    """Regression test for a real bug found via live manual testing: a
+    fresh 0-0 team's power rank rendered as "22th" instead of "22nd" --
+    the template's ordinal logic only special-cased exact ranks 1/2/3,
+    not the mod-10 pattern (nor the 11th-13th exception to it). Checks
+    app.main._ordinal directly since which literal rank a team lands at
+    depends on standings tie-break order, not something to hardcode
+    against the live season."""
+    from app.main import _ordinal
+    assert _ordinal(1) == "1st"
+    assert _ordinal(2) == "2nd"
+    assert _ordinal(3) == "3rd"
+    assert _ordinal(4) == "4th"
+    assert _ordinal(11) == "11th"
+    assert _ordinal(12) == "12th"
+    assert _ordinal(13) == "13th"
+    assert _ordinal(21) == "21st"
+    assert _ordinal(22) == "22nd"
+    assert _ordinal(23) == "23rd"
+    assert _ordinal(32) == "32nd"
+
+
+def test_team_select_post_sets_team_and_redirects_to_dashboard():
+    resp = client.post("/team-select", data={"team_abbr": "BUF"}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/dashboard"
+    assert season_state.get_season().user_team_abbr == "BUF"
+
+
+def test_team_select_post_rejects_unknown_team():
+    resp = client.post("/team-select", data={"team_abbr": "ZZZ"})
+    assert resp.status_code == 404
+
+
+def test_roster_and_depth_chart_default_to_user_team():
+    season_state.set_user_team("KC")
+    roster_resp = client.get("/roster", follow_redirects=True)
+    assert roster_resp.status_code == 200
+    assert "Kansas City" in roster_resp.text
+
+    depth_resp = client.get("/depth-chart", follow_redirects=True)
+    assert depth_resp.status_code == 200
+    assert "Kansas City" in depth_resp.text
