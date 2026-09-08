@@ -402,3 +402,14 @@ def test_gameplan_post_requires_a_chosen_team():
         "rz_defense": "Balanced",
     })
     assert resp.status_code == 404
+
+
+def test_staff_gm_desk_and_draft_render_coming_soon():
+    """GDD Sec 10.3's MVP navigation behavior: these three nav items
+    exist and render a real Coming Soon message, not a 404 -- they
+    didn't exist as routes at all before this."""
+    for path, title in [("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft")]:
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert title in resp.text
+        assert "Coming soon" in resp.text

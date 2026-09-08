@@ -396,6 +396,46 @@ def history_view(request: Request):
     return templates.TemplateResponse(request, "history.html", {"records": records})
 
 
+@app.get("/staff", response_class=HTMLResponse)
+def staff_view(request: Request):
+    """GDD Sec 10.4.3: Post-MVP. Nav item exists per Sec 10.3's stated
+    MVP navigation behavior ("Staff, GM Desk, and Draft remain in the
+    navigation bar but render a 'Coming Soon' message until Part 2
+    ships") -- this route/page didn't exist at all before now."""
+    return templates.TemplateResponse(request, "coming_soon.html", {
+        "title": "Staff",
+        "gdd_section": "GDD §10.4.3",
+        "summary": "Your coaching staff (Head Coach, Offensive/Defensive Coordinators, Assistant Coaches) with "
+                    "ratings, focus areas, and hire/fire/re-sign contract flows, plus a searchable Find Coaches "
+                    "list of free agents and coaches on other teams. Needs the Coaching Staff system (Part 2) first.",
+    })
+
+
+@app.get("/gm-desk", response_class=HTMLResponse)
+def gm_desk_view(request: Request):
+    """GDD Sec 10.4.4: Post-MVP. Consolidates the old Free Agents and
+    Trading Block screens into one hub."""
+    return templates.TemplateResponse(request, "coming_soon.html", {
+        "title": "GM Desk",
+        "gdd_section": "GDD §10.4.4",
+        "summary": "Salary cap summary, trade-block browsing and offers, your own expiring contracts, top "
+                    "draft-eligible prospects, and league-wide player search. Needs Contracts/Cap and Trades "
+                    "(both Part 2) first.",
+    })
+
+
+@app.get("/draft", response_class=HTMLResponse)
+def draft_view(request: Request):
+    """GDD Sec 10.4.5: Post-MVP."""
+    return templates.TemplateResponse(request, "coming_soon.html", {
+        "title": "Draft",
+        "gdd_section": "GDD §10.4.5",
+        "summary": "A draft-class scouting board (reusing the Roster table interface, with multi-select "
+                    "prospect comparison), your draft picks by round, and position-quota filtering. Needs the "
+                    "Draft system (Part 2) first.",
+    })
+
+
 @app.get("/playoffs", response_class=HTMLResponse)
 def playoffs_view(request: Request):
     """GDD Sec 10.4.6: AFC/NFC bracket view through the Super Bowl. This
