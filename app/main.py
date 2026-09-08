@@ -389,11 +389,22 @@ ROUND_LABELS = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Conference Cham
 def history_view(request: Request):
     """League History: every season archived by season_state.start_new_season()
     right before it's replaced -- final standings/champion/awards/stat
-    leaders, permanently. Most recent season first. Season-level totals
-    only (not career-cumulative) -- see history_store.py's own
-    docstring for that scope decision."""
+    leaders, permanently. Most recent season first. Career-cumulative
+    totals and Hall of Fame induction are built from this same archive
+    -- see /hof and history_store.py's own docstring."""
     records = list(reversed(history_store.get_history()))
     return templates.TemplateResponse(request, "history.html", {"records": records})
+
+
+@app.get("/hof", response_class=HTMLResponse)
+def hof_view(request: Request):
+    """Hall of Fame: real induction over the real career-cumulative
+    archive (history_store.career_stats()/hall_of_fame()) -- see that
+    module's docstring for the disclosed, GDD-underspecified induction
+    formula. Empty until a league has played enough seasons for any
+    career to clear the bar."""
+    inductees = history_store.hall_of_fame()
+    return templates.TemplateResponse(request, "hof.html", {"inductees": inductees})
 
 
 @app.get("/staff", response_class=HTMLResponse)

@@ -22,6 +22,27 @@ sack yardage into "Pass Yards" as a simpler team-level number):
   - A fumble lost on a run doesn't count toward that carry's yards,
     matching the existing team-level rush_yards convention already in
     game_sim.py (excludes outcome == "turnover").
+  - An in-play penalty (outcome == "penalty" -- drive_sim.py logs these
+    with the ORIGINAL play's play_type, e.g. "pass" for Roughing the
+    Passer/DPI or "run" for Offensive Holding, not a dedicated
+    play_type of its own) is skipped entirely: no attempt, completion,
+    carry, target, or reception, and its own yardage field (the
+    penalty's enforcement yardage, not real game yardage -- e.g. -10 on
+    a 15-yard roughing-the-passer spot foul) never touches a player's
+    stat line, matching real NFL box scores where penalty yards are
+    tracked separately from individual stats.
+  - A PASS play with outcome == "safety" is also excluded from
+    attempts/completions -- drive_sim.py overwrites the outcome to
+    "safety" whenever a play ends behind the offense's own goal line,
+    whether the original play was a sack (the overwhelmingly common
+    real case, since _resolve_pass's completions don't go meaningfully
+    negative) or, in principle, a completion tackled for a loss; the
+    PlayEvent alone can't tell those apart once overwritten, so this
+    is a disclosed, deliberately conservative exclusion rather than a
+    guess. A RUN play with outcome == "safety" is unambiguous (always
+    a real carry tackled behind the goal line) and still counts as a
+    real carry with its real (negative) yardage -- no special case
+    needed there.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -79,11 +100,15 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     for p in plays:
         if p.offense_abbr != abbr:
             continue
+        if p.outcome == "penalty":
+            continue  # penalty yardage isn't a real attempt/carry -- see module docstring
 
         if p.play_type == "pass":
             if p.outcome == "sack":
                 passing.sacks += 1
                 continue
+            if p.outcome == "safety":
+                continue  # ambiguous sack-or-completion -- see module docstring
             passing.attempts += 1
             if p.receiver_name:
                 receiving_line(p.receiver_name).targets += 1

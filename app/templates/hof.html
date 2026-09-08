@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Hall of Fame — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Hall of Fame</h2>
+  <p class="muted">Real induction over the full career-cumulative archive built from every completed <a href="/history">season</a>. A player is inducted at QB, RB, or WR/TE once they've accrued at least 2 archived seasons of production and a composite score (career yards + touchdowns, weighted by MVP/OPOY/DPOY/ROY awards actually won) clears the bar &mdash; not a fixed top-N, so the class grows only as real careers separate themselves. GDD-underspecified induction criteria; see history_store.py's own docstring for the exact formula.</p>
+</div>
+
+{% if not inductees %}
+<div class="card"><p class="muted">No one has been inducted yet &mdash; play out more seasons so real careers can accumulate.</p></div>
+{% else %}
+<div class="card">
+  <table class="boxtable">
+    <thead><tr><th>Player</th><th>Pos</th><th>Team</th><th>Seasons</th><th>Career Stats</th><th>Awards Won</th><th>Score</th></tr></thead>
+    <tbody>
+      {% for c in inductees %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td>{{ c.position }}</td>
+        <td>{{ c.team_abbr }}</td>
+        <td>{{ c.seasons }}</td>
+        <td>{{ c.stat_line }}</td>
+        <td>{{ c.award_wins }}</td>
+        <td>{{ "%.2f"|format(c.score) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
