@@ -27,16 +27,23 @@ from .tuning import PARAMS, DRIVE_SIM_PARAMS as P
 from .game_state import PlayEvent
 from .player_ai import MatchupContext, choose_run_point_of_attack, choose_pass_target, coverage_rating, matchup_adjustment
 from .defensive_ai import DefensiveCall, decide_defensive_call, apply_run_tactic, LEAGUE_AVG_YPC, LEAGUE_AVG_YPA
+from .gameplan import Gameplan, offense_pass_bias, offense_fourth_down_bias, defense_run_tactic_extra_penalty
 from app.models.player import Player
 
 MAX_PLAYS_PER_DRIVE = 20  # safety valve against pathological loops
 
 
-def _pass_probability(down: int, distance: int, trailing: bool, is_two_minute: bool, matchup_adjustment: float) -> float:
+def _pass_probability(
+    down: int, distance: int, trailing: bool, is_two_minute: bool, matchup_adjustment: float,
+    field_pos: int = 0, gameplan: Gameplan | None = None,
+) -> float:
     """GDD Sec 6.6.1: Layer 1 (situational baseline by down & distance),
     Layer 2 (game-state adjustment), Layer 3 (performance/matchup
     adjustment -- now the real OL/DL-vs-DL/OL composite from
-    player_ai.matchup_adjustment(), not a team-level run_bias knob)."""
+    player_ai.matchup_adjustment(), not a team-level run_bias knob).
+
+    `gameplan` is the OFFENSE's Weekly Gameplan (GDD Sec 10.4.1) -- None
+    for every AI team, since only the user's team ever has one set."""
     base = PARAMS["mix"]["pass"]  # 0.56 league-average target
 
     if down == 2:
@@ -56,11 +63,15 @@ def _pass_probability(down: int, distance: int, trailing: bool, is_two_minute: b
         base += 0.15 if trailing else -0.20  # urgency vs. milking the clock
 
     base += matchup_adjustment
+    base += offense_pass_bias(gameplan, in_red_zone=field_pos >= 80)
 
     return max(0.1, min(0.92, base))
 
 
-def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCall) -> Tuple[int, str, str]:
+def _resolve_run(
+    rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCall,
+    field_pos: int = 0, defense_gameplan: Gameplan | None = None,
+) -> Tuple[int, str, str]:
     """GDD Sec 6.6.2 (run) + Sec 6.6.7: point-of-attack chosen from real
     zone blocking advantages, yardage shaped by the winning zone's
     advantage and the RB's own vision/explosiveness, fumble risk shaped
@@ -69,8 +80,11 @@ def _resolve_run(rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCa
     zone(s) it committed to stop before point-of-attack is chosen; a
     stacked-box "Run Defense" primary call also drags down the mean
     regardless of direction, and a "Pass Defense" primary (light box)
-    helps the offense if it runs into it anyway."""
-    zones = apply_run_tactic(ctx.zones, defcall.run_tactic)
+    helps the offense if it runs into it anyway. `defense_gameplan`
+    (GDD Sec 10.4.1) can add an extra red-zone penalty on top of that via
+    its Run-Sellout Red Zone Defense style -- None for every AI team."""
+    extra_penalty = defense_run_tactic_extra_penalty(defense_gameplan, in_red_zone=field_pos >= 80)
+    zones = apply_run_tactic(ctx.zones, defcall.run_tactic, extra_penalty=extra_penalty)
     run_ctx = replace(ctx, zones=zones) if defcall.run_tactic else ctx
     choice = choose_run_point_of_attack(run_ctx, rb, rng)
     advantage = choice.advantage  # roughly -20..+20
@@ -308,14 +322,19 @@ def _ordinal_suffix(n: int) -> str:
     return {1: "st", 2: "nd", 3: "rd"}.get(n, "th")
 
 
-def _decide_fourth_down(pos: int, distance: int, trailing: bool, aggression: float, rng: RNG) -> str:
+def _decide_fourth_down(
+    pos: int, distance: int, trailing: bool, aggression: float, rng: RNG,
+    offense_gameplan: Gameplan | None = None,
+) -> str:
     """Simplified stand-in for the GDD's EP-based 4th-down model (Sec
     6.6.4), which needs full P(convert) tables this project doesn't have
-    yet. Returns "go", "field_goal", or "punt"."""
+    yet. Returns "go", "field_goal", or "punt". `offense_gameplan`'s
+    Off. Aggressiveness (GDD Sec 10.4.1) adds to the existing
+    ratings-derived `aggression` term -- None for every AI team."""
     in_fg_range = pos >= 62  # roughly a <=55-yard attempt
     short_yardage = distance <= 2
 
-    go_chance = P.fourth_down_boost + 0.05 * (aggression - 0.5)
+    go_chance = P.fourth_down_boost + 0.05 * (aggression - 0.5) + offense_fourth_down_bias(offense_gameplan)
     if trailing:
         go_chance += 0.15
     if short_yardage:
@@ -350,6 +369,8 @@ def simulate_drive(
     fourth_down_ok: bool = False,
     off_ypc: float = LEAGUE_AVG_YPC,
     off_ypa: float = LEAGUE_AVG_YPA,
+    offense_gameplan: Gameplan | None = None,
+    defense_gameplan: Gameplan | None = None,
 ) -> Tuple[int, str, int, int, int, int, List[PlayEvent]]:
     """
     Simulates one drive down-by-down using real starters (ctx). Returns:
@@ -363,7 +384,10 @@ def simulate_drive(
     drive) -- the "offensive in-game performance" input to the
     defense's Sec 6.6.3 Step 1 anticipation (game_sim.py passes in the
     running totals from before this drive); defaults to league average
-    for a drive with no prior offensive plays yet.
+    for a drive with no prior offensive plays yet. offense_gameplan/
+    defense_gameplan (GDD Sec 10.4.1's Weekly Gameplan) are None for
+    every AI team -- only the user's team ever has one set
+    (season_state.py's simulate_current_week looks it up).
     """
     down = 1
     distance = 10
@@ -383,7 +407,7 @@ def simulate_drive(
         total_plays += 1
 
         if down == 4:
-            decision = _decide_fourth_down(pos, distance, trailing, aggression, rng)
+            decision = _decide_fourth_down(pos, distance, trailing, aggression, rng, offense_gameplan=offense_gameplan)
             if decision == "punt":
                 next_pos = _punt_result(rng, pos)
                 play_events.append(PlayEvent(down, distance, pos, "punt", 0, "Punt", "punt"))
@@ -426,16 +450,24 @@ def simulate_drive(
         # GDD Sec 6.6.3: the defense's own four-step call, computed fresh
         # every play since it depends on down/distance/field position,
         # unlike the per-drive MatchupContext.
-        defcall = decide_defensive_call(ctx, down, distance, pos, trailing, is_two_minute, off_ypc, off_ypa, rng)
+        defcall = decide_defensive_call(
+            ctx, down, distance, pos, trailing, is_two_minute, off_ypc, off_ypa, rng,
+            gameplan=defense_gameplan,
+        )
 
-        pass_prob = _pass_probability(down, distance, trailing, is_two_minute, matchup_adj)
+        pass_prob = _pass_probability(
+            down, distance, trailing, is_two_minute, matchup_adj,
+            field_pos=pos, gameplan=offense_gameplan,
+        )
         is_pass = rng.prob(pass_prob)
 
         if is_pass:
             yards, outcome, who, receiver_name, defender_name = _resolve_pass(rng, ctx, qb, defcall, distance)
             play_type = "pass"
         else:
-            yards, outcome, who = _resolve_run(rng, ctx, rb, defcall)
+            yards, outcome, who = _resolve_run(
+                rng, ctx, rb, defcall, field_pos=pos, defense_gameplan=defense_gameplan,
+            )
             play_type = "run"
             receiver_name = ""
             defender_name = ""

@@ -17,7 +17,11 @@ from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
 from app.engine import score_fidelity
-from app.services import season_state, depth_chart_overrides
+from app.engine.gameplan import (
+    Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
+    COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
+)
+from app.services import season_state, depth_chart_overrides, gameplan_store
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
@@ -254,6 +258,7 @@ def dashboard_view(request: Request):
         None,
     )
     user_rank_ordinal = _ordinal(user_rank) if user_rank is not None else None
+    gameplan = gameplan_store.get_gameplan(season.user_team_abbr)
 
     standings = season.standings()[:10]
 
@@ -276,6 +281,13 @@ def dashboard_view(request: Request):
             "user_team": user_team,
             "user_record": user_record,
             "user_rank_ordinal": user_rank_ordinal,
+            "gameplan": gameplan,
+            "offensive_aggressiveness_options": OFFENSIVE_AGGRESSIVENESS,
+            "defensive_aggressiveness_options": DEFENSIVE_AGGRESSIVENESS,
+            "coverage_options": COVERAGE_SCHEMES,
+            "blitz_options": BLITZ_STRATEGIES,
+            "rz_offense_options": RZ_OFFENSE_STYLES,
+            "rz_defense_options": RZ_DEFENSE_STYLES,
             "standings": standings,
             "last_played_week": last_played_week,
             "last_week_games": last_week_games,
@@ -284,6 +296,46 @@ def dashboard_view(request: Request):
             "receiving_leaders": receiving_leaders,
         },
     )
+
+
+@app.post("/gameplan")
+def gameplan_submit(
+    offensive_aggressiveness: str = Form(...),
+    defensive_aggressiveness: str = Form(...),
+    coverage: str = Form(...),
+    blitz: str = Form(...),
+    rz_offense: str = Form(...),
+    rz_defense: str = Form(...),
+):
+    """GDD Sec 10.4.1's Weekly Gameplan: always sets the CURRENT user's
+    team (there's no team_abbr in the form -- the panel only ever
+    appears on the user's own Dashboard/Staff screens, matching Sec
+    10.1's "gameplan settings" being exclusive to the user's team).
+    404s if no team has been chosen yet rather than silently no-op'ing."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+
+    for value, options, field in [
+        (offensive_aggressiveness, OFFENSIVE_AGGRESSIVENESS, "offensive_aggressiveness"),
+        (defensive_aggressiveness, DEFENSIVE_AGGRESSIVENESS, "defensive_aggressiveness"),
+        (coverage, COVERAGE_SCHEMES, "coverage"),
+        (blitz, BLITZ_STRATEGIES, "blitz"),
+        (rz_offense, RZ_OFFENSE_STYLES, "rz_offense"),
+        (rz_defense, RZ_DEFENSE_STYLES, "rz_defense"),
+    ]:
+        if value not in options:
+            raise HTTPException(422, f"Invalid {field}: {value!r}")
+
+    gameplan_store.set_gameplan(season.user_team_abbr, Gameplan(
+        offensive_aggressiveness=offensive_aggressiveness,
+        defensive_aggressiveness=defensive_aggressiveness,
+        coverage=coverage,
+        blitz=blitz,
+        rz_offense=rz_offense,
+        rz_defense=rz_defense,
+    ))
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.get("/stats", response_class=HTMLResponse)

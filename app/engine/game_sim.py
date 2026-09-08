@@ -6,6 +6,7 @@ from .game_state import DriveEvent, GameResult, PlayEvent
 from .drive_sim import simulate_drive
 from .player_ai import build_matchup_context
 from .defensive_ai import LEAGUE_AVG_YPC, LEAGUE_AVG_YPA
+from .gameplan import Gameplan
 from app.services.depth_chart import get_offensive_starters, get_defensive_starters
 
 @dataclass
@@ -31,13 +32,22 @@ class TeamTotals:
     def ypa(self) -> float:
         return self.pass_yards / self.pass_attempts if self.pass_attempts else LEAGUE_AVG_YPA
 
-def simulate_game(rng: RNG, home: TeamSim, away: TeamSim, home_ep_multiplier: float = 1.0, away_ep_multiplier: float = 1.0) -> GameResult:
+def simulate_game(
+    rng: RNG, home: TeamSim, away: TeamSim,
+    home_ep_multiplier: float = 1.0, away_ep_multiplier: float = 1.0,
+    home_gameplan: Gameplan | None = None, away_gameplan: Gameplan | None = None,
+) -> GameResult:
     """home_ep_multiplier/away_ep_multiplier: the Score Fidelity System's
     (app/engine/score_fidelity.py) per-game scoring nudge, computed from
     Team Power Ratings by whoever has season context (season_state.py).
     Default 1.0 (no effect) for callers with no season -- e.g. the
     standalone single-game simulator (app/main.py's /simulate route),
-    which has no Team Power Rating to derive a multiplier from."""
+    which has no Team Power Rating to derive a multiplier from.
+
+    home_gameplan/away_gameplan: the Weekly Gameplan (GDD Sec 10.4.1) for
+    whichever of the two is the user's team -- None (the default) for
+    every AI team and for the standalone single-game simulator, which
+    has no concept of "the user's team" either."""
     drives_total = int((home.ratings.pace_drives() + away.ratings.pace_drives()) / 2)
     home_first = rng.prob(0.5)
     field_pos = 65
@@ -71,10 +81,13 @@ def simulate_game(rng: RNG, home: TeamSim, away: TeamSim, home_ep_multiplier: fl
         # offense's own running totals, not the defense's -- the defense
         # is reacting to what the offense has actually been doing.
         off_tot = htot if side_home else atot
+        offense_gameplan = home_gameplan if side_home else away_gameplan
+        defense_gameplan = away_gameplan if side_home else home_gameplan
         pts, txt, field_pos, plays, yards, tos, drive_play_events = simulate_drive(
             rng, ctx, off.ratings, field_pos,
             is_two_minute=is_two_min, trailing=trailing, fourth_down_ok=fourth_ok,
             off_ypc=off_tot.ypc(), off_ypa=off_tot.ypa(),
+            offense_gameplan=offense_gameplan, defense_gameplan=defense_gameplan,
         )
 
         for pe in drive_play_events:

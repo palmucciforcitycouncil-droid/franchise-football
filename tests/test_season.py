@@ -6,7 +6,7 @@ os.environ.setdefault("LEAGUE_SEED", "2025")
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import season_state, save_service
+from app.services import season_state, save_service, gameplan_store
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.data.teams import TEAMS
 
@@ -16,11 +16,13 @@ client = TestClient(app)
 # -- that would clobber whatever a real browser session has in progress. Redirect to a
 # throwaway path for the duration of this test module.
 save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_season.json")
+gameplan_store.DEFAULT_PATH = Path("data/saves/_test_gameplans.json")
 
 
 def setup_function(_):
     # Each test gets a fresh season so they don't interact via shared module state.
     season_state.reset_season()
+    gameplan_store.DEFAULT_PATH.unlink(missing_ok=True)
 
 
 def test_schedule_shape():
@@ -333,3 +335,70 @@ def test_roster_and_depth_chart_default_to_user_team():
     depth_resp = client.get("/depth-chart", follow_redirects=True)
     assert depth_resp.status_code == 200
     assert "Kansas City" in depth_resp.text
+
+
+def test_dashboard_renders_weekly_gameplan_form_with_defaults():
+    from app.engine.gameplan import Gameplan
+
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Weekly Gameplan" in resp.text
+    # Default Gameplan() values should be pre-selected.
+    default = Gameplan()
+    assert f'value="{default.offensive_aggressiveness}" selected' in resp.text
+    assert f'value="{default.coverage}" selected' in resp.text
+
+
+def test_gameplan_post_saves_and_reflects_on_dashboard():
+    season_state.set_user_team("KC")
+    resp = client.post("/gameplan", data={
+        "offensive_aggressiveness": "Very Aggressive",
+        "defensive_aggressiveness": "Very Aggressive",
+        "coverage": "Man-Heavy",
+        "blitz": "Blitz Heavy",
+        "rz_offense": "Spread/Shot",
+        "rz_defense": "Pressure QB",
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/dashboard"
+
+    from app.engine.gameplan import Gameplan
+    saved = gameplan_store.get_gameplan("KC")
+    assert saved == Gameplan(
+        offensive_aggressiveness="Very Aggressive",
+        defensive_aggressiveness="Very Aggressive",
+        coverage="Man-Heavy",
+        blitz="Blitz Heavy",
+        rz_offense="Spread/Shot",
+        rz_defense="Pressure QB",
+    )
+
+    dashboard = client.get("/dashboard")
+    assert 'value="Very Aggressive" selected' in dashboard.text
+    assert 'value="Man-Heavy" selected' in dashboard.text
+
+
+def test_gameplan_post_rejects_invalid_value():
+    season_state.set_user_team("KC")
+    resp = client.post("/gameplan", data={
+        "offensive_aggressiveness": "Not A Real Option",
+        "defensive_aggressiveness": "Balanced",
+        "coverage": "Hybrid",
+        "blitz": "Standard",
+        "rz_offense": "Balanced",
+        "rz_defense": "Balanced",
+    })
+    assert resp.status_code == 422
+
+
+def test_gameplan_post_requires_a_chosen_team():
+    resp = client.post("/gameplan", data={
+        "offensive_aggressiveness": "Balanced",
+        "defensive_aggressiveness": "Balanced",
+        "coverage": "Hybrid",
+        "blitz": "Standard",
+        "rz_offense": "Balanced",
+        "rz_defense": "Balanced",
+    })
+    assert resp.status_code == 404

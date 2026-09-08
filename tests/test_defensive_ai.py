@@ -152,3 +152,90 @@ def test_blitz_increases_sack_rate_in_the_drive_sim():
     sacks_blitz = sum(1 for _ in range(300) if _resolve_pass(rng_b, ctx, qb, heavy_blitz)[1] == "sack")
 
     assert sacks_blitz > sacks_no_blitz
+
+
+def test_decide_blitz_responds_to_weekly_gameplan():
+    """GDD Sec 10.4.1: Blitz Heavy + Very Aggressive should call blitz
+    noticeably more often than Selective + Very Conservative, in an
+    otherwise identical (and low-baseline) situation -- 1st & 10 at
+    midfield, where the unmodified base chance is just 15%."""
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.defensive_ai import decide_blitz
+    from app.engine.gameplan import Gameplan
+    from app.engine.rng import RNG
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+
+    passive_gp = Gameplan(defensive_aggressiveness="Very Conservative", blitz="Selective")
+    aggressive_gp = Gameplan(defensive_aggressiveness="Very Aggressive", blitz="Blitz Heavy")
+
+    rng_a = RNG.with_seed(7)
+    passive_blitzes = sum(
+        1 for _ in range(400)
+        if decide_blitz(defn, off, down=1, distance=10, field_pos=50, rng=rng_a, gameplan=passive_gp).called
+    )
+    rng_b = RNG.with_seed(7)
+    aggressive_blitzes = sum(
+        1 for _ in range(400)
+        if decide_blitz(defn, off, down=1, distance=10, field_pos=50, rng=rng_b, gameplan=aggressive_gp).called
+    )
+    rng_c = RNG.with_seed(7)
+    default_blitzes = sum(
+        1 for _ in range(400)
+        if decide_blitz(defn, off, down=1, distance=10, field_pos=50, rng=rng_c, gameplan=None).called
+    )
+
+    assert passive_blitzes < default_blitzes < aggressive_blitzes
+
+
+def test_decide_coverage_responds_to_weekly_gameplan():
+    """GDD Sec 10.4.1: Man-Heavy should call man coverage noticeably more
+    than Zone-Heavy in the same neutral (not situationally-forced)
+    down/distance/field-position."""
+    from app.engine.defensive_ai import decide_coverage
+    from app.engine.gameplan import Gameplan
+    from app.engine.rng import RNG
+
+    man_heavy = Gameplan(coverage="Man-Heavy")
+    zone_heavy = Gameplan(coverage="Zone-Heavy")
+
+    rng_a = RNG.with_seed(11)
+    man_calls_man_heavy = sum(
+        1 for _ in range(400)
+        if decide_coverage(down=1, distance=10, field_pos=50, blitz_called=False, rng=rng_a, gameplan=man_heavy) == "man"
+    )
+    rng_b = RNG.with_seed(11)
+    man_calls_zone_heavy = sum(
+        1 for _ in range(400)
+        if decide_coverage(down=1, distance=10, field_pos=50, blitz_called=False, rng=rng_b, gameplan=zone_heavy) == "man"
+    )
+
+    assert man_calls_man_heavy > man_calls_zone_heavy
+
+
+def test_decide_coverage_situational_overrides_still_win_over_gameplan():
+    """3rd & 8+ always calls zone and a called blitz always calls man,
+    regardless of Coverage Scheme -- the gameplan only replaces the
+    default 60/40 mix in the 'otherwise' branch, per decide_coverage's
+    own docstring."""
+    from app.engine.defensive_ai import decide_coverage
+    from app.engine.gameplan import Gameplan
+    from app.engine.rng import RNG
+
+    rng = RNG.with_seed(1)
+    assert decide_coverage(down=3, distance=9, field_pos=50, blitz_called=False, rng=rng,
+                            gameplan=Gameplan(coverage="Man-Heavy")) == "zone"
+    assert decide_coverage(down=1, distance=10, field_pos=50, blitz_called=True, rng=rng,
+                            gameplan=Gameplan(coverage="Zone-Heavy")) == "man"
+
+
+def test_apply_run_tactic_extra_penalty_from_run_sellout_gameplan():
+    from app.engine.defensive_ai import apply_run_tactic
+    from app.engine.player_ai import ZoneAdvantage
+
+    zones = ZoneAdvantage(left=5.0, center=5.0, right=5.0)
+    base = apply_run_tactic(zones, "plug_gaps")
+    with_sellout = apply_run_tactic(zones, "plug_gaps", extra_penalty=4.0)
+    assert with_sellout.center < base.center
+    assert with_sellout.left == base.left == zones.left  # only the targeted zone is penalized

@@ -9,6 +9,66 @@
 </div>
 
 <div class="card">
+  <h3>Weekly Gameplan</h3>
+  <p class="muted">Sets your Head Coach's strategy for this week's opponent (GDD &sect;10.4.1) &mdash; read by the play-calling AI for your team only.</p>
+  <form method="post" action="/gameplan">
+    <div class="row">
+      <div>
+        <label for="offensive_aggressiveness">Off. Aggressiveness</label>
+        <select name="offensive_aggressiveness" id="offensive_aggressiveness">
+          {% for opt in offensive_aggressiveness_options %}
+          <option value="{{ opt }}" {% if opt == gameplan.offensive_aggressiveness %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="defensive_aggressiveness">Def. Aggressiveness</label>
+        <select name="defensive_aggressiveness" id="defensive_aggressiveness">
+          {% for opt in defensive_aggressiveness_options %}
+          <option value="{{ opt }}" {% if opt == gameplan.defensive_aggressiveness %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="coverage">Coverage Scheme</label>
+        <select name="coverage" id="coverage">
+          {% for opt in coverage_options %}
+          <option value="{{ opt }}" {% if opt == gameplan.coverage %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="blitz">Blitz Strategy</label>
+        <select name="blitz" id="blitz">
+          {% for opt in blitz_options %}
+          <option value="{{ opt }}" {% if opt == gameplan.blitz %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="rz_offense">Red Zone Offense</label>
+        <select name="rz_offense" id="rz_offense">
+          {% for opt in rz_offense_options %}
+          <option value="{{ opt }}" {% if opt == gameplan.rz_offense %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="rz_defense">Red Zone Defense</label>
+        <select name="rz_defense" id="rz_defense">
+          {% for opt in rz_defense_options %}
+          <option value="{{ opt }}" {% if opt == gameplan.rz_defense %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button type="submit">Save Gameplan</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
   <h2>Dashboard — LEAGUE_SEED={{ season.league_seed }}</h2>
   <p class="muted">
     {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}

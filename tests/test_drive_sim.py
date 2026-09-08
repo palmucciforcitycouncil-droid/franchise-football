@@ -330,3 +330,84 @@ def test_roughing_the_passer_is_attributed_to_the_real_blitzer_when_blitzed():
             assert blitzer.full_name in penalty.desc
             assert penalty.down == 1
     assert found, "expected at least one roughing-the-passer call across 500 rolls"
+
+
+def test_pass_probability_responds_to_offensive_gameplan():
+    from app.engine.drive_sim import _pass_probability
+    from app.engine.gameplan import Gameplan
+
+    conservative = Gameplan(offensive_aggressiveness="Very Conservative")
+    aggressive = Gameplan(offensive_aggressiveness="Very Aggressive")
+
+    default = _pass_probability(1, 10, trailing=False, is_two_minute=False, matchup_adjustment=0.0, field_pos=50, gameplan=None)
+    low = _pass_probability(1, 10, trailing=False, is_two_minute=False, matchup_adjustment=0.0, field_pos=50, gameplan=conservative)
+    high = _pass_probability(1, 10, trailing=False, is_two_minute=False, matchup_adjustment=0.0, field_pos=50, gameplan=aggressive)
+    assert low < default < high
+
+
+def test_pass_probability_red_zone_offense_style_only_applies_inside_the_twenty():
+    from app.engine.drive_sim import _pass_probability
+    from app.engine.gameplan import Gameplan
+
+    power_run = Gameplan(rz_offense="Power Run")
+    outside = _pass_probability(1, 10, trailing=False, is_two_minute=False, matchup_adjustment=0.0, field_pos=50, gameplan=power_run)
+    inside = _pass_probability(1, 10, trailing=False, is_two_minute=False, matchup_adjustment=0.0, field_pos=85, gameplan=power_run)
+    default_outside = _pass_probability(1, 10, trailing=False, is_two_minute=False, matchup_adjustment=0.0, field_pos=50, gameplan=None)
+    assert outside == default_outside  # Balanced offensive_aggressiveness -> no effect outside the red zone
+    assert inside < outside  # Power Run pulls toward the run once inside the 20
+
+
+def test_decide_fourth_down_go_chance_responds_to_offensive_gameplan():
+    from app.engine.drive_sim import _decide_fourth_down
+    from app.engine.gameplan import Gameplan
+    from app.engine.rng import RNG
+
+    conservative = Gameplan(offensive_aggressiveness="Very Conservative")
+    aggressive = Gameplan(offensive_aggressiveness="Very Aggressive")
+
+    rng_a = RNG.with_seed(9)
+    go_conservative = sum(
+        1 for _ in range(300)
+        if _decide_fourth_down(pos=50, distance=3, trailing=False, aggression=0.5, rng=rng_a, offense_gameplan=conservative) == "go"
+    )
+    rng_b = RNG.with_seed(9)
+    go_aggressive = sum(
+        1 for _ in range(300)
+        if _decide_fourth_down(pos=50, distance=3, trailing=False, aggression=0.5, rng=rng_b, offense_gameplan=aggressive) == "go"
+    )
+    assert go_aggressive > go_conservative
+
+
+def test_simulate_game_threads_gameplan_to_the_right_side():
+    """A Very Aggressive gameplan passed as home_gameplan should reach the
+    home team's own play-calling (game_sim.py's per-drive offense/defense
+    gameplan routing) -- checked across several seeds since a single game
+    is noisy and the two teams share one RNG stream (home's own decisions
+    changing shifts the away team's draws too, by design -- same reason
+    test_game_is_deterministic exists at the whole-game level, not a
+    per-team one), so this compares an aggregate across seeds rather than
+    asserting the away team's stats stay bit-for-bit identical."""
+    from app.engine.gameplan import Gameplan
+
+    aggressive = Gameplan(offensive_aggressiveness="Very Aggressive")
+    conservative = Gameplan(offensive_aggressiveness="Very Conservative")
+
+    aggressive_pass_attempts = []
+    conservative_pass_attempts = []
+    for seed in range(2025, 2035):
+        result_aggressive = simulate_game(
+            RNG.with_seed(seed),
+            TeamSim(name="Kansas City", abbr="KC", ratings=AVG),
+            TeamSim(name="Buffalo", abbr="BUF", ratings=AVG),
+            home_gameplan=aggressive,
+        )
+        result_conservative = simulate_game(
+            RNG.with_seed(seed),
+            TeamSim(name="Kansas City", abbr="KC", ratings=AVG),
+            TeamSim(name="Buffalo", abbr="BUF", ratings=AVG),
+            home_gameplan=conservative,
+        )
+        aggressive_pass_attempts.append(result_aggressive.home_totals.pass_attempts)
+        conservative_pass_attempts.append(result_conservative.home_totals.pass_attempts)
+
+    assert sum(aggressive_pass_attempts) > sum(conservative_pass_attempts)

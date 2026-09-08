@@ -33,6 +33,7 @@ from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
 from app.engine import power_rating, score_fidelity
 from app.engine.score_fidelity import SFSState
+from app.services import gameplan_store
 
 
 @dataclass
@@ -186,7 +187,15 @@ def simulate_current_week() -> int:
             home_mult = score_fidelity.ep_multiplier(rng, win_prob, True, season.sfs.scoring_feedback_multiplier)
             away_mult = score_fidelity.ep_multiplier(rng, win_prob, False, season.sfs.scoring_feedback_multiplier)
 
-            result = simulate_game(rng, home, away, home_mult, away_mult)
+            # Weekly Gameplan (GDD Sec 10.4.1): only the user's own team
+            # ever has one set (app/main.py's /gameplan route only
+            # accepts season.user_team_abbr) -- every AI team gets None,
+            # which the engine treats as "no override, use the default
+            # play-calling AI" (see app/engine/gameplan.py).
+            home_gameplan = gameplan_store.get_gameplan(game.home_abbr) if game.home_abbr == season.user_team_abbr else None
+            away_gameplan = gameplan_store.get_gameplan(game.away_abbr) if game.away_abbr == season.user_team_abbr else None
+
+            result = simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan)
             game.result = result
 
             home_rec.points_for += result.home_score

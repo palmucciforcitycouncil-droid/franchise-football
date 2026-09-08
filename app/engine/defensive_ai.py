@@ -22,6 +22,7 @@ from typing import Literal, Optional
 from app.models.player import Player
 from app.services.depth_chart import OffensiveStarters, DefensiveStarters
 from .player_ai import MatchupContext, ZoneAdvantage
+from .gameplan import Gameplan, defense_blitz_bias, defense_coverage_man_prob, defense_run_tactic_extra_penalty
 
 LEAGUE_AVG_YPC = 4.2
 LEAGUE_AVG_YPA = 7.0
@@ -97,17 +98,22 @@ class BlitzCall:
 def decide_blitz(
     defense: DefensiveStarters, offense: OffensiveStarters,
     down: int, distance: int, field_pos: int, rng,
+    gameplan: Gameplan | None = None,
 ) -> BlitzCall:
     """Step 2: baseline 15% blitz chance, +20% on 3rd & 5+, +15% in the
     red zone (field_pos >= 80, i.e. inside the opponent's 20). If called,
     finds the weaker pass-blocking of the RB/TE and assigns the blitzer
-    (LB or S) with the biggest rush-vs-block advantage against them."""
+    (LB or S) with the biggest rush-vs-block advantage against them.
+
+    `gameplan` is the DEFENSE's Weekly Gameplan (GDD Sec 10.4.1) -- None
+    for every AI team, since only the user's team ever has one set."""
     chance = 0.15
     if down >= 3 and distance >= 5:
         chance += 0.20
     if field_pos >= 80:
         chance += 0.15
-    if not rng.prob(min(0.9, chance)):
+    chance += defense_blitz_bias(gameplan, in_red_zone=field_pos >= 80)
+    if not rng.prob(max(0.0, min(0.9, chance))):
         return BlitzCall(called=False)
 
     target = offense.hb if offense.hb.pass_block <= offense.te.pass_block else offense.te
@@ -117,17 +123,26 @@ def decide_blitz(
     return BlitzCall(called=True, blitzer=best, target=target, advantage=advantage)
 
 
-def decide_coverage(down: int, distance: int, field_pos: int, blitz_called: bool, rng) -> Coverage:
+def decide_coverage(
+    down: int, distance: int, field_pos: int, blitz_called: bool, rng,
+    gameplan: Gameplan | None = None,
+) -> Coverage:
     """Step 3. GDD table: 3rd & 8+ -> zone (prevent the big play); goal
     line (field_pos >= 90, inside the 10) -> man (less space to cover);
     a called blitz -> man (win 1-on-1 while pressure gets home);
-    otherwise a 60/40 zone/man mix to keep the offense guessing."""
+    otherwise a 60/40 zone/man mix to keep the offense guessing, unless
+    the defense's Weekly Gameplan (GDD Sec 10.4.1) sets a Coverage
+    Scheme, in which case that mix replaces the 60/40 default -- the
+    three situational overrides above still take priority regardless."""
     if down >= 3 and distance >= 8:
         return "zone"
     if field_pos >= 90:
         return "man"
     if blitz_called:
         return "man"
+    man_prob = defense_coverage_man_prob(gameplan)
+    if man_prob is not None:
+        return "man" if rng.prob(man_prob) else "zone"
     return "zone" if rng.prob(0.6) else "man"
 
 
@@ -146,16 +161,22 @@ def decide_run_tactic(ctx: MatchupContext) -> RunTactic:
     return "plug_gaps" if best_zone == "center" else "contain_edge"
 
 
-def apply_run_tactic(zones: ZoneAdvantage, tactic: Optional[RunTactic]) -> ZoneAdvantage:
+def apply_run_tactic(zones: ZoneAdvantage, tactic: Optional[RunTactic], extra_penalty: float = 0.0) -> ZoneAdvantage:
     """Applies the defense's committed run tactic as a penalty to the
     offense's zone advantage in the zone(s) the defense sold out to stop
     -- if the defense guessed right, that zone gets harder to run; if the
     RB-trait override or the other zone's advantage wins anyway, the
-    defense guessed wrong and pays no extra penalty there."""
+    defense guessed wrong and pays no extra penalty there.
+
+    `extra_penalty` (from a Weekly Gameplan's Run-Sellout Red Zone
+    Defense style, GDD Sec 10.4.1) commits harder to the same zone(s) on
+    top of the base -6; 0.0 for every AI team and for any non-Run-Sellout
+    style."""
+    penalty = 6 + extra_penalty
     if tactic == "plug_gaps":
-        return ZoneAdvantage(left=zones.left, center=zones.center - 6, right=zones.right)
+        return ZoneAdvantage(left=zones.left, center=zones.center - penalty, right=zones.right)
     if tactic == "contain_edge":
-        return ZoneAdvantage(left=zones.left - 6, center=zones.center, right=zones.right - 6)
+        return ZoneAdvantage(left=zones.left - penalty, center=zones.center, right=zones.right - penalty)
     return zones
 
 
@@ -182,12 +203,16 @@ class DefensiveCall:
 def decide_defensive_call(
     ctx: MatchupContext, down: int, distance: int, field_pos: int,
     trailing: bool, is_two_minute: bool, off_ypc: float, off_ypa: float, rng,
+    gameplan: Gameplan | None = None,
 ) -> DefensiveCall:
     """The full four-step process, run once per play (down/distance/field
-    position all vary play to play, unlike the per-drive MatchupContext)."""
+    position all vary play to play, unlike the per-drive MatchupContext).
+
+    `gameplan` is the DEFENSE's Weekly Gameplan (GDD Sec 10.4.1) -- None
+    for every AI team."""
     anticipated = anticipated_pass_prob(down, distance, trailing, is_two_minute, off_ypc, off_ypa)
     primary = choose_primary(anticipated)
-    blitz = decide_blitz(ctx.defense, ctx.offense, down, distance, field_pos, rng)
-    coverage = decide_coverage(down, distance, field_pos, blitz.called, rng)
+    blitz = decide_blitz(ctx.defense, ctx.offense, down, distance, field_pos, rng, gameplan=gameplan)
+    coverage = decide_coverage(down, distance, field_pos, blitz.called, rng, gameplan=gameplan)
     run_tactic = decide_run_tactic(ctx) if primary == "run_defense" else None
     return DefensiveCall(primary=primary, blitz=blitz, coverage=coverage, run_tactic=run_tactic)
