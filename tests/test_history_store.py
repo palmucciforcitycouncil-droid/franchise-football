@@ -405,6 +405,11 @@ def test_hof_route_renders_through_real_multi_season_rollover():
 
         resp = client.get("/hof")
         assert resp.status_code == 200
+        # ROADMAP.md M5: the redesigned page's new real sections should
+        # all render without error once real multi-season history exists.
+        assert "League Record Book" in resp.text
+        assert "Super Bowl History" in resp.text
+        assert "Hall of Fame Members" in resp.text
     finally:
         if db_module._engine is not None:
             db_module._engine.dispose()
@@ -415,3 +420,122 @@ def test_hof_route_renders_through_real_multi_season_rollover():
         Path("data/saves/_test_hof_route_gameplans.json").unlink(missing_ok=True)
         Path("data/saves/_test_hof_route.json").unlink(missing_ok=True)
         history_store.DEFAULT_PATH = real_history_path
+
+
+# --- HOF page redesign (ROADMAP.md M5, GDD Sec 10.4.8): new helper
+# functions in app/main.py that build the Class-of-this-season-
+# inductees diff, the Eligible Candidates list, and the League Record
+# Book -- all on top of history_store's existing public API, with no
+# changes to history_store.py itself (a concurrent M4/M6 session was
+# actively editing that file's career_stats() for its own real reasons
+# -- adding an lru_cache -- while this chunk was built).
+
+from app.main import (
+    _hof_new_inductee_keys, _hof_all_years_active, _hof_eligible_candidates, _hof_record_book,
+)
+
+
+def _save_to_temp(records: list) -> "Path":
+    """Writes a list of real SeasonRecord objects to a fresh temp file
+    and returns its path -- the same pattern _hof_new_inductee_keys()
+    itself uses internally to feed history_store.hall_of_fame() a
+    specific history without touching history_store.DEFAULT_PATH."""
+    import tempfile
+    from pathlib import Path as _Path
+    d = tempfile.mkdtemp()
+    path = _Path(d) / "history.json"
+    _save([_record_to_dict(r) for r in records], path)
+    return path
+
+
+def test_hof_new_inductee_keys_empty_with_fewer_than_two_seasons():
+    assert _hof_new_inductee_keys([], set()) == set()
+    assert _hof_new_inductee_keys([_synthetic_record(0)], set()) == set()
+
+
+def test_hof_new_inductee_keys_flags_everyone_the_first_time_the_bar_is_cleared():
+    """MIN_HOF_SEASONS gates eligibility at 2 archived seasons -- so the
+    very first time a history goes from 1 to 2 seasons is also the very
+    first time ANYONE can be inducted. A player who needs 3 award wins
+    to clear the score threshold (same fixture as
+    test_hall_of_fame_inducts_by_score_and_award_bonus above) should
+    show up as "new" once that 2nd season lands, since the prior
+    (1-season) state could never have inducted anyone at all."""
+    mid = SeasonPassingLine(name="Mid Career", team_abbr="KC", attempts=200, yards=5000, touchdowns=20)
+    low = SeasonPassingLine(name="Low Career", team_abbr="KC", attempts=200, yards=1000, touchdowns=20)
+    mid_winner = AwardCandidate(name="Mid Career", team_abbr="KC", position="QB", stat_line="", score=0)
+    record0 = _synthetic_record(0, passing=[low, mid], mvp=[mid_winner], opoy=[mid_winner], dpoy=[mid_winner])
+    record1 = _synthetic_record(1, passing=[low, mid])
+    full_history = [record0, record1]
+    full_inductee_keys = {(c.team_abbr, c.name) for c in hall_of_fame(path=_save_to_temp(full_history))}
+
+    new_keys = _hof_new_inductee_keys(full_history, full_inductee_keys)
+    assert ("KC", "Mid Career") in new_keys
+    assert ("KC", "Low Career") not in new_keys  # never clears the bar in this fixture
+
+
+def test_hof_new_inductee_keys_empty_once_an_inductee_is_no_longer_new():
+    """A player inducted in a PRIOR cycle should stop showing up as
+    "new" once a further season is archived on top -- proves this
+    isn't just "who's in the current class" but a real diff against
+    the season before."""
+    mid = SeasonPassingLine(name="Mid Career", team_abbr="KC", attempts=200, yards=5000, touchdowns=20)
+    low = SeasonPassingLine(name="Low Career", team_abbr="KC", attempts=200, yards=1000, touchdowns=20)
+    mid_winner = AwardCandidate(name="Mid Career", team_abbr="KC", position="QB", stat_line="", score=0)
+    record0 = _synthetic_record(0, passing=[low, mid], mvp=[mid_winner], opoy=[mid_winner], dpoy=[mid_winner])
+    record1 = _synthetic_record(1, passing=[low, mid])
+    record2 = _synthetic_record(2, passing=[low, mid])
+    full_history = [record0, record1, record2]
+    full_inductee_keys = {(c.team_abbr, c.name) for c in hall_of_fame(path=_save_to_temp(full_history))}
+
+    new_keys = _hof_new_inductee_keys(full_history, full_inductee_keys)
+    assert ("KC", "Mid Career") not in new_keys
+
+
+def test_hof_all_years_active_spans_first_to_last_credited_season():
+    s0 = SeasonPassingLine(name="Test QB", team_abbr="KC", attempts=200, yards=3000, touchdowns=20)
+    s2 = SeasonPassingLine(name="Test QB", team_abbr="KC", attempts=200, yards=3200, touchdowns=22)
+    history = [_synthetic_record(0, passing=[s0]), _synthetic_record(1), _synthetic_record(2, passing=[s2])]
+
+    spans = _hof_all_years_active(history)
+    assert spans["KC|Test QB"] == "Season 1–3"
+
+
+def test_hof_all_years_active_single_season_has_no_dash():
+    s0 = SeasonPassingLine(name="Rookie", team_abbr="KC", attempts=100, yards=1000, touchdowns=5)
+    spans = _hof_all_years_active([_synthetic_record(0, passing=[s0])])
+    assert spans["KC|Rookie"] == "Season 1"
+
+
+def test_hof_eligible_candidates_excludes_inductees_and_requires_min_seasons(tmp_path):
+    path = tmp_path / "history.json"
+    high = SeasonPassingLine(name="High Career", team_abbr="KC", attempts=200, yards=9000, touchdowns=20)
+    close = SeasonPassingLine(name="Close Career", team_abbr="KC", attempts=200, yards=4000, touchdowns=10)
+    rookie = SeasonPassingLine(name="Rookie", team_abbr="KC", attempts=200, yards=3000, touchdowns=10)
+    _save([
+        _record_to_dict(_synthetic_record(0, passing=[high, close, rookie])),
+        _record_to_dict(_synthetic_record(1, passing=[high, close])),
+    ], path)
+
+    inductee_keys = {(c.team_abbr, c.name) for c in hall_of_fame(path=path)}
+    assert ("KC", "High Career") in inductee_keys  # sanity: fixture actually inducts someone
+
+    eligible = _hof_eligible_candidates(inductee_keys, path=path)
+    eligible_names = {e["name"] for e in eligible}
+    assert "Close Career" in eligible_names  # 2 seasons, real production, not yet inducted
+    assert "High Career" not in eligible_names  # already inducted -- shouldn't double-list
+    assert "Rookie" not in eligible_names  # only 1 season, below MIN_HOF_SEASONS
+
+    close_entry = next(e for e in eligible if e["name"] == "Close Career")
+    assert close_entry["progress_pct"] == 100  # sole eligible-and-not-inducted QB candidate in this fixture
+
+
+def test_hof_record_book_omits_categories_with_no_real_production(tmp_path):
+    path = tmp_path / "history.json"
+    qb = SeasonPassingLine(name="Arm Talent", team_abbr="KC", attempts=200, yards=4000, touchdowns=30)
+    _save([_record_to_dict(_synthetic_record(0, passing=[qb]))], path)
+
+    book = _hof_record_book(path=path)
+    labels = {cat["label"]: cat for cat in book}
+    assert labels["Passing Yards"]["leaders"] == [("Arm Talent", "KC", 4000)]
+    assert labels["Sacks"]["leaders"] == []  # no defensive production in this fixture -- real absence, not fabricated zero

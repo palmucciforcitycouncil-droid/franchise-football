@@ -952,19 +952,19 @@ def history_view(request: Request):
     return templates.TemplateResponse(request, "history.html", {"records": records})
 
 
-def _hof_new_inductee_keys(full_history: list) -> set[tuple[str, str]]:
-    """Which (team_abbr, name) keys in the current Hall of Fame class
-    weren't there as of the PREVIOUS archived season -- i.e. genuinely
-    inducted this cycle, matching GDD Sec 10.4.8's "Class of [current
-    year] Inductees" highlight section. history_store.hall_of_fame()
-    only ever answers "who qualifies right now" (it recomputes from
-    career_stats() fresh every call, no stored induction-year field) --
-    so this re-runs it against history with the most recent season
-    dropped, via a throwaway temp file (the only way to feed it a
-    truncated history without changing its path-only signature, which
-    a concurrent M6 session was actively editing for its own real
-    reasons -- lru_cache-ing career_stats() -- while this chunk was
-    built), and diffs the two candidate sets."""
+def _hof_new_inductee_keys(full_history: list, full_inductee_keys: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    """Which of `full_inductee_keys` (the CURRENT Hall of Fame class,
+    already computed by the caller) weren't there as of the PREVIOUS
+    archived season -- i.e. genuinely inducted this cycle, matching GDD
+    Sec 10.4.8's "Class of [current year] Inductees" highlight section.
+    history_store.hall_of_fame() only ever answers "who qualifies right
+    now" (it recomputes from career_stats() fresh every call, no stored
+    induction-year field) -- so this re-runs it against history with
+    the most recent season dropped, via a throwaway temp file (the only
+    way to feed it a truncated history without changing its path-only
+    signature, which a concurrent M6 session was actively editing for
+    its own real reasons -- lru_cache-ing career_stats() -- while this
+    chunk was built), and diffs the two candidate sets."""
     if len(full_history) < 2:
         return set()
     prior_dicts = [history_store._record_to_dict(r) for r in full_history[:-1]]
@@ -972,7 +972,8 @@ def _hof_new_inductee_keys(full_history: list) -> set[tuple[str, str]]:
         temp_path = Path(d) / "prior_history.json"
         history_store._save(prior_dicts, temp_path)
         prior_inductees = history_store.hall_of_fame(path=temp_path)
-    return {(c.team_abbr, c.name) for c in prior_inductees}
+    prior_keys = {(c.team_abbr, c.name) for c in prior_inductees}
+    return full_inductee_keys - prior_keys
 
 
 def _hof_all_years_active(full_history: list) -> dict[str, str]:
@@ -994,7 +995,7 @@ def _hof_all_years_active(full_history: list) -> dict[str, str]:
     }
 
 
-def _hof_eligible_candidates(inductee_keys: set[tuple[str, str]], limit: int = 10) -> list[dict]:
+def _hof_eligible_candidates(inductee_keys: set[tuple[str, str]], limit: int = 10, path: Path | None = None) -> list[dict]:
     """Real, not-yet-inducted players who've cleared history_store's own
     MIN_HOF_SEASONS bar -- GDD Sec 10.4.8's "Eligible Candidates" list
     (this engine has no voting system, so `progress_pct` stands in for
@@ -1003,8 +1004,12 @@ def _hof_eligible_candidates(inductee_keys: set[tuple[str, str]], limit: int = 1
     leader -- a real, if simplified, "how close" proxy, not the exact
     private HOF composite score formula that lives inside
     history_store.hall_of_fame() -- disclosed in the template rather
-    than duplicating that formula here)."""
-    passing, rushing, receiving, defense = history_store.career_stats()
+    than duplicating that formula here). `path` mirrors career_stats()'s
+    own optional-path signature (None = the real live history file) --
+    lets tests pass a temp path directly instead of monkeypatching
+    history_store.DEFAULT_PATH, which would collide with career_stats()'s
+    own lru_cache (keyed on the path ARGUMENT, not on DEFAULT_PATH)."""
+    passing, rushing, receiving, defense = history_store.career_stats(path)
 
     def _pool(pool: dict, position: str, stat_fmt, primary):
         eligible = [
@@ -1031,7 +1036,7 @@ def _hof_eligible_candidates(inductee_keys: set[tuple[str, str]], limit: int = 1
     return sorted(candidates, key=lambda c: -c["progress_pct"])[:limit]
 
 
-def _hof_record_book() -> list[dict]:
+def _hof_record_book(path: Path | None = None) -> list[dict]:
     """GDD Sec 10.4.8's League Record Book: top-10 all-time leaders per
     major real category, from the same real career_stats() archive the
     Hall of Fame itself is built on -- one card per category, most-
@@ -1039,8 +1044,10 @@ def _hof_record_book() -> list[dict]:
     real per-game Kicking box-score line, but nothing rolls it into a
     season or career total anywhere yet, so a Kicking category here
     would have to be fabricated rather than real -- disclosed in the
-    template instead of guessed at."""
-    passing, rushing, receiving, defense = history_store.career_stats()
+    template instead of guessed at. `path` mirrors career_stats()'s own
+    optional-path signature -- see _hof_eligible_candidates()'s
+    docstring for why (lets tests bypass career_stats()'s lru_cache)."""
+    passing, rushing, receiving, defense = history_store.career_stats(path)
 
     def _top(pool: dict, key, limit=10):
         ranked = sorted((l for l in pool.values() if key(l) > 0), key=lambda l: -key(l))
@@ -1074,7 +1081,7 @@ def hof_view(request: Request, pos: str = "all", q: str = ""):
     full_history = history_store.get_history()
     inductees = history_store.hall_of_fame()
     inductee_keys = {(c.team_abbr, c.name) for c in inductees}
-    new_keys = _hof_new_inductee_keys(full_history)
+    new_keys = _hof_new_inductee_keys(full_history, inductee_keys)
     new_inductees = [c for c in inductees if (c.team_abbr, c.name) in new_keys]
 
     positions = sorted({c.position for c in inductees})
