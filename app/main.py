@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from markupsafe import Markup, escape
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -288,26 +290,405 @@ def gameplan_submit(
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
+# Stats page redesign (GDD Sec 10.4, ROADMAP.md M3). Real source:
+# docs/figma-export/src/app/components/StatsPage.tsx +
+# stats/StatColumnChooser.tsx -- Team/Player/Coach tabs, sortable
+# columns, a customizable-column chooser. Translated from the Figma
+# source's React client-state implementation into this project's
+# existing GET-query-param + full-page-reload pattern (see /playoffs's
+# ?view=, and the "no htmx/framework" architecture note in HANDOFF.md)
+# rather than introducing a new client-side JS subsystem. The catalog
+# below is a deliberately TRIMMED version of the Figma source's ~150-stat
+# hierarchy (docs/figma-export/src/app/lib/statHierarchy.ts) -- only
+# stats this engine actually attributes to a real player/team
+# (season_stats.py, defensive_box_score.py, TeamRecord) are offered;
+# advanced metrics with no real underlying data here (air yards,
+# pressures, contested catches, snap counts, coach records, ...) are
+# omitted rather than fabricated, same discipline as the Player Card's
+# Stats/Contract tab stubs.
+PLAYER_STAT_CATEGORIES: list[dict] = [
+    {"label": "Identity & Participation", "stats": [
+        {"id": "player_name", "label": "Player Name"},
+        {"id": "player_pos", "label": "Position"},
+        {"id": "player_team", "label": "Team"},
+        {"id": "player_num", "label": "Jersey #"},
+        {"id": "player_age", "label": "Age"},
+        {"id": "player_exp", "label": "Years Pro"},
+        {"id": "games_played", "label": "Games Played"},
+    ]},
+    {"label": "Passing", "stats": [
+        {"id": "pass_att", "label": "Pass Attempts"},
+        {"id": "pass_cmp", "label": "Completions"},
+        {"id": "pass_cmp_pct", "label": "Completion %"},
+        {"id": "pass_yds", "label": "Passing Yards"},
+        {"id": "pass_td", "label": "Passing TDs"},
+        {"id": "pass_int", "label": "Interceptions Thrown"},
+    ]},
+    {"label": "Rushing", "stats": [
+        {"id": "rush_att", "label": "Rush Attempts"},
+        {"id": "rush_yds", "label": "Rushing Yards"},
+        {"id": "yds_per_rush", "label": "Yards per Rush"},
+        {"id": "rush_td", "label": "Rushing TDs"},
+    ]},
+    {"label": "Receiving", "stats": [
+        {"id": "targets", "label": "Targets"},
+        {"id": "receptions", "label": "Receptions"},
+        {"id": "catch_pct", "label": "Catch %"},
+        {"id": "rec_yds", "label": "Receiving Yards"},
+        {"id": "rec_td", "label": "Receiving TDs"},
+    ]},
+    {"label": "Defense", "stats": [
+        {"id": "solo_tackles", "label": "Solo Tackles"},
+        {"id": "tackles_for_loss", "label": "Tackles for Loss"},
+        {"id": "sacks", "label": "Sacks"},
+        {"id": "def_int", "label": "Interceptions"},
+        {"id": "passes_defended", "label": "Passes Defended"},
+        {"id": "forced_fumbles", "label": "Forced Fumbles"},
+        {"id": "fumble_recoveries", "label": "Fumble Recoveries"},
+        {"id": "defensive_tds", "label": "Defensive TDs"},
+    ]},
+]
+PLAYER_DEFAULT_COLUMNS = ["player_name", "player_pos", "player_team", "player_age", "games_played"]
+PLAYER_STAT_LABELS = {s["id"]: s["label"] for cat in PLAYER_STAT_CATEGORIES for s in cat["stats"]}
+PLAYER_PRESETS: dict[str, list[str]] = {
+    "default": PLAYER_DEFAULT_COLUMNS,
+    "qb": ["player_name", "player_pos", "player_team", "games_played", "pass_att", "pass_cmp", "pass_cmp_pct", "pass_yds", "pass_td", "pass_int"],
+    "rushing": ["player_name", "player_pos", "player_team", "games_played", "rush_att", "rush_yds", "yds_per_rush", "rush_td"],
+    "receiving": ["player_name", "player_pos", "player_team", "games_played", "targets", "receptions", "catch_pct", "rec_yds", "rec_td"],
+    "defense": ["player_name", "player_pos", "player_team", "games_played", "solo_tackles", "tackles_for_loss", "sacks", "def_int", "passes_defended", "forced_fumbles", "fumble_recoveries", "defensive_tds"],
+    "all": list(PLAYER_STAT_LABELS),
+}
+
+TEAM_STAT_CATEGORIES: list[dict] = [
+    {"label": "Identity & Record", "stats": [
+        {"id": "team_name", "label": "Team Name"},
+        {"id": "conference", "label": "Conference"},
+        {"id": "division", "label": "Division"},
+        {"id": "wins", "label": "Wins"},
+        {"id": "losses", "label": "Losses"},
+        {"id": "win_pct", "label": "Win %"},
+        {"id": "points_for", "label": "Points For"},
+        {"id": "points_against", "label": "Points Against"},
+        {"id": "point_diff", "label": "Point Differential"},
+        {"id": "power_rating", "label": "Power Rating"},
+    ]},
+    {"label": "Offense", "stats": [
+        {"id": "off_plays", "label": "Offensive Plays"},
+        {"id": "off_yds", "label": "Total Yards"},
+        {"id": "team_pass_att", "label": "Pass Attempts"},
+        {"id": "team_pass_cmp", "label": "Completions"},
+        {"id": "team_pass_yds", "label": "Passing Yards"},
+        {"id": "team_pass_td", "label": "Passing TDs"},
+        {"id": "team_pass_int", "label": "Interceptions Thrown"},
+        {"id": "team_rush_att", "label": "Rush Attempts"},
+        {"id": "team_rush_yds", "label": "Rushing Yards"},
+        {"id": "team_rush_td", "label": "Rushing TDs"},
+    ]},
+    {"label": "Defense", "stats": [
+        {"id": "def_yds_allowed", "label": "Total Yards Allowed"},
+        {"id": "team_pass_yds_allowed", "label": "Passing Yards Allowed"},
+        {"id": "team_rush_yds_allowed", "label": "Rushing Yards Allowed"},
+        {"id": "team_sacks", "label": "Sacks"},
+        {"id": "team_int_def", "label": "Interceptions"},
+        {"id": "team_fumble_recoveries", "label": "Fumble Recoveries"},
+        {"id": "def_turnovers_forced", "label": "Turnovers Forced"},
+    ]},
+]
+TEAM_DEFAULT_COLUMNS = ["team_name", "conference", "division", "wins", "losses", "win_pct"]
+TEAM_STAT_LABELS = {s["id"]: s["label"] for cat in TEAM_STAT_CATEGORIES for s in cat["stats"]}
+TEAM_PRESETS: dict[str, list[str]] = {
+    "default": TEAM_DEFAULT_COLUMNS,
+    "record": ["team_name", "wins", "losses", "win_pct", "points_for", "points_against", "point_diff", "power_rating"],
+    "offense": ["team_name", "wins", "losses", "points_for", "off_yds", "team_pass_yds", "team_rush_yds"],
+    "defense": ["team_name", "wins", "losses", "points_against", "def_yds_allowed", "team_sacks", "def_turnovers_forced"],
+    "all": list(TEAM_STAT_LABELS),
+}
+
+STATS_PERCENT_COLUMNS = {"pass_cmp_pct", "catch_pct", "win_pct"}
+CONFERENCES = ["AFC", "NFC"]
+DIVISIONS = ["East", "North", "South", "West"]
+
+
+def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
+    """Builds the real per-player and per-team rows the Stats page's
+    Player/Team tabs display. Reuses the same aggregate_season_stats /
+    aggregate_season_defensive_stats helpers the old fixed leaderboards
+    and awards.py already share (no reimplemented stat math), plus one
+    extra pass over the season's played games for two things those
+    helpers don't track: per-player games-played (a player counts as
+    having played a game if they were credited with any offensive or
+    defensive stat in it) and per-team offense/defense totals (summed
+    from the same box_score.py/defensive_box_score.py lines, with
+    "yards allowed" read off the OPPONENT's offensive box for that
+    game). Identity fields (position/jersey/age/years pro) are joined
+    in from the live Player rows by (team_abbr, full_name) -- the same
+    lookup key app.main._player_link_or_name already uses -- and left
+    as "-"/None if no live match exists (shouldn't happen for a
+    currently-simulated season, but a real name/team mismatch should
+    show as unknown, not fabricate a player)."""
+    passing, rushing, receiving = aggregate_season_stats(season)
+    defense = aggregate_season_defensive_stats(season)
+
+    games_played: dict[tuple[str, str], int] = defaultdict(int)
+    team_off: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    team_def: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for week in season.schedule:
+        for g in week:
+            if g.result is None:
+                continue
+            boxes = {abbr: build_box_score(g.result.plays, abbr) for abbr in (g.home_abbr, g.away_abbr)}
+            def_boxes = {abbr: build_defensive_box_score(g.result.plays, abbr) for abbr in (g.home_abbr, g.away_abbr)}
+
+            for abbr in (g.home_abbr, g.away_abbr):
+                box = boxes[abbr]
+                participants = {p.name for p in box.passing} | {r.name for r in box.rushing} | {rc.name for rc in box.receiving} | {d.name for d in def_boxes[abbr]}
+                for name in participants:
+                    games_played[(abbr, name)] += 1
+
+                off = team_off[abbr]
+                for p in box.passing:
+                    off["pass_att"] += p.attempts
+                    off["pass_cmp"] += p.completions
+                    off["pass_yds"] += p.yards
+                    off["pass_td"] += p.touchdowns
+                    off["pass_int"] += p.interceptions
+                for r in box.rushing:
+                    off["rush_att"] += r.carries
+                    off["rush_yds"] += r.yards
+                    off["rush_td"] += r.touchdowns
+
+                d = team_def[abbr]
+                for dl in def_boxes[abbr]:
+                    d["sacks"] += dl.sacks
+                    d["int"] += dl.interceptions
+                    d["fumble_rec"] += dl.fumble_recoveries
+
+            home_pass_yds = sum(p.yards for p in boxes[g.home_abbr].passing)
+            home_rush_yds = sum(r.yards for r in boxes[g.home_abbr].rushing)
+            away_pass_yds = sum(p.yards for p in boxes[g.away_abbr].passing)
+            away_rush_yds = sum(r.yards for r in boxes[g.away_abbr].rushing)
+            team_def[g.home_abbr]["pass_yds_allowed"] += away_pass_yds
+            team_def[g.home_abbr]["rush_yds_allowed"] += away_rush_yds
+            team_def[g.away_abbr]["pass_yds_allowed"] += home_pass_yds
+            team_def[g.away_abbr]["rush_yds_allowed"] += home_rush_yds
+
+    with get_session() as s:
+        live_players = list(s.exec(select(Player)))
+    player_by_key = {(p.team_abbr, p.full_name): p for p in live_players if p.team_abbr}
+
+    all_keys = set(passing) | set(rushing) | set(receiving) | set(defense)
+    player_rows = []
+    for abbr, name in all_keys:
+        p = player_by_key.get((abbr, name))
+        pas = passing.get((abbr, name))
+        rus = rushing.get((abbr, name))
+        rec = receiving.get((abbr, name))
+        dfn = defense.get((abbr, name))
+        player_rows.append({
+            "player_name": name,
+            "player_pos": p.position.value if p else "-",
+            "player_team": abbr,
+            "player_num": p.jersey_number if p else None,
+            "player_age": p.age if p else None,
+            "player_exp": p.years_pro if p else None,
+            "games_played": games_played.get((abbr, name), 0),
+            "pass_att": pas.attempts if pas else 0,
+            "pass_cmp": pas.completions if pas else 0,
+            "pass_yds": pas.yards if pas else 0,
+            "pass_td": pas.touchdowns if pas else 0,
+            "pass_int": pas.interceptions if pas else 0,
+            "pass_cmp_pct": round(pas.completions / pas.attempts * 100, 1) if pas and pas.attempts else None,
+            "rush_att": rus.carries if rus else 0,
+            "rush_yds": rus.yards if rus else 0,
+            "rush_td": rus.touchdowns if rus else 0,
+            "yds_per_rush": round(rus.yards / rus.carries, 1) if rus and rus.carries else None,
+            "targets": rec.targets if rec else 0,
+            "receptions": rec.receptions if rec else 0,
+            "rec_yds": rec.yards if rec else 0,
+            "rec_td": rec.touchdowns if rec else 0,
+            "catch_pct": round(rec.receptions / rec.targets * 100, 1) if rec and rec.targets else None,
+            "solo_tackles": dfn.solo_tackles if dfn else 0,
+            "tackles_for_loss": dfn.tackles_for_loss if dfn else 0,
+            "sacks": dfn.sacks if dfn else 0,
+            "def_int": dfn.interceptions if dfn else 0,
+            "passes_defended": dfn.passes_defended if dfn else 0,
+            "forced_fumbles": dfn.forced_fumbles if dfn else 0,
+            "fumble_recoveries": dfn.fumble_recoveries if dfn else 0,
+            "defensive_tds": dfn.defensive_touchdowns if dfn else 0,
+        })
+
+    team_rows = []
+    for t in TEAMS:
+        rec = season.records[t.abbr]
+        off = team_off.get(t.abbr, {})
+        d = team_def.get(t.abbr, {})
+        team_rows.append({
+            "team_name": t.location,
+            "team_abbr": t.abbr,
+            "conference": t.conference,
+            "division": t.division,
+            "wins": rec.wins,
+            "losses": rec.losses,
+            "win_pct": round(rec.win_pct * 100, 1),
+            "points_for": rec.points_for,
+            "points_against": rec.points_against,
+            "point_diff": rec.point_diff,
+            "power_rating": round(rec.power_rating, 1),
+            "off_plays": off.get("pass_att", 0) + off.get("rush_att", 0),
+            "off_yds": off.get("pass_yds", 0) + off.get("rush_yds", 0),
+            "team_pass_att": off.get("pass_att", 0),
+            "team_pass_cmp": off.get("pass_cmp", 0),
+            "team_pass_yds": off.get("pass_yds", 0),
+            "team_pass_td": off.get("pass_td", 0),
+            "team_pass_int": off.get("pass_int", 0),
+            "team_rush_att": off.get("rush_att", 0),
+            "team_rush_yds": off.get("rush_yds", 0),
+            "team_rush_td": off.get("rush_td", 0),
+            "def_yds_allowed": d.get("pass_yds_allowed", 0) + d.get("rush_yds_allowed", 0),
+            "team_pass_yds_allowed": d.get("pass_yds_allowed", 0),
+            "team_rush_yds_allowed": d.get("rush_yds_allowed", 0),
+            "team_sacks": d.get("sacks", 0),
+            "team_int_def": d.get("int", 0),
+            "team_fumble_recoveries": d.get("fumble_rec", 0),
+            "def_turnovers_forced": d.get("int", 0) + d.get("fumble_rec", 0),
+        })
+
+    return player_rows, team_rows
+
+
+def _sort_stat_rows(rows: list[dict], key: str, direction: str) -> list[dict]:
+    """Nulls always sort last, independent of direction -- matches the
+    Figma source's own sort comparator (StatsPage.tsx's handleSort)."""
+    have = [r for r in rows if r.get(key) is not None]
+    missing = [r for r in rows if r.get(key) is None]
+    have.sort(key=lambda r: r[key], reverse=(direction == "desc"))
+    return have + missing
+
+
 @app.get("/stats", response_class=HTMLResponse)
-def stats_view(request: Request):
+def stats_view(
+    request: Request,
+    tab: str = "player",
+    sort: str | None = None,
+    dir: str = "desc",
+    team: str = "all",
+    pos: str = "all",
+    conference: str = "all",
+    division: str = "all",
+    q: str = "",
+    cols: list[str] = Query(default=[]),
+    preset: str | None = None,
+):
+    if tab not in ("player", "team", "coach"):
+        tab = "player"
+
     season = season_state.get_season()
     games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
-    passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season)
-    defensive_leaders = _defensive_stat_leaders(season)
     awards_race = awards.season_awards(season) if games_played else None
-    return templates.TemplateResponse(
-        request,
-        "stats.html",
-        {
-            "season": season,
-            "games_played": games_played,
-            "passing_leaders": passing_leaders,
-            "rushing_leaders": rushing_leaders,
-            "receiving_leaders": receiving_leaders,
-            "defensive_leaders": defensive_leaders,
-            "awards_race": awards_race,
-        },
-    )
+
+    ctx = {
+        "season": season, "games_played": games_played, "awards_race": awards_race, "tab": tab,
+        "teams": TEAMS, "positions": list(Position), "conferences": CONFERENCES, "divisions": DIVISIONS,
+        "team_filter": team, "pos_filter": pos, "conference_filter": conference, "division_filter": division,
+        "q": q, "sort": sort,
+    }
+
+    if games_played == 0 or tab == "coach":
+        ctx["dir"] = dir if dir in ("asc", "desc") else "desc"
+        return templates.TemplateResponse(request, "stats.html", ctx)
+
+    player_rows, team_rows = _stats_page_aggregates(season)
+
+    if tab == "player":
+        categories, presets, default_cols, labels = PLAYER_STAT_CATEGORIES, PLAYER_PRESETS, PLAYER_DEFAULT_COLUMNS, PLAYER_STAT_LABELS
+        rows = player_rows
+        if team != "all":
+            rows = [r for r in rows if r["player_team"] == team]
+        if pos != "all":
+            rows = [r for r in rows if r["player_pos"] == pos]
+        if q:
+            ql = q.lower()
+            rows = [r for r in rows if ql in r["player_name"].lower() or ql in r["player_team"].lower()]
+        default_sort, default_dir = "player_name", "asc"
+    else:
+        categories, presets, default_cols, labels = TEAM_STAT_CATEGORIES, TEAM_PRESETS, TEAM_DEFAULT_COLUMNS, TEAM_STAT_LABELS
+        rows = team_rows
+        if conference != "all":
+            rows = [r for r in rows if r["conference"] == conference]
+        if division != "all":
+            rows = [r for r in rows if r["division"] == division]
+        if q:
+            ql = q.lower()
+            rows = [r for r in rows if ql in r["team_name"].lower() or ql in r["team_abbr"].lower()]
+        default_sort, default_dir = "wins", "desc"
+
+    valid_ids = set(labels)
+    if preset and preset in presets:
+        columns = presets[preset]
+    else:
+        submitted = [c for c in cols if c in valid_ids]
+        columns = submitted if submitted else default_cols
+
+    # A raw `sort` param only ever arrives from a header-sort link, which
+    # always sends `dir` alongside it -- so an explicit sort honors the
+    # requested direction, while the very first (no `sort` yet) load uses
+    # a sensible per-tab default (alphabetical for names, best-record-
+    # first for team standings) rather than always defaulting to "desc",
+    # which read as Z-to-A on an untouched Player tab.
+    if sort in valid_ids:
+        effective_sort = sort
+        direction = dir if dir in ("asc", "desc") else "desc"
+    else:
+        effective_sort = default_sort
+        direction = default_dir
+    ctx["dir"] = direction
+    rows = _sort_stat_rows(rows, effective_sort, direction)
+    display_rows = []
+    for r in rows:
+        dr = dict(r)
+        for pct_col in STATS_PERCENT_COLUMNS:
+            if pct_col in dr and dr[pct_col] is not None:
+                dr[pct_col] = f"{dr[pct_col]}%"
+        display_rows.append(dr)
+
+    def stats_query(overrides: dict) -> str:
+        base: dict = {"tab": tab, "cols": columns}
+        if tab == "player":
+            base["team"], base["pos"] = team, pos
+        else:
+            base["conference"], base["division"] = conference, division
+        if q:
+            base["q"] = q
+        base.update(overrides)
+        params = []
+        for key, val in base.items():
+            if key == "cols":
+                params.extend(("cols", c) for c in val)
+            elif val not in (None, ""):
+                params.append((key, val))
+        return "/stats?" + urlencode(params)
+
+    sort_links = {}
+    for cid in columns:
+        next_dir = "asc" if (sort == cid and direction == "desc") else "desc"
+        sort_links[cid] = stats_query({"sort": cid, "dir": next_dir})
+
+    preset_links = {pid: stats_query({"cols": plist, "sort": None, "dir": None}) for pid, plist in presets.items()}
+    reset_link = stats_query({"cols": default_cols, "sort": None, "dir": None})
+
+    ctx.update({
+        "categories": categories,
+        "labels": labels,
+        "column_ids": columns,
+        "columns": [{"id": cid, "label": labels[cid]} for cid in columns],
+        "rows": display_rows,
+        "sort_links": sort_links,
+        "preset_links": preset_links,
+        "reset_link": reset_link,
+        "row_count": len(rows),
+    })
+    return templates.TemplateResponse(request, "stats.html", ctx)
 
 
 @app.get("/season", response_class=HTMLResponse)

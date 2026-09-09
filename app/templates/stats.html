@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>League Stats — LEAGUE_SEED={{ season.league_seed }}</h2>
-  <p class="muted">Season totals across {{ games_played }} played game{{ 's' if games_played != 1 else '' }}. Simulate more weeks on the <a href="/season">Season</a> page to grow these.</p>
+  <p class="muted">Customize and analyze real season statistics across teams and players. Simulate more weeks on the <a href="/season">Season</a> page to grow these.</p>
 </div>
 
 {% if games_played == 0 %}
@@ -31,52 +31,128 @@
 </div>
 
 <div class="card">
-  <h3>Passing Leaders</h3>
-  <table class="boxtable">
-    <thead><tr><th>Player</th><th>Team</th><th>C/ATT</th><th>Yds</th><th>TD</th><th>INT</th></tr></thead>
-    <tbody>
-      {% for p in passing_leaders %}
-      <tr><td>{{ player_link_or_name(p.name, p.team_abbr) }}</td><td>{{ p.team_abbr }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="stats-tabs">
+    <a href="/stats?tab=team" class="playoff-tab {% if tab == 'team' %}active{% endif %}">Team</a>
+    <a href="/stats?tab=player" class="playoff-tab {% if tab == 'player' %}active{% endif %}">Player</a>
+    <a href="/stats?tab=coach" class="playoff-tab {% if tab == 'coach' %}active{% endif %}">Coach</a>
+  </div>
 
-<div class="card">
-  <h3>Rushing Leaders</h3>
-  <table class="boxtable">
-    <thead><tr><th>Player</th><th>Team</th><th>Car</th><th>Yds</th><th>TD</th></tr></thead>
-    <tbody>
-      {% for r in rushing_leaders %}
-      <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  {% if tab == 'coach' %}
+  <p class="muted" style="margin-top: 1rem;">Coming soon &mdash; Coach stats are Post-MVP (no Coach entity exists in the engine yet; see the <a href="/staff">Staff</a> page).</p>
+  {% else %}
 
-<div class="card">
-  <h3>Receiving Leaders</h3>
-  <table class="boxtable">
-    <thead><tr><th>Player</th><th>Team</th><th>Rec</th><th>Tgt</th><th>Yds</th><th>TD</th></tr></thead>
-    <tbody>
-      {% for r in receiving_leaders %}
-      <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.receptions }}</td><td>{{ r.targets }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <form method="get" action="/stats" class="stats-filter-form">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if sort %}
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    {% endif %}
+    <div class="row">
+      {% if tab == 'player' %}
+      <div>
+        <label for="f-team">Team</label>
+        <select name="team" id="f-team">
+          <option value="all" {% if team_filter == 'all' %}selected{% endif %}>All Teams</option>
+          {% for t in teams %}
+          <option value="{{ t.abbr }}" {% if team_filter == t.abbr %}selected{% endif %}>{{ t.abbr }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="f-pos">Position</label>
+        <select name="pos" id="f-pos">
+          <option value="all" {% if pos_filter == 'all' %}selected{% endif %}>All Positions</option>
+          {% for p in positions %}
+          <option value="{{ p.value }}" {% if pos_filter == p.value %}selected{% endif %}>{{ p.value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <div>
+        <label for="f-conf">Conference</label>
+        <select name="conference" id="f-conf">
+          <option value="all" {% if conference_filter == 'all' %}selected{% endif %}>All</option>
+          {% for c in conferences %}
+          <option value="{{ c }}" {% if conference_filter == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="f-div">Division</label>
+        <select name="division" id="f-div">
+          <option value="all" {% if division_filter == 'all' %}selected{% endif %}>All</option>
+          {% for d in divisions %}
+          <option value="{{ d }}" {% if division_filter == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div>
+        <label for="f-q">Search</label>
+        <input type="text" name="q" id="f-q" value="{{ q }}" placeholder="Search {{ tab }} name...">
+      </div>
+    </div>
 
-<div class="card">
-  <h3>Defensive Leaders</h3>
-  <p class="muted">Real per-player defensive attribution (GDD &sect;6.7.2), including Defensive TD &mdash; a real, small, distance-based chance of an immediate score on any takeaway (no open-field return simulation).</p>
-  <table class="boxtable">
-    <thead><tr><th>Player</th><th>Team</th><th>Tkl</th><th>TFL</th><th>Sacks</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th><th>TD</th></tr></thead>
-    <tbody>
-      {% for d in defensive_leaders %}
-      <tr><td>{{ player_link_or_name(d.name, d.team_abbr) }}</td><td>{{ d.team_abbr }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td><td>{{ d.defensive_touchdowns }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <details class="stats-customize">
+      <summary>Customize Columns ({{ column_ids | length }} selected)</summary>
+      <div class="stats-customize-body">
+        <div class="stats-presets">
+          {% for pid, plink in preset_links.items() %}
+          <a href="{{ plink }}" class="stats-preset-btn">{{ pid | capitalize }}</a>
+          {% endfor %}
+          <a href="{{ reset_link }}" class="stats-preset-btn stats-preset-reset">Reset to Default</a>
+        </div>
+        {% for cat in categories %}
+        <div class="stats-category">
+          <div class="stats-category-label">{{ cat.label }}</div>
+          <div class="stats-checkbox-grid">
+            {% for stat in cat.stats %}
+            <label class="stats-checkbox">
+              <input type="checkbox" name="cols" value="{{ stat.id }}" {% if stat.id in column_ids %}checked{% endif %}>
+              {{ stat.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+
+    <div class="row" style="margin-top: 0.75rem;">
+      <div><button type="submit">Apply</button></div>
+      <div><button type="button" onclick="alert('Export to Sheets — coming soon!')">Export to Sheets</button></div>
+    </div>
+  </form>
+
+  <div class="stats-table-wrap">
+    <table class="boxtable stats-table">
+      <thead>
+        <tr>
+          {% for col in columns %}
+          <th><a href="{{ sort_links[col.id] }}" class="stats-sort-link {% if sort == col.id %}active-sort{% endif %}">{{ col.label }}{% if sort == col.id %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+        {% for row in rows %}
+        <tr>
+          {% for col in columns %}
+          <td>
+            {% if col.id == 'player_name' %}{{ player_link_or_name(row.player_name, row.player_team) }}
+            {% else %}{{ row[col.id] if row[col.id] is not none else '-' }}{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr><td colspan="{{ columns | length }}" class="muted">No {{ tab }}s found matching your filters.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted" style="margin-top: 0.5rem;">Showing {{ row_count }} {{ tab }}{{ 's' if row_count != 1 else '' }} &middot; {{ column_ids | length }} column{{ 's' if column_ids | length != 1 else '' }} displayed.</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

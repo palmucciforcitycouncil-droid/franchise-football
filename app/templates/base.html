@@ -248,6 +248,39 @@
 
     .division-standings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     .division-standings-grid table { width: 100%; }
+
+    /* Stats page (GDD Sec 10.4, ROADMAP.md M3): Team/Player/Coach tabs +
+       customizable, sortable columns. Real source: docs/figma-export/src/
+       app/components/StatsPage.tsx + stats/StatColumnChooser.tsx, reusing
+       .playoff-tab for the tab pills and a plain <details> disclosure
+       (no JS) for the column chooser instead of the source's modal dialog
+       -- this codebase's own no-htmx/no-framework, full-page-reload
+       pattern (see /playoffs's ?view=). */
+    .stats-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .stats-filter-form { margin-bottom: 1rem; }
+    .stats-customize { border: 1px solid var(--border); border-radius: 8px; margin-top: 0.75rem; }
+    .stats-customize summary { cursor: pointer; padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.9rem; }
+    .stats-customize summary::-webkit-details-marker { display: none; }
+    .stats-customize summary::before { content: "▸ "; }
+    .stats-customize[open] summary::before { content: "▾ "; }
+    .stats-customize-body { padding: 0 0.9rem 0.9rem; }
+    .stats-presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem; }
+    .stats-preset-btn {
+      display: inline-block; padding: 0.3rem 0.7rem; border-radius: 6px;
+      border: 1px solid var(--border); color: var(--text); text-decoration: none; font-size: 0.85rem;
+    }
+    .stats-preset-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .stats-preset-reset { color: var(--muted); }
+    .stats-category { margin-bottom: 0.75rem; }
+    .stats-category-label { color: var(--gold); font-size: 0.85rem; margin-bottom: 0.35rem; }
+    .stats-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.3rem 0.75rem; }
+    .stats-checkbox { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--text); margin-bottom: 0; }
+    .stats-checkbox input { width: auto; }
+    .stats-table-wrap { overflow-x: auto; }
+    .stats-table { white-space: nowrap; }
+    .stats-sort-link { color: var(--muted); text-decoration: none; }
+    .stats-sort-link:hover { color: var(--text); }
+    .stats-sort-link.active-sort { color: var(--gold); }
   </style>
 </head>
 <body>
