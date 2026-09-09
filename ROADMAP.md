@@ -1,0 +1,102 @@
+# Franchise Football — Roadmap & Execution Playbook
+
+**Read this after HANDOFF.md, before starting any new chunk of work.** HANDOFF.md is the detailed "what happened and why" log. This file is the forward-looking "what's left and how to spend tokens efficiently doing it" plan. Update the checkboxes here as chunks land; leave HANDOFF.md's own numbered-item narrative style for the detailed record of *how* each chunk was actually built.
+
+Written 2026-09-09, after item 37 (roster-depth rotation). Current state: 229 tests passing, MVP roughly 90% complete by scope, remaining gaps are well-understood and itemized below.
+
+---
+
+## 1. Where things stand
+
+**Solid and real, not stubs:** full sim engine (drive/game sim, play-calling AI, Score Fidelity System), season/schedule/standings/Power Ratings, real playoffs with the full tiebreaker chain, Awards (MVP/OPOY/DPOY/ROY), Progression/Regression, save/load, League History, real Hall of Fame, Player Cards (Overview/Ratings), real NFL data seeding (2002-2025), roster-depth rotation (item 37), and a UI that matches the Figma design tokens with a persistent header on every page.
+
+**What's actually left for MVP** (Part 1 per the GDD) is a short, specific list — not a vague "polish everything":
+
+1. Defensive TD — the one stat in the GDD's own §6.7.2 Truth Set this engine still can't produce at all (no interception/fumble return mechanic exists).
+2. Kicking/Punting box-score stats — also in the Truth Set, not tracked per-kicker anywhere yet.
+3. Three UI pages that don't match the Figma redesign yet: Stats (customizable columns), Roster (view toggle, quotas, embedded depth chart), HOF (richer layout + League Record Book/Super Bowl History addition from the v4.4/4.5 GDD rewrite).
+4. Player Card's Stats tab (real per-player-per-season data already exists in `career_stats()` — just needs wiring) and Contract tab (blocked on a real decision, see M8 below).
+5. A handful of disclosed, smaller stat-realism gaps (DEF tackles still ~2-3x real, TFL still elevated) that `tests/test_stat_realism.py` now tracks with deliberate headroom rather than hides.
+
+Everything else — Contracts, Free Agency, Trades, Coaching Staff, Draft, weather, the full penalty catalog, a real injury system, return-game simulation — is Part 2 (R2) per the GDD's own scope line, confirmed multiple times this project: *"Everything in this Part is in scope for the first playable release. Nothing here should expand without an explicit decision to promote content from Part 2."*
+
+---
+
+## 2. MVP chunks (finish Part 1)
+
+Each row is sized to run as its own fresh Claude Code session (or bundled per the Bundling column). "Model" is a recommendation, not a requirement — see §4 for the reasoning.
+
+| # | Chunk | What it actually is | Key files | Size | Model | Bundle with |
+|---|---|---|---|---|---|---|
+| **M1** | Defensive TD | New `PlayEvent` outcome. **Scope narrow**: no open-field return simulation (that's R2's job) — a takeaway has a real, small probability of an immediate score, attributed to the takeaway defender, distance-based (a INT/fumble deep in your own territory scores less often than one at midfield). Wire into `defensive_box_score.py`, `awards.py`'s DPOY weights, season/career stats. | `drive_sim.py`, `game_state.py`, `defensive_box_score.py`, `awards.py` | M | **Opus** for the mechanic design (novel, touches scoring/turnover logic which is easy to get subtly wrong), Sonnet to implement once scoped | own session |
+| **M2** | Kicking/Punting box score | New `KickingLine`/`PuntingLine` in `box_score.py`, keyed by real kicker/punter like `RushingLine` now is. FG att/made by distance bucket, XP att/made, punt count + gross avg + inside-20. The underlying sim (field goal attempts, punts) already exists in `drive_sim.py` — this is a stats-attribution build, not new game logic. | `box_score.py`, `drive_sim.py` (read `_attempt_field_goal` for the data that already exists) | M | Sonnet | can pair with M1 in one session if the session has budget left |
+| **M3** | Stats page redesign | Team/Player/Coach tabs, sortable columns, Stat Column Chooser modal (real Figma source: `docs/figma-export/src/app/components/StatsPage.tsx` + `stats/` subfolder). Coach tab can render "Coming Soon" (no Coach entity). Export button can be a stub. | `app/templates/stats.html`, `app/main.py`'s stats route | M | **Haiku** — mechanical translation of an already-extracted real Figma source into the existing Jinja/CSS pattern, low ambiguity | own session |
+| **M4** | Roster page redesign | Attributes/Stats view toggle, Team Quota badges, Filter/Export controls, embedded depth-chart widget (§10.4.2). Real source: `docs/figma-export/src/app/components/RosterPage.tsx`/`RosterTable.tsx`. | `app/templates/roster.html`, `depth_chart.html` (for the embed) | M | **Haiku** or Sonnet | own session |
+| **M5** | HOF page redesign + League Record Book/Super Bowl History | Real data already exists (`history_store.py`'s `hall_of_fame()`, season records with real champions). This is a display-layer build, not new backend work. Source: `docs/figma-export/src/app/components/HOFPage.tsx`. | `app/templates/hof.html`, `app/main.py`'s hof route | S–M | Sonnet | bundle with M6 |
+| **M6** | Player Card Stats tab | Wire `history_store.career_stats()` (already real, already tested, just has no UI consumer) into the Player Card's Stats panel. | `app/main.py`'s `_player_card_json`, `base.html`'s modal JS | S | Sonnet | bundle with M5 |
+| **M8** | Player Card Contract tab | **Needs your decision before any session touches this** — see §3. | — | S | Sonnet | after decision |
+
+**Total remaining MVP: roughly 5-7 focused sessions**, most of them small-to-medium. M1 is the only one with real design risk.
+
+---
+
+## 3. One decision needed from you before M8
+
+The Player Card's Contract tab is stubbed because there's no contract data model at all — no salary, no years remaining, nothing. Two honest paths:
+
+- **(a) Leave it stubbed until R2's real Contracts system (R4a below) builds it for real.** Consistent with this project's no-fabricated-data rule. Zero work now.
+- **(b) Build a lightweight, clearly-disclosed SYNTHETIC contract generator now** — a formula from `overall_rating`/`age`/position (not a real negotiated contract, labeled as such in the UI) — as an MVP stopgap so the tab isn't empty. Small amount of work, but it's fabricated data by another name, just disclosed.
+
+Recommendation: **(a)**. The project's established discipline this whole build has been "real data or an honest stub, never fabricated," and Contracts is coming in R2 regardless — a throwaway synthetic version now is work that gets deleted later. Flag your call in the opening prompt of whichever session picks up M8 (or skip M8 from the MVP list entirely and let R2's R4a chunk close it for real).
+
+---
+
+## 4. R2 (Post-MVP) chunks
+
+Bigger, more architecturally significant. Each of these is genuinely a multi-session build on its own — don't try to do one in a single sitting.
+
+| # | Chunk | Scope | Size | Model |
+|---|---|---|---|---|
+| **R1** | Injury system | Real in-season injury events tied to `durability`. **Directly synergizes with item 37's rotation.py** — a player going down should just increase the backup's `reliability_factor`/share for the rest of that game, which the rotation math already supports. Do this AFTER M1-M6, before R2/R4/R5 (it'll change how those get built). | L | **Opus** for design (touches rotation.py, box scores, progression, roster pages all at once), Sonnet for implementation |
+| **R2** | Return-game simulation | Punt/kickoff return yardage. Unlocks a real (not scoped-narrow) Defensive TD, real special-teams tackle credit (the biggest reason DEF tackles are still ~2-3x real — see `test_stat_realism.py`'s disclosed gap), and completes M2's punt stats. | L | Opus for design, Sonnet for implementation |
+| **R3** | Coaching Staff | New `Coach` entity, hiring/firing, real Staff page. Unlocks Coach of the Year (currently impossible — no Coach entity exists). | L | Opus for design, Sonnet for implementation |
+| **R4** | Contracts / Free Agency / Trades | Genuinely the biggest single chunk in R2. **Split into three sessions, in order**: R4a Contracts (salary cap, negotiation — also closes M8 for real), R4b Free Agency, R4c Trades. Unlocks real GM Desk content. | XL (3 sessions) | Opus for each sub-chunk's design, Sonnet for implementation |
+| **R5** | Draft | Draft classes, draft-day logic, real Draft page. Depends on R4a (rookie contracts) existing first. | L | Opus for design, Sonnet for implementation |
+| **R6** | Full penalty catalog | Expand from 7 to the GDD's full dozen-plus types. Mechanical extension of the existing, well-documented pattern in `drive_sim.py`'s Penalty System section. | S–M | Sonnet |
+| **R7** | Weather | Weather modifiers (§6.11). | S | Sonnet |
+| **R8** | Awards page (dynamic, weekly MVP/OPOY/DPOY/ROY/COY) | Your idea from earlier this session — overlaps with the existing HOF and Stats Awards Race, needs a real scoping conversation before any code (not a "just build it" chunk). Do this scoping as the FIRST five minutes of whatever session picks it up, not blind. | M | Sonnet, after scoping |
+
+**Recommended R2 order:** R1 (injury, synergizes with what's already built) → R2 (return game, unlocks the disclosed DEF-tackle gap) → R3 (coaching) → R4a→R4b→R4c (contracts/FA/trades) → R5 (draft, depends on R4a) → R6/R7 (small, anytime) → R8 (needs its own scoping first).
+
+---
+
+## 5. How to actually run this efficiently (the token-saving playbook)
+
+This session (the one that produced this file) is enormous — every remaining turn in it re-sends its entire history. That's the single biggest thing to avoid going forward.
+
+1. **One chunk = one fresh Claude Code chat.** Don't continue this session for the next chunk. A new chat starts with an empty context window; it only grows with what that chunk actually needs.
+
+2. **Open each new session with a tight, direct prompt** — not "explore the codebase and figure out what to do." Use this template:
+
+   > Read `HANDOFF.md` and `ROADMAP.md`. Implement chunk **[M1/M2/M3/...]** as scoped in ROADMAP.md §2 (or §4). Relevant files: [copy the "Key files" column]. Follow the existing patterns in those files — don't redesign anything not in scope. Run the test suite before committing.
+
+   Naming the exact chunk ID and files means the fresh session doesn't spend tokens re-discovering what this file already tells it.
+
+3. **Match the model to the chunk** (see the tables above):
+   - **Sonnet 5** (this session's model) — the right default for most implementation work. Good capability-to-cost balance.
+   - **Haiku 4.5** — for mechanical, low-ambiguity chunks where the hard thinking is already done (M3, M4: a real Figma source file just needs translating into the existing template pattern). Meaningfully cheaper; don't pay Sonnet/Opus prices for a translation job.
+   - **Opus** — reserve for chunks with real design risk: a novel mechanic touching multiple systems at once (M1, R1, R2, R3, R4, R5's design phase), or untangling a gnarly bug (like this session's stat-realism investigation, which took real iterative reasoning). Costs more per token, but a chunk like that done wrong in Sonnet often costs MORE overall once you count the rework.
+
+4. **Tier your test-verification effort by risk, don't run the full twice-suite for everything:**
+   - Engine/stats-affecting chunks (M1, M2, R1-R5): keep the full "run the suite twice" discipline — these can silently corrupt stats the way the box_score.py rushing bug did this session.
+   - Pure UI/template chunks (M3, M4, M5, M6, R8): one test run + one live-browser check via the preview tools is enough. Don't burn tokens re-running an 8-minute full suite twice for a template change that can't touch game state.
+
+5. **Bundle small chunks into an already-warm session.** Once a session has HANDOFF.md/ROADMAP.md loaded, the dev server running, and context established, a second small chunk in the same session is cheaper than a second fresh session's startup cost. M5+M6 and R6+R7 are natural pairs.
+
+6. **Don't re-run the stat-realism scratch-audit scripts from this session.** `tests/test_stat_realism.py` is now a permanent, checked-in regression gate — trust it. Only reach for a fresh one-off audit script if you're investigating a genuinely NEW reported anomaly, the way this session's work started.
+
+7. **Point new sessions at real source, don't make them re-derive it.** The Figma export is already extracted to `docs/figma-export/` in the repo — a fresh session should read the specific `.tsx` file for its page, not re-request the zip or guess at layout from screenshots.
+
+8. **Keep chunks scoped exactly as written here — resist scope creep mid-session.** The reason M1 says "no open-field return simulation" is specifically to stop it from silently ballooning into R2's territory. If a session doing M1 starts wanting to build return yardage too, that's the moment to stop and open a fresh R2 session instead, not push through in the same one.
+
+9. **Use `/loop` or extended autonomous work only for chunks that are already well-scoped** (i.e., anything in the tables above). Open-ended "keep improving things" autonomous sessions are the most expensive mode there is, because most of the token spend goes to self-directed exploration rather than building.
