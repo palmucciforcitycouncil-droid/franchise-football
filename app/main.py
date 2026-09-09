@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 load_dotenv()
 
+from markupsafe import Markup, escape
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -456,6 +457,30 @@ def _player_card_json(p: Player) -> str:
 
 
 templates.env.filters["player_card_json"] = _player_card_json
+
+
+# Stat-line dataclasses (PassingLine, SeasonDefensiveLine, HOFCandidate, ...)
+# only ever carry a plain `name` string, not a real Player row -- some of
+# them (real-NFL-seeded history, retired players) have NO live Player row
+# to find at all. This looks one up by (name, team_abbr) and falls back to
+# plain escaped text when there's no live match, rather than fabricating a
+# card. Brian's own instruction was "every player name... (except maybe
+# HOF)" -- HOF is skipped entirely (see hof.html) since its whole point is
+# retired/historical players, most with no live row; this handles the
+# other pages (dashboard/stats/history leaders, box scores) where the
+# named player is usually still on a live roster but isn't guaranteed to be.
+def _player_link_or_name(name: str, team_abbr: str | None) -> Markup:
+    if team_abbr:
+        with get_session() as s:
+            candidates = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+        for p in candidates:
+            if p.full_name == name:
+                card_json = escape(_player_card_json(p))
+                return Markup(f"<button type=\"button\" class=\"player-link\" data-card='{card_json}'>{escape(name)}</button>")
+    return escape(name)
+
+
+templates.env.globals["player_link_or_name"] = _player_link_or_name
 
 
 def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:

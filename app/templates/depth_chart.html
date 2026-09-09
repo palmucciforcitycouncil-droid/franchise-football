@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import player_link %}
 {% block title %}{% if team %}{{ team.location }} Depth Chart{% else %}Depth Chart{% endif %} — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
@@ -31,7 +32,7 @@
       {% for p in group.players %}
       <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}">
         <td>{{ loop.index }}</td>
-        <td>{{ p.full_name }}</td>
+        <td>{{ player_link(p) }}</td>
         <td>{{ p.age }}</td>
         <td>{{ p.overall_rating }}</td>
         <td>{{ p.potential }}</td>

@@ -34,7 +34,7 @@
     <thead><tr><th>Passing</th><th>C/ATT</th><th>Yds</th><th>TD</th><th>INT</th><th>Sk</th></tr></thead>
     <tbody>
       {% for p in box.passing %}
-      <tr><td>{{ p.name }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td><td>{{ p.sacks }}</td></tr>
+      <tr><td>{{ player_link_or_name(p.name, team.abbr) }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td><td>{{ p.sacks }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -44,7 +44,7 @@
     <thead><tr><th>Rushing</th><th>Car</th><th>Yds</th><th>TD</th><th>Fum</th></tr></thead>
     <tbody>
       {% for r in box.rushing %}
-      <tr><td>{{ r.name }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td><td>{{ r.fumbles_lost }}</td></tr>
+      <tr><td>{{ player_link_or_name(r.name, team.abbr) }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td><td>{{ r.fumbles_lost }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -54,7 +54,7 @@
     <thead><tr><th>Receiving</th><th>Rec</th><th>Tgt</th><th>Yds</th><th>TD</th></tr></thead>
     <tbody>
       {% for r in box.receiving %}
-      <tr><td>{{ r.name }}</td><td>{{ r.receptions }}</td><td>{{ r.targets }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      <tr><td>{{ player_link_or_name(r.name, team.abbr) }}</td><td>{{ r.receptions }}</td><td>{{ r.targets }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -64,7 +64,7 @@
     <thead><tr><th>Defense</th><th>Tkl</th><th>TFL</th><th>Sk</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th></tr></thead>
     <tbody>
       {% for d in defense %}
-      <tr><td>{{ d.name }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td></tr>
+      <tr><td>{{ player_link_or_name(d.name, team.abbr) }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

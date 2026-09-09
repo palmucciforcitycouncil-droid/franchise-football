@@ -23,7 +23,7 @@
       <thead><tr><th colspan="2">{{ label }}</th></tr></thead>
       <tbody>
         {% if candidates %}
-        <tr><td>{{ candidates[0].name }} ({{ candidates[0].team_abbr }})</td><td class="muted">{{ candidates[0].stat_line }}</td></tr>
+        <tr><td>{{ player_link_or_name(candidates[0].name, candidates[0].team_abbr) }} ({{ candidates[0].team_abbr }})</td><td class="muted">{{ candidates[0].stat_line }}</td></tr>
         {% else %}
         <tr><td colspan="2" class="muted">&mdash;</td></tr>
         {% endif %}
@@ -36,10 +36,10 @@
     <thead><tr><th>Passing Leader</th><th>Rushing Leader</th><th>Receiving Leader</th><th>Tackles Leader</th></tr></thead>
     <tbody>
       <tr>
-        <td>{% if rec.passing_leaders %}{{ rec.passing_leaders[0].name }} ({{ rec.passing_leaders[0].team_abbr }}) &mdash; {{ rec.passing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
-        <td>{% if rec.rushing_leaders %}{{ rec.rushing_leaders[0].name }} ({{ rec.rushing_leaders[0].team_abbr }}) &mdash; {{ rec.rushing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
-        <td>{% if rec.receiving_leaders %}{{ rec.receiving_leaders[0].name }} ({{ rec.receiving_leaders[0].team_abbr }}) &mdash; {{ rec.receiving_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
-        <td>{% if rec.defensive_leaders %}{{ rec.defensive_leaders[0].name }} ({{ rec.defensive_leaders[0].team_abbr }}) &mdash; {{ rec.defensive_leaders[0].solo_tackles }} tkl{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.passing_leaders %}{{ player_link_or_name(rec.passing_leaders[0].name, rec.passing_leaders[0].team_abbr) }} ({{ rec.passing_leaders[0].team_abbr }}) &mdash; {{ rec.passing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.rushing_leaders %}{{ player_link_or_name(rec.rushing_leaders[0].name, rec.rushing_leaders[0].team_abbr) }} ({{ rec.rushing_leaders[0].team_abbr }}) &mdash; {{ rec.rushing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.receiving_leaders %}{{ player_link_or_name(rec.receiving_leaders[0].name, rec.receiving_leaders[0].team_abbr) }} ({{ rec.receiving_leaders[0].team_abbr }}) &mdash; {{ rec.receiving_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+        <td>{% if rec.defensive_leaders %}{{ player_link_or_name(rec.defensive_leaders[0].name, rec.defensive_leaders[0].team_abbr) }} ({{ rec.defensive_leaders[0].team_abbr }}) &mdash; {{ rec.defensive_leaders[0].solo_tackles }} tkl{% else %}&mdash;{% endif %}</td>
       </tr>
     </tbody>
   </table>

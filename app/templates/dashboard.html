@@ -209,7 +209,7 @@
     <thead><tr><th>Passing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
     <tbody>
       {% for p in passing_leaders %}
-      <tr><td>{{ p.name }}</td><td>{{ p.team_abbr }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td></tr>
+      <tr><td>{{ player_link_or_name(p.name, p.team_abbr) }}</td><td>{{ p.team_abbr }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -217,7 +217,7 @@
     <thead><tr><th>Rushing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
     <tbody>
       {% for r in rushing_leaders %}
-      <tr><td>{{ r.name }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -225,7 +225,7 @@
     <thead><tr><th>Receiving</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
     <tbody>
       {% for r in receiving_leaders %}
-      <tr><td>{{ r.name }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+      <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
