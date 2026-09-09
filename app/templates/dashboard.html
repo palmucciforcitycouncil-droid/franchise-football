@@ -2,6 +2,14 @@
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
+  <h2>Dashboard — Season {{ season.season_number + 1 }} &middot; LEAGUE_SEED={{ season.league_seed }}</h2>
+  <p class="muted">
+    {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
+    See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.
+  </p>
+</div>
+
+<div class="card">
   <h3>Weekly Gameplan</h3>
   <p class="muted">Sets your Head Coach's strategy for this week's opponent (GDD &sect;10.4.1) &mdash; read by the play-calling AI for your team only.</p>
   <form method="post" action="/gameplan">
@@ -61,175 +69,275 @@
   </form>
 </div>
 
-<div class="card">
-  <h3>Scouting — Next Opponent</h3>
-  {% if scouting %}
-  <p class="muted">
-    {{ scouting.is_home_game and "vs" or "@" }} {{ scouting.opponent_team.location }} ({{ scouting.opponent_team.abbr }})
-    &middot; Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
-    {%- if scouting.summary.streak != "-" %} &middot; {{ scouting.summary.streak }}{% endif %}
-    {%- if scouting.summary.power_rank %} &middot; Power Rank: {{ scouting.summary.power_rank }}{% endif %}
-  </p>
-
-  {% if scouting.summary.last3 %}
-  <table class="boxtable" style="margin-bottom: 1rem;">
-    <thead><tr><th>Last 3 Games</th><th>Result</th></tr></thead>
-    <tbody>
-      {% for g in scouting.summary.last3 %}
-      <tr>
-        <td>{{ g.at }} {{ g.opponent }}</td>
-        <td class="{% if g.won %}winner{% endif %}">{{ 'W' if g.won else 'L' }} {{ g.my_score }}-{{ g.opp_score }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">No games played yet this season.</p>
-  {% endif %}
-
-  <details class="drive">
-    <summary>Offense{% if scouting.offense.sample_size %} <span class="drive-score">{{ scouting.offense.sample_size }} plays</span>{% endif %}</summary>
-    <table class="boxtable" style="margin: 0.75rem;">
+<div class="dashboard-grid">
+  <!-- Row 1: Division Standings | Team Schedule | Scouting Panel -->
+  <div class="card">
+    <h3>Division Standings</h3>
+    <table>
+      <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>Diff</th></tr></thead>
       <tbody>
-        <tr><td>1st Down Pass %</td><td>{{ scouting.offense.first_down_pass_pct if scouting.offense.first_down_pass_pct is not none else "N/A" }}{% if scouting.offense.first_down_pass_pct is not none %}%{% endif %}</td></tr>
-        <tr><td>3rd & Short (1-3) Pass %</td><td>{{ scouting.offense.third_short_pass_pct if scouting.offense.third_short_pass_pct is not none else "N/A" }}{% if scouting.offense.third_short_pass_pct is not none %}%{% endif %}</td></tr>
-        <tr><td>3rd & Medium (4-7) Pass %</td><td>{{ scouting.offense.third_medium_pass_pct if scouting.offense.third_medium_pass_pct is not none else "N/A" }}{% if scouting.offense.third_medium_pass_pct is not none %}%{% endif %}</td></tr>
-        <tr><td>3rd & Long (8+) Pass %</td><td>{{ scouting.offense.third_long_pass_pct if scouting.offense.third_long_pass_pct is not none else "N/A" }}{% if scouting.offense.third_long_pass_pct is not none %}%{% endif %}</td></tr>
-        <tr><td>Red Zone Pass %</td><td>{{ scouting.offense.redzone_pass_pct if scouting.offense.redzone_pass_pct is not none else "N/A" }}{% if scouting.offense.redzone_pass_pct is not none %}%{% endif %}</td></tr>
-      </tbody>
-    </table>
-  </details>
-
-  <details class="drive">
-    <summary>Defense{% if scouting.defense.sample_size %} <span class="drive-score">{{ scouting.defense.sample_size }} plays</span>{% endif %}</summary>
-    <table class="boxtable" style="margin: 0.75rem;">
-      <tbody>
-        <tr><td>Blitz %</td><td>{{ scouting.defense.blitz_pct if scouting.defense.blitz_pct is not none else "N/A" }}{% if scouting.defense.blitz_pct is not none %}%{% endif %}</td></tr>
-        <tr><td>Man Coverage %</td><td>{{ scouting.defense.man_pct if scouting.defense.man_pct is not none else "N/A" }}{% if scouting.defense.man_pct is not none %}%{% endif %}</td></tr>
-        <tr><td>Red Zone Blitz %</td><td>{{ scouting.defense.redzone_blitz_pct if scouting.defense.redzone_blitz_pct is not none else "N/A" }}{% if scouting.defense.redzone_blitz_pct is not none %}%{% endif %}</td></tr>
-      </tbody>
-    </table>
-  </details>
-
-  <details class="drive">
-    <summary>4th Down &amp; Field Goals</summary>
-    <table class="boxtable" style="margin: 0.75rem;">
-      <tbody>
-        <tr><td>4th Down Attempts / Conversions</td><td>{{ scouting.fourth_down.attempts }} / {{ scouting.fourth_down.conversions }}</td></tr>
-        {% for bucket, fg in scouting.field_goals.items() %}
-        {% if fg.attempted %}
-        <tr><td>FG {{ bucket }}</td><td>{{ fg.made }}/{{ fg.attempted }} ({{ fg.pct }}%)</td></tr>
-        {% endif %}
+        {% for r in division_standings %}
+        <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ r.location }} ({{ r.abbr }})</td>
+          <td>{{ r.wins }}</td>
+          <td>{{ r.losses }}</td>
+          <td>{{ "%.3f"|format(r.win_pct) }}</td>
+          <td>{{ r.point_diff }}</td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
-  </details>
+  </div>
 
-  <details class="drive">
-    <summary>Discipline{% if scouting.discipline.total %} <span class="drive-score">{{ scouting.discipline.total }} penalties</span>{% endif %}</summary>
-    <table class="boxtable" style="margin: 0.75rem;">
+  <div class="card">
+    <h3>Team Schedule</h3>
+    <div class="dashboard-scroll">
+      <table>
+        <thead><tr><th>Wk</th><th>Opponent</th><th>Result</th></tr></thead>
+        <tbody>
+          {% for g in team_schedule %}
+          <tr class="{% if g.week == season.current_week %}starter{% endif %}">
+            <td>{{ g.week }}</td>
+            <td>{{ 'vs' if g.is_home else '@' }} {{ g.opponent_abbr }}</td>
+            <td>
+              {% if g.result %}
+              <span class="{% if g.result.won %}winner{% endif %}">{{ 'W' if g.result.won else 'L' }} {{ g.result.user_score }}&ndash;{{ g.result.opp_score }}</span>
+              {% else %}
+              <span class="muted">&mdash;</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Scouting &mdash; Next Opponent</h3>
+    {% if scouting %}
+    <p class="muted">
+      {{ scouting.is_home_game and "vs" or "@" }} {{ scouting.opponent_team.location }} ({{ scouting.opponent_team.abbr }})
+      &middot; Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
+      {%- if scouting.summary.streak != "-" %} &middot; {{ scouting.summary.streak }}{% endif %}
+      {%- if scouting.summary.power_rank %} &middot; Power Rank: {{ scouting.summary.power_rank }}{% endif %}
+    </p>
+    <div class="dashboard-scroll">
+    {% if scouting.summary.last3 %}
+    <table class="boxtable" style="margin-bottom: 1rem;">
+      <thead><tr><th>Last 3 Games</th><th>Result</th></tr></thead>
       <tbody>
-        <tr><td>Penalties / Game</td><td>{{ scouting.discipline.per_game if scouting.discipline.per_game is not none else "N/A" }}</td></tr>
-        {% for ptype, count in scouting.discipline.top_types %}
-        <tr><td>{{ ptype }}</td><td>{{ count }}</td></tr>
+        {% for g in scouting.summary.last3 %}
+        <tr>
+          <td>{{ g.at }} {{ g.opponent }}</td>
+          <td class="{% if g.won %}winner{% endif %}">{{ 'W' if g.won else 'L' }} {{ g.my_score }}-{{ g.opp_score }}</td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
-  </details>
+    {% else %}
+    <p class="muted">No games played yet this season.</p>
+    {% endif %}
 
-  <details class="drive">
-    <summary>Season Stats</summary>
-    <table class="boxtable" style="margin: 0.75rem;">
+    <details class="drive">
+      <summary>Offense{% if scouting.offense.sample_size %} <span class="drive-score">{{ scouting.offense.sample_size }} plays</span>{% endif %}</summary>
+      <table class="boxtable" style="margin: 0.75rem;">
+        <tbody>
+          <tr><td>1st Down Pass %</td><td>{{ scouting.offense.first_down_pass_pct if scouting.offense.first_down_pass_pct is not none else "N/A" }}{% if scouting.offense.first_down_pass_pct is not none %}%{% endif %}</td></tr>
+          <tr><td>3rd &amp; Short (1-3) Pass %</td><td>{{ scouting.offense.third_short_pass_pct if scouting.offense.third_short_pass_pct is not none else "N/A" }}{% if scouting.offense.third_short_pass_pct is not none %}%{% endif %}</td></tr>
+          <tr><td>3rd &amp; Medium (4-7) Pass %</td><td>{{ scouting.offense.third_medium_pass_pct if scouting.offense.third_medium_pass_pct is not none else "N/A" }}{% if scouting.offense.third_medium_pass_pct is not none %}%{% endif %}</td></tr>
+          <tr><td>3rd &amp; Long (8+) Pass %</td><td>{{ scouting.offense.third_long_pass_pct if scouting.offense.third_long_pass_pct is not none else "N/A" }}{% if scouting.offense.third_long_pass_pct is not none %}%{% endif %}</td></tr>
+          <tr><td>Red Zone Pass %</td><td>{{ scouting.offense.redzone_pass_pct if scouting.offense.redzone_pass_pct is not none else "N/A" }}{% if scouting.offense.redzone_pass_pct is not none %}%{% endif %}</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <details class="drive">
+      <summary>Defense{% if scouting.defense.sample_size %} <span class="drive-score">{{ scouting.defense.sample_size }} plays</span>{% endif %}</summary>
+      <table class="boxtable" style="margin: 0.75rem;">
+        <tbody>
+          <tr><td>Blitz %</td><td>{{ scouting.defense.blitz_pct if scouting.defense.blitz_pct is not none else "N/A" }}{% if scouting.defense.blitz_pct is not none %}%{% endif %}</td></tr>
+          <tr><td>Man Coverage %</td><td>{{ scouting.defense.man_pct if scouting.defense.man_pct is not none else "N/A" }}{% if scouting.defense.man_pct is not none %}%{% endif %}</td></tr>
+          <tr><td>Red Zone Blitz %</td><td>{{ scouting.defense.redzone_blitz_pct if scouting.defense.redzone_blitz_pct is not none else "N/A" }}{% if scouting.defense.redzone_blitz_pct is not none %}%{% endif %}</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <details class="drive">
+      <summary>4th Down &amp; Field Goals</summary>
+      <table class="boxtable" style="margin: 0.75rem;">
+        <tbody>
+          <tr><td>4th Down Attempts / Conversions</td><td>{{ scouting.fourth_down.attempts }} / {{ scouting.fourth_down.conversions }}</td></tr>
+          {% for bucket, fg in scouting.field_goals.items() %}
+          {% if fg.attempted %}
+          <tr><td>FG {{ bucket }}</td><td>{{ fg.made }}/{{ fg.attempted }} ({{ fg.pct }}%)</td></tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+
+    <details class="drive">
+      <summary>Discipline{% if scouting.discipline.total %} <span class="drive-score">{{ scouting.discipline.total }} penalties</span>{% endif %}</summary>
+      <table class="boxtable" style="margin: 0.75rem;">
+        <tbody>
+          <tr><td>Penalties / Game</td><td>{{ scouting.discipline.per_game if scouting.discipline.per_game is not none else "N/A" }}</td></tr>
+          {% for ptype, count in scouting.discipline.top_types %}
+          <tr><td>{{ ptype }}</td><td>{{ count }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+
+    <details class="drive">
+      <summary>Season Stats</summary>
+      <table class="boxtable" style="margin: 0.75rem;">
+        <tbody>
+          <tr><td>Points/Game</td><td>{{ scouting.summary.ppg if scouting.summary.ppg is not none else "N/A" }}</td></tr>
+          <tr><td>Points Allowed/Game</td><td>{{ scouting.summary.papg if scouting.summary.papg is not none else "N/A" }}</td></tr>
+          <tr><td>Pass Yds/Game</td><td>{{ scouting.summary.pass_ypg if scouting.summary.pass_ypg is not none else "N/A" }}</td></tr>
+          <tr><td>Rush Yds/Game</td><td>{{ scouting.summary.rush_ypg if scouting.summary.rush_ypg is not none else "N/A" }}</td></tr>
+          <tr><td>Turnover Diff</td><td>{{ scouting.summary.turnover_diff }}</td></tr>
+        </tbody>
+      </table>
+    </details>
+    </div>
+    {% else %}
+    <p class="muted">No more games scheduled this season.</p>
+    {% endif %}
+  </div>
+
+  <!-- Row 2 (left): League Power Rankings -->
+  <div class="card">
+    <h3>League Power Rankings</h3>
+    <table>
+      <thead><tr><th>#</th><th>Team</th><th>Rating</th></tr></thead>
       <tbody>
-        <tr><td>Points/Game</td><td>{{ scouting.summary.ppg if scouting.summary.ppg is not none else "N/A" }}</td></tr>
-        <tr><td>Points Allowed/Game</td><td>{{ scouting.summary.papg if scouting.summary.papg is not none else "N/A" }}</td></tr>
-        <tr><td>Pass Yds/Game</td><td>{{ scouting.summary.pass_ypg if scouting.summary.pass_ypg is not none else "N/A" }}</td></tr>
-        <tr><td>Rush Yds/Game</td><td>{{ scouting.summary.rush_ypg if scouting.summary.rush_ypg is not none else "N/A" }}</td></tr>
-        <tr><td>Turnover Diff</td><td>{{ scouting.summary.turnover_diff }}</td></tr>
+        {% for r in power_rankings %}
+        <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ r.location }} ({{ r.abbr }})</td>
+          <td>{{ r.power_rating | round | int }}</td>
+        </tr>
+        {% endfor %}
       </tbody>
     </table>
-  </details>
-  {% else %}
-  <p class="muted">No more games scheduled this season.</p>
-  {% endif %}
-</div>
+  </div>
 
-<div class="card">
-  <h2>Dashboard — Season {{ season.season_number + 1 }} &middot; LEAGUE_SEED={{ season.league_seed }}</h2>
-  <p class="muted">
-    {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
-    See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.
-  </p>
-</div>
+  <!-- Row 2 (right, spans 2 cols): Box Score -->
+  <div class="card dashboard-span-2">
+    <h3>Box Score{% if last_game %} &mdash; Week {{ last_game.week }} {{ 'vs' if last_game.is_home else '@' }} {{ last_game.opponent_abbr }}{% endif %}</h3>
+    {% if last_game %}
+    <p class="muted">
+      <span class="{% if last_game.user_score > last_game.opp_score %}winner{% endif %}">{{ season.user_team_abbr }} {{ last_game.user_score }}</span>
+      &ndash; {{ last_game.opp_score }} {{ last_game.opponent_abbr }}
+      &middot; <a href="/season/week/{{ last_game.week }}/game/{{ last_game.home_abbr }}/{{ last_game.away_abbr }}">Full box score &amp; play-by-play &rarr;</a>
+    </p>
+    <div class="dashboard-scroll">
+      {% if last_game.box.passing %}
+      <table class="boxtable">
+        <thead><tr><th>Passing</th><th>C/ATT</th><th>Yds</th><th>TD</th><th>INT</th></tr></thead>
+        <tbody>
+          {% for p in last_game.box.passing %}
+          <tr><td>{{ player_link_or_name(p.name, season.user_team_abbr) }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if last_game.box.rushing %}
+      <table class="boxtable">
+        <thead><tr><th>Rushing</th><th>Car</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for r in last_game.box.rushing %}
+          <tr><td>{{ player_link_or_name(r.name, season.user_team_abbr) }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if last_game.box.receiving %}
+      <table class="boxtable">
+        <thead><tr><th>Receiving</th><th>Rec</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for r in last_game.box.receiving %}
+          <tr><td>{{ player_link_or_name(r.name, season.user_team_abbr) }}</td><td>{{ r.receptions }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if last_game.defense %}
+      <table class="boxtable">
+        <thead><tr><th>Defense</th><th>Tkl</th><th>Sk</th><th>INT</th></tr></thead>
+        <tbody>
+          {% for d in last_game.defense %}
+          <tr><td>{{ player_link_or_name(d.name, season.user_team_abbr) }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="muted">No games played yet &mdash; simulate a week on the <a href="/season">Season</a> page.</p>
+    {% endif %}
+  </div>
 
-<div class="card">
-  <h3>Standings (Top 10)</h3>
-  <table>
-    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>Diff</th><th>Power Ranking</th></tr></thead>
-    <tbody>
-      {% for r in standings %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        <td>{{ r.location }} ({{ r.abbr }})</td>
-        <td>{{ r.wins }}</td>
-        <td>{{ r.losses }}</td>
-        <td>{{ "%.3f"|format(r.win_pct) }}</td>
-        <td>{{ r.point_diff }}</td>
-        <td>{{ r.power_rating | round | int }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <!-- Row 3 (left): Top Performers -->
+  <div class="card">
+    <h3>Top Performers</h3>
+    {% if passing_leaders %}
+    <div class="dashboard-scroll">
+      <table class="boxtable">
+        <thead><tr><th>Passing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for p in passing_leaders %}
+          <tr><td>{{ player_link_or_name(p.name, p.team_abbr) }}</td><td>{{ p.team_abbr }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <table class="boxtable">
+        <thead><tr><th>Rushing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for r in rushing_leaders %}
+          <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <table class="boxtable">
+        <thead><tr><th>Receiving</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for r in receiving_leaders %}
+          <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p><a href="/stats">See full leaderboards &rarr;</a></p>
+    {% else %}
+    <p class="muted">No games played yet this season.</p>
+    {% endif %}
+  </div>
 
-<div class="card">
-  <h3>{% if last_played_week %}Week {{ last_played_week }} Results{% else %}Latest Results{% endif %}</h3>
-  {% if last_week_games %}
-  <table>
-    <thead><tr><th>Away</th><th>Home</th><th>Result</th></tr></thead>
-    <tbody>
-      {% for g in last_week_games %}
-      <tr>
-        <td>{{ g.away_abbr }}</td>
-        <td>{{ g.home_abbr }}</td>
-        <td><a href="/season/week/{{ last_played_week }}/game/{{ g.home_abbr }}/{{ g.away_abbr }}">{{ g.result.away_score }}&ndash;{{ g.result.home_score }}</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">No games played yet — simulate a week on the <a href="/season">Season</a> page.</p>
-  {% endif %}
+  <!-- Row 3 (right, spans 2 cols): Play-by-Play -->
+  <div class="card dashboard-span-2">
+    <h3>Play-by-Play{% if last_game %} &mdash; Week {{ last_game.week }} {{ 'vs' if last_game.is_home else '@' }} {{ last_game.opponent_abbr }}{% endif %}</h3>
+    {% if last_game and last_game.plays %}
+    <div class="dashboard-scroll">
+      <table class="playlog">
+        <thead><tr><th>Down</th><th>Ball on</th><th>Play</th></tr></thead>
+        <tbody>
+          {% for p in last_game.plays %}
+          <tr class="outcome-{{ p.outcome }}">
+            <td class="dd">{% if p.play_type in ('punt', 'field_goal', 'extra_point') %}&mdash;{% else %}{{ p.down }} &amp; {{ p.distance }}{% endif %}</td>
+            <td class="dd">{{ p.field_pos }}</td>
+            <td class="desc">{{ p.desc }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">No games played yet.</p>
+    {% endif %}
+  </div>
 </div>
-
-{% if passing_leaders %}
-<div class="card">
-  <h3>League Leaders</h3>
-  <table class="boxtable">
-    <thead><tr><th>Passing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
-    <tbody>
-      {% for p in passing_leaders %}
-      <tr><td>{{ player_link_or_name(p.name, p.team_abbr) }}</td><td>{{ p.team_abbr }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <table class="boxtable">
-    <thead><tr><th>Rushing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
-    <tbody>
-      {% for r in rushing_leaders %}
-      <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <table class="boxtable">
-    <thead><tr><th>Receiving</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
-    <tbody>
-      {% for r in receiving_leaders %}
-      <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p><a href="/stats">See full leaderboards &rarr;</a></p>
-</div>
-{% endif %}
 {% endblock %}

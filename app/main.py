@@ -227,26 +227,91 @@ def _defensive_stat_leaders(season, top_n: int = 15):
     return sorted(defense.values(), key=lambda l: -l.solo_tackles)[:top_n]
 
 
+def _team_schedule_for(season, team_abbr: str) -> list[dict]:
+    """One row per week this team plays (byes just don't appear), each
+    with the opponent and W/L/score once that week's game has been
+    simulated -- the real per-team view the Figma source's TeamSchedule
+    component shows, as opposed to the league-wide "latest results"
+    the pre-M9 dashboard had. Built from season.schedule, the same data
+    every other schedule view (e.g. /season) already reads."""
+    rows = []
+    for week_num, week in enumerate(season.schedule, start=1):
+        game = next((g for g in week if team_abbr in (g.home_abbr, g.away_abbr)), None)
+        if game is None:
+            continue
+        is_home = game.home_abbr == team_abbr
+        opponent_abbr = game.away_abbr if is_home else game.home_abbr
+        result = None
+        if game.result is not None:
+            user_score = game.result.home_score if is_home else game.result.away_score
+            opp_score = game.result.away_score if is_home else game.result.home_score
+            result = {"won": user_score > opp_score, "user_score": user_score, "opp_score": opp_score}
+        rows.append({"week": week_num, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
+    return rows
+
+
+def _last_played_game_for(season, team_abbr: str) -> dict | None:
+    """The most recently completed game involving this team specifically
+    (not just the most recent league-wide week, which may have been a
+    bye for this team) -- feeds the Dashboard's Box Score/Play-by-Play
+    widgets (ROADMAP.md M9), reusing the exact same build_box_score/
+    build_defensive_box_score calls result.html already makes for any
+    other game."""
+    for week_num in range(season.current_week - 1, 0, -1):
+        game = next(
+            (g for g in season.schedule[week_num - 1]
+             if team_abbr in (g.home_abbr, g.away_abbr) and g.result is not None),
+            None,
+        )
+        if game is None:
+            continue
+        is_home = game.home_abbr == team_abbr
+        opponent_abbr = game.away_abbr if is_home else game.home_abbr
+        return {
+            "week": week_num,
+            "opponent_abbr": opponent_abbr,
+            "is_home": is_home,
+            "home_abbr": game.home_abbr,
+            "away_abbr": game.away_abbr,
+            "user_score": game.result.home_score if is_home else game.result.away_score,
+            "opp_score": game.result.away_score if is_home else game.result.home_score,
+            "box": build_box_score(game.result.plays, team_abbr),
+            "defense": build_defensive_box_score(game.result.plays, team_abbr),
+            "plays": game.result.plays,
+        }
+    return None
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_view(request: Request):
     """League-at-a-glance landing page, pulling from pieces that already
-    exist rather than introducing new state: season.standings() (top 10
-    by record), the most recently completed week's scores, and the top
-    5 stat leaders per category (_season_stat_leaders). Doesn't replace
-    `/`, which stays the single-game simulator -- the GDD lists Dashboard
-    and "Simulate a Game" as distinct screens.
+    exist rather than introducing new state. Doesn't replace `/`, which
+    stays the single-game simulator -- the GDD lists Dashboard and
+    "Simulate a Game" as distinct screens.
 
     GDD Sec 10.1: Dashboard is the default landing page and always
     resolves to the user's team -- if no team has been chosen yet for
     this franchise, redirect to the one-time team-selection screen
-    rather than rendering a teamless dashboard."""
+    rather than rendering a teamless dashboard.
+
+    ROADMAP.md M9: the real Figma layout (docs/figma-export/src/app/
+    DASHBOARD_DOCUMENTATION.md) is a 3-column grid of 8 widgets --
+    Division Standings, Team Schedule, Scouting Panel, League Power
+    Rankings, League Top Performers, Box Score, Team Top Performers,
+    Play-by-Play. All 8 are real data already produced elsewhere in
+    the engine (standings/schedule/scouting/box-score machinery); this
+    route just queries/filters it per-widget instead of the single
+    league-wide top-10 + latest-week-results shape the pre-M9 version
+    used, and dashboard.html arranges the result into that grid."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         return RedirectResponse(url="/team-select", status_code=303)
 
-    gameplan = gameplan_store.get_gameplan(season.user_team_abbr)
+    user_abbr = season.user_team_abbr
+    user_info = TEAMS_BY_ABBR[user_abbr]
+    gameplan = gameplan_store.get_gameplan(user_abbr)
 
-    next_opponent = find_next_opponent(season, season.user_team_abbr)
+    next_opponent = find_next_opponent(season, user_abbr)
     scouting = None
     if next_opponent is not None:
         opponent_abbr, team_is_home = next_opponent
@@ -254,16 +319,15 @@ def dashboard_view(request: Request):
         scouting["opponent_team"] = TEAMS_BY_ABBR[opponent_abbr]
         scouting["is_home_game"] = team_is_home
 
-    standings = season.standings()[:10]
-
-    last_played_week = None
-    last_week_games = []
-    for week_num in range(season.current_week - 1, 0, -1):
-        games = [g for g in season.schedule[week_num - 1] if g.result is not None]
-        if games:
-            last_played_week = week_num
-            last_week_games = games
-            break
+    division_standings = sorted(
+        (r for r in season.records.values()
+         if TEAMS_BY_ABBR[r.abbr].conference == user_info.conference
+         and TEAMS_BY_ABBR[r.abbr].division == user_info.division),
+        key=lambda r: (-r.win_pct, -r.point_diff, r.location),
+    )
+    power_rankings = sorted(season.records.values(), key=lambda r: -r.power_rating)[:10]
+    team_schedule = _team_schedule_for(season, user_abbr)
+    last_game = _last_played_game_for(season, user_abbr)
 
     passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season, top_n=5)
 
@@ -280,9 +344,10 @@ def dashboard_view(request: Request):
             "blitz_options": BLITZ_STRATEGIES,
             "rz_offense_options": RZ_OFFENSE_STYLES,
             "rz_defense_options": RZ_DEFENSE_STYLES,
-            "standings": standings,
-            "last_played_week": last_played_week,
-            "last_week_games": last_week_games,
+            "division_standings": division_standings,
+            "power_rankings": power_rankings,
+            "team_schedule": team_schedule,
+            "last_game": last_game,
             "passing_leaders": passing_leaders,
             "rushing_leaders": rushing_leaders,
             "receiving_leaders": receiving_leaders,
