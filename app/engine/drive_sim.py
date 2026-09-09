@@ -33,6 +33,12 @@ from app.services.depth_chart import DefensiveStarters
 
 MAX_PLAYS_PER_DRIVE = 20  # safety valve against pathological loops
 
+# Converts pressure_prob (whether the pocket actually broke down) into a
+# real sack -- calibrated against a full simulated season's real team-
+# sack-per-game rate vs. real NFL's ~2.4-2.6, not guessed. See
+# _resolve_pass's own comment at the call site (HANDOFF.md item 36).
+SACK_CONVERSION_RATE = 0.15
+
 
 def _pass_probability(
     down: int, distance: int, trailing: bool, is_two_minute: bool, matchup_adjustment: float,
@@ -125,7 +131,12 @@ def _resolve_run(
     choice = choose_run_point_of_attack(run_ctx, rb, rng)
     advantage = choice.advantage  # roughly -20..+20
 
-    mean = 3.6 + advantage * 0.06 + (rb.ball_carrier_vision - 70) * 0.015
+    # Base mean nudged up from 3.6 -- measured against a real full season
+    # sim, league-wide yards/carry was landing at ~3.5 vs real NFL's
+    # ~4.2 average, which was also inflating the TFL rate (more of the
+    # distribution fell at/below 0) beyond real ~17-20% stuffed-run rates
+    # (HANDOFF.md item 36).
+    mean = 4.0 + advantage * 0.06 + (rb.ball_carrier_vision - 70) * 0.015
     if defcall.primary == "run_defense":
         mean -= 1.2
     elif defcall.primary == "pass_defense":
@@ -193,7 +204,13 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
     if defcall.blitz.called:
         pressure_prob = max(0.05, min(0.85, pressure_prob + 0.15 + defcall.blitz.advantage * 0.01))
-    if rng.prob(pressure_prob) and rng.prob(0.35):
+    # SACK_CONVERSION_RATE: real NFL sack rate is ~2.4-2.6 team sacks/game
+    # (~6.5-7% of dropbacks); the un-scaled 0.35 here (kept as SACK_
+    # CONVERSION_RATE's baseline reference in the comment below) produced
+    # ~6+ team sacks/game once measured against a real full-season sim --
+    # scaled down empirically to match, see HANDOFF.md's stat-realism
+    # audit (item 36).
+    if rng.prob(pressure_prob) and rng.prob(SACK_CONVERSION_RATE):
         sack_yards = -int(abs(rng.gauss(6.5, 3)))
         return sack_yards, "sack", qb.full_name, "", _sack_defender(rng, ctx, defcall), False
 

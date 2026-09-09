@@ -79,10 +79,17 @@ def test_matchup_context_composites_are_real_averages():
     assert 0 <= ctx.dl_pass_rush <= 99
 
 
-def test_run_point_of_attack_matches_best_blocking_zone_most_of_the_time():
-    """The RB-trait override (agility/strength nudging the choice) means
-    this won't be 100% of the time, but the blocking-advantage zone should
-    win clearly more often than chance (1/3) across many calls."""
+def test_run_point_of_attack_favors_the_best_blocking_zone_but_isnt_deterministic():
+    """choose_run_point_of_attack used to be pure argmax (100% of calls
+    against a FIXED matchup's ratings picked the same zone) -- a real bug
+    (HANDOFF.md item 36's stat-realism audit): since zone advantage
+    doesn't vary play to play, that sent every run of a game, and most of
+    a season, at the same 2 defenders, blowing season TFL totals for
+    whichever DL anchored that zone (one defender hit 50+ in a simulated
+    season; real single-season TFL ceiling is ~30-35). Softmax-weighted
+    now (ZONE_TEMPERATURE), deliberately tempered close to uniform to
+    break that season-long repetition -- so this only checks the best
+    zone still wins MORE than pure chance (1/3), not "clearly more."""
     from app.services.depth_chart import get_offensive_starters, get_defensive_starters
     from app.engine.player_ai import build_matchup_context, choose_run_point_of_attack
     from app.engine.rng import RNG
@@ -94,7 +101,7 @@ def test_run_point_of_attack_matches_best_blocking_zone_most_of_the_time():
 
     rng = RNG.with_seed(1)
     matches = sum(1 for _ in range(200) if choose_run_point_of_attack(ctx, off.hb, rng).point_of_attack == best_zone)
-    assert matches / 200 > 0.4
+    assert matches / 200 > 1 / 3
 
 
 def _synthetic_player(**overrides):

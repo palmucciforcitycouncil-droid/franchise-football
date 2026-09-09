@@ -28,6 +28,20 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+# Softmax temperatures for weighted-random "who's involved in this play"
+# picks (target receiver, run zone). All the underlying scores are
+# differences of two ~0-99 Madden-derived attribute averages, so a
+# realistic mismatch commonly runs 15-30+ points -- the temperatures
+# used before this pass (4.0-7.0) barely blunted argmax at all for
+# scores that size (a 30-point gap at temperature 7 is a ~65x weight
+# ratio, i.e. still "always pick the best one"), which is what let one
+# receiver soak up 60%+ of a team's targets all season. Retuned and
+# verified against real NFL target-share/TFL-distribution ranges via a
+# full simulated season (HANDOFF.md item 36) rather than guessed.
+TARGET_TEMPERATURE_NORMAL = 120.0
+TARGET_TEMPERATURE_CLUTCH = 70.0  # 3rd/4th & 7+: still gravitate harder to the best matchup
+ZONE_TEMPERATURE = 200.0
+
 from app.models.player import Player
 from app.services.depth_chart import OffensiveStarters, DefensiveStarters
 
@@ -124,9 +138,19 @@ class RunPlayChoice:
 
 
 def choose_run_point_of_attack(ctx: MatchupContext, rb: Player, rng) -> RunPlayChoice:
+    """Weighted-random zone pick, not argmax -- the exact same bug class
+    documented on choose_pass_target below: zone advantage is a pure
+    function of static per-game ratings with nothing that varies play to
+    play, so a deterministic "best zone wins" pick sent every single run
+    of a game (and, most weeks, of a whole season) at the same 2
+    defenders, blowing season TFL/tackle totals for whichever DL anchors
+    that zone (see HANDOFF.md's stat-realism audit, item 36)."""
     z = ctx.zones
-    best = max(("left", z.left), ("center", z.center), ("right", z.right), key=lambda t: t[1])
-    zone, advantage = best
+    zones = [("left", z.left), ("center", z.center), ("right", z.right)]
+    scores = [adv for _, adv in zones]
+    top_score = max(scores)
+    weights = [math.exp((s - top_score) / ZONE_TEMPERATURE) for s in scores]
+    zone, advantage = rng.weighted_choice(zones, weights)
     # GDD Sec 6.6.2: an agile RB gets a boost toward Outside (edge) runs, a
     # powerful RB toward Inside/Power (center). Modeled as a small chance
     # to override the pure blocking-advantage pick when the RB's traits
@@ -179,7 +203,7 @@ def choose_pass_target(ctx: MatchupContext, rng, distance: int | None = None) ->
 
     scores = [route_running_avg(receiver) - coverage_rating(defender) for receiver, defender in assignments]
 
-    temperature = 4.0 if distance is not None and distance >= 7 else 7.0
+    temperature = TARGET_TEMPERATURE_CLUTCH if distance is not None and distance >= 7 else TARGET_TEMPERATURE_NORMAL
     top_score = max(scores)
     weights = [math.exp((s - top_score) / temperature) for s in scores]
     receiver, defender = rng.weighted_choice(assignments, weights)

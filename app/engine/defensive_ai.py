@@ -16,6 +16,7 @@ coverage matchups ARE real: they use actual Player ratings, not a
 placeholder.
 """
 from __future__ import annotations
+import math
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -23,6 +24,11 @@ from app.models.player import Player
 from app.services.depth_chart import OffensiveStarters, DefensiveStarters
 from .player_ai import MatchupContext, ZoneAdvantage
 from .gameplan import Gameplan, defense_blitz_bias, defense_coverage_man_prob, defense_run_tactic_extra_penalty
+
+# Same softmax-temperature scale as player_ai.py's TARGET_TEMPERATURE_*/
+# ZONE_TEMPERATURE (a ~0-99 Madden attribute-average difference) --
+# picked for the same reason: see decide_blitz's own docstring below.
+BLITZER_TEMPERATURE = 45.0
 
 LEAGUE_AVG_YPC = 4.2
 LEAGUE_AVG_YPA = 7.0
@@ -106,7 +112,16 @@ def decide_blitz(
     (LB or S) with the biggest rush-vs-block advantage against them.
 
     `gameplan` is the DEFENSE's Weekly Gameplan (GDD Sec 10.4.1) -- None
-    for every AI team, since only the user's team ever has one set."""
+    for every AI team, since only the user's team ever has one set.
+
+    The blitzer itself is a weighted-random pick among the 5 candidates,
+    not the single best rush-vs-block matchup every time -- a
+    deterministic argmax here sent every blitz of a game (and most of a
+    season, since ratings don't change play to play) at the same
+    linebacker, which is what let one player rack up 65 sacks in an
+    18-week season during this engine's stat-realism audit (HANDOFF.md
+    item 36) -- the same bug class player_ai.py's choose_pass_target and
+    choose_run_point_of_attack were fixed for."""
     chance = 0.15
     if down >= 3 and distance >= 5:
         chance += 0.20
@@ -118,7 +133,10 @@ def decide_blitz(
 
     target = offense.hb if offense.hb.pass_block <= offense.te.pass_block else offense.te
     blitzers = [defense.lolb, defense.mlb, defense.rolb, defense.fs, defense.ss]
-    best = max(blitzers, key=lambda p: _pass_rush_rating(p) - target.pass_block)
+    scores = [_pass_rush_rating(p) - target.pass_block for p in blitzers]
+    top_score = max(scores)
+    weights = [math.exp((s - top_score) / BLITZER_TEMPERATURE) for s in scores]
+    best = rng.weighted_choice(blitzers, weights)
     advantage = _pass_rush_rating(best) - target.pass_block
     return BlitzCall(called=True, blitzer=best, target=target, advantage=advantage)
 
