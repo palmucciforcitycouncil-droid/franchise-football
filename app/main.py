@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
@@ -55,9 +57,15 @@ FREE_AGENTS_TEAM = TeamInfo(abbr="FA", location="Free Agents", conference="", di
 # at every position regardless of how many the engine actually plays.
 STARTER_COUNTS: dict[Position, int] = {Position.WR: 3, Position.DT: 2, Position.CB: 2}
 
+# Position roster minimums for Team Quota badges (M4: Figma RosterPage.tsx)
+_ROSTER_POSITION_MINIMUMS: dict[str, int] = {
+    "QB": 2, "RB": 3, "WR": 5, "TE": 2, "C": 1, "G": 2, "T": 2,
+    "DE": 2, "DT": 1, "LB": 6, "CB": 4, "S": 4, "K": 1, "P": 1,
+}
+
 
 @app.get("/roster", response_class=HTMLResponse)
-def roster_view(request: Request, team_abbr: str | None = None):
+def roster_view(request: Request, team_abbr: str | None = None, view: str = "attributes"):
     """Real player data (2,365 players across 32 teams, plus 71 free
     agents) has existed since the roster import but was only ever
     consumed internally by the engine -- this is the first page that
@@ -70,13 +78,17 @@ def roster_view(request: Request, team_abbr: str | None = None):
     1 otherwise, matching how many depth_chart.py's OffensiveStarters/
     DefensiveStarters actually start at each position) -- always empty
     for free agents, since "starter" isn't a meaningful concept for
-    players with no team."""
+    players with no team. M4 adds: Attributes/Stats view toggle,
+    Team Quota badges (position buttons), Filter/Export controls (stubs),
+    and embedded depth-chart widget (below main table)."""
+    if view not in ("attributes", "stats"):
+        view = "attributes"
     if team_abbr is None:
         # GDD Sec 10.1: default screen state resolves to the user's team
         # without a picker interaction, once one has been chosen.
         team_abbr = season_state.get_season().user_team_abbr
     if team_abbr is None:
-        return templates.TemplateResponse(request, "roster.html", {"teams": TEAMS, "team": None, "players": None})
+        return templates.TemplateResponse(request, "roster.html", {"teams": TEAMS, "team": None, "players": None, "view": view})
     if team_abbr != "FA" and team_abbr not in TEAMS_BY_ABBR:
         raise HTTPException(404, "No such team")
 
@@ -98,11 +110,39 @@ def roster_view(request: Request, team_abbr: str | None = None):
                 starters.add(p.player_id)
             seen_counts[p.position] = count_so_far + 1
 
+    # Position quotas for Team Quota badges (per GDD §10.4.2 Figma source)
+    position_quotas = {pos.value: {"current": sum(1 for p in players if p.position == pos), "min": _ROSTER_POSITION_MINIMUMS.get(pos.value, 1)} for pos in Position}
+
+    # Depth chart groups (reusing depth_chart_view's logic)
+    by_position = defaultdict(list)
+    for p in players:
+        by_position[p.position].append(p)
+    depth_chart_groups = [
+        {
+            "position": pos.value,
+            "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players_at_pos),
+            "starter_count": STARTER_COUNTS.get(pos, 1),
+        }
+        for pos, players_at_pos in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
+    ] if team_abbr != "FA" else []
+
+    # Compute stats data if needed
+    stats_data = None
+    if view == "stats":
+        season = season_state.get_season()
+        player_rows, _ = _stats_page_aggregates(season)
+        # Filter to this team only
+        stats_data = {(r["player_name"], r["player_pos"]): r for r in player_rows if r["player_team"] == team_abbr}
+
     team = FREE_AGENTS_TEAM if team_abbr == "FA" else TEAMS_BY_ABBR[team_abbr]
     return templates.TemplateResponse(
         request,
         "roster.html",
-        {"teams": TEAMS, "team": team, "players": players, "starters": starters},
+        {
+            "teams": TEAMS, "team": team, "players": players, "starters": starters,
+            "view": view, "position_quotas": position_quotas, "depth_chart_groups": depth_chart_groups,
+            "stats_data": stats_data,
+        },
     )
 
 
@@ -828,13 +868,39 @@ ATTRIBUTE_LABELS: dict[str, str] = {
 }
 
 
+def _career_stats_for(p: Player) -> dict | None:
+    """M6: real archived-season totals (history_store.career_stats(),
+    already real/tested, previously had no UI consumer) for the Player
+    Card's Stats tab. Keyed by (team_abbr, name), the same identity
+    career_stats() itself uses -- see history_store.py's docstring for
+    why that's safe here (no trade system yet). A player only shows up
+    here once at least one full season has been archived (start_new_season()
+    has run at least once); brand-new/current-season production isn't
+    included, since career_stats() only ever sums ARCHIVED seasons --
+    that's genuinely a different, not-yet-final number, not this tab's job."""
+    if not p.team_abbr:
+        return None
+    passing, rushing, receiving, defense = history_store.career_stats()
+    key = (p.team_abbr, p.full_name)
+    lines: dict[str, dict] = {}
+    if key in passing:
+        lines["passing"] = asdict(passing[key])
+    if key in rushing:
+        lines["rushing"] = asdict(rushing[key])
+    if key in receiving:
+        lines["receiving"] = asdict(receiving[key])
+    if key in defense:
+        lines["defense"] = asdict(defense[key])
+    return lines or None
+
+
 def _player_card_json(p: Player) -> str:
     attrs = {ATTRIBUTE_LABELS.get(a, a): getattr(p, a) for a in PROGRESSED_ATTRIBUTES if a != "overall_rating"}
     return json.dumps({
         "name": p.full_name, "num": p.jersey_number, "pos": p.position.value,
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
         "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
-        "attrs": attrs,
+        "attrs": attrs, "career": _career_stats_for(p),
     })
 
 
@@ -886,15 +952,158 @@ def history_view(request: Request):
     return templates.TemplateResponse(request, "history.html", {"records": records})
 
 
+def _hof_new_inductee_keys(full_history: list) -> set[tuple[str, str]]:
+    """Which (team_abbr, name) keys in the current Hall of Fame class
+    weren't there as of the PREVIOUS archived season -- i.e. genuinely
+    inducted this cycle, matching GDD Sec 10.4.8's "Class of [current
+    year] Inductees" highlight section. history_store.hall_of_fame()
+    only ever answers "who qualifies right now" (it recomputes from
+    career_stats() fresh every call, no stored induction-year field) --
+    so this re-runs it against history with the most recent season
+    dropped, via a throwaway temp file (the only way to feed it a
+    truncated history without changing its path-only signature, which
+    a concurrent M6 session was actively editing for its own real
+    reasons -- lru_cache-ing career_stats() -- while this chunk was
+    built), and diffs the two candidate sets."""
+    if len(full_history) < 2:
+        return set()
+    prior_dicts = [history_store._record_to_dict(r) for r in full_history[:-1]]
+    with tempfile.TemporaryDirectory() as d:
+        temp_path = Path(d) / "prior_history.json"
+        history_store._save(prior_dicts, temp_path)
+        prior_inductees = history_store.hall_of_fame(path=temp_path)
+    return {(c.team_abbr, c.name) for c in prior_inductees}
+
+
+def _hof_all_years_active(full_history: list) -> dict[str, str]:
+    """(team_abbr|name) -> a human-facing "Season X" or "Season X-Y"
+    span, derived from real per-season leader presence across the
+    archive (passing/rushing/receiving/defensive_leaders already carry
+    every credited player, not just top-N, since the top-15 cap was
+    removed for career_stats()'s sake -- see history_store.py's own
+    docstring). +1 everywhere to match history.html's own season-number-
+    is-zero-indexed convention."""
+    spans: dict[str, list[int]] = {}
+    for rec in full_history:
+        for pool in (rec.passing_leaders, rec.rushing_leaders, rec.receiving_leaders, rec.defensive_leaders):
+            for l in pool:
+                spans.setdefault(f"{l.team_abbr}|{l.name}", []).append(rec.season_number)
+    return {
+        k: (f"Season {min(v) + 1}" if min(v) == max(v) else f"Season {min(v) + 1}–{max(v) + 1}")
+        for k, v in spans.items()
+    }
+
+
+def _hof_eligible_candidates(inductee_keys: set[tuple[str, str]], limit: int = 10) -> list[dict]:
+    """Real, not-yet-inducted players who've cleared history_store's own
+    MIN_HOF_SEASONS bar -- GDD Sec 10.4.8's "Eligible Candidates" list
+    (this engine has no voting system, so `progress_pct` stands in for
+    the Figma source's voting percentage: each category's own primary
+    counting stat as a percentage of that category's current pool
+    leader -- a real, if simplified, "how close" proxy, not the exact
+    private HOF composite score formula that lives inside
+    history_store.hall_of_fame() -- disclosed in the template rather
+    than duplicating that formula here)."""
+    passing, rushing, receiving, defense = history_store.career_stats()
+
+    def _pool(pool: dict, position: str, stat_fmt, primary):
+        eligible = [
+            l for l in pool.values()
+            if l.seasons >= history_store.MIN_HOF_SEASONS and (l.team_abbr, l.name) not in inductee_keys
+        ]
+        if not eligible:
+            return []
+        peak = max(primary(l) for l in eligible) or 1
+        return [
+            {
+                "name": l.name, "team_abbr": l.team_abbr, "position": position, "seasons": l.seasons,
+                "stat_line": stat_fmt(l), "progress_pct": round(100 * primary(l) / peak),
+            }
+            for l in eligible
+        ]
+
+    candidates = (
+        _pool(passing, "QB", lambda l: f"{l.yards:,} career pass yds, {l.touchdowns} TD", lambda l: l.yards)
+        + _pool(rushing, "RB", lambda l: f"{l.yards:,} career rush yds, {l.touchdowns} TD", lambda l: l.yards)
+        + _pool(receiving, "WR/TE", lambda l: f"{l.yards:,} career rec yds, {l.touchdowns} TD", lambda l: l.yards)
+        + _pool(defense, "DEF", lambda l: f"{l.solo_tackles} career tkl, {l.sacks} sacks, {l.interceptions} INT", lambda l: l.solo_tackles)
+    )
+    return sorted(candidates, key=lambda c: -c["progress_pct"])[:limit]
+
+
+def _hof_record_book() -> list[dict]:
+    """GDD Sec 10.4.8's League Record Book: top-10 all-time leaders per
+    major real category, from the same real career_stats() archive the
+    Hall of Fame itself is built on -- one card per category, most-
+    productive-first. Field goals are deliberately omitted: M2 built a
+    real per-game Kicking box-score line, but nothing rolls it into a
+    season or career total anywhere yet, so a Kicking category here
+    would have to be fabricated rather than real -- disclosed in the
+    template instead of guessed at."""
+    passing, rushing, receiving, defense = history_store.career_stats()
+
+    def _top(pool: dict, key, limit=10):
+        ranked = sorted((l for l in pool.values() if key(l) > 0), key=lambda l: -key(l))
+        return [(l.name, l.team_abbr, key(l)) for l in ranked[:limit]]
+
+    return [
+        {"label": "Passing Yards", "leaders": _top(passing, lambda l: l.yards)},
+        {"label": "Passing TDs", "leaders": _top(passing, lambda l: l.touchdowns)},
+        {"label": "Rushing Yards", "leaders": _top(rushing, lambda l: l.yards)},
+        {"label": "Rushing TDs", "leaders": _top(rushing, lambda l: l.touchdowns)},
+        {"label": "Receiving Yards", "leaders": _top(receiving, lambda l: l.yards)},
+        {"label": "Receiving TDs", "leaders": _top(receiving, lambda l: l.touchdowns)},
+        {"label": "Sacks", "leaders": _top(defense, lambda l: l.sacks)},
+        {"label": "Interceptions", "leaders": _top(defense, lambda l: l.interceptions)},
+    ]
+
+
 @app.get("/hof", response_class=HTMLResponse)
-def hof_view(request: Request):
+def hof_view(request: Request, pos: str = "all", q: str = ""):
     """Hall of Fame: real induction over the real career-cumulative
     archive (history_store.career_stats()/hall_of_fame()) -- see that
     module's docstring for the disclosed, GDD-underspecified induction
-    formula. Empty until a league has played enough seasons for any
-    career to clear the bar."""
+    formula. GDD Sec 10.4.8 redesign (ROADMAP.md M5): adds a real
+    "Class of [Season N] Inductees" highlight, a real "Eligible
+    Candidates" list, filterable/searchable Hall of Fame Members (GET-
+    query-param + full-page-reload, same pattern /stats's M3 already
+    established -- no htmx/framework here), a real League Record Book,
+    and a real Super Bowl History table -- see each helper above for
+    its own disclosed scope. Empty/near-empty until a league has played
+    enough seasons for any career to clear the bar."""
+    full_history = history_store.get_history()
     inductees = history_store.hall_of_fame()
-    return templates.TemplateResponse(request, "hof.html", {"inductees": inductees})
+    inductee_keys = {(c.team_abbr, c.name) for c in inductees}
+    new_keys = _hof_new_inductee_keys(full_history)
+    new_inductees = [c for c in inductees if (c.team_abbr, c.name) in new_keys]
+
+    positions = sorted({c.position for c in inductees})
+    members = inductees
+    if pos != "all":
+        members = [c for c in members if c.position == pos]
+    if q:
+        ql = q.lower()
+        members = [c for c in members if ql in c.name.lower() or ql in c.team_abbr.lower()]
+
+    years_active = _hof_all_years_active(full_history)
+    eligible = _hof_eligible_candidates(inductee_keys)
+    record_book = _hof_record_book() if full_history else []
+    sb_history = [rec for rec in reversed(full_history) if rec.champion_abbr]
+    current_season_label = (full_history[-1].season_number + 1) if full_history else None
+
+    return templates.TemplateResponse(request, "hof.html", {
+        "new_inductees": new_inductees,
+        "members": members,
+        "total_members": len(inductees),
+        "eligible": eligible,
+        "record_book": record_book,
+        "sb_history": sb_history,
+        "years_active": years_active,
+        "positions": positions,
+        "pos_filter": pos,
+        "q": q,
+        "current_season_label": current_season_label,
+    })
 
 
 @app.get("/staff", response_class=HTMLResponse)

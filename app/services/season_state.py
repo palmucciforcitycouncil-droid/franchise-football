@@ -381,6 +381,7 @@ def start_new_season() -> Season:
 
         prior_standings = playoffs.final_division_standings(season)
         history_store.archive_season(season)
+        history_store.clear_career_stats_cache()
         apply_progression_to_roster(season)
 
         next_number = season.season_number + 1

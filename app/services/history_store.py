@@ -62,6 +62,7 @@ Deliberate, disclosed interpretations:
 from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from app.engine.awards import AwardCandidate, AwardsRace, season_awards
@@ -262,7 +263,31 @@ def career_stats(path: Path | None = None) -> tuple[dict, dict, dict, dict]:
     (team_abbr, name) -- see this module's docstring for why that key is
     safe here. Returns (passing, rushing, receiving, defense) dicts of
     (team_abbr, name) -> Career*Line. No truncation; callers slice
-    however they need (hall_of_fame() below is one such caller)."""
+    however they need (hall_of_fame() below is one such caller).
+
+    A thin wrapper that resolves `path` to a concrete Path (never None)
+    before handing off to the cached implementation below -- caching on
+    the raw `path=None` default directly would key every default-path
+    call the same regardless of what DEFAULT_PATH actually points to at
+    call time, which tests exploit deliberately (many redirect
+    history_store.DEFAULT_PATH to an isolated file and then call
+    career_stats() with no args) and would otherwise silently serve one
+    test's stale cached totals to the next."""
+    return _career_stats_cached(path if path is not None else DEFAULT_PATH)
+
+
+@lru_cache(maxsize=32)
+def _career_stats_cached(path: Path) -> tuple[dict, dict, dict, dict]:
+    """The real implementation, cached (M6: Player Card Stats tab) -- a
+    real 24-real-season history file takes ~230ms to parse, and the
+    Player Card now calls career_stats() once per player-card render
+    (roster.html alone renders one per player on a team), so an uncached
+    call here would make a single Roster page load take tens of
+    seconds. Same lru_cache-plus-explicit-clear pattern depth_chart.py's
+    get_offensive_starters/get_defensive_starters already use; see
+    clear_career_stats_cache() below, invoked by
+    season_state.start_new_season() right after archive_season() writes
+    a new season into this same file."""
     passing: dict[tuple[str, str], CareerPassingLine] = {}
     rushing: dict[tuple[str, str], CareerRushingLine] = {}
     receiving: dict[tuple[str, str], CareerReceivingLine] = {}
@@ -307,6 +332,14 @@ def career_stats(path: Path | None = None) -> tuple[dict, dict, dict, dict]:
             line.defensive_touchdowns += dl.defensive_touchdowns
 
     return passing, rushing, receiving, defense
+
+
+def clear_career_stats_cache() -> None:
+    """Call right after this module's own history file gains a new
+    season (archive_season()/append_season_record()) -- otherwise
+    career_stats()'s lru_cache would keep serving the pre-archive
+    totals for the rest of the process's life."""
+    _career_stats_cached.cache_clear()
 
 
 def _normalize(value: float, pool: list[float]) -> float:

@@ -202,6 +202,11 @@
     .pc-bar-top span:first-child { color: var(--muted); }
     .pc-bar-track { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
     .pc-bar-fill { background: var(--gold); height: 100%; }
+    .pc-stat-heading {
+      color: var(--gold); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
+      margin: 1rem 0 0.5rem;
+    }
+    .pc-stat-heading:first-child { margin-top: 0; }
 
     /* Playoffs page: tab view switcher + bracket tree (GDD Sec 10.4.6) --
        colors/structure adapted from the real Figma PlayoffsPage.tsx
@@ -344,9 +349,7 @@
     <div class="pc-body">
       <div id="pc-panel-overview" class="pc-panel"></div>
       <div id="pc-panel-ratings" class="pc-panel" hidden></div>
-      <div id="pc-panel-stats" class="pc-panel" hidden>
-        <p class="muted">Real season/career stats aren't wired into the card yet -- see <a href="/stats">Stats</a> or <a href="/history">History</a> in the meantime.</p>
-      </div>
+      <div id="pc-panel-stats" class="pc-panel" hidden></div>
       <div id="pc-panel-contract" class="pc-panel" hidden>
         <p class="muted">No contract information available -- Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md's Known Gaps).</p>
       </div>
@@ -363,10 +366,53 @@
       var teamEl = document.getElementById('pc-team');
       var overviewEl = document.getElementById('pc-panel-overview');
       var ratingsEl = document.getElementById('pc-panel-ratings');
+      var statsEl = document.getElementById('pc-panel-stats');
 
       function bar(label, value) {
         return '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>' + label + '</span><span>' + value + '/99</span></div>' +
           '<div class="pc-bar-track"><div class="pc-bar-fill" style="width:' + Math.max(0, Math.min(100, value)) + '%"></div></div></div>';
+      }
+
+      // M6: history_store.career_stats() (real, already tested) now
+      // reaches the UI through this JSON blob -- see _career_stats_for()
+      // in main.py. Only ARCHIVED seasons count (see that function's own
+      // docstring), so a player with no completed season yet shows the
+      // "no career stats" fallback, not a fabricated zero line.
+      var CAREER_STAT_LABELS = {
+        passing: { heading: 'Career Passing', fields: [
+          ['completions', 'Completions'], ['attempts', 'Pass Attempts'], ['yards', 'Passing Yards'],
+          ['touchdowns', 'Passing TDs'], ['interceptions', 'Interceptions Thrown'],
+        ] },
+        rushing: { heading: 'Career Rushing', fields: [
+          ['carries', 'Rush Attempts'], ['yards', 'Rushing Yards'], ['touchdowns', 'Rushing TDs'],
+        ] },
+        receiving: { heading: 'Career Receiving', fields: [
+          ['targets', 'Targets'], ['receptions', 'Receptions'], ['yards', 'Receiving Yards'], ['touchdowns', 'Receiving TDs'],
+        ] },
+        defense: { heading: 'Career Defense', fields: [
+          ['solo_tackles', 'Solo Tackles'], ['tackles_for_loss', 'Tackles for Loss'], ['sacks', 'Sacks'],
+          ['interceptions', 'Interceptions'], ['passes_defended', 'Passes Defended'],
+          ['forced_fumbles', 'Forced Fumbles'], ['fumble_recoveries', 'Fumble Recoveries'],
+          ['defensive_touchdowns', 'Defensive TDs'],
+        ] },
+      };
+      var CAREER_STAT_ORDER = ['passing', 'rushing', 'receiving', 'defense'];
+      var NO_CAREER_STATS_HTML = '<p class="muted">No archived career stats yet -- these fill in once a season is completed (Start Next Season). ' +
+        'See <a href="/stats">Stats</a> for this season in progress.</p>';
+
+      function statsPanel(career) {
+        if (!career) { return NO_CAREER_STATS_HTML; }
+        var html = '';
+        CAREER_STAT_ORDER.forEach(function (cat) {
+          var line = career[cat];
+          if (!line) { return; }
+          var spec = CAREER_STAT_LABELS[cat];
+          html += '<div class="pc-stat-heading">' + spec.heading + ' · ' + line.seasons + (line.seasons === 1 ? ' season' : ' seasons') + '</div>';
+          spec.fields.forEach(function (f) {
+            html += '<div class="pc-row"><span class="pc-row-label">' + f[1] + '</span><span>' + line[f[0]] + '</span></div>';
+          });
+        });
+        return html || NO_CAREER_STATS_HTML;
       }
 
       function openCard(card) {
@@ -388,6 +434,8 @@
           }
         }
         ratingsEl.innerHTML = rows;
+
+        statsEl.innerHTML = statsPanel(card.career);
 
         document.querySelectorAll('.pc-tab').forEach(function (b) { b.classList.remove('active'); });
         document.querySelector('.pc-tab[data-tab="overview"]').classList.add('active');

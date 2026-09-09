@@ -4,7 +4,7 @@
 {% block content %}
 <div class="card">
   <h2>Roster</h2>
-  <p class="muted">Pick a team to browse its full roster, sorted by position then overall rating. The gold name at the top of each position group is the current starter — see the <a href="/depth-chart">Depth Chart</a> page to change it.</p>
+  <p class="muted">Pick a team to browse its full roster. Starters (top row at each position) are highlighted in gold. The {% if view == 'attributes' %}<strong>Attributes</strong>{% else %}<strong>Stats</strong>{% endif %} view is selected.</p>
   <form method="get" action="/roster">
     <div class="row">
       <div>
@@ -25,21 +25,117 @@
 
 {% if team %}
 <div class="card">
-  <h3>{{ team.location }} ({{ team.abbr }}) &mdash; {{ players | length }} players</h3>
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+    <h3>{{ team.location }} ({{ team.abbr }}) &mdash; {{ players | length }} players</h3>
+    <div style="display: flex; gap: 0.5rem;">
+      <!-- View Toggle -->
+      <div style="display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.25rem;">
+        <a href="/roster?team_abbr={{ team.abbr }}&view=attributes" class="view-toggle-link {% if view == 'attributes' %}active{% endif %}">Attributes</a>
+        <a href="/roster?team_abbr={{ team.abbr }}&view=stats" class="view-toggle-link {% if view == 'stats' %}active{% endif %}">Stats</a>
+      </div>
+      <!-- Filter & Export Buttons -->
+      <button onclick="alert('Filter controls — coming soon')" type="button">🔍 Filter</button>
+      <button onclick="alert('Export to Sheets — coming soon')" type="button">⬇ Export</button>
+    </div>
+  </div>
+
+  {% if position_quotas and team.abbr != 'FA' %}
+  <div style="margin-bottom: 1rem;">
+    <div style="font-size: 0.875rem; font-weight: 600; color: var(--muted); margin-bottom: 0.5rem;">Team Quota</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+      {% for pos in ['QB', 'RB', 'WR', 'TE', 'C', 'G', 'T', 'DE', 'DT', 'LB', 'CB', 'S', 'K', 'P'] %}
+      {% if pos in position_quotas %}
+      {% set quota = position_quotas[pos] %}
+      {% set is_met = quota.current >= quota.min %}
+      {% set quota_color = '#4ade80' if is_met else '#ef4444' %}
+      <div style="display: inline-block; padding: 0.25rem 0.5rem; border: 1px solid {{ quota_color }}; border-radius: 0.25rem; font-size: 0.75rem; color: {{ quota_color }}; background: color-mix(in srgb, {{ quota_color }} 10%, transparent);">
+        {{ pos }} {{ quota.current }}/{{ quota.min }}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if view == 'attributes' %}
   <table>
-    <thead><tr><th>Pos</th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th></tr></thead>
+    <thead>
+      <tr><th>#</th><th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>POT</th><th>SPD</th><th>STR</th><th>AGI</th><th>AWR</th><th>STA</th></tr>
+    </thead>
     <tbody>
       {% for p in players %}
       <tr class="{% if p.player_id in starters %}starter{% endif %}">
-        <td>{{ p.position.value }}</td>
+        <td>{{ p.jersey_number }}</td>
         <td>{{ player_link(p) }}</td>
+        <td>{{ p.position.value }}</td>
         <td>{{ p.age }}</td>
         <td>{{ p.overall_rating }}</td>
         <td>{{ p.potential }}</td>
+        <td>{{ p.speed }}</td>
+        <td>{{ p.strength }}</td>
+        <td>{{ p.agility }}</td>
+        <td>{{ p.awareness }}</td>
+        <td>{{ p.stamina }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <!-- Stats view -->
+  <table>
+    <thead>
+      <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>Pass</th><th>Rush</th><th>Rec</th><th>Def</th></tr>
+    </thead>
+    <tbody>
+      {% if stats_data %}
+      {% for p in players %}
+      {% set stat = stats_data.get((p.full_name, p.position.value)) %}
+      {% if stat %}
+      <tr class="{% if p.player_id in starters %}starter{% endif %}">
+        <td>{{ p.jersey_number }}</td>
+        <td>{{ player_link(p) }}</td>
+        <td>{{ p.position.value }}</td>
+        <td>{{ stat.games_played or '-' }}</td>
+        <td>{{ stat.pass_att or '-' }}/{{ stat.pass_yds or '-' }}</td>
+        <td>{{ stat.rush_att or '-' }}/{{ stat.rush_yds or '-' }}</td>
+        <td>{{ stat.receptions or '-' }}/{{ stat.rec_yds or '-' }}</td>
+        <td>{{ stat.solo_tackles or '-' }}/{{ stat.sacks or '-' }}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+      {% else %}
+      <tr><td colspan="8" class="muted">No stats yet — simulate games on the Season page.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+  {% endif %}
 </div>
+
+<!-- Embedded Depth Chart Widget (M4 requirement) -->
+{% if depth_chart_groups and team.abbr != 'FA' %}
+<div class="card">
+  <h3>Depth Chart</h3>
+  <p class="muted">The gold rows are current starters (wired into the Drive Engine). Manage depth chart on the <a href="/depth-chart?team_abbr={{ team.abbr }}">Depth Chart</a> page.</p>
+  {% for group in depth_chart_groups %}
+  <div style="margin-bottom: 1.5rem;">
+    <h4>{{ group.position }}</h4>
+    <table style="font-size: 0.875rem;">
+      <thead><tr><th></th><th>Name</th><th>Age</th><th>OVR</th></tr></thead>
+      <tbody>
+        {% for p in group.players %}
+        <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ player_link(p) }}</td>
+          <td>{{ p.age }}</td>
+          <td>{{ p.overall_rating }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% endif %}
 {% endblock %}

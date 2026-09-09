@@ -201,7 +201,8 @@ def test_history_route_renders_empty_and_populated_states():
 from app.engine.season_stats import SeasonPassingLine
 from app.engine.awards import AwardsRace, AwardCandidate
 from app.services.history_store import (
-    _record_to_dict, _save, career_stats, hall_of_fame, MIN_HOF_SEASONS, HOF_SCORE_THRESHOLD,
+    _record_to_dict, _save, career_stats, clear_career_stats_cache, hall_of_fame,
+    MIN_HOF_SEASONS, HOF_SCORE_THRESHOLD,
 )
 
 
@@ -259,6 +260,40 @@ def test_career_stats_sums_a_players_defensive_touchdowns_across_seasons(tmp_pat
     assert line.seasons == 2
     assert line.interceptions == 8
     assert line.defensive_touchdowns == 3
+
+
+def test_career_stats_is_cached_until_explicitly_cleared(tmp_path):
+    """M6 (Player Card Stats tab): career_stats() is now @lru_cache-d --
+    a real 24-real-season history file takes ~230ms to parse, and the
+    Player Card calls this once per player-card render (up to ~90 times
+    on a single Roster page load), so an uncached call would make that
+    page load take tens of seconds. This checks both halves of that
+    contract: a second call with the file unchanged returns the SAME
+    totals without re-reading (appending more data underneath the cache
+    doesn't change what callers see), and clear_career_stats_cache()
+    (called by season_state.start_new_season() right after
+    archive_season() writes a new season) really does force a fresh
+    read afterward."""
+    path = tmp_path / "history.json"
+    s1 = SeasonPassingLine(name="Test QB", team_abbr="KC", yards=3000)
+    _save([_record_to_dict(_synthetic_record(0, passing=[s1]))], path)
+
+    passing, _, _, _ = career_stats(path=path)
+    assert passing[("KC", "Test QB")].yards == 3000
+
+    s2 = SeasonPassingLine(name="Test QB", team_abbr="KC", yards=3300)
+    _save([
+        _record_to_dict(_synthetic_record(0, passing=[s1])),
+        _record_to_dict(_synthetic_record(1, passing=[s2])),
+    ], path)
+
+    # Still cached -- the newly-appended season isn't reflected yet.
+    passing, _, _, _ = career_stats(path=path)
+    assert passing[("KC", "Test QB")].yards == 3000
+
+    clear_career_stats_cache()
+    passing, _, _, _ = career_stats(path=path)
+    assert passing[("KC", "Test QB")].yards == 6300
 
 
 def test_hall_of_fame_requires_minimum_seasons(tmp_path):
