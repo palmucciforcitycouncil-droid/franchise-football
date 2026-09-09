@@ -335,6 +335,18 @@ def seed_conference(season, conference: str) -> list[str]:
     return division_winners_seeded + wildcards_seeded
 
 
+def bubble_teams(season, conference: str, seeded: list[str], limit: int = 5) -> list[str]:
+    """The teams "in the hunt" -- closest to a playoff berth but outside
+    the real 7-seed bracket (`seeded`, from `seed_conference`). Ranked by
+    the same real WILDCARD tiebreak chain the wildcard seeds themselves
+    use, applied to the whole conference then filtered down to whoever
+    didn't make the cut -- not a separate/approximate ordering. Used by
+    the Playoffs page's "In The Hunt" widget (GDD Sec 10.4.6)."""
+    conf_teams = [t.abbr for t in TEAMS if t.conference == conference]
+    ranked = rank_teams(season, conf_teams, _wildcard_steps)
+    return [abbr for abbr in ranked if abbr not in seeded][:limit]
+
+
 @dataclass
 class PlayoffMatchup:
     round_name: str  # "WC" | "DIV" | "CONF" | "SB"

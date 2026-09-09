@@ -1,6 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Playoffs — Franchise Football{% endblock %}
 {% block content %}
+
+{% macro matchup_card(m) %}
+<div class="matchup-card">
+  {% if m.is_complete %}
+  <a class="matchup-link" href="/playoffs/game/{{ m.round_name }}/{{ m.home_abbr }}/{{ m.away_abbr }}">
+    <div class="matchup-team {% if m.winner_abbr == m.away_abbr %}winner{% endif %}"><span><span class="seed">#{{ m.away_seed }}</span>{{ m.away_abbr }}</span><span class="score">{{ m.result.away_score }}</span></div>
+    <div class="matchup-team {% if m.winner_abbr == m.home_abbr %}winner{% endif %}"><span><span class="seed">#{{ m.home_seed }}</span>{{ m.home_abbr }}</span><span class="score">{{ m.result.home_score }}</span></div>
+  </a>
+  {% else %}
+  <div class="matchup-team"><span><span class="seed">#{{ m.away_seed }}</span>{{ m.away_abbr }}</span></div>
+  <div class="matchup-vs">at</div>
+  <div class="matchup-team"><span><span class="seed">#{{ m.home_seed }}</span>{{ m.home_abbr }}</span></div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro bracket_round(matchups, label) %}
+<div class="bracket-round">
+  <h4>{{ label }}</h4>
+  {% if matchups %}
+    {% for m in matchups %}{{ matchup_card(m) }}{% endfor %}
+  {% else %}
+  <p class="matchup-tbd">TBD</p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro conf_bracket(rounds) %}
+<div class="bracket-rounds">
+  {{ bracket_round(rounds.get('WC', []), 'Wild Card') }}
+  {{ bracket_round(rounds.get('DIV', []), 'Divisional') }}
+  {{ bracket_round(rounds.get('CONF', []), 'Conference') }}
+</div>
+{% endmacro %}
+
 <div class="card">
   <h2>Playoffs</h2>
   {% if bracket is none %}
@@ -17,52 +52,76 @@
 </div>
 
 {% if bracket %}
+<div class="playoff-tabs">
+  <a href="/playoffs?view=full" class="playoff-tab {% if view == 'full' %}active{% endif %}">Full Bracket</a>
+  <a href="/playoffs?view=afc" class="playoff-tab conf-afc {% if view == 'afc' %}active{% endif %}"><span class="conf-badge afc">AFC</span> AFC Bracket</a>
+  <a href="/playoffs?view=superbowl" class="playoff-tab {% if view == 'superbowl' %}active{% endif %}">Super Bowl</a>
+  <a href="/playoffs?view=nfc" class="playoff-tab conf-nfc {% if view == 'nfc' %}active{% endif %}"><span class="conf-badge nfc">NFC</span> NFC Bracket</a>
+</div>
+
+{% if view == 'full' %}
+<div class="bracket-conf-block">
+  <h3><span class="conf-badge afc">AFC</span> American Conference</h3>
+  {{ conf_bracket(afc_rounds) }}
+</div>
+
+<div class="sb-card">
+  <h3>Super Bowl</h3>
+  {% if sb_matchup %}{{ matchup_card(sb_matchup) }}{% else %}<p class="matchup-tbd">Set once both Conference Championships are complete.</p>{% endif %}
+</div>
+
+<div class="bracket-conf-block">
+  <h3><span class="conf-badge nfc">NFC</span> National Conference</h3>
+  {{ conf_bracket(nfc_rounds) }}
+</div>
+{% endif %}
+
+{% if view in ('afc', 'nfc') %}
+{% set conf = 'AFC' if view == 'afc' else 'NFC' %}
+{% set rounds = afc_rounds if view == 'afc' else nfc_rounds %}
+<div class="bracket-conf-block">
+  <h3><span class="conf-badge {{ view }}">{{ conf }}</span> Bracket</h3>
+  {{ conf_bracket(rounds) }}
+</div>
+
 <div class="card">
-  <h3>Seeds</h3>
-  <div class="row" style="align-items: flex-start;">
-    <table style="width: auto; min-width: 220px;">
-      <thead><tr><th colspan="2">AFC</th></tr></thead>
-      <tbody>
-        {% for abbr in bracket.afc_seeds %}
-        <tr><td>#{{ loop.index }}</td><td>{{ abbr }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <table style="width: auto; min-width: 220px;">
-      <thead><tr><th colspan="2">NFC</th></tr></thead>
-      <tbody>
-        {% for abbr in bracket.nfc_seeds %}
-        <tr><td>#{{ loop.index }}</td><td>{{ abbr }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <h3>In The Hunt</h3>
+  <p class="muted">Real teams closest to a playoff berth but outside the 7-seed bracket, ranked by the same wildcard tiebreak chain the seeds themselves use.</p>
+  <div class="hunt-cards">
+    {% for t in in_the_hunt[conf] %}
+    <div class="hunt-card">
+      <div class="hunt-team">{{ t.location }} ({{ t.abbr }})</div>
+      <div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div>
+    </div>
+    {% else %}
+    <p class="muted">No bubble teams to show.</p>
+    {% endfor %}
   </div>
 </div>
 
-{% for round_ in bracket.rounds %}
 <div class="card">
-  <h3>{{ round_labels[round_[0].round_name] }}</h3>
-  <table>
-    <thead><tr><th>Conf</th><th>Away (seed)</th><th>Home (seed)</th><th>Result</th></tr></thead>
-    <tbody>
-      {% for m in round_ %}
-      <tr>
-        <td>{{ m.conference or "—" }}</td>
-        <td>{{ m.away_abbr }} (#{{ m.away_seed }})</td>
-        <td>{{ m.home_abbr }} (#{{ m.home_seed }})</td>
-        <td>
-          {% if m.is_complete %}
-          <a href="/playoffs/game/{{ m.round_name }}/{{ m.home_abbr }}/{{ m.away_abbr }}">{{ m.result.away_score }}&ndash;{{ m.result.home_score }}</a>
-          &mdash; {{ m.winner_abbr }} wins
-          {% else %}
-          <span class="muted">Not yet played</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <h3>Division Standings</h3>
+  <div class="division-standings-grid">
+    {% for div, teams in division_standings[conf].items() %}
+    <table>
+      <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
+      <tbody>
+        {% for t in teams %}
+        <tr><td>{{ loop.index }}</td><td>{{ t.location }} ({{ t.abbr }})</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </div>
 </div>
-{% endfor %}
+{% endif %}
+
+{% if view == 'superbowl' %}
+<div class="sb-card big">
+  <h3>Super Bowl</h3>
+  {% if sb_matchup %}{{ matchup_card(sb_matchup) }}{% else %}<p class="matchup-tbd">Set once both Conference Championships are complete.</p>{% endif %}
+</div>
+{% endif %}
+
 {% endif %}
 {% endblock %}

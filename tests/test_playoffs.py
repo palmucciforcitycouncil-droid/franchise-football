@@ -199,6 +199,23 @@ def test_seed_conference_returns_seven_for_nfc_too():
     assert all(t.conference == "NFC" for abbr in seeds for t in TEAMS if t.abbr == abbr)
 
 
+def test_bubble_teams_excludes_the_seven_seeds_and_ranks_the_rest():
+    """The Playoffs page's "In The Hunt" widget (GDD Sec 10.4.6) -- with
+    strictly descending, distinct win totals (no ties anywhere), the
+    real wildcard-chain ranking of the whole conference is just win%
+    order, so the bubble teams must be exactly the next-best non-seeded
+    teams in that same order."""
+    afc_teams = [t.abbr for t in TEAMS if t.conference == "AFC"]
+    records_override = {abbr: (15 - i, i) for i, abbr in enumerate(afc_teams)}
+    season = _season([], current_week=19, records_override=records_override)
+
+    seeds = playoffs.seed_conference(season, "AFC")
+    hunt = playoffs.bubble_teams(season, "AFC", seeds, limit=3)
+
+    assert hunt == [a for a in afc_teams if a not in seeds][:3]
+    assert not (set(hunt) & set(seeds))
+
+
 # --- bracket construction & reseeding ---------------------------------------
 
 def test_build_wild_card_round_matches_the_gdd_seeding_pattern():
@@ -353,6 +370,42 @@ def test_playoffs_page_renders_before_and_after_the_bracket_exists():
     assert resp.status_code == 200
     assert "Wild Card" in resp.text
     assert season_state.get_season().playoffs is not None
+
+
+def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
+    """GDD Sec 10.4.6: Full Bracket / AFC / NFC / Super Bowl tab views
+    (item 32-equivalent redesign) -- each tab's real data (In The Hunt,
+    Division Standings) rather than just checking the page loads."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    season_state.reset_season()
+    from app.engine.schedule import N_WEEKS
+    for _ in range(N_WEEKS):
+        season_state.simulate_current_week()
+
+    resp = client.get("/playoffs")  # default view=full, builds WC round
+    assert resp.status_code == 200
+    assert "American Conference" in resp.text
+    assert "National Conference" in resp.text
+
+    resp = client.get("/playoffs?view=afc")
+    assert resp.status_code == 200
+    assert "In The Hunt" in resp.text
+    assert "AFC East" in resp.text  # Division Standings
+
+    resp = client.get("/playoffs?view=nfc")
+    assert resp.status_code == 200
+    assert "NFC East" in resp.text
+
+    resp = client.get("/playoffs?view=superbowl")
+    assert resp.status_code == 200
+    assert "In The Hunt" not in resp.text  # only shown on afc/nfc views, per the Figma source
+
+    resp = client.get("/playoffs?view=not-a-real-view")  # invalid falls back to "full"
+    assert resp.status_code == 200
+    assert "American Conference" in resp.text
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")

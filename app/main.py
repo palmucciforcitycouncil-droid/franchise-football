@@ -21,6 +21,7 @@ from app.engine.box_score import build_box_score
 from app.engine.defensive_box_score import build_defensive_box_score
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 from app.engine import score_fidelity, awards
+from app.engine.playoffs import bubble_teams, final_division_standings
 from app.engine.scouting import find_next_opponent, build_scouting_report
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
@@ -555,23 +556,73 @@ def draft_view(request: Request):
     })
 
 
+PLAYOFF_VIEWS = ("full", "afc", "nfc", "superbowl")
+
+
+def _rounds_by_conference(bracket, conference: str | None) -> dict[str, list]:
+    """Bracket rounds filtered to one conference (WC/DIV/CONF matchups
+    for "AFC"/"NFC", or the single Super Bowl matchup for `None`) --
+    each round in `bracket.rounds` mixes both conferences' games
+    together (and the WC/DIV/CONF rounds happen in the same round-list
+    entry for whichever games are ready), so the Full/AFC/NFC/Super Bowl
+    tab views (GDD Sec 10.4.6) all read from this rather than each
+    re-filtering `bracket.rounds` in the template."""
+    result: dict[str, list] = {}
+    for round_ in bracket.rounds:
+        name = round_[0].round_name
+        result[name] = [m for m in round_ if m.conference == conference]
+    return result
+
+
+def _conference_hunt_and_standings(season, bracket) -> tuple[dict, dict]:
+    """Real "In The Hunt" bubble teams and real division standings for
+    the AFC/NFC Playoffs views (GDD Sec 10.4.6) -- both built from the
+    same real tiebreak-chain functions the bracket seeding itself uses
+    (`bubble_teams`/`final_division_standings` in playoffs.py), not a
+    separate approximate ranking."""
+    div_standings_raw = final_division_standings(season)
+    hunt: dict[str, list[dict]] = {}
+    standings: dict[str, dict[str, list[dict]]] = {}
+    for conf, seeds in (("AFC", bracket.afc_seeds), ("NFC", bracket.nfc_seeds)):
+        hunt[conf] = [
+            {"abbr": abbr, "location": TEAMS_BY_ABBR[abbr].location, "record": season.records[abbr]}
+            for abbr in bubble_teams(season, conf, seeds)
+        ]
+        standings[conf] = {
+            div: [
+                {"abbr": abbr, "location": TEAMS_BY_ABBR[abbr].location, "record": season.records[abbr]}
+                for abbr in abbrs
+            ]
+            for (c, div), abbrs in div_standings_raw.items() if c == conf
+        }
+    return hunt, standings
+
+
 @app.get("/playoffs", response_class=HTMLResponse)
-def playoffs_view(request: Request):
-    """GDD Sec 10.4.6: AFC/NFC bracket view through the Super Bowl. This
-    build renders every round in one page (no AFC/NFC/SB tab-switching
-    JS yet -- see Sec 10.5's htmx notes for that) rather than the
-    Figma-derived three-tab layout; the underlying bracket data is the
-    same either way."""
+def playoffs_view(request: Request, view: str = "full"):
+    """GDD Sec 10.4.6: Full Bracket / AFC / NFC / Super Bowl tab views,
+    matching the Figma-derived layout -- AFC/NFC views also show real
+    "In The Hunt" bubble teams and real division standings."""
+    if view not in PLAYOFF_VIEWS:
+        view = "full"
     season = season_state.get_season()
     if not season.is_complete:
         return templates.TemplateResponse(request, "playoffs.html", {
-            "season": season, "bracket": None, "round_labels": ROUND_LABELS,
+            "season": season, "bracket": None, "round_labels": ROUND_LABELS, "view": view,
         })
     if season.playoffs is None:
         season_state.simulate_playoff_round()  # builds the Wild Card round on first visit
         season = season_state.get_season()
+    bracket = season.playoffs
+    in_the_hunt, division_standings = _conference_hunt_and_standings(season, bracket)
+    afc_rounds = _rounds_by_conference(bracket, "AFC")
+    nfc_rounds = _rounds_by_conference(bracket, "NFC")
+    sb_matchups = _rounds_by_conference(bracket, None).get("SB", [])
     return templates.TemplateResponse(request, "playoffs.html", {
-        "season": season, "bracket": season.playoffs, "round_labels": ROUND_LABELS,
+        "season": season, "bracket": bracket, "round_labels": ROUND_LABELS,
+        "view": view, "in_the_hunt": in_the_hunt, "division_standings": division_standings,
+        "afc_rounds": afc_rounds, "nfc_rounds": nfc_rounds,
+        "sb_matchup": sb_matchups[0] if sb_matchups else None,
     })
 
 
