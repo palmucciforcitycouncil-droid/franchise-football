@@ -17,6 +17,9 @@
       --text: #ffffff;
       --muted: #94a3b8;
       --gold: #d4af37;
+      --tab-active: #3b82f6; /* the Figma reference's active-nav-tab indicator -- a real detail
+                                 visible in the actual screenshots, not captured in GDD Sec 10.3's
+                                 prose (which only documents gold as an accent) */
     }
     * { box-sizing: border-box; }
     body {
@@ -30,7 +33,12 @@
       position: sticky; top: 0; z-index: 10;
       background: var(--panel);
       border-bottom: 2px solid var(--gold);
-      padding: 1rem 2rem;
+      padding: 0.85rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
     header h1 {
       margin: 0;
@@ -38,8 +46,25 @@
       letter-spacing: 0.02em;
     }
     header h1 span { color: var(--gold); }
+    .header-team { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+    .team-badge {
+      width: 44px; height: 44px; flex-shrink: 0;
+      border: 2px solid var(--gold);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.85rem;
+    }
+    .header-team .team-name { font-weight: 700; font-size: 1.05rem; white-space: nowrap; }
+    .header-team .team-meta { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
+    .sim-week-form button {
+      background: transparent;
+      border: 1px solid var(--gold);
+      color: var(--gold);
+      white-space: nowrap;
+    }
+    .sim-week-form button:hover { background: rgba(212, 175, 55, 0.12); filter: none; }
     nav.subnav {
-      position: sticky; top: 61px; z-index: 9;
+      position: sticky; top: 65px; z-index: 9;
       background: var(--panel);
       border-bottom: 1px solid var(--border);
       padding: 0.6rem 2rem;
@@ -48,8 +73,12 @@
       flex-wrap: wrap;
       gap: 0.25rem 1.25rem;
     }
-    nav.subnav a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+    nav.subnav a {
+      color: var(--muted); text-decoration: none; white-space: nowrap;
+      padding-bottom: 0.5rem; border-bottom: 2px solid transparent;
+    }
     nav.subnav a:hover { color: var(--text); }
+    nav.subnav a.active { color: var(--text); border-bottom-color: var(--tab-active); font-weight: 600; }
     main {
       max-width: 1200px;
       margin: 1.5rem auto;
@@ -120,8 +149,38 @@
   </style>
 </head>
 <body>
-  <header><h1>Franchise <span>Football</span></h1></header>
-  <nav class="subnav"><a href="/dashboard">Dashboard</a><a href="/">Simulate</a><a href="/season">Season</a><a href="/roster">Roster</a><a href="/depth-chart">Depth Chart</a><a href="/staff">Staff</a><a href="/gm-desk">GM Desk</a><a href="/draft">Draft</a><a href="/playoffs">Playoffs</a><a href="/stats">Stats</a><a href="/history">History</a><a href="/hof">Hall of Fame</a></nav>
+  {% set hc = header_context() %}
+  <header>
+    {% if hc.user_team %}
+    <div class="header-team">
+      <div class="team-badge">{{ hc.user_team.abbr }}</div>
+      <div>
+        <div class="team-name">{{ hc.user_team.location }} ({{ hc.user_team.abbr }})</div>
+        <div class="team-meta">
+          Record: {{ hc.user_record.wins }}-{{ hc.user_record.losses }}
+          &middot; {{ hc.user_team.conference }} {{ hc.user_team.division }}
+          {% if hc.user_rank_ordinal %}&middot; Power Rank: {{ hc.user_rank_ordinal }}{% endif %}
+        </div>
+      </div>
+    </div>
+    <form method="post" action="/season/simulate-week" class="sim-week-form">
+      <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+      <button type="submit">Sim Week</button>
+    </form>
+    {% else %}
+    <h1>Franchise <span>Football</span></h1>
+    {% endif %}
+  </header>
+  {% set nav_links = [
+    ("/dashboard", "Dashboard"), ("/", "Simulate"), ("/season", "Season"), ("/roster", "Roster"),
+    ("/depth-chart", "Depth Chart"), ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
+    ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/history", "History"), ("/hof", "Hall of Fame"),
+  ] %}
+  <nav class="subnav">
+    {% for href, label in nav_links %}
+    <a href="{{ href }}" class="{{ 'active' if request.url.path == href else '' }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
   <main>
     {% block content %}{% endblock %}
   </main>

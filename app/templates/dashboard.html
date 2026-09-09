@@ -2,13 +2,6 @@
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>{{ user_team.location }} <span class="muted" style="font-size: 0.85em;">({{ user_team.abbr }})</span></h2>
-  <p class="muted">
-    Record: {{ user_record.wins }}-{{ user_record.losses }} &middot; {{ user_team.conference }} {{ user_team.division }}{% if user_rank_ordinal %} &middot; Power Rank: {{ user_rank_ordinal }}{% endif %}
-  </p>
-</div>
-
-<div class="card">
   <h3>Weekly Gameplan</h3>
   <p class="muted">Sets your Head Coach's strategy for this week's opponent (GDD &sect;10.4.1) &mdash; read by the play-calling AI for your team only.</p>
   <form method="post" action="/gameplan">

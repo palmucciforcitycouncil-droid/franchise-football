@@ -299,6 +299,52 @@ def test_dashboard_shows_user_team_once_chosen():
     assert "AFC West" in resp.text
 
 
+def test_persistent_header_shows_team_badge_and_sim_week_on_every_page_once_chosen():
+    """GDD Sec 10.3: a persistent header (team badge, record/division/
+    power-rank, a Sim Week control) visible on EVERY screen, not just
+    Dashboard -- app.main._header_context(), registered as a Jinja2
+    global so base.html can call it directly without every route
+    threading the same values through its own context dict."""
+    season_state.set_user_team("KC")
+    for path in ("/roster", "/stats", "/staff", "/history"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert "Kansas City (KC)" in resp.text
+        assert "Sim Week" in resp.text
+
+
+def test_persistent_header_falls_back_to_plain_title_before_a_team_is_chosen():
+    resp = client.get("/team-select")
+    assert resp.status_code == 200
+    assert "Sim Week" not in resp.text
+    assert "Franchise" in resp.text and "Football" in resp.text
+
+
+def test_safe_internal_redirect_rejects_external_and_protocol_relative_urls():
+    """_safe_internal_redirect guards the persistent header's Sim Week
+    form (redirect_to is a hidden field echoing request.url.path) against
+    being turned into an open redirect by a crafted form submission --
+    only a genuine internal path is ever honored."""
+    from app.main import _safe_internal_redirect
+
+    assert _safe_internal_redirect("/roster", "/season") == "/roster"
+    assert _safe_internal_redirect(None, "/season") == "/season"
+    assert _safe_internal_redirect("", "/season") == "/season"
+    assert _safe_internal_redirect("https://evil.example.com", "/season") == "/season"
+    assert _safe_internal_redirect("//evil.example.com", "/season") == "/season"
+    assert _safe_internal_redirect("not-a-path", "/season") == "/season"
+
+
+def test_sim_week_button_returns_to_the_page_it_was_clicked_from():
+    """The whole point of a persistent Sim Week control is that using it
+    doesn't lose your place -- confirms the redirect actually goes back
+    to redirect_to, not always to /season."""
+    season_state.set_user_team("KC")
+    resp = client.post("/season/simulate-week", data={"redirect_to": "/roster"}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/roster"
+
+
 def test_dashboard_power_rank_ordinal_suffix_handles_11_13_exception():
     """Regression test for a real bug found via live manual testing: a
     fresh 0-0 team's power rank rendered as "22th" instead of "22nd" --

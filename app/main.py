@@ -198,13 +198,6 @@ def dashboard_view(request: Request):
     if season.user_team_abbr is None:
         return RedirectResponse(url="/team-select", status_code=303)
 
-    user_team = TEAMS_BY_ABBR[season.user_team_abbr]
-    user_record = season.records[season.user_team_abbr]
-    user_rank = next(
-        (i for i, r in enumerate(season.standings(), start=1) if r.abbr == season.user_team_abbr),
-        None,
-    )
-    user_rank_ordinal = _ordinal(user_rank) if user_rank is not None else None
     gameplan = gameplan_store.get_gameplan(season.user_team_abbr)
 
     next_opponent = find_next_opponent(season, season.user_team_abbr)
@@ -233,9 +226,6 @@ def dashboard_view(request: Request):
         "dashboard.html",
         {
             "season": season,
-            "user_team": user_team,
-            "user_record": user_record,
-            "user_rank_ordinal": user_rank_ordinal,
             "gameplan": gameplan,
             "scouting": scouting,
             "offensive_aggressiveness_options": OFFENSIVE_AGGRESSIVENESS,
@@ -389,6 +379,32 @@ def _ordinal(n: int) -> str:
     else:
         suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
+
+
+def _header_context() -> dict:
+    """GDD Sec 10.3: a persistent header (team badge, name, record/
+    division/power-rank, a Sim Week control) visible on EVERY screen,
+    not just Dashboard -- registered as a Jinja2 global (see
+    `templates.env.globals` below) and called directly from
+    base.html, rather than threading the same few values through every
+    single route's own context dict for data that's always the same
+    shape. Returns user_team=None before a team's been chosen (team-
+    select, or a route hit before any franchise setup) -- base.html
+    falls back to the plain title in that case."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        return {"user_team": None}
+    team = TEAMS_BY_ABBR[season.user_team_abbr]
+    record = season.records[season.user_team_abbr]
+    rank = next((i for i, r in enumerate(season.standings(), start=1) if r.abbr == team.abbr), None)
+    return {
+        "user_team": team,
+        "user_record": record,
+        "user_rank_ordinal": _ordinal(rank) if rank is not None else None,
+    }
+
+
+templates.env.globals["header_context"] = _header_context
 
 
 def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
@@ -553,19 +569,35 @@ def team_select_submit(team_abbr: str = Form(...)):
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
+def _safe_internal_redirect(path: str | None, default: str) -> str:
+    """Only ever redirects back to a path on THIS app -- rejects
+    anything that could be an open redirect (an absolute URL, or a
+    protocol-relative "//host/..." path browsers still treat as
+    absolute) rather than trusting the submitted value outright."""
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return default
+    return path
+
+
 @app.post("/season/simulate-week")
-def season_simulate_week():
+def season_simulate_week(redirect_to: str | None = Form(None)):
     """GDD Sec 4's game loop (Regular Season -> Playoffs -> Championship)
     is one continuous cycle from the player's perspective -- a single
     "Sim Week" control, matching the Figma header's one sim button
-    (Sec 10.3). Once the regular season is done, the same button just
-    starts simulating playoff rounds instead."""
+    (Sec 10.3), now persistent across every page (base.html's header,
+    via _header_context()) rather than living only on /season. Once the
+    regular season is done, the same button just starts simulating
+    playoff rounds instead. `redirect_to` (the page the button was
+    clicked from, a hidden field in the header's own form) sends the
+    player back to where they were rather than always yanking them to
+    /season/-/playoffs -- the whole point of a persistent control is
+    that using it doesn't lose your place."""
     season = season_state.get_season()
     if season.is_complete:
         season_state.simulate_playoff_round()
-        return RedirectResponse(url="/playoffs", status_code=303)
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/playoffs"), status_code=303)
     season_state.simulate_current_week()
-    return RedirectResponse(url="/season", status_code=303)
+    return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
 
 
 @app.post("/season/reset")
