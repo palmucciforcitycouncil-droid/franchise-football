@@ -412,9 +412,7 @@
       <div id="pc-panel-overview" class="pc-panel"></div>
       <div id="pc-panel-ratings" class="pc-panel" hidden></div>
       <div id="pc-panel-stats" class="pc-panel" hidden></div>
-      <div id="pc-panel-contract" class="pc-panel" hidden>
-        <p class="muted">No contract information available -- Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md's Known Gaps).</p>
-      </div>
+      <div id="pc-panel-contract" class="pc-panel" hidden></div>
     </div>
   </dialog>
 
@@ -429,6 +427,7 @@
       var overviewEl = document.getElementById('pc-panel-overview');
       var ratingsEl = document.getElementById('pc-panel-ratings');
       var statsEl = document.getElementById('pc-panel-stats');
+      var contractEl = document.getElementById('pc-panel-contract');
 
       function bar(label, value) {
         return '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>' + label + '</span><span>' + value + '/99</span></div>' +
@@ -461,6 +460,23 @@
       var CAREER_STAT_ORDER = ['passing', 'rushing', 'receiving', 'defense'];
       var NO_CAREER_STATS_HTML = '<p class="muted">No archived career stats yet -- these fill in once a season is completed (Start Next Season). ' +
         'See <a href="/stats">Stats</a> for this season in progress.</p>';
+
+      // M8: Player.salary/signing_bonus are real, already-imported Madden
+      // data (see player.py's own docstring) that simply had no UI consumer
+      // until now -- shown as-is, not synthetic. Contract length/years
+      // remaining/cap space genuinely aren't modeled anywhere yet (no
+      // Contracts & Cap system exists -- Post-MVP, GDD Part 2 Sec F1.1), so
+      // that part stays a disclosed gap rather than a fabricated number.
+      function money(n) {
+        if (n === null || n === undefined) { return '--'; }
+        return '$' + Number(n).toLocaleString('en-US');
+      }
+
+      function contractPanel(card) {
+        return '<div class="pc-row"><span class="pc-row-label">Salary</span><span>' + money(card.salary) + '</span></div>' +
+          '<div class="pc-row"><span class="pc-row-label">Signing Bonus</span><span>' + money(card.signing_bonus) + '</span></div>' +
+          '<p class="muted">Contract length, years remaining, and cap space aren\'t modeled yet -- Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md\'s Known Gaps).</p>';
+      }
 
       function statsPanel(career) {
         if (!career) { return NO_CAREER_STATS_HTML; }
@@ -498,6 +514,7 @@
         ratingsEl.innerHTML = rows;
 
         statsEl.innerHTML = statsPanel(card.career);
+        contractEl.innerHTML = contractPanel(card);
 
         document.querySelectorAll('.pc-tab').forEach(function (b) { b.classList.remove('active'); });
         document.querySelector('.pc-tab[data-tab="overview"]').classList.add('active');

@@ -88,8 +88,14 @@ def build_player(row: dict, team_abbr: str | None, used_ids: set[str]) -> Player
         overall_rating=_int(row, "Overall Rating"),
         potential=_int(row, "Potential"),
         morale=_int(row, "Morale"),
-        salary=_int(row, "Total Salary "),
-        signing_bonus=_int(row, "Signing Bonus "),
+        # Real CSV headers carry a LEADING space too (" Total Salary ",
+        # " Signing Bonus ") -- a prior version of this line looked up the
+        # trailing-space-only spelling, which silently missed via dict.get()
+        # and left every imported player's salary/signing_bonus at the
+        # default of 0 (found while wiring the Player Card's Contract tab
+        # to this real data, ROADMAP.md M8; see test_imported_players_have_real_salaries).
+        salary=_int(row, " Total Salary "),
+        signing_bonus=_int(row, " Signing Bonus "),
         speed=_int(row, "Speed"),
         acceleration=_int(row, "Acceleration"),
         strength=_int(row, "Strength"),

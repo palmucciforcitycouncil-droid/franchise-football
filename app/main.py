@@ -410,7 +410,8 @@ def gameplan_submit(
 # advanced metrics with no real underlying data here (air yards,
 # pressures, contested catches, snap counts, coach records, ...) are
 # omitted rather than fabricated, same discipline as the Player Card's
-# Stats/Contract tab stubs.
+# Stats tab (and its Contract tab, M8 -- real salary/signing bonus, no
+# fabricated cap/years-remaining data).
 PLAYER_STAT_CATEGORIES: list[dict] = [
     {"label": "Identity & Participation", "stats": [
         {"id": "player_name", "label": "Player Name"},
@@ -966,6 +967,7 @@ def _player_card_json(p: Player) -> str:
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
         "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
         "attrs": attrs, "career": _career_stats_for(p),
+        "salary": p.salary, "signing_bonus": p.signing_bonus,
     })
 
 

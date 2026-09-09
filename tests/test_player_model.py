@@ -85,6 +85,18 @@ def test_imported_roster_shape():
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
+def test_imported_players_have_real_salaries():
+    """Regression test for a real bug (found while wiring the Player Card's
+    Contract tab to this data, ROADMAP.md M8): import_players.py looked up
+    the CSV's salary/signing_bonus columns by the wrong key (missing a
+    leading space the real headers carry), so every imported player's
+    salary/signing_bonus silently defaulted to 0 via dict.get()."""
+    with get_session() as s:
+        nonzero_salary = s.exec(select(func.count()).select_from(Player).where(Player.salary > 0)).one()
+        assert nonzero_salary > 2000, "expected nearly every imported player to have a real nonzero salary"
+
+
+@pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
 def test_imported_players_have_plausible_attributes():
     """Every stored attribute should be a valid 0-99 rating (or the salary/
     signing_bonus fields, which aren't on that scale) -- catches the CSV's
