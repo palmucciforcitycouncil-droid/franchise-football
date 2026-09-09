@@ -56,22 +56,22 @@ Recommendation: **(a)**. The project's established discipline this whole build h
 
 ---
 
-## 4. R2 (Post-MVP) chunks
+## 4. R-series (Post-MVP) chunks
 
-Bigger, more architecturally significant. Each of these is genuinely a multi-session build on its own — don't try to do one in a single sitting.
+Bigger, more architecturally significant. Each major chunk is broken into sub-chunks (a/b/c/d) sized for individual fresh-session work — don't try a whole R-chunk in a single sitting.
 
-| # | Chunk | Scope | Size | Model |
-|---|---|---|---|---|
-| **R1** | Injury system | Real in-season injury events tied to `durability`. **Directly synergizes with item 37's rotation.py** — a player going down should just increase the backup's `reliability_factor`/share for the rest of that game, which the rotation math already supports. Do this AFTER M1-M6, before R2/R4/R5 (it'll change how those get built). | L | **Opus** for design (touches rotation.py, box scores, progression, roster pages all at once), Sonnet for implementation |
-| **R2** | Return-game simulation | Punt/kickoff return yardage. Unlocks a real (not scoped-narrow) Defensive TD, real special-teams tackle credit (the biggest reason DEF tackles are still ~2-3x real — see `test_stat_realism.py`'s disclosed gap), and completes M2's punt stats. | L | Opus for design, Sonnet for implementation |
-| **R3** | Coaching Staff | New `Coach` entity, hiring/firing, real Staff page. Unlocks Coach of the Year (currently impossible — no Coach entity exists). | L | Opus for design, Sonnet for implementation |
-| **R4** | Contracts / Free Agency / Trades | Genuinely the biggest single chunk in R2. **Split into three sessions, in order**: R4a Contracts (salary cap, negotiation — also closes M8 for real), R4b Free Agency, R4c Trades. Unlocks real GM Desk content. | XL (3 sessions) | Opus for each sub-chunk's design, Sonnet for implementation |
-| **R5** | Draft | Draft classes, draft-day logic, real Draft page. Depends on R4a (rookie contracts) existing first. | L | Opus for design, Sonnet for implementation |
-| **R6** | Full penalty catalog | Expand from 7 to the GDD's full dozen-plus types. Mechanical extension of the existing, well-documented pattern in `drive_sim.py`'s Penalty System section. | S–M | Sonnet |
-| **R7** | Weather | Weather modifiers (§6.11). | S | Sonnet |
-| **R8** | Awards page (dynamic, weekly MVP/OPOY/DPOY/ROY/COY) | Your idea from earlier this session — overlaps with the existing HOF and Stats Awards Race, needs a real scoping conversation before any code (not a "just build it" chunk). Do this scoping as the FIRST five minutes of whatever session picks it up, not blind. | M | Sonnet, after scoping |
+| # | Chunk | Scope | Size | Model | Sub-chunks |
+|---|---|---|---|---|---|
+| **R1** | Injury system | Real in-season injury events tied to `durability`. **Directly synergizes with item 37's rotation.py** — a player going down should increase the backup's `reliability_factor`/share for the rest of that game, which the rotation math already supports. Do this AFTER M1-M6, before R2/R4/R5 (it'll change how those get built). | L | **Opus** for design (touches rotation.py, box scores, progression, roster pages all at once), Sonnet for implementation | R1a (design), R1b (core sim), R1c (rotation), R1d (integration) |
+| **R2** | Return-game simulation | Punt/kickoff return yardage. Unlocks a real (not scoped-narrow) Defensive TD, real special-teams tackle credit (the biggest reason DEF tackles are still ~2-3x real — see `test_stat_realism.py`'s disclosed gap), and completes M2's punt stats. | L | Opus for design, Sonnet for implementation | R2a (design), R2b (core), R2c (stats) |
+| **R3** | Coaching Staff | New `Coach` entity, hiring/firing, real Staff page. Unlocks Coach of the Year (currently impossible — no Coach entity exists). | L | Opus for design, Sonnet for implementation | R3a (design), R3b (entity), R3c (UI) |
+| **R4** | Contracts / Free Agency / Trades | Genuinely the biggest single chunk in R2. **Split into three sessions, in order**: R4a Contracts (salary cap, negotiation — also closes M8 for real), R4b Free Agency, R4c Trades. Unlocks real GM Desk content. | XL (3 sessions) | Opus for each sub-chunk's design, Sonnet for implementation | R4a, R4b, R4c (separate chunks) |
+| **R5** | Draft | Draft classes, draft-day logic, real Draft page. Depends on R4a (rookie contracts) existing first. | L | Opus for design, Sonnet for implementation | R5a (design), R5b (core), R5c (UI) |
+| **R6** | Full penalty catalog | Expand from 7 to the GDD's full dozen-plus types. Mechanical extension of the existing, well-documented pattern in `drive_sim.py`'s Penalty System section. | S–M | Sonnet | Can bundle with R7 |
+| **R7** | Weather | Weather modifiers (§6.11). | S | Sonnet | Can bundle with R6 |
+| **R8** | Awards page (dynamic, weekly MVP/OPOY/DPOY/ROY/COY) | Your idea from earlier this session — overlaps with the existing HOF and Stats Awards Race, needs a real scoping conversation before any code (not a "just build it" chunk). Do this scoping as the FIRST five minutes of whatever session picks it up, not blind. | M | Sonnet, after scoping | Scoping-only |
 
-**Recommended R2 order:** R1 (injury, synergizes with what's already built) → R2 (return game, unlocks the disclosed DEF-tackle gap) → R3 (coaching) → R4a→R4b→R4c (contracts/FA/trades) → R5 (draft, depends on R4a) → R6/R7 (small, anytime) → R8 (needs its own scoping first).
+**Recommended R-series order:** R1a→R1b→R1c→R1d (injury system, builds foundation) → R2a→R2b→R2c (return game, unlocks DEF-tackle fix) → R3a→R3b→R3c (coaching) → R4a (contracts, blocks R5) → R4b (free agency) → R4c (trades) → R5a→R5b→R5c (draft, depends on R4a) → R6+R7 (bundle small chunks) → R8 (after scoping).
 
 ---
 
