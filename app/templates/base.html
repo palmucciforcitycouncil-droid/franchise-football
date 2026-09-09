@@ -146,6 +146,61 @@
     td.depth-actions { white-space: nowrap; text-align: right; }
     td.depth-actions form { display: inline-block; margin-left: 0.25rem; }
     td.depth-actions button { padding: 0.15rem 0.5rem; font-size: 0.85rem; }
+
+    /* Player Card modal (GDD Sec 10.3/7.5) -- colors/layout confirmed
+       directly against the real Figma component (PlayerDrawer.tsx). */
+    .player-link {
+      background: none; border: none; padding: 0; margin: 0;
+      color: var(--gold); text-decoration: none; cursor: pointer;
+      font: inherit; text-align: left;
+    }
+    .player-link:hover { text-decoration: underline; }
+    dialog#player-card-modal {
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 0; width: 580px; max-width: 92vw; max-height: 85vh;
+    }
+    dialog#player-card-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
+    .pc-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 1rem; padding: 1.25rem 1.5rem 1rem; border-bottom: 1px solid var(--border);
+    }
+    .pc-header-main { display: flex; align-items: center; gap: 1rem; }
+    .pc-avatar {
+      width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
+      background: var(--border); display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; font-weight: 700;
+    }
+    #pc-name { margin: 0 0 0.35rem; font-size: 1.2rem; }
+    .pc-badges span { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.82rem; margin-right: 0.4rem; }
+    .pc-badge-pos { background: var(--border); color: var(--text); }
+    .pc-badge-ovr { background: rgba(212, 175, 55, 0.18); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.35); }
+    .pc-badge-team { background: var(--border); color: var(--muted); }
+    #pc-close {
+      background: none; border: none; color: var(--muted); font-size: 1.4rem;
+      cursor: pointer; line-height: 1; padding: 0.2rem;
+    }
+    #pc-close:hover { color: var(--text); }
+    .pc-tabs { display: flex; gap: 0.25rem; padding: 0.75rem 1.5rem 0; border-bottom: 1px solid var(--border); }
+    .pc-tab {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      padding: 0.5rem 0.9rem; font-size: 0.9rem; border-radius: 6px 6px 0 0;
+    }
+    .pc-tab.active { background: var(--border); color: var(--text); }
+    .pc-body { padding: 1.25rem 1.5rem 1.5rem; overflow-y: auto; max-height: calc(85vh - 130px); }
+    .pc-panel[hidden] { display: none; }
+    .pc-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem;
+    }
+    .pc-row .pc-row-label { color: var(--muted); font-size: 0.88rem; }
+    .pc-bar-wrap {
+      background: var(--bg); border-radius: 8px; padding: 0.7rem 0.9rem 0.85rem; margin-bottom: 0.6rem;
+    }
+    .pc-bar-top { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.88rem; }
+    .pc-bar-top span:first-child { color: var(--muted); }
+    .pc-bar-track { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+    .pc-bar-fill { background: var(--gold); height: 100%; }
   </style>
 </head>
 <body>
@@ -184,5 +239,107 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+
+  <dialog id="player-card-modal">
+    <div class="pc-header">
+      <div class="pc-header-main">
+        <div class="pc-avatar" id="pc-num"></div>
+        <div>
+          <h3 id="pc-name"></h3>
+          <div class="pc-badges">
+            <span class="pc-badge-pos" id="pc-pos"></span>
+            <span class="pc-badge-ovr" id="pc-ovr"></span>
+            <span class="pc-badge-team" id="pc-team"></span>
+          </div>
+        </div>
+      </div>
+      <button type="button" id="pc-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pc-tabs">
+      <button type="button" class="pc-tab active" data-tab="overview">Overview</button>
+      <button type="button" class="pc-tab" data-tab="ratings">Ratings</button>
+      <button type="button" class="pc-tab" data-tab="stats">Stats</button>
+      <button type="button" class="pc-tab" data-tab="contract">Contract</button>
+    </div>
+    <div class="pc-body">
+      <div id="pc-panel-overview" class="pc-panel"></div>
+      <div id="pc-panel-ratings" class="pc-panel" hidden></div>
+      <div id="pc-panel-stats" class="pc-panel" hidden>
+        <p class="muted">Real season/career stats aren't wired into the card yet -- see <a href="/stats">Stats</a> or <a href="/history">History</a> in the meantime.</p>
+      </div>
+      <div id="pc-panel-contract" class="pc-panel" hidden>
+        <p class="muted">No contract information available -- Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md's Known Gaps).</p>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    (function () {
+      var modal = document.getElementById('player-card-modal');
+      var numEl = document.getElementById('pc-num');
+      var nameEl = document.getElementById('pc-name');
+      var posEl = document.getElementById('pc-pos');
+      var ovrEl = document.getElementById('pc-ovr');
+      var teamEl = document.getElementById('pc-team');
+      var overviewEl = document.getElementById('pc-panel-overview');
+      var ratingsEl = document.getElementById('pc-panel-ratings');
+
+      function bar(label, value) {
+        return '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>' + label + '</span><span>' + value + '/99</span></div>' +
+          '<div class="pc-bar-track"><div class="pc-bar-fill" style="width:' + Math.max(0, Math.min(100, value)) + '%"></div></div></div>';
+      }
+
+      function openCard(card) {
+        numEl.textContent = card.num || '--';
+        nameEl.textContent = card.name;
+        posEl.textContent = card.pos;
+        ovrEl.textContent = card.ovr + ' OVR';
+        teamEl.textContent = card.team;
+
+        overviewEl.innerHTML =
+          '<div class="pc-row"><span class="pc-row-label">Age</span><span>' + card.age + ' years old</span></div>' +
+          '<div class="pc-row"><span class="pc-row-label">Potential</span><span>' + card.pot + '</span></div>' +
+          bar('Morale', card.morale) + bar('Stamina', card.stamina);
+
+        var rows = '';
+        for (var key in card.attrs) {
+          if (Object.prototype.hasOwnProperty.call(card.attrs, key)) {
+            rows += bar(key, card.attrs[key]);
+          }
+        }
+        ratingsEl.innerHTML = rows;
+
+        document.querySelectorAll('.pc-tab').forEach(function (b) { b.classList.remove('active'); });
+        document.querySelector('.pc-tab[data-tab="overview"]').classList.add('active');
+        document.querySelectorAll('.pc-panel').forEach(function (p) { p.hidden = true; });
+        overviewEl.hidden = false;
+
+        modal.showModal();
+      }
+
+      document.addEventListener('click', function (e) {
+        var trigger = e.target.closest('.player-link');
+        if (trigger) {
+          try {
+            openCard(JSON.parse(trigger.dataset.card));
+          } catch (err) {
+            console.error('Failed to parse player card data', err);
+          }
+          return;
+        }
+        if (e.target.id === 'pc-close' || e.target === modal) {
+          modal.close();
+          return;
+        }
+        var tabBtn = e.target.closest('.pc-tab');
+        if (tabBtn && modal.open) {
+          document.querySelectorAll('.pc-tab').forEach(function (b) { b.classList.remove('active'); });
+          tabBtn.classList.add('active');
+          document.querySelectorAll('.pc-panel').forEach(function (p) { p.hidden = true; });
+          document.getElementById('pc-panel-' + tabBtn.dataset.tab).hidden = false;
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

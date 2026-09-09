@@ -1,0 +1,148 @@
+/* Remove any previous contain rules that break sticky */
+#draftProspectsCard.draft-prospects-card * {
+  contain: initial !important;
+}
+
+/* Card clips content; scrolling happens inside the inner div only */
+#draftProspectsCard.draft-prospects-card {
+  position: relative;
+  overflow: hidden !important;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1a2332;
+  border-radius: 0.5rem;
+  border: 1px solid #2d4a6f;
+}
+
+/* Single scroll container (both axes) */
+#draftProspectsBodyScroll.draft-prospects-scroll {
+  overflow: auto !important;
+  max-height: 56vh;
+  min-height: 400px;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+  background: #1a2332;
+}
+
+/* Table sizing for stable columns + horizontal scroll */
+#draftProspectsTable.draft-prospects-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+  font-size: 0.875rem;
+}
+
+/* Sticky header */
+#draftProspectsTable.draft-prospects-table thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 3 !important;
+  background: #0f1723 !important;
+  white-space: nowrap;
+}
+
+/* Prevent wrapping drift */
+#draftProspectsTable.draft-prospects-table th,
+#draftProspectsTable.draft-prospects-table td {
+  white-space: nowrap;
+}
+
+/* Safety: neutralize properties that break sticky */
+#draftProspectsCard.draft-prospects-card,
+#draftProspectsCard.draft-prospects-card * {
+  transform: none !important;
+  filter: none !important;
+  perspective: none !important;
+}
+
+/* Scrollbar cosmetics */
+#draftProspectsBodyScroll::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+
+#draftProspectsBodyScroll::-webkit-scrollbar-track {
+  background: #0a1929;
+}
+
+#draftProspectsBodyScroll::-webkit-scrollbar-thumb {
+  background: #2d4a6f;
+  border-radius: 6px;
+}
+
+#draftProspectsBodyScroll::-webkit-scrollbar-thumb:hover {
+  background: #4a6a8f;
+}
+
+/* Top scrollbar styling */
+.draft-prospects-scrollbar {
+  width: 100%;
+  height: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #1a2332;
+  border-top: 1px solid #2d4a6f;
+  flex-shrink: 0;
+}
+
+.draft-prospects-scrollbar .sizer {
+  height: 1px;
+}
+
+.draft-prospects-scrollbar::-webkit-scrollbar {
+  height: 12px;
+}
+
+.draft-prospects-scrollbar::-webkit-scrollbar-track {
+  background: #0a1929;
+}
+
+.draft-prospects-scrollbar::-webkit-scrollbar-thumb {
+  background: #2d4a6f;
+  border-radius: 6px;
+}
+
+.draft-prospects-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4a6a8f;
+}
+
+/* Frozen checkbox column */
+th.stickyCheckbox,
+td.stickyCheckbox {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 10 !important;
+  background: #1a2332 !important;
+  width: 48px !important;
+}
+
+/* Frozen name column */
+th.stickyName,
+td.stickyName {
+  position: sticky !important;
+  left: 48px !important;
+  z-index: 10 !important;
+  background: #1a2332 !important;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Keep header above frozen cells in body */
+thead th.stickyCheckbox,
+thead th.stickyName {
+  z-index: 40 !important;
+  background: #0f1723 !important;
+}
+
+/* Maintain hover state on frozen columns */
+.group:hover td.stickyCheckbox,
+.group:hover td.stickyName {
+  background: rgba(45, 74, 111, 0.3) !important;
+}
+
+/* Header shadow for visual separation */
+#draftProspectsTable thead th {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25) !important;
+}

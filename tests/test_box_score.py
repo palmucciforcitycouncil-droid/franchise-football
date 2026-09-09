@@ -52,8 +52,14 @@ def test_sacks_are_not_counted_as_pass_attempts():
             assert box.passing[0].sacks == len(sack_plays)
         # attempts should equal all pass plays MINUS sacks MINUS in-play
         # penalties (e.g. Roughing the Passer/DPI, which reuse play_type
-        # "pass" but outcome "penalty" -- not a real attempt, see box_score.py)
-        pass_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "pass" and p.outcome != "penalty"]
+        # "pass" but outcome "penalty" -- not a real attempt) MINUS
+        # pass-play safeties (outcome overwritten to "safety" when a play
+        # ends behind the offense's own goal line -- ambiguous sack-vs-
+        # completion origin, so also excluded; see box_score.py's docstring)
+        pass_plays = [
+            p for p in result.plays
+            if p.offense_abbr == abbr and p.play_type == "pass" and p.outcome not in ("penalty", "safety")
+        ]
         assert box.passing[0].attempts == len(pass_plays) - len(sack_plays)
 
 

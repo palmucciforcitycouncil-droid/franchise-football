@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
@@ -24,6 +25,7 @@ from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
     COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
 )
+from app.engine.progression import PROGRESSED_ATTRIBUTES
 from app.services import season_state, depth_chart_overrides, gameplan_store, history_store
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
@@ -405,6 +407,55 @@ def _header_context() -> dict:
 
 
 templates.env.globals["header_context"] = _header_context
+
+
+# GDD Sec 10.3 / Sec 7.5: player names open a Player Card Modal, everywhere
+# a player name appears (Roster, Dashboard leaders, Scouting, box scores,
+# Playoffs, Stats leaderboards, ...). Confirmed against the real Figma
+# component (PlayerDrawer.tsx) -- same dark-panel/gold-OVR-badge layout,
+# same Overview/Ratings/Stats/Contract tab set. Implemented WITHOUT a
+# server round-trip per click: the trigger element (see the player_link
+# Jinja macro, app/templates/macros.html) carries this player's full data
+# as one JSON blob in a data-card attribute, and a single shared <dialog>
+# + a small vanilla-JS click handler in base.html reads it and renders
+# the card client-side -- consistent with "no per-player pre-rendering,
+# no framework, no extra network request" (base.html's own <dialog> is
+# the ONE thing on the page, not one hidden card per player).
+ATTRIBUTE_LABELS: dict[str, str] = {
+    "speed": "Speed", "acceleration": "Acceleration", "strength": "Strength", "agility": "Agility",
+    "jumping": "Jumping", "stamina": "Stamina", "toughness": "Toughness", "durability": "Durability (Injury)",
+    "throw_power": "Throw Power", "throw_accuracy_short": "Throw Accuracy (Short)",
+    "throw_accuracy_mid": "Throw Accuracy (Mid)", "throw_accuracy_deep": "Throw Accuracy (Deep)",
+    "play_action": "Play Action", "throw_on_the_run": "Throw on the Run",
+    "throw_under_pressure": "Throw Under Pressure", "break_sack": "Break Sack",
+    "catching": "Catching", "spectacular_catch": "Spectacular Catch", "catch_in_traffic": "Catch in Traffic",
+    "short_route_running": "Short Routes", "medium_route_running": "Medium Routes",
+    "deep_route_running": "Deep Routes", "release": "Release",
+    "carrying": "Ball Carrying", "trucking": "Trucking", "change_of_direction": "Change of Direction",
+    "ball_carrier_vision": "Vision", "stiff_arm": "Stiff Arm", "spin_move": "Spin Move",
+    "juke_move": "Juke Move", "break_tackle": "Break Tackle",
+    "run_block": "Run Block", "pass_block": "Pass Block", "run_block_power": "Run Block Power",
+    "run_block_finesse": "Run Block Finesse", "pass_block_power": "Pass Block Power",
+    "pass_block_finesse": "Pass Block Finesse", "lead_block": "Lead Block", "impact_blocking": "Impact Blocking",
+    "tackle": "Tackle", "hit_power": "Hit Power", "block_shedding": "Block Shedding",
+    "pursuit": "Pursuit", "play_recognition": "Play Recognition", "man_coverage": "Man Coverage",
+    "zone_coverage": "Zone Coverage", "press": "Press", "power_moves": "Power Moves", "finesse_moves": "Finesse Moves",
+    "kick_power": "Kick Power", "kick_accuracy": "Kick Accuracy", "kick_return": "Kick Return",
+    "awareness": "Awareness",
+}
+
+
+def _player_card_json(p: Player) -> str:
+    attrs = {ATTRIBUTE_LABELS.get(a, a): getattr(p, a) for a in PROGRESSED_ATTRIBUTES if a != "overall_rating"}
+    return json.dumps({
+        "name": p.full_name, "num": p.jersey_number, "pos": p.position.value,
+        "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
+        "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
+        "attrs": attrs,
+    })
+
+
+templates.env.filters["player_card_json"] = _player_card_json
 
 
 def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:

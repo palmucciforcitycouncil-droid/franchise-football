@@ -37,18 +37,30 @@ def test_starters_selected_for_every_team():
         assert off.k.position == Position.K
 
 
-def test_starters_are_the_actual_highest_rated_at_each_position():
+def test_starters_are_the_actual_highest_rated_at_each_position(monkeypatch, tmp_path):
+    """Isolated from the real data/saves/depth_chart_overrides.json --
+    that file holds a real user-settable override (see
+    test_depth_chart_overrides.py), so without redirecting it here a
+    manual depth-chart edit made anywhere else (e.g. live UI testing)
+    would make this test fail even though nothing is actually broken."""
     from app.core.db import get_session
     from app.models.player import Player, Position
-    from app.services.depth_chart import get_offensive_starters
+    from app.services import depth_chart_overrides as dco
+    from app.services.depth_chart import get_offensive_starters, clear_starters_cache
     from sqlmodel import select
+
+    monkeypatch.setattr(dco, "DEFAULT_PATH", tmp_path / "overrides.json")
+    clear_starters_cache()
 
     with get_session() as s:
         qbs = list(s.exec(select(Player).where(Player.team_abbr == "KC").where(Player.position == Position.QB)))
     best_qb = max(qbs, key=lambda p: p.overall_rating)
 
-    off = get_offensive_starters("KC")
-    assert off.qb.player_id == best_qb.player_id
+    try:
+        off = get_offensive_starters("KC")
+        assert off.qb.player_id == best_qb.player_id
+    finally:
+        clear_starters_cache()
 
 
 def test_matchup_context_composites_are_real_averages():

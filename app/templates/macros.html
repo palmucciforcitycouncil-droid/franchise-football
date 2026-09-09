@@ -1,0 +1,5 @@
+{# GDD Sec 10.3/7.5: every player name, wherever it appears, opens the
+   shared Player Card modal (base.html's <dialog id="player-card-modal">).
+   Renders as a plain-looking gold link, not a boxy <button>, so it drops
+   into an existing table cell/text flow unchanged. #}
+{% macro player_link(p) %}<button type="button" class="player-link" data-card='{{ p | player_card_json }}'>{{ p.full_name }}</button>{% endmacro %}
