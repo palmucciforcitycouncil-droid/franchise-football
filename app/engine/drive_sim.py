@@ -25,9 +25,10 @@ from .rng import RNG
 from .rating import TeamRatings
 from .tuning import PARAMS, DRIVE_SIM_PARAMS as P
 from .game_state import PlayEvent
-from .player_ai import MatchupContext, choose_run_point_of_attack, choose_pass_target, coverage_rating, matchup_adjustment
+from .player_ai import MatchupContext, choose_ball_carrier, choose_run_point_of_attack, choose_pass_target, coverage_rating, matchup_adjustment
 from .defensive_ai import DefensiveCall, decide_defensive_call, apply_run_tactic, LEAGUE_AVG_YPC, LEAGUE_AVG_YPA
 from .gameplan import Gameplan, offense_pass_bias, offense_fourth_down_bias, defense_run_tactic_extra_penalty
+from . import rotation
 from app.models.player import Player
 from app.services.depth_chart import DefensiveStarters
 
@@ -75,15 +76,29 @@ def _pass_probability(
     return max(0.1, min(0.92, base))
 
 
-def _point_of_attack_defenders(defense: DefensiveStarters, zone: str) -> list[Player]:
-    """The specific DL pair engaged at a given run zone -- same pairing
+def _point_of_attack_slots(zone: str) -> list[str]:
+    """The specific DL SLOTS engaged at a given run zone -- same pairing
     run_zone_advantages() (player_ai.py) itself uses, e.g. "left" zone is
-    the offense's LT/LG vs. the defense's RE/DT1 (mirrored sides)."""
+    the offense's LT/LG vs. the defense's RE/DT1 (mirrored sides). Slot
+    names, not Player objects, so _run_tackler can resolve each slot to
+    a real rotation-aware starter/backup pick (app/engine/rotation.py)."""
     if zone == "left":
-        return [defense.re, defense.dt1]
+        return ["re", "dt1"]
     if zone == "right":
-        return [defense.le, defense.dt2]
-    return [defense.dt1, defense.dt2]
+        return ["le", "dt2"]
+    return ["dt1", "dt2"]
+
+
+def _resolve_defensive_slot(defense: DefensiveStarters, slot: str, decay: float, max_depth: int, rng) -> Player:
+    """Real rotation-aware pick for one defensive slot (app/engine/
+    rotation.py) -- the starter most of the time, a real backup some of
+    the time, rather than always the fixed starter. This is what fixed
+    the ~9.6x-real solo-tackle gap this project's own stat-realism audit
+    found (HANDOFF.md item 37) -- every credited defensive play used to
+    funnel through the same 11 fixed starters all season."""
+    starter = getattr(defense, slot)
+    backups = defense.backups.get(slot, [])
+    return rotation.choose_slot_player(starter, backups, decay, max_depth, rng)
 
 
 def _run_tackler(rng: RNG, defense: DefensiveStarters, zone: str, yards: int) -> str:
@@ -96,8 +111,10 @@ def _run_tackler(rng: RNG, defense: DefensiveStarters, zone: str, yards: int) ->
     the same point-of-attack DL on every single run regardless of how far
     it went would be unrealistic."""
     if yards <= 2:
-        return rng.choice(_point_of_attack_defenders(defense, zone)).full_name
-    return rng.choice(defense.linebackers).full_name
+        slot = rng.choice(_point_of_attack_slots(zone))
+        return _resolve_defensive_slot(defense, slot, rotation.DL_DECAY, rotation.DL_MAX_DEPTH, rng).full_name
+    slot = rng.choice(["lolb", "mlb", "rolb"])
+    return _resolve_defensive_slot(defense, slot, rotation.LB_DECAY, rotation.LB_MAX_DEPTH, rng).full_name
 
 
 def _resolve_run(
@@ -168,7 +185,8 @@ def _sack_defender(rng: RNG, ctx: MatchupContext, defcall: DefensiveCall) -> str
     instead of two independent random picks."""
     if defcall.blitz.called and defcall.blitz.blitzer is not None:
         return defcall.blitz.blitzer.full_name
-    return rng.choice(ctx.defense.defensive_line).full_name
+    slot = rng.choice(["dt1", "dt2", "le", "re"])
+    return _resolve_defensive_slot(ctx.defense, slot, rotation.DL_DECAY, rotation.DL_MAX_DEPTH, rng).full_name
 
 
 def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str, str, bool]:
@@ -482,7 +500,6 @@ def simulate_drive(
     aggression = offense_ratings.aggression + (0.15 if fourth_down_ok else 0.0)
     matchup_adj = matchup_adjustment(ctx)
     qb = ctx.offense.qb
-    rb = ctx.offense.hb
     kicker = ctx.offense.k
 
     while total_plays < MAX_PLAYS_PER_DRIVE:
@@ -548,18 +565,23 @@ def simulate_drive(
             yards, outcome, who, receiver_name, defender_name, pass_defended = _resolve_pass(rng, ctx, qb, defcall, distance)
             play_type = "pass"
         else:
+            # Real committee backfield (app/engine/rotation.py): drawn
+            # fresh each run play, not the same fixed "starter" all game
+            # -- see choose_ball_carrier's own docstring.
+            rb = choose_ball_carrier(ctx.offense, rng)
             yards, outcome, who, defender_name, fumble_recovered_by = _resolve_run(
                 rng, ctx, rb, defcall, field_pos=pos, defense_gameplan=defense_gameplan,
             )
             play_type = "run"
             receiver_name = ""
             pass_defended = False
+        carrier_name = who if play_type == "run" else ""
 
         if outcome == "turnover":
             turnovers += 1
             spot = max(0, min(100, pos + yards))
             kind = f"Interception ({who})" if is_pass else f"Fumble lost ({who})"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, fumble_recovered_by=fumble_recovered_by))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, fumble_recovered_by=fumble_recovered_by, carrier_name=carrier_name))
             return 0, kind, max(2, 100 - spot), total_plays, total_yards, turnovers, play_events
 
         total_yards += max(0, yards)
@@ -571,7 +593,7 @@ def simulate_drive(
             # (game_sim.py) special-cases the "Safety" summary text to award
             # them there, since this function only reports the offense's score.
             desc = f"{who} {'sacked' if outcome == 'sack' else 'tackled'} for a safety"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "safety", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, carrier_name=carrier_name))
             return 0, "Safety", 35, total_plays, total_yards, turnovers, play_events
 
         # In-play penalty check (GDD Sec 6.9) -- only for plays that stay
@@ -588,7 +610,7 @@ def simulate_drive(
             elif outcome == "sack":
                 penalty = _check_roughing_the_passer(rng, defender_name, pos)
             if penalty is not None:
-                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name))
+                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, carrier_name=carrier_name))
                 down, distance, pos = penalty.down, penalty.distance, penalty.pos
                 continue
 
@@ -599,7 +621,7 @@ def simulate_drive(
             pts = 7 if made_pat else 6
             verb = "pass to" if is_pass else "run by"
             desc = f"{qb.full_name if is_pass else ''} {verb} {who} for {yards} yards, TOUCHDOWN".strip()
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown", defensive_call=defcall.description, receiver_name=receiver_name))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown", defensive_call=defcall.description, receiver_name=receiver_name, carrier_name=carrier_name))
             return pts, "TD", 25, total_plays, total_yards, turnovers, play_events
 
         gained_first_down = yards >= distance
@@ -613,14 +635,14 @@ def simulate_drive(
             desc = f"{who} run for {yards} yards"
 
         if gained_first_down:
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, pass_defended=pass_defended))
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "first_down", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, pass_defended=pass_defended, carrier_name=carrier_name))
             down, distance = 1, 10
             continue
 
         # A loss (sack, tackle for loss) must increase distance-to-go, not
         # just fail to decrease it -- max(0, yards) was silently treating
         # every loss as a 0-yard play for down/distance purposes.
-        play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, outcome, defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, pass_defended=pass_defended))
+        play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, outcome, defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, pass_defended=pass_defended, carrier_name=carrier_name))
         distance -= yards
         down += 1
 

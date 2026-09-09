@@ -132,7 +132,15 @@ def decide_blitz(
         return BlitzCall(called=False)
 
     target = offense.hb if offense.hb.pass_block <= offense.te.pass_block else offense.te
+    # Real backup linebackers (app/engine/rotation.py) are eligible
+    # blitzers too, not just the 3 starters -- FS/SS stay fixed (real
+    # safeties rotate the least of any defensive position, see
+    # rotation.py's DB_DECAY). Scored the same way as the starters, so
+    # the softmax naturally weights a backup's usually-lower pass-rush
+    # rating down rather than needing separate handling.
     blitzers = [defense.lolb, defense.mlb, defense.rolb, defense.fs, defense.ss]
+    for slot in ("lolb", "mlb", "rolb"):
+        blitzers.extend(defense.backups.get(slot, []))
     scores = [_pass_rush_rating(p) - target.pass_block for p in blitzers]
     top_score = max(scores)
     weights = [math.exp((s - top_score) / BLITZER_TEMPERATURE) for s in scores]

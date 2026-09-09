@@ -29,18 +29,38 @@ def _play_game(seed: int):
     return simulate_game(rng, home, away)
 
 
-def test_passing_and_rushing_lines_are_the_single_real_starters():
-    """This engine has exactly one active passer/rusher per team per
-    game (no backups or scrambles yet) -- the box score's one row
-    should be the actual starting QB/HB, not a placeholder label."""
+def test_passing_line_is_the_single_real_starter():
+    """This engine has exactly one active passer per team per game (no
+    backup QB or in-game injury/benching exists -- see HANDOFF.md's
+    Known Gaps) -- the box score's one passing row should be the actual
+    starting QB, not a placeholder label."""
     result = _play_game(2025)
     kc_box = build_box_score(result.plays, "KC")
     kc_starters = get_offensive_starters("KC")
 
     assert len(kc_box.passing) == 1
     assert kc_box.passing[0].name == kc_starters.qb.full_name
-    assert len(kc_box.rushing) == 1
-    assert kc_box.rushing[0].name == kc_starters.hb.full_name
+
+
+def test_rushing_lines_reflect_a_real_committee_backfield():
+    """app/engine/rotation.py's committee-backfield modeling (HANDOFF.md
+    item 37): the ball carrier is drawn fresh each run play from the
+    real RB depth chart, not always the nominal starter, so a full game
+    can (and, over enough plays, should) credit carries to more than one
+    real back -- every named rusher must be a real player from this
+    team's actual RB depth chart, and total credited carries must match
+    the real number of run plays."""
+    result = _play_game(2025)
+    kc_box = build_box_score(result.plays, "KC")
+    kc_starters = get_offensive_starters("KC")
+    real_hb_names = {p.full_name for p in kc_starters.hb_depth}
+
+    assert len(kc_box.rushing) >= 1
+    for line in kc_box.rushing:
+        assert line.name in real_hb_names
+
+    real_run_plays = [p for p in result.plays if p.offense_abbr == "KC" and p.play_type == "run" and p.outcome != "penalty"]
+    assert sum(r.carries for r in kc_box.rushing) == len(real_run_plays)
 
 
 def test_sacks_are_not_counted_as_pass_attempts():
@@ -141,7 +161,7 @@ def test_in_play_penalties_are_not_counted_as_attempts_carries_or_yards():
                 assert box.passing[0].yards == real_pass_yards
             if any(p.play_type == "run" for p in penalty_plays) and box.rushing:
                 found_run_penalty = True
-                assert box.rushing[0].yards == real_run_yards
+                assert sum(r.yards for r in box.rushing) == real_run_yards
     assert found_pass_penalty, "expected at least one pass-play penalty (e.g. Roughing/DPI) across 50 simulated games"
     assert found_run_penalty, "expected at least one run-play penalty (Offensive Holding) across 50 simulated games"
 
@@ -171,6 +191,6 @@ def test_fumble_lost_does_not_add_to_rushing_yards():
                 p.yards for p in result.plays
                 if p.offense_abbr == abbr and p.play_type == "run" and p.outcome not in ("turnover", "penalty")
             )
-            assert box.rushing[0].yards == non_fumble_run_yards
-            assert box.rushing[0].fumbles_lost == len(fumble_plays)
+            assert sum(r.yards for r in box.rushing) == non_fumble_run_yards
+            assert sum(r.fumbles_lost for r in box.rushing) == len(fumble_plays)
     assert found_one, "expected at least one lost fumble across 50 simulated games"

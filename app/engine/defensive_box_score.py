@@ -6,7 +6,9 @@ FR, Defensive TD"), tallied from a GameResult's flat play list
 the offensive one -- but keyed by whoever drive_sim.py's PlayEvent.
 defender_name/fumble_recovered_by named on that play, not a fixed
 starting lineup, since defensive credit can go to any of the 11 real
-starters, not just one designated passer/rusher.
+starters (or, since app/engine/rotation.py's rotation modeling, a real
+backup at a rotation-eligible slot -- see that module's docstring and
+HANDOFF.md item 37), not just one designated passer/rusher.
 
 Deliberate, disclosed scope decision: Defensive TD is NOT modeled here
 (always 0). This engine has no interception/fumble RETURN mechanic at
@@ -26,15 +28,20 @@ target (drive_sim.py's target.defender), with no model for a second
 defender (a safety over the top, a pursuing LB) making the actual
 tackle after a longer catch instead. In a real defense those YAC
 tackles are often made by someone other than the primary coverage
-defender; here they never are. The practical effect, seen in real
-simulated seasons: a CB who's frequently targeted (winning or losing
-the coverage matchup) can accumulate an unrealistically large season
-tackle total relative to real NFL tackle leaderboards, which are
-usually LBs/safeties -- solo tackle counts should be read as "how often
-this defender was the nearest man in coverage/at the point of attack,"
-not a fully realistic tackle distribution. Fixing this for real means
-modeling a second, pursuing defender on longer gains, which is out of
-scope for this pass.
+defender; here they never are. This USED to compound into a much bigger
+problem when the covering defender was also always the same single
+fixed starter all season -- comparing a full simulated season against
+this project's own imported real NFL data showed the median defender's
+solo-tackle total running ~9.6x real (HANDOFF.md item 37). rotation.py's
+real coverage rotation (a starter CB/LB vs. their real backup, weighted
+by depth-chart rank + stamina/durability) closed most of that gap (down
+to roughly 2x real at the median after rotation.py, not fully closed --
+see rotation.py's own module docstring), but the no-second-pursuing-
+defender simplification itself is unchanged: solo tackle counts should
+still be read as "how often this defender was the nearest man in
+coverage/at the point of attack," not a fully realistic tackle
+distribution. Fully fixing this means modeling a second, pursuing
+defender on longer gains, which is out of scope for this pass.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field

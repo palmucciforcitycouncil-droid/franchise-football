@@ -24,6 +24,21 @@ def _play_game(seed: int):
     return simulate_game(rng, home, away)
 
 
+def _all_rotation_eligible_names(defn) -> set[str]:
+    """Every real player who can legitimately be credited on defense for
+    this team, starters AND real backups (app/engine/rotation.py, HANDOFF.md
+    item 37) -- not just the fixed 11 starters, since rotation.py's
+    committee/rotation modeling means a real backup can be credited too."""
+    names = {p.full_name for p in [
+        defn.dt1, defn.dt2, defn.le, defn.re,
+        defn.lolb, defn.mlb, defn.rolb,
+        defn.cb1, defn.cb2, defn.fs, defn.ss,
+    ]}
+    for backups in defn.backups.values():
+        names |= {p.full_name for p in backups}
+    return names
+
+
 def test_game_is_deterministic():
     r1 = _play_game(2025)
     r2 = _play_game(2025)
@@ -149,16 +164,25 @@ def test_total_yards_matches_sum_of_positive_play_yards():
 
 
 def test_score_distribution_is_plausible_across_many_games():
-    """Not a tight calibration check (that's the Score Fidelity System's
-    job, GDD Part 1 Sec 6.2, not implemented yet) -- just a sanity floor so
-    a badly broken engine (e.g. every game 0-0, or 200+ combined points)
-    would fail loudly here rather than silently shipping."""
+    """Not a tight calibration check -- that's the Score Fidelity System's
+    job (GDD Part 1 Sec 6.2, real and implemented -- see score_fidelity.py),
+    and this test's _play_game deliberately calls simulate_game with the
+    default ep_multiplier=1.0 (no SFS adjustment at all), not through a
+    real Season. Real, SFS-adjusted full seasons average close to real
+    NFL scoring (~19-20 pts/team -- see tests/test_stat_realism.py, which
+    validates that properly against real imported NFL data); this raw/
+    unmultiplied path scores lower by design (SFS's whole job is
+    correcting it upward) and dropped further after rotation.py's real
+    drive-pace recalibration (item 37 -- fewer, more realistic total
+    drives/game). This just remains a loose sanity floor so a badly
+    broken engine (every game 0-0, or 200+ combined points) fails loudly
+    here rather than silently shipping."""
     totals = []
     for seed in range(100):
         result = _play_game(1000 + seed)
         totals.append(result.home_score + result.away_score)
     avg = sum(totals) / len(totals)
-    assert 20 <= avg <= 70, f"average combined score {avg} is not plausible for a football game"
+    assert 12 <= avg <= 70, f"average combined score {avg} is not plausible for a football game"
     assert min(totals) >= 0
 
 
@@ -288,7 +312,12 @@ def test_defensive_pass_interference_is_attributed_to_the_real_covering_defender
     defn = get_defensive_starters("BUF")
     ctx = build_matchup_context(off, defn)
     no_blitz = DefensiveCall(primary="standard", blitz=BlitzCall(called=False), coverage="man", run_tactic=None)
-    defender_names = {p.full_name for p in [defn.cb1, defn.cb2, defn.ss, defn.fs]}
+    # cb1/cb2 (not fs/ss) rotate now (app/engine/rotation.py) -- the
+    # covering defender can be a real backup CB, not just the starter.
+    defender_names = {p.full_name for p in [defn.cb1, defn.cb2, defn.ss, defn.fs, defn.mlb]}
+    defender_names |= {p.full_name for p in defn.backups.get("cb1", [])}
+    defender_names |= {p.full_name for p in defn.backups.get("cb2", [])}
+    defender_names |= {p.full_name for p in defn.backups.get("mlb", [])}
 
     rng = RNG.with_seed(9)
     found = False
@@ -318,7 +347,11 @@ def test_sack_defender_falls_back_to_a_real_dl_player_without_a_blitz():
     defn = get_defensive_starters("BUF")
     ctx = build_matchup_context(off, defn)
     no_blitz = DefensiveCall(primary="pass_defense", blitz=BlitzCall(called=False), coverage="man", run_tactic=None)
+    # DL rotation (app/engine/rotation.py) means a real backup can get
+    # sack credit too, not just the 4 starters.
     dl_names = {p.full_name for p in defn.defensive_line}
+    for slot in ("dt1", "dt2", "le", "re"):
+        dl_names |= {p.full_name for p in defn.backups.get(slot, [])}
 
     rng = RNG.with_seed(21)
     for _ in range(50):
@@ -330,16 +363,23 @@ def test_run_tackler_credits_the_point_of_attack_dl_when_stuffed_and_a_linebacke
     """Disclosed heuristic (drive_sim.py's _run_tackler docstring): a run
     stopped at or behind the line credits the real DL pair engaged at
     that zone; a run that gets meaningful yardage past the line credits
-    a real linebacker instead."""
+    a real linebacker instead. Both sides rotate now (app/engine/
+    rotation.py) -- a real backup can get credit too, not just the
+    fixed starter at that slot/position."""
     from app.services.depth_chart import get_defensive_starters
-    from app.engine.drive_sim import _run_tackler, _point_of_attack_defenders
+    from app.engine.drive_sim import _run_tackler, _point_of_attack_slots
 
     defn = get_defensive_starters("BUF")
     lb_names = {p.full_name for p in defn.linebackers}
+    for slot in ("lolb", "mlb", "rolb"):
+        lb_names |= {p.full_name for p in defn.backups.get(slot, [])}
 
     rng = RNG.with_seed(3)
     for zone in ("left", "center", "right"):
-        poa_names = {p.full_name for p in _point_of_attack_defenders(defn, zone)}
+        poa_names = set()
+        for slot in _point_of_attack_slots(zone):
+            poa_names.add(getattr(defn, slot).full_name)
+            poa_names |= {p.full_name for p in defn.backups.get(slot, [])}
         stuffed = _run_tackler(rng, defn, zone, yards=0)
         assert stuffed in poa_names
         broke_through = _run_tackler(rng, defn, zone, yards=8)
@@ -357,11 +397,7 @@ def test_real_simulated_game_attributes_real_defenders_across_tackles_sacks_ff_f
     for seed in range(30):
         result = _play_game(seed)
         for abbr, opp_defense in (("KC", get_defensive_starters("BUF")), ("BUF", get_defensive_starters("KC"))):
-            real_names = {p.full_name for p in [
-                opp_defense.dt1, opp_defense.dt2, opp_defense.le, opp_defense.re,
-                opp_defense.lolb, opp_defense.mlb, opp_defense.rolb,
-                opp_defense.cb1, opp_defense.cb2, opp_defense.fs, opp_defense.ss,
-            ]}
+            real_names = _all_rotation_eligible_names(opp_defense)
             for p in result.plays:
                 if p.offense_abbr != abbr:
                     continue

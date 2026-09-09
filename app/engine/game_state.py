@@ -30,6 +30,10 @@ class PlayEvent:
     receiver_name: str = ""  # the actual intended target on every pass attempt (not sacks) -- set even on an
                               # interception, where `desc`/the narrated player is the DEFENDER, not this target.
                               # Needed by app/engine/box_score.py to credit a target/no-catch to the right WR.
+    carrier_name: str = ""   # the actual real ball carrier on a run play (empty on a pass) -- app/engine/
+                              # rotation.py's real committee-backfield modeling means this varies play to play,
+                              # not always the nominal depth-chart starter; box_score.py needs this to credit
+                              # carries/yards to whichever back actually ran it, not a hardcoded single name.
     defender_name: str = ""  # the ONE defender credited with the primary defensive impact on this play --
                               # the sacker (sack), the interceptor (turnover on a pass), the covering defender
                               # (a completed reception, credited with the solo tackle) or the point-of-attack/

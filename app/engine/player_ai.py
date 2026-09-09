@@ -44,6 +44,7 @@ ZONE_TEMPERATURE = 200.0
 
 from app.models.player import Player
 from app.services.depth_chart import OffensiveStarters, DefensiveStarters
+from . import rotation
 
 
 def _avg(*vals: float) -> float:
@@ -131,6 +132,16 @@ def matchup_adjustment(ctx: MatchupContext, weight: float = 0.01) -> float:
     return (pass_advantage - run_advantage) * weight
 
 
+def choose_ball_carrier(offense: OffensiveStarters, rng) -> Player:
+    """Real committee-backfield modeling (app/engine/rotation.py) -- who
+    actually gets the carry, drawn fresh each run play from the real RB
+    depth chart (weighted by depth rank + the back's own durability/
+    stamina), not always the single #1 RB. See rotation.py's module
+    docstring for why this was needed (a real, measured gap against this
+    project's own imported NFL data -- HANDOFF.md item 37)."""
+    return rotation.choose_by_snap_share(offense.hb_depth, rotation.RB_DECAY, rotation.RB_MAX_DEPTH, rng)
+
+
 @dataclass(frozen=True)
 class RunPlayChoice:
     point_of_attack: str  # "left" | "center" | "right"
@@ -193,21 +204,56 @@ def choose_pass_target(ctx: MatchupContext, rng, distance: int | None = None) ->
     gravitates hardest to his best matchup when he has to convert, so
     less exploration there than on an early-down shot play."""
     off, defn = ctx.offense, ctx.defense
-    assignments = [
-        (off.wr1, defn.cb1),
-        (off.wr2, defn.cb2),
-        (off.te, defn.ss),
+
+    # ROLE_TARGET_PRIOR: real approximate NFL target-share-by-role (WR1
+    # ~26%, WR2 ~20%, TE ~18%, WR3 ~14%, a checkdown-receiving RB ~14%,
+    # a WR4/slot look ~8%) -- roughly sums to 1.0 when every role is
+    # present on this team's depth chart. This is the rotation.py fix
+    # (HANDOFF.md item 37): before this, RB was never a receiving option
+    # at all and only 4 pass-catchers existed total, which is a big part
+    # of why one WR could soak up 60%+ of a team's targets even after
+    # the softmax-temperature retune (item 36) alone. Multiplied into
+    # the mismatch-based softmax weight below, not used in isolation --
+    # a bad matchup still suppresses a role's real odds this specific play.
+    # The COVERING defender also rotates (starter CB/LB vs. their real
+    # primary backup, defn.backups from depth_chart.py) -- not just the
+    # offense's receiver side. This matters beyond who's in coverage:
+    # box_score.py credits the covering defender with the tackle on
+    # every completed reception (a disclosed characteristic, see
+    # defensive_box_score.py's docstring), so pass-play tackle/PD/INT
+    # credit was still funneling entirely through 5 fixed starters even
+    # after the receiver side got real depth -- the single biggest
+    # remaining gap in this project's stat-realism audit (HANDOFF.md
+    # item 37: real NFL credits ~1384 distinct tacklers/season, this
+    # engine credited only 352 before this). FS/SS stay fixed (real
+    # safeties rotate least, no backup is tracked for them at all).
+    cb1 = rotation.choose_slot_player(defn.cb1, defn.backups.get("cb1", []), rotation.DB_DECAY, rotation.DB_MAX_DEPTH, rng)
+    cb2 = rotation.choose_slot_player(defn.cb2, defn.backups.get("cb2", []), rotation.DB_DECAY, rotation.DB_MAX_DEPTH, rng)
+    mlb = rotation.choose_slot_player(defn.mlb, defn.backups.get("mlb", []), rotation.LB_DECAY, rotation.LB_MAX_DEPTH, rng)
+
+    roles: list[tuple[Player, Player, float]] = [
+        (off.wr1, cb1, 0.26),
+        (off.wr2, cb2, 0.20),
+        (off.te, defn.ss, 0.18),
     ]
     if off.wr3 is not None:
-        assignments.append((off.wr3, defn.fs))
+        roles.append((off.wr3, defn.fs, 0.14))
+    if len(off.wr_depth) > 3:
+        roles.append((off.wr_depth[3], defn.ss, 0.08))
+    if off.hb_depth:
+        receiving_back = rotation.choose_by_snap_share(off.hb_depth, rotation.RB_DECAY, rotation.RB_MAX_DEPTH, rng)
+        roles.append((receiving_back, mlb, 0.14))
 
+    assignments = [(r, d) for r, d, _ in roles]
+    priors = [p for _, _, p in roles]
     scores = [route_running_avg(receiver) - coverage_rating(defender) for receiver, defender in assignments]
 
     temperature = TARGET_TEMPERATURE_CLUTCH if distance is not None and distance >= 7 else TARGET_TEMPERATURE_NORMAL
     top_score = max(scores)
-    weights = [math.exp((s - top_score) / temperature) for s in scores]
-    receiver, defender = rng.weighted_choice(assignments, weights)
-    score = scores[assignments.index((receiver, defender))]
+    weights = [math.exp((s - top_score) / temperature) * prior for s, prior in zip(scores, priors)]
+    idx = rng.weighted_choice(range(len(assignments)), weights)
+    receiver, defender = assignments[idx]
+    score = scores[idx]
 
     protection = ctx.ol_pass_block - ctx.dl_pass_rush
     return PassTarget(receiver=receiver, defender=defender, mismatch_score=score, protection_score=protection)

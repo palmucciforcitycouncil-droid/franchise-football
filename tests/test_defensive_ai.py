@@ -85,6 +85,13 @@ def test_decide_blitz_targets_the_weaker_pass_blocking_rb_or_te():
     defn = get_defensive_starters("BUF")
     expected_target = off.hb if off.hb.pass_block <= off.te.pass_block else off.te
 
+    # Real backup linebackers (app/engine/rotation.py) are eligible
+    # blitzers too, not just the 3 starters -- see decide_blitz's own
+    # docstring (HANDOFF.md item 37).
+    eligible_blitzers = [defn.lolb, defn.mlb, defn.rolb, defn.fs, defn.ss]
+    for slot in ("lolb", "mlb", "rolb"):
+        eligible_blitzers.extend(defn.backups.get(slot, []))
+
     rng = RNG.with_seed(3)
     # Force the blitz to fire regardless of the probabilistic gate by
     # calling with a red-zone + 3rd & long situation (chance capped at 0.9).
@@ -93,7 +100,7 @@ def test_decide_blitz_targets_the_weaker_pass_blocking_rb_or_te():
     assert fired, "expected at least one blitz to fire across 60 high-probability calls"
     for c in fired:
         assert c.target.player_id == expected_target.player_id
-        assert c.blitzer in [defn.lolb, defn.mlb, defn.rolb, defn.fs, defn.ss]
+        assert c.blitzer in eligible_blitzers
 
 
 def test_decide_coverage_rules():

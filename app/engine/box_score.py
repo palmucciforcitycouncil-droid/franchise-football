@@ -3,11 +3,18 @@ Per-player box score stats (Passing/Rushing/Receiving), tallied from a
 GameResult's flat play list (app/engine/game_state.py's PlayEvent) plus
 a team's real starting lineup (app/services/depth_chart.py).
 
-Important simplification: this engine has exactly ONE passer and ONE
-rusher active per team per game -- the single starting QB/HB from
-get_offensive_starters (no backups, scrambles, or in-game substitution
-are modeled yet). So the Passing and Rushing lines are always exactly
-one row per team; Receiving has one row per WR/TE actually targeted.
+Important simplification: this engine has exactly ONE passer active per
+team per game -- the single starting QB from get_offensive_starters (no
+backup QB or in-game injury/benching is modeled yet -- Post-MVP, see
+HANDOFF's Known Gaps). So the Passing line is always exactly one row per
+team. Rushing is NOT single-back: app/engine/rotation.py's real
+committee-backfield modeling means the actual ball carrier (PlayEvent.
+carrier_name) varies play to play, so Rushing has one row per real back
+who actually got a carry, same as Receiving has one row per WR/TE/RB
+actually targeted -- see rotation.py's module docstring and HANDOFF.md
+item 37 for why (this used to hardcode every carry to the nominal
+depth-chart starter's name regardless of who the simulation itself had
+actually run the ball, silently erasing the rotation fix at this layer).
 
 Stat conventions, matching real NFL box scores (deliberately NOT the
 same as the Team Totals row already on the result page, which lumps
@@ -84,15 +91,26 @@ class ReceivingLine:
 @dataclass
 class TeamBoxScore:
     passing: List[PassingLine] = field(default_factory=list)   # length 0 or 1, see module docstring
-    rushing: List[RushingLine] = field(default_factory=list)   # length 0 or 1
+    rushing: List[RushingLine] = field(default_factory=list)   # one per real ball carrier -- see build_box_score
     receiving: List[ReceivingLine] = field(default_factory=list)
 
 
 def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     starters = get_offensive_starters(abbr)
     passing = PassingLine(name=starters.qb.full_name)
-    rushing = RushingLine(name=starters.hb.full_name)
+    # Keyed by the real per-play carrier (PlayEvent.carrier_name), not a
+    # single hardcoded starter -- app/engine/rotation.py's committee-
+    # backfield modeling means the actual ball carrier varies play to
+    # play (HANDOFF.md item 37); this used to dump every carry into one
+    # RushingLine always named after the nominal depth-chart starter,
+    # which silently ate the whole rotation fix at the stats layer even
+    # after the simulation itself started drawing from a real RB depth
+    # chart.
+    rushing_by_name: dict[str, RushingLine] = {}
     receiving_by_name: dict[str, ReceivingLine] = {}
+
+    def rushing_line(name: str) -> RushingLine:
+        return rushing_by_name.setdefault(name, RushingLine(name=name))
 
     def receiving_line(name: str) -> ReceivingLine:
         return receiving_by_name.setdefault(name, ReceivingLine(name=name))
@@ -129,17 +147,19 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
                     passing.touchdowns += 1
 
         elif p.play_type == "run":
-            rushing.carries += 1
+            rl = rushing_line(p.carrier_name or "Unknown")
+            rl.carries += 1
             if p.outcome == "turnover":
-                rushing.fumbles_lost += 1
+                rl.fumbles_lost += 1
             else:
-                rushing.yards += p.yards
+                rl.yards += p.yards
                 if p.outcome == "touchdown":
-                    rushing.touchdowns += 1
+                    rl.touchdowns += 1
 
     receiving = sorted(receiving_by_name.values(), key=lambda r: -r.targets)
+    rushing = sorted(rushing_by_name.values(), key=lambda r: -r.carries)
     return TeamBoxScore(
         passing=[passing] if (passing.attempts or passing.sacks) else [],
-        rushing=[rushing] if rushing.carries else [],
+        rushing=rushing,
         receiving=receiving,
     )
