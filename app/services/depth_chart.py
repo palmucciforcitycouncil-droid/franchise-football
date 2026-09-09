@@ -9,8 +9,8 @@ overridable per (team, position) via depth_chart_overrides.py (the real
 coach-settable depth chart, GET/POST /depth-chart in app/main.py) -- see
 that module's docstring for the persistence format.
 
-11 offensive starters (11-personnel: 1 RB, 1 TE, 3 WR), a kicker, and 11
-defensive starters (a 4-3-ish base: 2 DT, 2 edge, 3 LB, 2 CB, 2 S) are
+11 offensive starters (11-personnel: 1 RB, 1 TE, 3 WR), a kicker and punter,
+and 11 defensive starters (a 4-3-ish base: 2 DT, 2 edge, 3 LB, 2 CB, 2 S) are
 selected per team and cached, since a full roster query + sort per team
 is wasted work to repeat every play.
 """
@@ -39,6 +39,7 @@ class OffensiveStarters:
     rg: Player
     rt: Player
     k: Player  # not part of the 11-man personnel package -- see class docstring history; used for FG/PAT odds
+    p: Player  # same as k above; used for box_score.py's Punting line (ROADMAP.md M2)
     # Real roster-depth rotation pools (app/engine/rotation.py) -- rank-
     # ordered, `hb`/`wr1..3`/`te` above stay as the nominal "starter" for
     # display/matchup purposes, but ball-carrier and target selection
@@ -120,6 +121,7 @@ def get_offensive_starters(team_abbr: str) -> OffensiveStarters:
         rg=_top(roster, Position.RG, 1, team_abbr)[0],
         rt=_top(roster, Position.RT, 1, team_abbr)[0],
         k=_top(roster, Position.K, 1, team_abbr)[0],
+        p=_top(roster, Position.P, 1, team_abbr)[0],
         hb_depth=hbs, wr_depth=wrs, te_depth=tes,
     )
 

@@ -155,12 +155,19 @@ def test_total_yards_matches_sum_of_positive_play_yards():
     that distinction isn't implemented yet, so this test checks the
     engine's actual current behavior, not the eventually-more-correct one.
     "defensive_touchdown" (a takeaway returned for a score, GDD Sec
-    6.7.2) is the same kind of turnover and is excluded the same way."""
+    6.7.2) is the same kind of turnover and is excluded the same way.
+    Restricted to real scrimmage plays (play_type "pass"/"run") -- since
+    ROADMAP.md M2, "punt" PlayEvents carry a real nonzero `yards` too
+    (the net punt distance, app/engine/box_score.py's Punting line), but
+    that's never part of this team-level total_yards stat (drive_sim.py
+    returns before reaching its scrimmage-only total_yards += line on
+    every punt/field-goal/extra-point branch)."""
     result = _play_game(2025)
     for totals, abbr in [(result.home_totals, "KC"), (result.away_totals, "BUF")]:
         expected = sum(
             max(0, p.yards) for p in result.plays
-            if p.offense_abbr == abbr and p.outcome not in ("turnover", "defensive_touchdown")
+            if p.offense_abbr == abbr and p.play_type in ("pass", "run")
+            and p.outcome not in ("turnover", "defensive_touchdown")
         )
         assert totals.yards == expected
 

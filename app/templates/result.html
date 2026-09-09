@@ -59,6 +59,32 @@
     </tbody>
   </table>
   {% endif %}
+  {% if box.kicking %}
+  <table class="boxtable">
+    <thead><tr><th>Kicking</th><th>&lt;30</th><th>30-39</th><th>40-49</th><th>50+</th><th>XP</th></tr></thead>
+    <tbody>
+      {% for k in box.kicking %}
+      <tr>
+        <td>{{ player_link_or_name(k.name, team.abbr) }}</td>
+        {% for bucket in ['<30', '30-39', '40-49', '50+'] %}
+        <td>{{ k.fg_by_bucket[bucket][0] }}/{{ k.fg_by_bucket[bucket][1] }}</td>
+        {% endfor %}
+        <td>{{ k.xp_made }}/{{ k.xp_attempted }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if box.punting %}
+  <table class="boxtable">
+    <thead><tr><th>Punting</th><th>Punts</th><th>Net Avg</th><th>In20</th></tr></thead>
+    <tbody>
+      {% for p in box.punting %}
+      <tr><td>{{ player_link_or_name(p.name, team.abbr) }}</td><td>{{ p.punts }}</td><td>{{ "%.1f"|format(p.net_avg) }}</td><td>{{ p.inside_20 }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
   {% if defense %}
   <table class="boxtable">
     <thead><tr><th>Defense</th><th>Tkl</th><th>TFL</th><th>Sk</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th><th>TD</th></tr></thead>
@@ -86,7 +112,7 @@
       <tbody>
         {% for p in drive_plays %}
         <tr class="outcome-{{ p.outcome }}">
-          <td class="dd">{% if p.play_type in ('punt', 'field_goal') %}&mdash;{% else %}{{ p.down }} &amp; {{ p.distance }}{% endif %}</td>
+          <td class="dd">{% if p.play_type in ('punt', 'field_goal', 'extra_point') %}&mdash;{% else %}{{ p.down }} &amp; {{ p.distance }}{% endif %}</td>
           <td class="dd">{{ p.field_pos }}</td>
           <td class="desc">{{ p.desc }}</td>
           <td class="defcall">{{ p.defensive_call }}</td>

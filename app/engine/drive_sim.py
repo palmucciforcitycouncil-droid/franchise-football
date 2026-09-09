@@ -473,13 +473,23 @@ def _decide_fourth_down(
     return "punt"
 
 
-def _punt_result(rng: RNG, pos: int) -> int:
-    """Returns the receiving team's new field position (0..100 from their
-    own perspective)."""
+def _punt_result(rng: RNG, pos: int) -> Tuple[int, int]:
+    """Returns (the receiving team's new field position (0..100 from
+    their own perspective), the net punt yards that actually produced
+    that field-position change). "Net", not gross -- this engine has no
+    return-game simulation (a separate, pre-existing disclosed gap, see
+    scouting.py's own field_goal_accuracy/return-average notes), so
+    there's no tracked return yardage to net a gross kick distance
+    against; the net figure returned here is computed AFTER the
+    field-position clamp below, so it always matches the real,
+    already-applied field-position swing exactly (app/engine/box_score.
+    py's Punting line, ROADMAP.md M2, reads it back out the same way)."""
     net = P.punt_net_mu + rng.gauss(0, P.punt_net_sigma)
     receiving_spot_from_kicking_pov = pos + net  # how far up the (kicking team's) field the ball ends up
     new_pos = 100 - receiving_spot_from_kicking_pov
-    return max(2, min(40, int(round(new_pos))))
+    new_pos = max(2, min(40, int(round(new_pos))))
+    net_yards = (100 - new_pos) - pos
+    return new_pos, net_yards
 
 
 def simulate_drive(
@@ -539,8 +549,8 @@ def simulate_drive(
         if down == 4:
             decision = _decide_fourth_down(pos, distance, trailing, aggression, rng, offense_gameplan=offense_gameplan)
             if decision == "punt":
-                next_pos = _punt_result(rng, pos)
-                play_events.append(PlayEvent(down, distance, pos, "punt", 0, "Punt", "punt"))
+                next_pos, punt_yards = _punt_result(rng, pos)
+                play_events.append(PlayEvent(down, distance, pos, "punt", punt_yards, "Punt", "punt"))
                 return 0, "Punt", next_pos, total_plays, total_yards, turnovers, play_events
             if decision == "field_goal":
                 made, attempt_yards = _attempt_field_goal(rng, pos, kicker)
@@ -622,7 +632,10 @@ def simulate_drive(
             returner = defender_name if is_pass else fumble_recovered_by
             if returner and rng.prob(_defensive_td_probability(spot)):
                 made_pat = rng.prob(P.pat_make)  # no real kicker object for the returning
-                pts = 7 if made_pat else 6       # (defensive) team available in this context
+                pts = 7 if made_pat else 6       # (defensive) team available in this context --
+                                                  # also why no "extra_point" PlayEvent is logged
+                                                  # here (ROADMAP.md M2's box_score.py Kicking line
+                                                  # would have nothing real to attribute it to)
                 verb = "Interception" if is_pass else "Fumble"
                 kind = f"{verb} returned for a TOUCHDOWN by {returner}"
                 # defender_name/fumble_recovered_by are passed through
@@ -682,6 +695,17 @@ def simulate_drive(
             verb = "pass to" if is_pass else "run by"
             desc = f"{qb.full_name if is_pass else ''} {verb} {who} for {yards} yards, TOUCHDOWN".strip()
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown", defensive_call=defcall.description, receiver_name=receiver_name, carrier_name=carrier_name))
+            # A real, separately-attributable extra point attempt (GDD's
+            # own Truth Set, ROADMAP.md M2) -- "field_goal"/"turnover" as
+            # the outcome reuses the same made/missed-kick convention
+            # _attempt_field_goal already established, rather than adding
+            # a third outcome string for what's functionally the same
+            # thing (see _kicker_adjusted_prob's own docstring: a PAT is
+            # a ~33-yard field goal). box_score.py's Kicking line reads
+            # this by play_type, not outcome text.
+            xp_desc = "Extra point is GOOD" if made_pat else "Extra point is NO GOOD"
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, "extra_point", 0, xp_desc,
+                                          "field_goal" if made_pat else "turnover"))
             return pts, "TD", 25, total_plays, total_yards, turnovers, play_events
 
         gained_first_down = yards >= distance
@@ -712,5 +736,5 @@ def simulate_drive(
 
     # Safety valve: ran out of play budget mid-drive (shouldn't happen in
     # practice) -- treat it as a punt from the current spot.
-    next_pos = _punt_result(rng, pos)
+    next_pos, _ = _punt_result(rng, pos)
     return 0, "Punt (drive length limit)", next_pos, total_plays, total_yards, turnovers, play_events

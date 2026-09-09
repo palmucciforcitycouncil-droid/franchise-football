@@ -165,6 +165,7 @@ def test_pass_target_favors_the_biggest_real_mismatch_but_varies():
         lt=_synthetic_player(player_id="lt", position="LT"), lg=_synthetic_player(player_id="lg", position="LG"),
         c=_synthetic_player(player_id="c", position="C"), rg=_synthetic_player(player_id="rg", position="RG"),
         rt=_synthetic_player(player_id="rt", position="RT"), k=_synthetic_player(player_id="k", position="K"),
+        p=_synthetic_player(player_id="p", position="P"),
     )
     defn = DefensiveStarters(
         dt1=_synthetic_player(player_id="dt1", position="DT"), dt2=_synthetic_player(player_id="dt2", position="DT"),

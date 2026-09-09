@@ -20,7 +20,7 @@ class PlayEvent:
     down: int
     distance: int
     field_pos: int          # 0..100, offense's distance traveled toward the end zone
-    play_type: str          # "run" | "pass" | "penalty" | "punt" | "field_goal" | "kneel"
+    play_type: str          # "run" | "pass" | "penalty" | "punt" | "field_goal" | "extra_point" | "kneel"
     yards: int
     desc: str
     outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "defensive_touchdown" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs"

@@ -59,13 +59,49 @@ sack yardage into "Pass Yards" as a simpler team-level number):
     a real carry tackled behind the goal line) and still counts as a
     real carry with its real (negative) yardage -- no special case
     needed there.
+
+Kicking/Punting (ROADMAP.md M2 -- the underlying sim, field goal
+attempts and punts, already existed in drive_sim.py; this is a stats-
+attribution build on top of it, not new game logic):
+  - Field goal make/attempt is tallied by distance bucket, parsed from
+    the real "<N>-yard field goal is GOOD/NO GOOD" desc text the same
+    way app/engine/scouting.py's field_goal_accuracy() already does --
+    attempt yardage isn't stored in a structured PlayEvent field (see
+    drive_sim.py's _attempt_field_goal), so this reuses that established
+    parsing convention rather than inventing a second one.
+  - Extra points get their own play_type ("extra_point", added this
+    chunk) so they're independently attributable to the real kicker,
+    rather than folded silently into the touchdown PlayEvent the way
+    they were before -- see drive_sim.py's simulate_drive. One disclosed
+    gap: the rare Defensive TD's own PAT (GDD Sec 6.7.2, a takeaway
+    returned for a score) has no real kicker object available in that
+    code path (it belongs to the defense's team, not this drive's
+    offense -- see simulate_drive's own comment there), so it's left
+    unattributed rather than guessed; it still counts toward the score.
+  - Punting is net yards only, not gross -- this engine has no return-
+    game simulation (same disclosed gap as scouting.py's own field_goal_
+    accuracy/return-average notes), so there's no separate return
+    yardage to net a gross kick distance against. "Inside the 20" is
+    derived from the same net-yards figure (the punt's real effect on
+    field position), not a second parallel calculation.
+  - Both are single-row per team per game, like Passing -- this engine
+    models exactly one active kicker and one active punter per team
+    (app/services/depth_chart.py's `k`/`p`), no in-game rotation or
+    backup, matching the QB precedent above. Still built with the same
+    keyed-by-real-name dict pattern Rushing/Receiving use rather than a
+    fixed single object, so it costs nothing if K/P rotation is ever
+    added later.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
+import re
 
+from app.engine.drive_sim import _fg_distance_bucket
 from app.engine.game_state import PlayEvent
 from app.services.depth_chart import get_offensive_starters
+
+_FG_YARDS_RE = re.compile(r"^(\d+)-yard field goal")
 
 
 @dataclass
@@ -97,11 +133,46 @@ class ReceivingLine:
     touchdowns: int = 0
 
 
+_FG_BUCKETS = ("<30", "30-39", "40-49", "50+")
+
+
+@dataclass
+class KickingLine:
+    name: str
+    fg_by_bucket: Dict[str, List[int]] = field(
+        default_factory=lambda: {b: [0, 0] for b in _FG_BUCKETS}
+    )  # bucket -> [made, attempted]
+    xp_made: int = 0
+    xp_attempted: int = 0
+
+    @property
+    def fg_made(self) -> int:
+        return sum(made for made, _ in self.fg_by_bucket.values())
+
+    @property
+    def fg_attempted(self) -> int:
+        return sum(att for _, att in self.fg_by_bucket.values())
+
+
+@dataclass
+class PuntingLine:
+    name: str
+    punts: int = 0
+    net_yards: int = 0
+    inside_20: int = 0
+
+    @property
+    def net_avg(self) -> float:
+        return self.net_yards / self.punts if self.punts else 0.0
+
+
 @dataclass
 class TeamBoxScore:
     passing: List[PassingLine] = field(default_factory=list)   # length 0 or 1, see module docstring
     rushing: List[RushingLine] = field(default_factory=list)   # one per real ball carrier -- see build_box_score
     receiving: List[ReceivingLine] = field(default_factory=list)
+    kicking: List[KickingLine] = field(default_factory=list)   # length 0 or 1 today, see module docstring
+    punting: List[PuntingLine] = field(default_factory=list)   # length 0 or 1 today, see module docstring
 
 
 def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
@@ -117,6 +188,8 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     # chart.
     rushing_by_name: dict[str, RushingLine] = {}
     receiving_by_name: dict[str, ReceivingLine] = {}
+    kicking_by_name: dict[str, KickingLine] = {}
+    punting_by_name: dict[str, PuntingLine] = {}
 
     def rushing_line(name: str) -> RushingLine:
         return rushing_by_name.setdefault(name, RushingLine(name=name))
@@ -124,13 +197,48 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     def receiving_line(name: str) -> ReceivingLine:
         return receiving_by_name.setdefault(name, ReceivingLine(name=name))
 
+    def kicking_line(name: str) -> KickingLine:
+        return kicking_by_name.setdefault(name, KickingLine(name=name))
+
+    def punting_line(name: str) -> PuntingLine:
+        return punting_by_name.setdefault(name, PuntingLine(name=name))
+
     for p in plays:
         if p.offense_abbr != abbr:
             continue
         if p.outcome == "penalty":
             continue  # penalty yardage isn't a real attempt/carry -- see module docstring
 
-        if p.play_type == "pass":
+        if p.play_type == "field_goal":
+            m = _FG_YARDS_RE.match(p.desc)
+            if not m:
+                continue
+            bucket = _fg_distance_bucket(int(m.group(1)))
+            kl = kicking_line(starters.k.full_name)
+            kl.fg_by_bucket[bucket][1] += 1
+            if p.outcome == "field_goal":
+                kl.fg_by_bucket[bucket][0] += 1
+
+        elif p.play_type == "extra_point":
+            kl = kicking_line(starters.k.full_name)
+            kl.xp_attempted += 1
+            if p.outcome == "field_goal":
+                kl.xp_made += 1
+
+        elif p.play_type == "punt":
+            pl = punting_line(starters.p.full_name)
+            pl.punts += 1
+            pl.net_yards += p.yards
+            # p.field_pos is the punting team's own field position before
+            # the kick, p.yards the net yards it produced (see drive_sim.
+            # py's _punt_result) -- flipping that back to the receiving
+            # team's own-territory field position (0..100) is the same
+            # math _punt_result itself used, just run in reverse.
+            landing_pos = 100 - (p.field_pos + p.yards)
+            if landing_pos <= 20:
+                pl.inside_20 += 1
+
+        elif p.play_type == "pass":
             if p.outcome == "sack":
                 passing.sacks += 1
                 continue
@@ -167,8 +275,12 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
 
     receiving = sorted(receiving_by_name.values(), key=lambda r: -r.targets)
     rushing = sorted(rushing_by_name.values(), key=lambda r: -r.carries)
+    kicking = sorted(kicking_by_name.values(), key=lambda k: k.name)
+    punting = sorted(punting_by_name.values(), key=lambda p: p.name)
     return TeamBoxScore(
         passing=[passing] if (passing.attempts or passing.sacks) else [],
         rushing=rushing,
         receiving=receiving,
+        kicking=kicking,
+        punting=punting,
     )

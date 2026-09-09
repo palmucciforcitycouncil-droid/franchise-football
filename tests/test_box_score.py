@@ -180,6 +180,96 @@ def test_receiving_yards_sum_equals_passing_yards():
         assert sum(r.yards for r in box.receiving) == box.passing[0].yards
 
 
+def test_kicking_line_is_the_real_starting_kicker_with_real_fg_and_xp_counts():
+    """ROADMAP.md M2: FG/XP attempts must be attributed to the real
+    starting kicker (app/services/depth_chart.py's `k`), and the
+    Kicking line's totals must match what the play list actually says
+    happened, not just be non-zero."""
+    found_fg = False
+    found_xp = False
+    for seed in range(50):
+        result = _play_game(seed)
+        for abbr in ("KC", "BUF"):
+            box = build_box_score(result.plays, abbr)
+            starters = get_offensive_starters(abbr)
+            fg_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "field_goal"]
+            xp_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "extra_point"]
+            if not fg_plays and not xp_plays:
+                continue
+            assert len(box.kicking) == 1
+            kl = box.kicking[0]
+            assert kl.name == starters.k.full_name
+            if fg_plays:
+                found_fg = True
+                assert kl.fg_attempted == len(fg_plays)
+                assert kl.fg_made == len([p for p in fg_plays if p.outcome == "field_goal"])
+            if xp_plays:
+                found_xp = True
+                assert kl.xp_attempted == len(xp_plays)
+                assert kl.xp_made == len([p for p in xp_plays if p.outcome == "field_goal"])
+    assert found_fg, "expected at least one field goal attempt across 50 simulated games"
+    assert found_xp, "expected at least one extra point attempt across 50 simulated games"
+
+
+def test_fg_distance_buckets_sum_to_the_same_totals_as_fg_made_attempted():
+    """The per-bucket breakdown and the aggregate fg_made/fg_attempted
+    properties must agree -- they're computed from the same underlying
+    dict, but this guards against the two ever drifting apart."""
+    for seed in range(50):
+        result = _play_game(seed)
+        for abbr in ("KC", "BUF"):
+            box = build_box_score(result.plays, abbr)
+            for kl in box.kicking:
+                bucket_attempted = sum(att for _, att in kl.fg_by_bucket.values())
+                bucket_made = sum(made for made, _ in kl.fg_by_bucket.values())
+                assert bucket_attempted == kl.fg_attempted
+                assert bucket_made == kl.fg_made
+                # every made kick is also an attempt, in the same bucket
+                for made, att in kl.fg_by_bucket.values():
+                    assert made <= att
+
+
+def test_punting_line_is_the_real_starting_punter_with_real_net_yards():
+    """ROADMAP.md M2: punts must be attributed to the real starting
+    punter (app/services/depth_chart.py's `p`), and net_yards must equal
+    the real sum of each punt PlayEvent's own net-yards figure (see
+    drive_sim.py's _punt_result) -- not a separately-recomputed number
+    that could drift from what actually happened in the play list."""
+    found_one = False
+    for seed in range(50):
+        result = _play_game(seed)
+        for abbr in ("KC", "BUF"):
+            box = build_box_score(result.plays, abbr)
+            starters = get_offensive_starters(abbr)
+            punt_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "punt"]
+            if not punt_plays:
+                continue
+            found_one = True
+            assert len(box.punting) == 1
+            pl = box.punting[0]
+            assert pl.name == starters.p.full_name
+            assert pl.punts == len(punt_plays)
+            assert pl.net_yards == sum(p.yards for p in punt_plays)
+    assert found_one, "expected at least one punt across 50 simulated games"
+
+
+def test_punting_inside_20_matches_a_recomputed_landing_position():
+    """inside_20 is derived from field_pos + net yards flipped back to
+    the receiving team's own-territory position (the same math
+    _punt_result itself used, run in reverse) -- recompute it
+    independently here and check it agrees with build_box_score's own
+    count, rather than just asserting it's a plausible-looking number."""
+    for seed in range(50):
+        result = _play_game(seed)
+        for abbr in ("KC", "BUF"):
+            box = build_box_score(result.plays, abbr)
+            punt_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "punt"]
+            if not punt_plays:
+                continue
+            expected_inside_20 = sum(1 for p in punt_plays if 100 - (p.field_pos + p.yards) <= 20)
+            assert box.punting[0].inside_20 == expected_inside_20
+
+
 def test_fumble_lost_does_not_add_to_rushing_yards():
     found_one = False
     for seed in range(50):
