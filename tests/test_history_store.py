@@ -239,6 +239,28 @@ def test_career_stats_sums_a_players_passing_across_seasons(tmp_path):
     assert line.interceptions == 14
 
 
+def test_career_stats_sums_a_players_defensive_touchdowns_across_seasons(tmp_path):
+    """Defensive TD (GDD Sec 6.7.2, ROADMAP.md M1) should accumulate into
+    a real career total the same way every other defensive stat already
+    does -- see season_stats.py's SeasonDefensiveLine and this module's
+    CareerDefensiveLine, both of which gained the field alongside it."""
+    from app.engine.season_stats import SeasonDefensiveLine
+
+    path = tmp_path / "history.json"
+    s1 = SeasonDefensiveLine(name="Ballhawk", team_abbr="BUF", interceptions=3, defensive_touchdowns=1)
+    s2 = SeasonDefensiveLine(name="Ballhawk", team_abbr="BUF", interceptions=5, defensive_touchdowns=2)
+    _save([
+        _record_to_dict(_synthetic_record(0, defensive=[s1])),
+        _record_to_dict(_synthetic_record(1, defensive=[s2])),
+    ], path)
+
+    _passing, _rushing, _receiving, defense = career_stats(path=path)
+    line = defense[("BUF", "Ballhawk")]
+    assert line.seasons == 2
+    assert line.interceptions == 8
+    assert line.defensive_touchdowns == 3
+
+
 def test_hall_of_fame_requires_minimum_seasons(tmp_path):
     path = tmp_path / "history.json"
     # A single monster season -- not enough archived seasons to be eligible yet.

@@ -61,10 +61,10 @@
   {% endif %}
   {% if defense %}
   <table class="boxtable">
-    <thead><tr><th>Defense</th><th>Tkl</th><th>TFL</th><th>Sk</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th></tr></thead>
+    <thead><tr><th>Defense</th><th>Tkl</th><th>TFL</th><th>Sk</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th><th>TD</th></tr></thead>
     <tbody>
       {% for d in defense %}
-      <tr><td>{{ player_link_or_name(d.name, team.abbr) }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td></tr>
+      <tr><td>{{ player_link_or_name(d.name, team.abbr) }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.tackles_for_loss }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td><td>{{ d.passes_defended }}</td><td>{{ d.forced_fumbles }}</td><td>{{ d.fumble_recoveries }}</td><td>{{ d.defensive_touchdowns }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

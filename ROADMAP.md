@@ -2,7 +2,7 @@
 
 **Read this after HANDOFF.md, before starting any new chunk of work.** HANDOFF.md is the detailed "what happened and why" log. This file is the forward-looking "what's left and how to spend tokens efficiently doing it" plan. Update the checkboxes here as chunks land; leave HANDOFF.md's own numbered-item narrative style for the detailed record of *how* each chunk was actually built.
 
-Written 2026-09-09, after item 37 (roster-depth rotation). Current state: 229 tests passing, MVP roughly 90% complete by scope, remaining gaps are well-understood and itemized below.
+Written 2026-09-09, after item 37 (roster-depth rotation); updated same day after item 38 (M1: Defensive TD). Current state: 235 tests passing, MVP roughly 92% complete by scope, remaining gaps are well-understood and itemized below.
 
 ---
 
@@ -12,7 +12,7 @@ Written 2026-09-09, after item 37 (roster-depth rotation). Current state: 229 te
 
 **What's actually left for MVP** (Part 1 per the GDD) is a short, specific list — not a vague "polish everything":
 
-1. Defensive TD — the one stat in the GDD's own §6.7.2 Truth Set this engine still can't produce at all (no interception/fumble return mechanic exists).
+1. ~~Defensive TD~~ — **done (M1, 2026-09-09)**. See §2's M1 row and HANDOFF.md item 38.
 2. Kicking/Punting box-score stats — also in the Truth Set, not tracked per-kicker anywhere yet.
 3. Three UI pages that don't match the Figma redesign yet: Stats (customizable columns), Roster (view toggle, quotas, embedded depth chart), HOF (richer layout + League Record Book/Super Bowl History addition from the v4.4/4.5 GDD rewrite).
 4. Player Card's Stats tab (real per-player-per-season data already exists in `career_stats()` — just needs wiring) and Contract tab (blocked on a real decision, see M8 below).
@@ -28,7 +28,7 @@ Each row is sized to run as its own fresh Claude Code session (or bundled per th
 
 | # | Chunk | What it actually is | Key files | Size | Model | Bundle with |
 |---|---|---|---|---|---|---|
-| **M1** | Defensive TD | New `PlayEvent` outcome. **Scope narrow**: no open-field return simulation (that's R2's job) — a takeaway has a real, small probability of an immediate score, attributed to the takeaway defender, distance-based (a INT/fumble deep in your own territory scores less often than one at midfield). Wire into `defensive_box_score.py`, `awards.py`'s DPOY weights, season/career stats. | `drive_sim.py`, `game_state.py`, `defensive_box_score.py`, `awards.py` | M | **Opus** for the mechanic design (novel, touches scoring/turnover logic which is easy to get subtly wrong), Sonnet to implement once scoped | own session |
+| **M1** | ~~Defensive TD~~ **DONE (2026-09-09)** | New `PlayEvent` outcome (`"defensive_touchdown"`). Scope stayed narrow as written: no open-field return simulation — `drive_sim.py`'s `_defensive_td_probability()` rolls a real, small, distance-based chance at every INT/fumble. Wired into `defensive_box_score.py` (new `defensive_touchdowns` field), `awards.py`'s DPOY weights (rebalanced, +0.10 slice), and season/career stats (`season_stats.py`, `history_store.py`, including its own HOF defensive scoring). Also fixed a real box_score.py stat-corruption bug the new outcome exposed (would have double-counted a pick-six as a real reception) and a `test_stat_realism.py` headroom fragility the new RNG draw exposed at the suite's default seed — see HANDOFF.md item 38 for full detail. | `drive_sim.py`, `game_state.py`, `defensive_box_score.py`, `awards.py`, `game_sim.py`, `box_score.py`, `season_stats.py`, `history_store.py` | M | Sonnet (no Opus session needed — mechanic stayed within the narrow scope as written) | — |
 | **M2** | Kicking/Punting box score | New `KickingLine`/`PuntingLine` in `box_score.py`, keyed by real kicker/punter like `RushingLine` now is. FG att/made by distance bucket, XP att/made, punt count + gross avg + inside-20. The underlying sim (field goal attempts, punts) already exists in `drive_sim.py` — this is a stats-attribution build, not new game logic. | `box_score.py`, `drive_sim.py` (read `_attempt_field_goal` for the data that already exists) | M | Sonnet | can pair with M1 in one session if the session has budget left |
 | **M3** | Stats page redesign | Team/Player/Coach tabs, sortable columns, Stat Column Chooser modal (real Figma source: `docs/figma-export/src/app/components/StatsPage.tsx` + `stats/` subfolder). Coach tab can render "Coming Soon" (no Coach entity). Export button can be a stub. | `app/templates/stats.html`, `app/main.py`'s stats route | M | **Haiku** — mechanical translation of an already-extracted real Figma source into the existing Jinja/CSS pattern, low ambiguity | own session |
 | **M4** | Roster page redesign | Attributes/Stats view toggle, Team Quota badges, Filter/Export controls, embedded depth-chart widget (§10.4.2). Real source: `docs/figma-export/src/app/components/RosterPage.tsx`/`RosterTable.tsx`. | `app/templates/roster.html`, `depth_chart.html` (for the embed) | M | **Haiku** or Sonnet | own session |
@@ -36,7 +36,7 @@ Each row is sized to run as its own fresh Claude Code session (or bundled per th
 | **M6** | Player Card Stats tab | Wire `history_store.career_stats()` (already real, already tested, just has no UI consumer) into the Player Card's Stats panel. | `app/main.py`'s `_player_card_json`, `base.html`'s modal JS | S | Sonnet | bundle with M5 |
 | **M8** | Player Card Contract tab | **Needs your decision before any session touches this** — see §3. | — | S | Sonnet | after decision |
 
-**Total remaining MVP: roughly 5-7 focused sessions**, most of them small-to-medium. M1 is the only one with real design risk.
+**Total remaining MVP: roughly 4-6 focused sessions**, most of them small-to-medium, now that M1 (the one chunk with real design risk) is done.
 
 ---
 

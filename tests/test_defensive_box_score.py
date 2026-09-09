@@ -82,6 +82,31 @@ def test_pass_completion_credits_the_covering_defender_with_a_solo_tackle():
     assert box[0].tackles_for_loss == 0  # TFL is run-specific
 
 
+def test_pass_defensive_touchdown_credits_the_interception_and_the_td_separately():
+    """A pick-six (GDD Sec 6.7.2's Defensive TD, ROADMAP.md M1) is still a
+    real interception too -- both stats should be credited to the same
+    interceptor, matching a real box score crediting both categories."""
+    plays = [_pe("pass", 0, "defensive_touchdown", defender_name="Xavien Howard")]
+    box = build_defensive_box_score(plays, "BUF")
+    assert box[0].name == "Xavien Howard"
+    assert box[0].interceptions == 1
+    assert box[0].defensive_touchdowns == 1
+    assert box[0].solo_tackles == 0  # not a tackle, same as a plain interception
+
+
+def test_run_defensive_touchdown_credits_the_td_to_the_recoverer_not_the_forcer():
+    """A fumble-six's forcer and recoverer can be different players (same
+    Forced Fumble vs. Fumble Recovery split a plain fumble already has)
+    -- the TD credit belongs to whoever actually returned it, i.e. the
+    recoverer."""
+    plays = [_pe("run", -1, "defensive_touchdown", defender_name="Bobby Wagner", fumble_recovered_by="Xavien Howard")]
+    box = {l.name: l for l in build_defensive_box_score(plays, "BUF")}
+    assert box["Bobby Wagner"].forced_fumbles == 1
+    assert box["Bobby Wagner"].defensive_touchdowns == 0
+    assert box["Xavien Howard"].fumble_recoveries == 1
+    assert box["Xavien Howard"].defensive_touchdowns == 1
+
+
 def test_touchdown_credits_no_defender():
     plays = [_pe("run", 20, "touchdown", defender_name="")]
     box = build_defensive_box_score(plays, "BUF")

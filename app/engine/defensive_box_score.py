@@ -10,16 +10,20 @@ starters (or, since app/engine/rotation.py's rotation modeling, a real
 backup at a rotation-eligible slot -- see that module's docstring and
 HANDOFF.md item 37), not just one designated passer/rusher.
 
-Deliberate, disclosed scope decision: Defensive TD is NOT modeled here
-(always 0). This engine has no interception/fumble RETURN mechanic at
-all -- a turnover just flips possession at a computed field position
-(see drive_sim.py's simulate_drive) -- so there is no real "pick-six" or
-"fumble-six" event to attribute a score to. Adding one is a genuine new
-game mechanic, not a box-score bookkeeping fix, and is out of scope for
-this module. Solo tackles/Sacks/TFL/PD/FF/FR are all real here, built on
-drive_sim.py's real (if disclosed-heuristic) defender attribution -- see
-that module's _run_tackler/_sack_defender docstrings for exactly how
-each defender is chosen.
+Defensive TD (GDD Sec 6.7.2, ROADMAP.md M1): a takeaway can now score
+directly -- drive_sim.py's simulate_drive rolls a real, small, distance-
+based probability at the moment of every INT/fumble, and flags it with a
+"defensive_touchdown" PlayEvent.outcome instead of "turnover". Still no
+open-field return SIMULATION (yardage, broken tackles, etc.) -- a
+deliberate scope cut (see simulate_drive's _defensive_td_probability
+docstring) -- just a real probability of the takeaway itself being the
+score. A defensive_touchdown play still counts as its underlying
+takeaway too (an INT or a fumble recovery), matching how a real pick-six
+is still credited as an interception in a real box score, not instead of
+one. Solo tackles/Sacks/TFL/PD/FF/FR/Defensive TD are all real here,
+built on drive_sim.py's real (if disclosed-heuristic) defender
+attribution -- see that module's _run_tackler/_sack_defender docstrings
+for exactly how each defender is chosen.
 
 Known, observed characteristic of that heuristic (not a bug, a real
 consequence of a deliberate simplification): every completed reception's
@@ -60,6 +64,7 @@ class DefensiveLine:
     passes_defended: int = 0
     forced_fumbles: int = 0
     fumble_recoveries: int = 0
+    defensive_touchdowns: int = 0
 
 
 def build_defensive_box_score(plays: List[PlayEvent], abbr: str) -> List[DefensiveLine]:
@@ -88,6 +93,24 @@ def build_defensive_box_score(plays: List[PlayEvent], abbr: str) -> List[Defensi
                 line(p.defender_name).forced_fumbles += 1
             if p.fumble_recovered_by:
                 line(p.fumble_recovered_by).fumble_recoveries += 1
+        elif p.outcome == "defensive_touchdown" and p.play_type == "pass":
+            # defender_name is the interceptor here (see PlayEvent's own
+            # docstring) -- still credited with the INT itself, plus the TD.
+            if p.defender_name:
+                dl = line(p.defender_name)
+                dl.interceptions += 1
+                dl.defensive_touchdowns += 1
+        elif p.outcome == "defensive_touchdown" and p.play_type == "run":
+            # Same forcer-vs-recoverer split as a plain fumble turnover
+            # (defender_name FORCED it, fumble_recovered_by RECOVERED it,
+            # can be different players) -- the TD credit goes to whoever
+            # actually returned it, i.e. the recoverer, not the forcer.
+            if p.defender_name:
+                line(p.defender_name).forced_fumbles += 1
+            if p.fumble_recovered_by:
+                dl = line(p.fumble_recovered_by)
+                dl.fumble_recoveries += 1
+                dl.defensive_touchdowns += 1
         elif p.outcome == "incomplete":
             if p.pass_defended and p.defender_name:
                 line(p.defender_name).passes_defended += 1

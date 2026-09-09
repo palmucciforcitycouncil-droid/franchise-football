@@ -95,8 +95,12 @@ def simulate_game(
             pe.drive_number = i + 1  # 1-based, matches this drive's index in `events` below
         all_plays.extend(drive_play_events)
 
-        pass_yards = sum(pe.yards for pe in drive_play_events if pe.play_type == "pass" and pe.outcome != "turnover")
-        rush_yards = sum(pe.yards for pe in drive_play_events if pe.play_type == "run" and pe.outcome != "turnover")
+        # "defensive_touchdown" is a turnover too (an INT/fumble returned
+        # for a Defensive TD, GDD Sec 6.7.2) -- excluded here for the same
+        # reason a plain "turnover" already is, see drive_sim.py's own
+        # total_yards handling for the same convention.
+        pass_yards = sum(pe.yards for pe in drive_play_events if pe.play_type == "pass" and pe.outcome not in ("turnover", "defensive_touchdown"))
+        rush_yards = sum(pe.yards for pe in drive_play_events if pe.play_type == "run" and pe.outcome not in ("turnover", "defensive_touchdown"))
         pass_attempts = sum(1 for pe in drive_play_events if pe.play_type == "pass" and pe.outcome != "sack")
         rush_attempts = sum(1 for pe in drive_play_events if pe.play_type == "run")
 
@@ -104,16 +108,24 @@ def simulate_game(
         # simulate_drive() returns pts=0 for a safety and flags it via txt.
         safety_pts = 2 if txt == "Safety" else 0
 
+        # Defensive TD points (GDD Sec 6.7.2) also belong to the defense,
+        # not this drive's offense -- simulate_drive() signals it with a
+        # NEGATIVE pts (-6/-7) rather than a new return value, the same
+        # "someone other than this drive's offense scored" shape Safety
+        # already established (see simulate_drive's own docstring).
+        defensive_td_pts = -pts if pts < 0 else 0
+        offense_pts = max(pts, 0)
+
         if side_home:
-            h += pts       # offense (home) scores normally; 0 on a safety
-            a += safety_pts  # defense (away) gets the 2 points on a safety
-            htot.points += pts; htot.plays += plays; htot.yards += yards; htot.turnovers += tos
+            h += offense_pts  # offense (home) scores normally; 0 on a safety/defensive TD
+            a += safety_pts + defensive_td_pts  # defense (away) gets the points instead
+            htot.points += offense_pts; htot.plays += plays; htot.yards += yards; htot.turnovers += tos
             htot.pass_yards += pass_yards; htot.rush_yards += rush_yards
             htot.pass_attempts += pass_attempts; htot.rush_attempts += rush_attempts
         else:
-            a += pts
-            h += safety_pts
-            atot.points += pts; atot.plays += plays; atot.yards += yards; atot.turnovers += tos
+            a += offense_pts
+            h += safety_pts + defensive_td_pts
+            atot.points += offense_pts; atot.plays += plays; atot.yards += yards; atot.turnovers += tos
             atot.pass_yards += pass_yards; atot.rush_yards += rush_yards
             atot.pass_attempts += pass_attempts; atot.rush_attempts += rush_attempts
 

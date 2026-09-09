@@ -23,7 +23,7 @@ class PlayEvent:
     play_type: str          # "run" | "pass" | "penalty" | "punt" | "field_goal" | "kneel"
     yards: int
     desc: str
-    outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs"
+    outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "defensive_touchdown" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs"
     offense_abbr: str = ""
     defensive_call: str = ""  # e.g. "Blitz (J. Smith)" -- empty for non-scrimmage plays (penalty/punt/FG)
     drive_number: int = 0     # 1-based, set by game_sim.py -- matches this drive's position in GameResult.events
@@ -39,9 +39,14 @@ class PlayEvent:
                               # (a completed reception, credited with the solo tackle) or the point-of-attack/
                               # pursuing defender (a run, same), a pass-breakup defender (an incomplete pass,
                               # ALSO used by drive_sim.py's DPI attribution regardless of pass_defended below),
-                              # or the defender who forced a fumble (a run-play turnover). Empty on plays with
-                              # no clean single-defender attribution (touchdowns -- nobody made the tackle;
-                              # penalties; kicks). See app/engine/defensive_box_score.py for how this is read.
+                              # or the defender who forced a fumble (a run-play turnover). On a
+                              # "defensive_touchdown" (INT/fumble returned for a score, GDD Sec 6.7.2's
+                              # Defensive TD -- see drive_sim.py's simulate_drive), this is instead the
+                              # defender who actually RETURNED it -- the interceptor on a pass, the
+                              # RECOVERING (not forcing) defender on a fumble, matching who real box
+                              # scores credit the score to. Empty on plays with no clean single-defender
+                              # attribution (offensive touchdowns -- nobody made the tackle; penalties;
+                              # kicks). See app/engine/defensive_box_score.py for how this is read.
     pass_defended: bool = False  # true only when an incomplete pass's defender_name reflects a REAL pass
                                   # breakup (the defender won the coverage matchup), not just an inaccurate
                                   # throw with no real defensive play -- see _resolve_pass's PD-roll docstring.

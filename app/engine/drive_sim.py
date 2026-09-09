@@ -40,6 +40,30 @@ MAX_PLAYS_PER_DRIVE = 20  # safety valve against pathological loops
 # _resolve_pass's own comment at the call site (HANDOFF.md item 36).
 SACK_CONVERSION_RATE = 0.15
 
+# Defensive TD (GDD Sec 6.7.2) -- a takeaway's real, small chance of an
+# immediate score. Deliberately scope-narrow (ROADMAP.md M1): no open-
+# field return simulation, just one distance-based roll at the moment of
+# the turnover. `return_distance` is how far the takeaway defender would
+# have to go to reach the ORIGINAL offense's own goal line -- exactly
+# `spot` in simulate_drive's turnover branch, since spot is already
+# measured in the original offense's frame (0 = their own goal). A
+# turnover deep in the takeaway defense's own territory (return_distance
+# near 100, a near-full-field sprint) scores rarely; one at midfield or
+# closer scores meaningfully more often, matching how real pick-sixes/
+# fumble-six returns cluster around shorter fields, not 90+-yard sprints.
+# No GDD formula is given for this -- calibrated to keep the rate small
+# (a real takeaway-to-defensive-TD conversion is a rare event) while
+# still being clearly distance-sensitive.
+DEFENSIVE_TD_BASE_PROB = 0.16
+DEFENSIVE_TD_DISTANCE_PENALTY = 0.0015
+DEFENSIVE_TD_MIN_PROB = 0.01
+DEFENSIVE_TD_MAX_PROB = 0.15
+
+
+def _defensive_td_probability(return_distance: int) -> float:
+    return max(DEFENSIVE_TD_MIN_PROB, min(DEFENSIVE_TD_MAX_PROB,
+        DEFENSIVE_TD_BASE_PROB - return_distance * DEFENSIVE_TD_DISTANCE_PENALTY))
+
 
 def _pass_probability(
     down: int, distance: int, trailing: bool, is_two_minute: bool, matchup_adjustment: float,
@@ -476,6 +500,13 @@ def simulate_drive(
     Simulates one drive down-by-down using real starters (ctx). Returns:
         points, summary, next_field_pos, plays, yards, turnovers, play_events
 
+    `points` is usually this drive's OFFENSE's own points (0/3/6/7), but
+    can be NEGATIVE (-6/-7) on a Defensive TD (GDD Sec 6.7.2, a takeaway
+    returned for a score) -- same "this drive's normal offense didn't
+    score, someone else did" shape the pre-existing Safety case (points=0,
+    flagged via `summary` instead) already established; game_sim.py reads
+    the sign to award the points to the DEFENSE, not this drive's offense.
+
     field_pos is 0..100: the offense's distance traveled toward the
     opponent's end zone (100 = touchdown). offense_ratings is only used
     for aggression (4th-down tendency) -- a coaching-tendency proxy until
@@ -580,6 +611,35 @@ def simulate_drive(
         if outcome == "turnover":
             turnovers += 1
             spot = max(0, min(100, pos + yards))
+
+            # Defensive TD roll (GDD Sec 6.7.2) -- who actually RETURNED
+            # it: the interceptor on a pass (defender_name already is the
+            # interceptor -- see _resolve_pass's docstring), the
+            # RECOVERING defender on a fumble (fumble_recovered_by, not
+            # defender_name, which is whoever FORCED it -- a different
+            # player, same as a real Forced Fumble vs. Fumble Recovery
+            # stat split).
+            returner = defender_name if is_pass else fumble_recovered_by
+            if returner and rng.prob(_defensive_td_probability(spot)):
+                made_pat = rng.prob(P.pat_make)  # no real kicker object for the returning
+                pts = 7 if made_pat else 6       # (defensive) team available in this context
+                verb = "Interception" if is_pass else "Fumble"
+                kind = f"{verb} returned for a TOUCHDOWN by {returner}"
+                # defender_name/fumble_recovered_by are passed through
+                # UNCHANGED from the normal turnover case below (the
+                # forcer and recoverer stay distinct on a fumble, same as
+                # a plain turnover) -- only the outcome and scoreline
+                # differ; defensive_box_score.py reads both to credit the
+                # TD to whoever actually has the ball (the interceptor,
+                # or the fumble recoverer, not the forcer).
+                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "defensive_touchdown", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, fumble_recovered_by=fumble_recovered_by, carrier_name=carrier_name))
+                # Negative pts signals "the DEFENSE scored, not this
+                # drive's offense" -- the same shape the Safety case
+                # already established (see game_sim.py's own handling).
+                # 25 == the original offense gets the ball back at the
+                # 25 off the ensuing kickoff, same as any other score.
+                return -pts, kind, 25, total_plays, total_yards, turnovers, play_events
+
             kind = f"Interception ({who})" if is_pass else f"Fumble lost ({who})"
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, kind, "turnover", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, fumble_recovered_by=fumble_recovered_by, carrier_name=carrier_name))
             return 0, kind, max(2, 100 - spot), total_plays, total_yards, turnovers, play_events

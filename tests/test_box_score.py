@@ -101,7 +101,11 @@ def test_interception_counts_as_a_target_and_an_int_not_a_reception():
         for abbr in ("KC", "BUF"):
             int_plays = [
                 p for p in result.plays
-                if p.offense_abbr == abbr and p.play_type == "pass" and p.outcome == "turnover" and p.receiver_name
+                if p.offense_abbr == abbr and p.play_type == "pass"
+                # "defensive_touchdown" is a real interception too (a
+                # pick-six, GDD Sec 6.7.2) -- see box_score.py's own
+                # docstring for why it's counted the same as a plain INT.
+                and p.outcome in ("turnover", "defensive_touchdown") and p.receiver_name
             ]
             if not int_plays:
                 continue
@@ -153,8 +157,9 @@ def test_in_play_penalties_are_not_counted_as_attempts_carries_or_yards():
             real_run_yards = sum(
                 p.yards for p in result.plays
                 # a run-play "safety" IS a real, unambiguous carry and
-                # stays counted -- only turnover/penalty are excluded
-                if p.offense_abbr == abbr and p.play_type == "run" and p.outcome not in ("turnover", "penalty")
+                # stays counted -- only turnover/defensive_touchdown
+                # (a fumble-six is a turnover too)/penalty are excluded
+                if p.offense_abbr == abbr and p.play_type == "run" and p.outcome not in ("turnover", "defensive_touchdown", "penalty")
             )
             if any(p.play_type == "pass" for p in penalty_plays) and box.passing:
                 found_pass_penalty = True
@@ -180,7 +185,10 @@ def test_fumble_lost_does_not_add_to_rushing_yards():
     for seed in range(50):
         result = _play_game(seed)
         for abbr in ("KC", "BUF"):
-            fumble_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "run" and p.outcome == "turnover"]
+            # "defensive_touchdown" is a lost fumble too (a fumble-six,
+            # GDD Sec 6.7.2) -- see box_score.py's own docstring for why
+            # it's counted the same as a plain lost fumble.
+            fumble_plays = [p for p in result.plays if p.offense_abbr == abbr and p.play_type == "run" and p.outcome in ("turnover", "defensive_touchdown")]
             if not fumble_plays:
                 continue
             found_one = True
@@ -189,7 +197,7 @@ def test_fumble_lost_does_not_add_to_rushing_yards():
             # play_type "run" but outcome "penalty") -- neither is a real carry
             non_fumble_run_yards = sum(
                 p.yards for p in result.plays
-                if p.offense_abbr == abbr and p.play_type == "run" and p.outcome not in ("turnover", "penalty")
+                if p.offense_abbr == abbr and p.play_type == "run" and p.outcome not in ("turnover", "defensive_touchdown", "penalty")
             )
             assert sum(r.yards for r in box.rushing) == non_fumble_run_yards
             assert sum(r.fumbles_lost for r in box.rushing) == len(fumble_plays)

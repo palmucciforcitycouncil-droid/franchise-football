@@ -180,7 +180,7 @@ def _defensive_stat_leaders(season, top_n: int = 15):
     """Same pattern as _season_stat_leaders, sorted by solo tackles
     (the closest single-number analog to "yards" for a defensive
     leaderboard) -- see app/engine/defensive_box_score.py for what's
-    real here (Defensive TD is the one disclosed gap, not modeled)."""
+    real here, including Defensive TD (GDD Sec 6.7.2, ROADMAP.md M1)."""
     defense = aggregate_season_defensive_stats(season)
     return sorted(defense.values(), key=lambda l: -l.solo_tackles)[:top_n]
 

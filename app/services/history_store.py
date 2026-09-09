@@ -46,9 +46,10 @@ Deliberate, disclosed interpretations:
   career yards + 0.5*normalized career touchdowns (normalized within
   their own position's whole eligible pool, same technique awards.py
   uses per-season). For DEF: the SAME weighted composite awards.py's
-  DPOY now uses (0.30 sacks + 0.30 interceptions + 0.15 TFL + 0.10 solo
-  tackles + 0.10 forced fumbles + 0.05 passes defended, each normalized
-  within the whole defensive candidate pool -- no positional split,
+  DPOY now uses (0.27 sacks + 0.27 interceptions + 0.13 TFL + 0.09 solo
+  tackles + 0.09 forced fumbles + 0.05 passes defended + 0.10 defensive
+  touchdowns, each normalized within the whole defensive candidate pool
+  -- no positional split,
   matching how DPOY itself is position-agnostic), applied to CAREER
   totals instead of a single season's. Either way, AWARD_BONUS_PER_WIN
   is then added per MVP/OPOY/DPOY/ROY season actually WON (the season's
@@ -252,6 +253,7 @@ class CareerDefensiveLine:
     passes_defended: int = 0
     forced_fumbles: int = 0
     fumble_recoveries: int = 0
+    defensive_touchdowns: int = 0
 
 
 def career_stats(path: Path | None = None) -> tuple[dict, dict, dict, dict]:
@@ -302,6 +304,7 @@ def career_stats(path: Path | None = None) -> tuple[dict, dict, dict, dict]:
             line.passes_defended += dl.passes_defended
             line.forced_fumbles += dl.forced_fumbles
             line.fumble_recoveries += dl.fumble_recoveries
+            line.defensive_touchdowns += dl.defensive_touchdowns
 
     return passing, rushing, receiving, defense
 
@@ -387,13 +390,15 @@ def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
         tkl_pool = [l.solo_tackles for _, l in eligible]
         ff_pool = [l.forced_fumbles for _, l in eligible]
         pd_pool = [l.passes_defended for _, l in eligible]
+        td_pool = [l.defensive_touchdowns for _, l in eligible]
         return lambda l: (
-            0.30 * _normalize(l.sacks, sacks_pool)
-            + 0.30 * _normalize(l.interceptions, ints_pool)
-            + 0.15 * _normalize(l.tackles_for_loss, tfl_pool)
-            + 0.10 * _normalize(l.solo_tackles, tkl_pool)
-            + 0.10 * _normalize(l.forced_fumbles, ff_pool)
+            0.27 * _normalize(l.sacks, sacks_pool)
+            + 0.27 * _normalize(l.interceptions, ints_pool)
+            + 0.13 * _normalize(l.tackles_for_loss, tfl_pool)
+            + 0.09 * _normalize(l.solo_tackles, tkl_pool)
+            + 0.09 * _normalize(l.forced_fumbles, ff_pool)
             + 0.05 * _normalize(l.passes_defended, pd_pool)
+            + 0.10 * _normalize(l.defensive_touchdowns, td_pool)
         )
 
     _induct(passing, "QB", lambda l: f"{l.yards:,} career pass yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)

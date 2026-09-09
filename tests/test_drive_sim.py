@@ -153,12 +153,14 @@ def test_total_yards_matches_sum_of_positive_play_yards():
     In real NFL stats, pre-fumble yardage would still count (an
     interception wouldn't, since the pass was never really completed) --
     that distinction isn't implemented yet, so this test checks the
-    engine's actual current behavior, not the eventually-more-correct one."""
+    engine's actual current behavior, not the eventually-more-correct one.
+    "defensive_touchdown" (a takeaway returned for a score, GDD Sec
+    6.7.2) is the same kind of turnover and is excluded the same way."""
     result = _play_game(2025)
     for totals, abbr in [(result.home_totals, "KC"), (result.away_totals, "BUF")]:
         expected = sum(
             max(0, p.yards) for p in result.plays
-            if p.offense_abbr == abbr and p.outcome != "turnover"
+            if p.offense_abbr == abbr and p.outcome not in ("turnover", "defensive_touchdown")
         )
         assert totals.yards == expected
 
@@ -213,6 +215,59 @@ def test_interception_is_credited_to_the_defender_not_the_intended_receiver():
             found_interception = True
             assert who not in offense_names, f"interception credited to an offensive player: {who}"
     assert found_interception, "expected at least one interception across 3000 pass attempts"
+
+
+def test_defensive_td_probability_decreases_with_return_distance():
+    """Pure function test for the distance-based Defensive TD roll (GDD
+    Sec 6.7.2, ROADMAP.md M1) -- a takeaway near the takeaway defense's
+    own goal line (a near-full-field return) should score meaningfully
+    less often than one at midfield or closer, and the probability should
+    always stay within its own documented bounds."""
+    from app.engine.drive_sim import _defensive_td_probability, DEFENSIVE_TD_MIN_PROB, DEFENSIVE_TD_MAX_PROB
+
+    short_return = _defensive_td_probability(5)
+    midfield = _defensive_td_probability(50)
+    long_return = _defensive_td_probability(95)
+    assert short_return > midfield > long_return
+    for distance in (0, 25, 50, 75, 100):
+        p = _defensive_td_probability(distance)
+        assert DEFENSIVE_TD_MIN_PROB <= p <= DEFENSIVE_TD_MAX_PROB
+
+
+def test_defensive_touchdown_can_occur_and_awards_points_to_the_defense():
+    """End-to-end proof that a takeaway can actually score (not just that
+    the probability function above is shaped correctly): runs many
+    drives starting deep in the offense's own territory (field_pos=5, so
+    any turnover there has a short, high-probability return distance)
+    until at least one "defensive_touchdown" PlayEvent appears, then
+    checks its shape -- negative points (the DEFENSE scored, not this
+    drive's offense; see simulate_drive's own docstring), a real named
+    returner, and the ensuing kickoff spot (25, same as any other score)."""
+    from app.services.depth_chart import get_offensive_starters, get_defensive_starters
+    from app.engine.player_ai import build_matchup_context
+    from app.engine.drive_sim import simulate_drive
+
+    off = get_offensive_starters("KC")
+    defn = get_defensive_starters("BUF")
+    ctx = build_matchup_context(off, defn)
+
+    found = None
+    for seed in range(2000):
+        rng = RNG.with_seed(seed)
+        pts, _txt, next_pos, _plays, _yards, _tos, events = simulate_drive(rng, ctx, AVG, field_pos=5)
+        def_td_events = [e for e in events if e.outcome == "defensive_touchdown"]
+        if def_td_events:
+            found = (pts, next_pos, def_td_events[0])
+            break
+
+    assert found is not None, "expected at least one Defensive TD across 2000 drives starting at the 5-yard line"
+    pts, next_pos, pe = found
+    assert pts in (-6, -7), f"defensive TD points should be negative (-6/-7), got {pts}"
+    assert next_pos == 25  # the original offense gets the ball back at the 25, same as any other score
+    if pe.play_type == "pass":
+        assert pe.defender_name, "the interceptor should be named"
+    else:
+        assert pe.fumble_recovered_by, "the recovering (returning) defender should be named"
 
 
 def test_field_goal_and_pat_odds_scale_with_the_real_kicker():

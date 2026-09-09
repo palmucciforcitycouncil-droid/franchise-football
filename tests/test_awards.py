@@ -173,6 +173,26 @@ def test_defensive_candidates_from_stats_and_mvp_from_candidates():
     assert mvp[0].name == "A"  # same production, better record wins
 
 
+def test_defensive_candidates_from_stats_weighs_in_defensive_touchdowns():
+    """Defensive TD (GDD Sec 6.7.2, ROADMAP.md M1) should be a real,
+    disclosed slice of the DPOY composite (see awards.py's own docstring
+    for the weighting) -- two otherwise-identical stat lines should rank
+    the one with a Defensive TD higher, and its stat_line should surface
+    it (only when nonzero, so a player with none isn't cluttered with a
+    "0 DEF TD" nobody asked for)."""
+    from app.engine.season_stats import SeasonDefensiveLine
+    from app.engine.awards import defensive_candidates_from_stats
+
+    defense = {
+        ("BUF", "Scorer"): SeasonDefensiveLine(name="Scorer", team_abbr="BUF", solo_tackles=50, sacks=5, defensive_touchdowns=1),
+        ("MIA", "Non-Scorer"): SeasonDefensiveLine(name="Non-Scorer", team_abbr="MIA", solo_tackles=50, sacks=5, defensive_touchdowns=0),
+    }
+    candidates = {c.name: c for c in defensive_candidates_from_stats(defense)}
+    assert candidates["Scorer"].score > candidates["Non-Scorer"].score
+    assert "DEF TD" in candidates["Scorer"].stat_line
+    assert "DEF TD" not in candidates["Non-Scorer"].stat_line
+
+
 def test_mvp_blends_offensive_production_with_team_win_pct():
     """Two teams' win% differ, but this test isolates just the win%
     blending logic against a hand-built candidate list (avoiding a full

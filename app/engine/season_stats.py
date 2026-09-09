@@ -57,6 +57,7 @@ class SeasonDefensiveLine:
     passes_defended: int = 0
     forced_fumbles: int = 0
     fumble_recoveries: int = 0
+    defensive_touchdowns: int = 0
 
 
 def aggregate_season_stats(season):
@@ -103,8 +104,8 @@ def aggregate_season_defensive_stats(season):
     played so far this season. A separate function (not folded into
     aggregate_season_stats' 3-tuple) so every existing offensive-stats
     call site keeps working unchanged -- see app/engine/
-    defensive_box_score.py for what's real here and what's a disclosed
-    scope cut (Defensive TD)."""
+    defensive_box_score.py for what's real here, including Defensive TD
+    (GDD Sec 6.7.2, ROADMAP.md M1)."""
     defense: dict[tuple[str, str], SeasonDefensiveLine] = {}
 
     for week in season.schedule:
@@ -121,5 +122,6 @@ def aggregate_season_defensive_stats(season):
                     line.passes_defended += d.passes_defended
                     line.forced_fumbles += d.forced_fumbles
                     line.fumble_recoveries += d.fumble_recoveries
+                    line.defensive_touchdowns += d.defensive_touchdowns
 
     return defense

@@ -38,6 +38,15 @@ sack yardage into "Pass Yards" as a simpler team-level number):
     a 15-yard roughing-the-passer spot foul) never touches a player's
     stat line, matching real NFL box scores where penalty yards are
     tracked separately from individual stats.
+  - A "defensive_touchdown" (GDD Sec 6.7.2's Defensive TD, ROADMAP.md
+    M1 -- a takeaway returned for a score) is handled exactly like the
+    underlying turnover it is: an interception attempt (pass) or a
+    fumble lost (run), never a completion/carry-with-yards. Without this
+    explicit handling it would silently fall into the "everything else is
+    a completion" branch below, the same class of stat-corruption bug
+    this project has hit before with penalties/safeties (see HANDOFF.md
+    item 29) -- a pick-six would get counted as a real reception for the
+    receiver who got beaten.
   - A PASS play with outcome == "safety" is also excluded from
     attempts/completions -- drive_sim.py overwrites the outcome to
     "safety" whenever a play ends behind the offense's own goal line,
@@ -130,7 +139,7 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
             passing.attempts += 1
             if p.receiver_name:
                 receiving_line(p.receiver_name).targets += 1
-            if p.outcome == "turnover":
+            if p.outcome in ("turnover", "defensive_touchdown"):
                 passing.interceptions += 1
             elif p.outcome == "incomplete":
                 pass
@@ -149,7 +158,7 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
         elif p.play_type == "run":
             rl = rushing_line(p.carrier_name or "Unknown")
             rl.carries += 1
-            if p.outcome == "turnover":
+            if p.outcome in ("turnover", "defensive_touchdown"):
                 rl.fumbles_lost += 1
             else:
                 rl.yards += p.yards

@@ -33,21 +33,25 @@ these choices are this module's own, not GDD-literal:
 - DPOY ("statistical dominance at the position") is now a real,
   multi-stat composite built on app/engine/defensive_box_score.py's real
   per-player defensive attribution (solo tackles, sacks, TFL, INT, PD,
-  FF -- see that module's own docstring for the one thing it still
-  doesn't model, Defensive TD, and drive_sim.py's _run_tackler/
-  _sack_defender docstrings for exactly how each defender is chosen).
+  FF, Defensive TD -- see that module's own docstring, and drive_sim.py's
+  _run_tackler/_sack_defender/_defensive_td_probability docstrings for
+  exactly how each defender/score is chosen).
   No GDD formula/weights are given for this either, so this module's own
-  choice: DPOY score = 0.30 * normalized(sacks) + 0.30 *
-  normalized(interceptions) + 0.15 * normalized(tackles_for_loss) +
-  0.10 * normalized(solo_tackles) + 0.10 * normalized(forced_fumbles) +
-  0.05 * normalized(passes_defended), each normalized within the whole
+  choice: DPOY score = 0.27 * normalized(sacks) + 0.27 *
+  normalized(interceptions) + 0.13 * normalized(tackles_for_loss) +
+  0.09 * normalized(solo_tackles) + 0.09 * normalized(forced_fumbles) +
+  0.05 * normalized(passes_defended) + 0.10 *
+  normalized(defensive_touchdowns), each normalized within the whole
   defensive candidate pool (there's no positional split like offense's
   QB/RB/WR-TE -- DL/LB/DB are all compared on the same defensive stat
   line, matching how DPOY is a single, position-agnostic real NFL award
   too). Weighted toward sacks/INTs since those are what actually
-  decides most real-world AP DPOY votes; fumble_recoveries is tracked
-  and shown but excluded from the score itself (more a product of luck/
-  opportunity than of individual defensive dominance).
+  decides most real-world AP DPOY votes, with a real but bounded slice
+  (0.10) carved out for Defensive TD -- a rare, high-impact play real
+  DPOY voters do notice, but nowhere near as decisive as a full season of
+  sacks/INTs; fumble_recoveries is tracked and shown but excluded from
+  the score itself (more a product of luck/opportunity than of
+  individual defensive dominance).
 - ROY now draws from BOTH the offensive AND defensive candidate pools
   (previously offense-only, since DPOY's interception-only basis was
   judged too thin to fairly weigh a rookie defender against a rookie
@@ -216,20 +220,25 @@ def defensive_candidates_from_stats(defense: dict, rookie_keys: set | None = Non
     tkl_pool = [l.solo_tackles for _, l in pool]
     ff_pool = [l.forced_fumbles for _, l in pool]
     pd_pool = [l.passes_defended for _, l in pool]
+    td_pool = [l.defensive_touchdowns for _, l in pool]
 
     candidates: list[AwardCandidate] = []
     for (abbr, name), line in pool:
         score = (
-            0.30 * _normalize(line.sacks, sacks_pool)
-            + 0.30 * _normalize(line.interceptions, ints_pool)
-            + 0.15 * _normalize(line.tackles_for_loss, tfl_pool)
-            + 0.10 * _normalize(line.solo_tackles, tkl_pool)
-            + 0.10 * _normalize(line.forced_fumbles, ff_pool)
+            0.27 * _normalize(line.sacks, sacks_pool)
+            + 0.27 * _normalize(line.interceptions, ints_pool)
+            + 0.13 * _normalize(line.tackles_for_loss, tfl_pool)
+            + 0.09 * _normalize(line.solo_tackles, tkl_pool)
+            + 0.09 * _normalize(line.forced_fumbles, ff_pool)
             + 0.05 * _normalize(line.passes_defended, pd_pool)
+            + 0.10 * _normalize(line.defensive_touchdowns, td_pool)
         )
+        stat_line = f"{line.solo_tackles} tkl, {line.sacks} sacks, {line.tackles_for_loss} TFL, {line.interceptions} INT, {line.passes_defended} PD"
+        if line.defensive_touchdowns:
+            stat_line += f", {line.defensive_touchdowns} DEF TD"
         candidates.append(AwardCandidate(
             name=name, team_abbr=abbr, position="DEF",
-            stat_line=f"{line.solo_tackles} tkl, {line.sacks} sacks, {line.tackles_for_loss} TFL, {line.interceptions} INT, {line.passes_defended} PD",
+            stat_line=stat_line,
             score=score,
         ))
     return candidates
