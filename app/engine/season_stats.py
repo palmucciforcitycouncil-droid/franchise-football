@@ -25,6 +25,7 @@ class SeasonPassingLine:
     yards: int = 0
     touchdowns: int = 0
     interceptions: int = 0
+    sacks_taken: int = 0  # M13: box_score.py's PassingLine.sacks was already real per-game, just never rolled up into a season total before
 
 
 @dataclass
@@ -34,6 +35,7 @@ class SeasonRushingLine:
     carries: int = 0
     yards: int = 0
     touchdowns: int = 0
+    fumbles_lost: int = 0  # M13: box_score.py's RushingLine.fumbles_lost, same story as sacks_taken above
 
 
 @dataclass
@@ -83,11 +85,13 @@ def aggregate_season_stats(season):
                     line.yards += p.yards
                     line.touchdowns += p.touchdowns
                     line.interceptions += p.interceptions
+                    line.sacks_taken += p.sacks
                 for r in box.rushing:
                     line = rushing.setdefault((abbr, r.name), SeasonRushingLine(name=r.name, team_abbr=abbr))
                     line.carries += r.carries
                     line.yards += r.yards
                     line.touchdowns += r.touchdowns
+                    line.fumbles_lost += r.fumbles_lost
                 for rc in box.receiving:
                     line = receiving.setdefault((abbr, rc.name), SeasonReceivingLine(name=rc.name, team_abbr=abbr))
                     line.receptions += rc.receptions

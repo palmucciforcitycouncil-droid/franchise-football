@@ -9530,3 +9530,169 @@ This is a consolidated list of pending items for future development cycles.
 
 \- Update all hardcoded Windows file paths (e.g., C:\\\\Users\\\\bpalm\\\\...) to be relative paths from the project root (e.g., /data/reports/) to ensure the system is OS-agnostic.
 
+
+
+\# 12\\. Headlines Feature (MVP)
+
+
+
+\#\# 12.1 Overview
+
+
+
+"Weekly Headlines" is an AI-generated news briefing displayed at the top of the Dashboard after each weekly simulation. The feature synthesizes in-game events (upsets, records, milestones, standings shifts, injuries) into 3–5 punchy one-sentence headlines ranked by notability. Headlines are generated via API call to Claude (Anthropic) and cached in the save file. If no internet connection is available, a fallback message prompts the user to connect for headlines.
+
+
+
+\#\# 12.2 Event Detection \& Tier System
+
+
+
+After each weekly simulation completes, the game runs an event-detection pass to identify candidate stories, score them by tier and sub-criteria, and select the top 4–5 for headline generation.
+
+
+
+\#\#\# 12.2.1 Tier 1 — Mandatory (Auto-include if present)
+
+
+
+Events in Tier 1 always appear in the headline list. If multiple Tier 1 events occur in a single week, all are included (capped at 3 total).
+
+
+
+\*\*1a. Your Team — Standings/Playoff Implications\*\*
+
+
+
+\- Condition: User's team clinches division title, playoff spot, or \*\*playoff bye week\*\* (not regular bye)
+
+\- Condition: User's team is eliminated from playoff contention
+
+\- Condition: User's team takes or loses the division lead
+
+\- Data required: standings before/after, playoff seed/bye status
+
+\- Example: "Chiefs clinch AFC West and #1 seed bye"
+
+
+
+\*\*1b. Single-Season or Career Records\*\*
+
+
+
+\- Condition: Any player (any team) breaks a single-season franchise record (e.g., most passing yards, sacks, rushing TDs in a season) OR breaks an all-time historical NFL record
+
+\- Data required: player\_id, season stats, previous franchise single-season record, all-time record if applicable
+
+\- Example: "Mahomes breaks own single-season passing record with 4,847 yards"
+
+\- Exclusion: Do not include single-game records in this category; they belong in Tier 2.4
+
+
+
+\*\*1c. Major Upsets \& Dominant Blowouts\*\* (merged, equal weight)
+
+
+
+\- \*\*Upset condition:\*\* Away team has power\_rating >= 50 (bottom half) and beats opponent with power\_rating <= 25 (top quarter), OR losing-record team (losing %) beats winning team with top-3 record in conference
+
+\- \*\*Blowout condition:\*\* Margin of victory >= 21 points (any team)
+
+\- Data required: game result, both teams' power\_rating, records, final score
+
+\- Examples: "3-win Jets shock unbeaten Ravens in OT" / "49ers crush Texans 52-14"
+
+
+
+\#\#\# 12.2.2 Tier 2 — High Priority (if Tier 1 slots filled)
+
+
+
+Events in Tier 2 are scanned only after all Tier 1 events are added. If the headline list has fewer than 4 items, Tier 2 events fill remaining slots.
+
+
+
+\*\*2a. Statistical Milestones \& Your Team's Notable Performance\*\* (combined, stat milestones prioritized slightly higher)
+
+
+
+\- \*\*Stat milestones (higher sub-priority):\*\*
+
+\- Single-game: 300+ passing yards, 150+ rushing yards, 3+ interceptions thrown, 3+ sacks, 10+ tackles, 3+ pass breakups
+
+\- Season threshold: Any player's season total crosses 1,000 yards (passing or rushing) for the first time this season
+
+\- Franchise single-game records (non-season): e.g., most passing yards in a game (season records belong in Tier 1b)
+
+\- Data required: player\_id, stats, season totals, franchise single-game record for position/stat type
+
+\- Examples: "Mahomes posts 412 yards in prime-time win" / "RB Johnson becomes 5th Chief to cross 1,000 rushing yards"
+
+
+
+\- \*\*Your team's notable performance (lower sub-priority within Tier 2a):\*\*
+
+\- You win as heavy underdog (power\_rating difference >= 15)
+
+\- You lose as heavy favorite (power\_rating difference >= 15)
+
+\- You score 35+ points (offensive explosive output)
+
+\- You hold opponent to 10 or fewer points (defensive shutout/near-shutout)
+
+\- Data required: your team's power\_rating, opponent's, final score
+
+\- Examples: "Chiefs shock Ravens 24-21 behind late FG" / "Chiefs defense holds Broncos scoreless"
+
+
+
+\#\#\# 12.2.3 Tier 3 — Fill-in (if you need more stories to reach 4–5 headlines)
+
+
+
+Events in Tier 3 are scanned only if headline list has fewer than 4 items. Rank within tier by secondary criteria (e.g., streak length, injury severity).
+
+
+
+\*\*3a. Notable Injuries\*\* (starters only, highest Tier 3 priority)
+
+
+
+\- Condition: Player with overall\_rating >= 80 OR listed as depth\_chart starter for position is placed on injury list
+
+\- Data required: player\_id, overall\_rating, position, injury type, expected return week
+
+\- Example: "Ravens' star safety ruled out for season with knee injury"
+
+
+
+\*\*3b. Close Games / Dramatic Finishes\*\* (one-score margin or comebacks)
+
+
+
+\- Condition: Final margin <= 3 points, OR team trails by 14+ at any half and wins
+
+\- Data required: game result, score\_by\_quarter for both teams
+
+\- Example: "Cowboys stun Eagles in OT after trailing 20-3 at halftime"
+
+
+
+\*\*3c. Win/Loss Streaks\*\* (round numbers only)
+
+
+
+\- Condition: Team reaches 5, 7, or 10-game win or losing streak
+
+\- Data required: team's record, recent game results
+
+\- Example: "Steelers snap 5-game losing streak with win over Ravens"
+
+
+
+\#\# 12.3 Event Scoring \& Candidate Selection Algorithm
+
+
+
+\*(Pending — not yet specified. Brian's source paste ended at this heading; fill in the scoring/selection algorithm detail here before this section is implemented.)\*
+

@@ -23,19 +23,41 @@
 </div>
 
 {% if team %}
+<div class="card">
+  <details>
+    <summary>&#9881; Auto-Fill Depth Chart</summary>
+    <div style="padding-top: 0.75rem;">
+      <p class="muted">Assigns the best available player at each slot by OVR, across every position group on this team.</p>
+      <form method="post" action="/depth-chart/{{ team.abbr }}/auto-fill">
+        <div class="filter-checkbox-grid" style="margin-bottom: 0.75rem;">
+          <label class="filter-checkbox"><input type="checkbox" name="respect_fatigue" value="true" checked> Respect Fatigue <span class="muted" style="font-size: 0.75rem;">(prefer higher STA within 2 OVR)</span></label>
+          <label class="filter-checkbox"><input type="checkbox" name="lock_starters" value="true"> Lock Starters <span class="muted" style="font-size: 0.75rem;">(only re-sort backups)</span></label>
+        </div>
+        <p class="muted" style="font-size: 0.78rem;">Respect Injuries and Allow Cross-Training aren't offered &mdash; no in-season health status or secondary-position data exists in this engine yet.</p>
+        <button type="submit">Apply Auto-Fill</button>
+      </form>
+    </div>
+  </details>
+</div>
 {% for group in groups %}
 <div class="card">
   <h3>{{ group.position }}</h3>
   <table>
-    <thead><tr><th></th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th><th></th></tr></thead>
+    <thead><tr><th></th><th>#</th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th><th>SPD</th><th>STR</th><th>AGI</th><th>AWR</th><th>STA</th><th></th></tr></thead>
     <tbody>
       {% for p in group.players %}
       <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}">
         <td>{{ loop.index }}</td>
+        <td>{{ p.jersey_number }}</td>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.age }}</td>
         <td>{{ p.overall_rating }}</td>
         <td>{{ p.potential }}</td>
+        <td>{{ p.speed }}</td>
+        <td>{{ p.strength }}</td>
+        <td>{{ p.agility }}</td>
+        <td>{{ p.awareness }}</td>
+        <td>{{ p.stamina }}</td>
         <td class="depth-actions">
           {% if not loop.first %}
           <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move">

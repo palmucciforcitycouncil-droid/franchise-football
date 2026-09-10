@@ -13,15 +13,19 @@
 {% if new_inductees %}
 <div class="card" style="border-color: var(--gold);">
   <h3 style="color: var(--gold);">⭐ Class of Season {{ current_season_label }} Inductees</h3>
-  <div class="hof-grid">
+  <div class="hof-grid inductees">
     {% for c in new_inductees %}
     <div class="hof-inductee-card">
       <div class="hof-name">{{ player_link_or_name(c.name, c.team_abbr) }}</div>
       <div class="hof-meta">{{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</div>
-      <ul class="hof-achievements">
-        <li>{{ c.stat_line }}</li>
-        {% if c.award_wins %}<li>{{ c.award_wins }} MVP/OPOY/DPOY/ROY award{{ "s" if c.award_wins != 1 else "" }} won</li>{% endif %}
-      </ul>
+      {% if c.award_wins %}<div class="muted" style="font-size: 0.82rem; margin-bottom: 0.4rem;">{{ c.award_wins }} MVP/OPOY/DPOY/ROY award{{ "s" if c.award_wins != 1 else "" }} won</div>{% endif %}
+      <table class="boxtable hof-stat-table">
+        <tbody>
+          {% for label, value in c.stats %}
+          <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
     {% endfor %}
   </div>
@@ -35,7 +39,7 @@
   {% for c in eligible %}
   <div class="hof-eligible-row">
     <div class="hof-eligible-main">
-      <div>{{ player_link_or_name(c.name, c.team_abbr) }} <span class="muted">&middot; {{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</span></div>
+      <div>{{ player_link_or_name(c.name, c.team_abbr) }} <span class="muted">&middot; {{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</span>{% if c.progress_pct >= 75 %} <span class="hof-strong-candidate">Strong Candidate</span>{% endif %}</div>
       <div class="muted" style="font-size: 0.82rem;">{{ c.stat_line }}</div>
     </div>
     <div>
@@ -67,14 +71,20 @@
   </form>
 
   {% if members %}
-  <p class="muted">Showing {{ members|length }} of {{ total_members }} member{{ "s" if total_members != 1 else "" }}.</p>
-  <div class="hof-grid">
+  <p class="muted">Showing {{ members|length }} of {{ total_members }} member{{ "s" if total_members != 1 else "" }}. Induction year isn't tracked yet -- see history_store.py's HOFCandidate docstring for why.</p>
+  <div class="hof-grid members">
     {% for c in members %}
     <div class="hof-member-card">
       <div class="hof-name">{{ player_link_or_name(c.name, c.team_abbr) }}</div>
       <div class="hof-meta">{{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</div>
-      <div class="muted" style="font-size: 0.85rem; margin-bottom: 0.4rem;">{{ c.stat_line }}</div>
-      {% if c.award_wins %}<div class="muted" style="font-size: 0.82rem;">{{ c.award_wins }} award{{ "s" if c.award_wins != 1 else "" }} won</div>{% endif %}
+      {% if c.award_wins %}<div class="muted" style="font-size: 0.82rem; margin-bottom: 0.4rem;">{{ c.award_wins }} award{{ "s" if c.award_wins != 1 else "" }} won</div>{% endif %}
+      <table class="boxtable hof-stat-table">
+        <tbody>
+          {% for label, value in c.stats %}
+          <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
       <div class="hof-score">HOF Score: {{ "%.2f"|format(c.score) }}</div>
     </div>
     {% endfor %}

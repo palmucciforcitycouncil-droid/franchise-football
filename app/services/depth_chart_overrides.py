@@ -17,6 +17,7 @@ there's no FB usage or K/P starter slot wired up (see HANDOFF's
 the depth chart UI doesn't need special-case logic per position.
 """
 from __future__ import annotations
+import functools
 import json
 from pathlib import Path
 
@@ -72,3 +73,60 @@ def move_player(team_abbr: str, position_value: str, current_order_ids: list[str
     if 0 <= j < len(ids):
         ids[i], ids[j] = ids[j], ids[i]
     set_order(team_abbr, position_value, ids, path)
+
+
+def _compare_for_autofill(a, b, respect_fatigue: bool) -> int:
+    """M15 correction: the real comparator AutoFillModal.tsx/
+    mockDepthChartApi.ts's autoFillDepthChart() specifies -- OVR desc,
+    with a fatigue-aware tiebreak (prefer higher STA when two players
+    are within 2 OVR of each other), then AWR, then STA outright, then
+    a durability tiebreak (this engine's real analog of the source's
+    `injury_proneness`: HIGHER durability = LOWER proneness, so this
+    sorts descending to match the source's ascending-proneness
+    preference -- see Player's own module docstring for the `99 -
+    durability` relationship), then last name."""
+    if respect_fatigue and abs(a.overall_rating - b.overall_rating) <= 2 and a.stamina != b.stamina:
+        return b.stamina - a.stamina
+    if a.overall_rating != b.overall_rating:
+        return b.overall_rating - a.overall_rating
+    if a.awareness != b.awareness:
+        return b.awareness - a.awareness
+    if a.stamina != b.stamina:
+        return b.stamina - a.stamina
+    if a.durability != b.durability:
+        return b.durability - a.durability
+    return -1 if a.last_name < b.last_name else (1 if a.last_name > b.last_name else 0)
+
+
+def auto_fill(
+    team_abbr: str,
+    players_by_position: dict,
+    starter_counts: dict,
+    respect_fatigue: bool = True,
+    lock_starters: bool = False,
+    path: Path | None = None,
+) -> None:
+    """Real Auto-Fill (AutoFillModal.tsx/mockDepthChartApi.ts's
+    autoFillDepthChart(): OVR-based sort with a fatigue-aware tiebreak).
+    Two of the source's four toggles aren't offered here, disclosed
+    rather than faked: 'Respect Injuries' needs an in-season health-
+    status field this engine's Player model doesn't have (only the
+    Madden `durability` rating -- a toughness attribute, not a current
+    injury flag), and 'Allow Cross-Training' needs a secondary/cross-
+    train position concept Player also doesn't have (this engine's
+    granular Madden position scheme has no notion of a listed alternate
+    position). Both are real, disclosed gaps, not implementation
+    shortcuts -- see the Depth Chart page's own audit note in
+    ROADMAP.md Sec2b. 'Lock Starters' keeps whoever currently holds each
+    position's real starter slot(s) (`starter_counts`, e.g. 3 for WR)
+    unchanged and only re-sorts the backups behind them."""
+    for position, players in players_by_position.items():
+        starter_n = starter_counts.get(position, 1)
+        if lock_starters:
+            current = resolve_order(team_abbr, position.value, players, path)
+            locked, rest = current[:starter_n], current[starter_n:]
+        else:
+            locked, rest = [], list(players)
+        rest_sorted = sorted(rest, key=functools.cmp_to_key(lambda a, b: _compare_for_autofill(a, b, respect_fatigue)))
+        ordered = locked + rest_sorted
+        set_order(team_abbr, position.value, [p.player_id for p in ordered], path)

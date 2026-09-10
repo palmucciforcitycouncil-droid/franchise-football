@@ -159,7 +159,7 @@
     dialog#player-card-modal {
       background: var(--panel); color: var(--text);
       border: 1px solid var(--border); border-radius: 10px;
-      padding: 0; width: 580px; max-width: 92vw; max-height: 85vh;
+      padding: 0; width: 820px; max-width: 95vw; max-height: 85vh;
     }
     dialog#player-card-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
     .pc-header {
@@ -207,6 +207,12 @@
       margin: 1rem 0 0.5rem;
     }
     .pc-stat-heading:first-child { margin-top: 0; }
+    .pc-stat-table-wrap { overflow-x: auto; margin-bottom: 0.5rem; }
+    .pc-stat-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: nowrap; }
+    .pc-stat-table th, .pc-stat-table td { padding: 0.35rem 0.6rem; text-align: right; border-bottom: 1px solid var(--border); }
+    .pc-stat-table th:first-child, .pc-stat-table td:first-child { text-align: left; }
+    .pc-stat-table th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
+    .pc-stat-career-row td { color: var(--gold); font-weight: 600; border-top: 2px solid var(--border); }
 
     /* Playoffs page: tab view switcher + bracket tree (GDD Sec 10.4.6) --
        colors/structure adapted from the real Figma PlayoffsPage.tsx
@@ -247,9 +253,49 @@
     .sb-card.big .matchup-team { font-size: 1.4rem; }
 
     .hunt-cards { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-    .hunt-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; min-width: 140px; }
+    .hunt-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; min-width: 160px; }
+    .hunt-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.3rem; }
     .hunt-card .hunt-team { font-weight: 600; }
     .hunt-card .hunt-record { color: var(--muted); font-size: 0.82rem; }
+    .hunt-card .hunt-if-in { text-align: right; font-size: 0.72rem; color: var(--muted); }
+    .hunt-card .hunt-if-in strong { display: block; color: var(--gold); font-size: 0.9rem; }
+    .hunt-card .hunt-gb { font-size: 0.78rem; }
+    .hunt-card .hunt-gb strong { color: #e74c3c; }
+
+    /* Playoffs correction (M12, real source: FullPlayoffTree.tsx/
+       ConferenceBracket.tsx/SuperBowlView.tsx/HuntCard.tsx). A connected-
+       looking tree via column stagger (inline padding-top per column,
+       same one-off-spacing convention already used elsewhere in these
+       templates) rather than the source's SVG connector paths -- a
+       plain-CSS substitution, not a structural gap. */
+    .full-tree-grid { display: grid; grid-template-columns: repeat(9, minmax(90px, 1fr)); gap: 0.6rem; overflow-x: auto; }
+    .tree-col-label { text-align: center; color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.4rem; }
+    .matchup-card.compact { padding: 0.4rem 0.5rem; margin-bottom: 0.5rem; }
+    .matchup-card.compact .matchup-team { font-size: 0.78rem; padding: 0.1rem 0; }
+    .matchup-card.compact .matchup-team .seed { font-size: 0.68rem; }
+    .champ-card {
+      background: var(--bg); border: 2px solid var(--border); border-radius: 8px;
+      padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem;
+    }
+    .champ-card.afc { border-color: #dc2626; }
+    .champ-card.nfc { border-color: #1e40af; }
+    .champ-card .champ-seed { color: var(--gold); font-size: 0.7rem; }
+    .champ-card .champ-name { font-weight: 700; }
+    .champ-card.tbd { border-color: var(--border); color: var(--muted); }
+    .conf-col-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; overflow-x: auto; }
+
+    .sb-champions-banner {
+      background: linear-gradient(90deg, var(--gold), #f4d03f); color: #1a1200;
+      border-radius: 6px; padding: 0.5rem; text-align: center; font-weight: 700;
+      font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.75rem;
+    }
+    .sb-wc-preview-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem; align-items: start; margin-bottom: 1.5rem; }
+    .sb-wc-side h4 { text-align: center; margin-bottom: 0.75rem; }
+    .sb-wc-arrow { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 0.5rem; }
+    @media (max-width: 900px) {
+      .sb-wc-preview-grid { grid-template-columns: 1fr; }
+      .conf-col-4 { grid-template-columns: repeat(2, 1fr); }
+    }
 
     .division-standings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     .division-standings-grid table { width: 100%; }
@@ -294,6 +340,80 @@
     }
     .view-toggle-link.active { background: var(--gold); color: #1a1200; font-weight: 600; }
 
+    /* Roster page correction (M11, real source: RosterTable.tsx/
+       FilterPanel.tsx/TopFreeAgentsBox.tsx/FindPlayerBox.tsx). Quota
+       pills as real links (met/short color per RosterTable.tsx's own
+       thresholds), a sticky first column + horizontal scroll for the
+       now much-wider attributes table (single scroll container, not the
+       source's synced dual top/bottom scrollbar -- a reasonable plain-
+       HTML substitution), and an OVR color badge (green >=90, blue >=80,
+       yellow >=70, gray below -- RosterTable.tsx's own thresholds). */
+    .quota-pill {
+      display: inline-block; padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.78rem;
+      text-decoration: none; border: 1px solid; cursor: pointer;
+    }
+    .quota-pill.met { color: #4ade80; border-color: rgba(74, 222, 128, 0.35); background: rgba(74, 222, 128, 0.1); }
+    .quota-pill.short { color: #f87171; border-color: rgba(248, 113, 113, 0.35); background: rgba(248, 113, 113, 0.1); }
+    .quota-pill.active { outline: 2px solid var(--gold); outline-offset: 1px; }
+    .roster-table-wrap { overflow-x: auto; }
+    .roster-table-wrap table { white-space: nowrap; }
+    .roster-table-wrap th:first-child, .roster-table-wrap td:first-child {
+      position: sticky; left: 0; background: var(--panel); z-index: 1;
+    }
+    .roster-table-wrap tr.starter td:first-child { background: var(--panel); }
+    .roster-table-wrap tbody tr { cursor: pointer; }
+    .roster-table-wrap tbody tr:hover { background: rgba(45, 74, 111, 0.3); }
+    .ovr-badge { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px; font-variant-numeric: tabular-nums; }
+    .ovr-badge.tier-elite { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+    .ovr-badge.tier-good { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+    .ovr-badge.tier-avg { background: rgba(234, 179, 8, 0.2); color: #facc15; }
+    .ovr-badge.tier-low { background: rgba(148, 163, 184, 0.2); color: var(--muted); }
+
+    .roster-filter-panel { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem; }
+    .roster-filter-panel summary { cursor: pointer; padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.9rem; }
+    .roster-filter-panel summary::-webkit-details-marker { display: none; }
+    .roster-filter-panel summary::before { content: "▸ "; }
+    .roster-filter-panel[open] summary::before { content: "▾ "; }
+    .roster-filter-body { padding: 0 0.9rem 0.9rem; }
+    .filter-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 0.3rem 0.75rem; margin-bottom: 1rem; }
+    .filter-checkbox { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--text); margin-bottom: 0; }
+    .filter-checkbox input { width: auto; }
+    .filter-range-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+    .filter-range-grid label { margin-bottom: 0.2rem; }
+    .filter-range-grid .range-inputs { display: flex; gap: 0.4rem; align-items: center; }
+    .filter-range-grid input[type="number"] { width: 100%; padding: 0.35rem 0.5rem; }
+    .filter-query-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.75rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
+    .filter-actions { display: flex; gap: 0.6rem; }
+
+    .roster-quick-boxes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; }
+    @media (max-width: 700px) { .roster-quick-boxes { grid-template-columns: 1fr; } }
+    .fa-pager { display: flex; align-items: center; gap: 0.5rem; }
+    .fa-pager a { color: var(--muted); text-decoration: none; padding: 0.1rem 0.4rem; }
+    .fa-pager a:hover { color: var(--text); }
+    .fa-row, .find-row {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.5rem 0.7rem; margin-bottom: 0.5rem; font-size: 0.85rem;
+    }
+    .fa-row-top, .find-row-top { display: flex; justify-content: space-between; margin-bottom: 0.2rem; }
+    .fa-row-bottom, .find-row-bottom { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.78rem; }
+
+    /* Weekly Gameplan tooltips (real source: CoachGameplanSection.tsx's
+       per-setting HelpCircle + Tooltip -- real copy carried over as-is,
+       not fabricated). Pure CSS hover, no JS needed. */
+    .gp-tooltip { position: relative; display: inline-flex; align-items: center; }
+    .gp-help-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--muted);
+      color: var(--muted); font-size: 0.68rem; margin-left: 0.3rem; cursor: help; flex-shrink: 0;
+    }
+    .gp-tooltip-content {
+      display: none; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.5rem 0.6rem; width: 220px; font-size: 0.78rem; font-weight: 400;
+      color: var(--text); line-height: 1.35; z-index: 20; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .gp-tooltip:hover .gp-tooltip-content { display: block; }
+
     /* Hall of Fame page (GDD Sec 10.4.8, ROADMAP.md M5): induction-
        workflow layout (Class of Season N Inductees / Eligible Candidates
        / full Members grid) plus the League Record Book / Super Bowl
@@ -304,6 +424,21 @@
        client-side React state. */
     .hof-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; }
     .hof-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    /* M14 correction: Figma caps Members at 3 columns (lg:grid-cols-3)
+       and Inductees at 2 (md:grid-cols-2) -- the shared auto-fill above
+       can exceed both on a wide screen. */
+    .hof-grid.members { grid-template-columns: repeat(3, 1fr); }
+    .hof-grid.inductees { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 900px) {
+      .hof-grid.members, .hof-grid.inductees { grid-template-columns: 1fr; }
+    }
+    .hof-stat-table { margin: 0.4rem 0; font-size: 0.82rem; }
+    .hof-stat-table td:first-child { color: var(--muted); }
+    .hof-strong-candidate {
+      display: inline-block; background: rgba(74, 222, 128, 0.15); color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.35); border-radius: 4px;
+      padding: 0.05rem 0.4rem; font-size: 0.7rem; font-weight: 600; vertical-align: middle;
+    }
     .hof-inductee-card, .hof-member-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
     .hof-inductee-card { border-color: var(--gold); }
     .hof-name { font-weight: 700; margin-bottom: 0.15rem; }
@@ -324,12 +459,15 @@
     .record-card ol { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
     .record-card li { margin-bottom: 0.2rem; }
 
-    /* Dashboard page (GDD Sec 10.4.1, ROADMAP.md M9): the real Figma
-       3-column grid (docs/figma-export/src/app/DASHBOARD_DOCUMENTATION.md,
-       lines ~43-59) -- row 1 is three equal columns (Division Standings /
-       Team Schedule / Scouting Panel); rows 2-3 keep the left column
-       narrow (League Power Rankings stacked on Top Performers) while
-       Box Score and Play-by-Play each span the remaining two columns.
+    /* Dashboard page (GDD Sec 10.4.1, ROADMAP.md M10): the real Figma
+       3-column grid, verified against the actual component source
+       (docs/figma-export/src/app/App.tsx:99-133) rather than the stale
+       DASHBOARD_DOCUMENTATION.md M9 mistakenly built from -- that doc
+       omits WeeklyGameplanBox from the grid entirely. Row 1: Weekly
+       Gameplan / Team Schedule / Scouting Panel. Column 1 then
+       continues down (row 2-3 span) with Division Standings, League
+       Power Rankings, and Top Performers stacked. Box Score and
+       Play-by-Play each span the remaining two columns in rows 2-3.
        align-items: start keeps each card's own height instead of every
        card in a row stretching to match the tallest (the Scouting Panel
        card runs much taller than its row-mates). Collapses to one
@@ -343,11 +481,53 @@
     }
     .dashboard-grid .card { margin-bottom: 0; }
     .dashboard-span-2 { grid-column: span 2; }
+    .dashboard-col1-stack {
+      grid-column: 1; grid-row: 2 / span 2;
+      display: flex; flex-direction: column; gap: 1.5rem;
+    }
     .dashboard-scroll { max-height: 420px; overflow-y: auto; }
     @media (max-width: 900px) {
       .dashboard-grid { grid-template-columns: 1fr; }
       .dashboard-span-2 { grid-column: span 1; }
+      .dashboard-col1-stack { grid-column: 1; grid-row: auto; }
     }
+
+    /* Dashboard Scouting Panel tabs (M10): same vanilla-JS show/hide
+       pattern as the Player Card's .pc-tab (see base.html's script
+       block), styled to match this card-embedded context instead of a
+       modal. Two rows of 3, mirroring ScoutingPanel.tsx's own
+       `grid-cols-3` TabsList x2 -- 6 tabs don't fit legibly in one row
+       at this card's ~1/3-page width. */
+    .dash-tabs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.35rem; margin-bottom: 0.35rem; }
+    .dash-tab {
+      background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 6px; padding: 0.4rem 0.3rem; font-size: 0.78rem; cursor: pointer; text-align: center;
+      font-family: inherit;
+    }
+    .dash-tab.active { background: var(--border); color: var(--text); font-weight: 600; }
+    .dash-panel[hidden] { display: none; }
+    .dash-stat-row { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 0.3rem 0; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
+    .dash-stat-row:last-child { border-bottom: none; }
+    .dash-subhead { color: var(--gold); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0.9rem 0 0.4rem; }
+    .dash-subhead:first-child { margin-top: 0; }
+
+    /* Dashboard Team Schedule row-list (M10): TeamSchedule.tsx's row
+       styling (colored W/L pill, bold winning score) instead of the
+       plain table M9 used. */
+    .schedule-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.55rem 0.4rem; border-radius: 6px; gap: 0.75rem;
+    }
+    .schedule-row:hover { background: rgba(45, 74, 111, 0.3); }
+    .schedule-row.current-week { background: rgba(212, 175, 55, 0.08); }
+    .schedule-meta { color: var(--muted); font-size: 0.85rem; }
+    .schedule-score .win { font-weight: 700; }
+    .schedule-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 26px; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.78rem; font-weight: 700;
+    }
+    .schedule-badge.win { background: rgba(34, 197, 94, 0.18); color: #4ade80; }
+    .schedule-badge.loss { background: rgba(239, 68, 68, 0.18); color: #f87171; }
   </style>
 </head>
 <body>
@@ -376,7 +556,7 @@
   {% set nav_links = [
     ("/dashboard", "Dashboard"), ("/", "Simulate"), ("/season", "Season"), ("/roster", "Roster"),
     ("/depth-chart", "Depth Chart"), ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
-    ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/history", "History"), ("/hof", "Hall of Fame"),
+    ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/history", "History"), ("/hof", "HOF"),
   ] %}
   <nav class="subnav">
     {% for href, label in nav_links %}
@@ -434,32 +614,31 @@
           '<div class="pc-bar-track"><div class="pc-bar-fill" style="width:' + Math.max(0, Math.min(100, value)) + '%"></div></div></div>';
       }
 
-      // M6: history_store.career_stats() (real, already tested) now
-      // reaches the UI through this JSON blob -- see _career_stats_for()
-      // in main.py. Only ARCHIVED seasons count (see that function's own
-      // docstring), so a player with no completed season yet shows the
-      // "no career stats" fallback, not a fabricated zero line.
-      var CAREER_STAT_LABELS = {
-        passing: { heading: 'Career Passing', fields: [
-          ['completions', 'Completions'], ['attempts', 'Pass Attempts'], ['yards', 'Passing Yards'],
-          ['touchdowns', 'Passing TDs'], ['interceptions', 'Interceptions Thrown'],
+      // Player Card Stats tab (Brian's request): a real Madden-style
+      // year-by-year table per category, instead of the old single
+      // combined career total -- see _season_by_season_stats_for() in
+      // main.py for how each row is built (current in-progress season,
+      // every archived season most-recent-first, then a Career summary
+      // row). '--' renders for any derived field (pct/ypa/rating/avg)
+      // that's None (e.g. 0 attempts that season).
+      var SEASON_STAT_COLUMNS = {
+        passing: { heading: 'Passing', fields: [
+          ['completions', 'Comp'], ['attempts', 'Att'], ['pct', 'Pct'], ['yards', 'Yds'],
+          ['ypa', 'Y/A'], ['touchdowns', 'TD'], ['interceptions', 'Int'], ['sacks_taken', 'Sk'], ['rating', 'Rate'],
         ] },
-        rushing: { heading: 'Career Rushing', fields: [
-          ['carries', 'Rush Attempts'], ['yards', 'Rushing Yards'], ['touchdowns', 'Rushing TDs'],
+        rushing: { heading: 'Rushing', fields: [
+          ['carries', 'Att'], ['yards', 'Yds'], ['avg', 'Avg'], ['touchdowns', 'TD'], ['fumbles_lost', 'Fum'],
         ] },
-        receiving: { heading: 'Career Receiving', fields: [
-          ['targets', 'Targets'], ['receptions', 'Receptions'], ['yards', 'Receiving Yards'], ['touchdowns', 'Receiving TDs'],
+        receiving: { heading: 'Receiving', fields: [
+          ['targets', 'Tgt'], ['receptions', 'Rec'], ['yards', 'Yds'], ['avg', 'Avg'], ['touchdowns', 'TD'],
         ] },
-        defense: { heading: 'Career Defense', fields: [
-          ['solo_tackles', 'Solo Tackles'], ['tackles_for_loss', 'Tackles for Loss'], ['sacks', 'Sacks'],
-          ['interceptions', 'Interceptions'], ['passes_defended', 'Passes Defended'],
-          ['forced_fumbles', 'Forced Fumbles'], ['fumble_recoveries', 'Fumble Recoveries'],
-          ['defensive_touchdowns', 'Defensive TDs'],
+        defense: { heading: 'Defense', fields: [
+          ['solo_tackles', 'Tkl'], ['tackles_for_loss', 'TFL'], ['sacks', 'Sk'], ['interceptions', 'Int'],
+          ['passes_defended', 'PD'], ['forced_fumbles', 'FF'], ['fumble_recoveries', 'FR'], ['defensive_touchdowns', 'TD'],
         ] },
       };
-      var CAREER_STAT_ORDER = ['passing', 'rushing', 'receiving', 'defense'];
-      var NO_CAREER_STATS_HTML = '<p class="muted">No archived career stats yet -- these fill in once a season is completed (Start Next Season). ' +
-        'See <a href="/stats">Stats</a> for this season in progress.</p>';
+      var SEASON_STAT_ORDER = ['passing', 'rushing', 'receiving', 'defense'];
+      var NO_CAREER_STATS_HTML = '<p class="muted">No stats yet this season, and no archived seasons either -- these fill in once games are played.</p>';
 
       // M8: Player.salary/signing_bonus are real, already-imported Madden
       // data (see player.py's own docstring) that simply had no UI consumer
@@ -478,17 +657,28 @@
           '<p class="muted">Contract length, years remaining, and cap space aren\'t modeled yet -- Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md\'s Known Gaps).</p>';
       }
 
-      function statsPanel(career) {
-        if (!career) { return NO_CAREER_STATS_HTML; }
+      function statCell(v) {
+        return (v === null || v === undefined) ? '--' : v;
+      }
+
+      function statsPanel(seasonStats) {
+        if (!seasonStats) { return NO_CAREER_STATS_HTML; }
         var html = '';
-        CAREER_STAT_ORDER.forEach(function (cat) {
-          var line = career[cat];
-          if (!line) { return; }
-          var spec = CAREER_STAT_LABELS[cat];
-          html += '<div class="pc-stat-heading">' + spec.heading + ' · ' + line.seasons + (line.seasons === 1 ? ' season' : ' seasons') + '</div>';
-          spec.fields.forEach(function (f) {
-            html += '<div class="pc-row"><span class="pc-row-label">' + f[1] + '</span><span>' + line[f[0]] + '</span></div>';
+        SEASON_STAT_ORDER.forEach(function (cat) {
+          var rows = seasonStats[cat];
+          if (!rows || !rows.length) { return; }
+          var spec = SEASON_STAT_COLUMNS[cat];
+          html += '<div class="pc-stat-heading">' + spec.heading + '</div>';
+          html += '<div class="pc-stat-table-wrap"><table class="pc-stat-table"><thead><tr><th>Season</th>';
+          spec.fields.forEach(function (f) { html += '<th>' + f[1] + '</th>'; });
+          html += '</tr></thead><tbody>';
+          rows.forEach(function (row) {
+            var isCareer = row.season_label.indexOf('Career') === 0;
+            html += '<tr' + (isCareer ? ' class="pc-stat-career-row"' : '') + '><td>' + row.season_label + '</td>';
+            spec.fields.forEach(function (f) { html += '<td>' + statCell(row[f[0]]) + '</td>'; });
+            html += '</tr>';
           });
+          html += '</tbody></table></div>';
         });
         return html || NO_CAREER_STATS_HTML;
       }
@@ -524,7 +714,40 @@
         modal.showModal();
       }
 
+      // M13: Stats page column-chooser search (StatColumnChooser.tsx's live
+      // filter) -- pure display filtering of the already-rendered checkbox
+      // grid, no reload and no state change, same spirit as the .dash-tab/
+      // .pc-tab show-hide handlers below rather than a second GET-param
+      // round trip for something this cheap to do client-side.
+      var statsSearch = document.querySelector('.stats-column-search');
+      if (statsSearch) {
+        statsSearch.addEventListener('input', function () {
+          var q = statsSearch.value.trim().toLowerCase();
+          document.querySelectorAll('.stats-category').forEach(function (cat) {
+            var anyVisible = false;
+            cat.querySelectorAll('.stats-checkbox').forEach(function (label) {
+              var match = !q || label.textContent.toLowerCase().indexOf(q) !== -1;
+              label.hidden = !match;
+              if (match) { anyVisible = true; }
+            });
+            cat.hidden = !anyVisible;
+          });
+        });
+      }
+
       document.addEventListener('click', function (e) {
+        // M11: Roster table row click opens the Player Card (RosterTable.tsx's
+        // own whole-row onClick), not just the name link inside it.
+        var rosterRow = e.target.closest('tr[data-card]');
+        if (rosterRow && !e.target.closest('a, button')) {
+          try {
+            openCard(JSON.parse(rosterRow.dataset.card));
+          } catch (err) {
+            console.error('Failed to parse player card data', err);
+          }
+          return;
+        }
+
         var trigger = e.target.closest('.player-link');
         if (trigger) {
           try {
@@ -544,6 +767,19 @@
           tabBtn.classList.add('active');
           document.querySelectorAll('.pc-panel').forEach(function (p) { p.hidden = true; });
           document.getElementById('pc-panel-' + tabBtn.dataset.tab).hidden = false;
+          return;
+        }
+
+        // M10: Dashboard Scouting Panel tabs -- same show/hide pattern as
+        // .pc-tab above, scoped to the enclosing .card so more than one
+        // .dash-tabs-grid on a page (none today) wouldn't cross-toggle.
+        var dashTabBtn = e.target.closest('.dash-tab');
+        if (dashTabBtn) {
+          var dashCard = dashTabBtn.closest('.card');
+          dashCard.querySelectorAll('.dash-tab').forEach(function (b) { b.classList.remove('active'); });
+          dashTabBtn.classList.add('active');
+          dashCard.querySelectorAll('.dash-panel').forEach(function (p) { p.hidden = true; });
+          dashCard.querySelector('.dash-panel[data-panel="' + dashTabBtn.dataset.tab + '"]').hidden = false;
         }
       });
     })();

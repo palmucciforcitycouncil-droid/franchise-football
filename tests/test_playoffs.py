@@ -387,8 +387,13 @@ def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
 
     resp = client.get("/playoffs")  # default view=full, builds WC round
     assert resp.status_code == 200
-    assert "American Conference" in resp.text
-    assert "National Conference" in resp.text
+    # M12: Full Bracket is a real connected 9-column tree now (real source:
+    # FullPlayoffTree.tsx), not two "American/National Conference" prose
+    # headers over 3 stacked blocks -- Figma's own tree has no such text,
+    # just AFC/NFC badges and a Champion column per side, so those are the
+    # real markers to check for instead.
+    assert "AFC Champ" in resp.text
+    assert "NFC Champ" in resp.text
 
     resp = client.get("/playoffs?view=afc")
     assert resp.status_code == 200
@@ -405,7 +410,7 @@ def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
 
     resp = client.get("/playoffs?view=not-a-real-view")  # invalid falls back to "full"
     assert resp.status_code == 200
-    assert "American Conference" in resp.text
+    assert "AFC Champ" in resp.text
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")

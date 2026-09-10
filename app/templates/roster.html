@@ -26,62 +26,146 @@
 {% if team %}
 <div class="card">
   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-    <h3>{{ team.location }} ({{ team.abbr }}) &mdash; {{ players | length }} players</h3>
+    <h3>{{ team.location }} ({{ team.abbr }}) &mdash; {{ players | length }} players{% if generated_query %} matching filters{% endif %}</h3>
     <div style="display: flex; gap: 0.5rem;">
       <!-- View Toggle -->
       <div style="display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.25rem;">
         <a href="/roster?team_abbr={{ team.abbr }}&view=attributes" class="view-toggle-link {% if view == 'attributes' %}active{% endif %}">Attributes</a>
         <a href="/roster?team_abbr={{ team.abbr }}&view=stats" class="view-toggle-link {% if view == 'stats' %}active{% endif %}">Stats</a>
       </div>
-      <!-- Filter & Export Buttons -->
-      <button onclick="alert('Filter controls — coming soon')" type="button">🔍 Filter</button>
       <button onclick="alert('Export to Sheets — coming soon')" type="button">⬇ Export</button>
     </div>
   </div>
 
   {% if position_quotas and team.abbr != 'FA' %}
   <div style="margin-bottom: 1rem;">
-    <div style="font-size: 0.875rem; font-weight: 600; color: var(--muted); margin-bottom: 0.5rem;">Team Quota</div>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+      <div style="font-size: 0.875rem; font-weight: 600; color: var(--muted);">Team Quota</div>
+      {% if position_filter %}<a href="{{ all_pill_link }}" class="muted" style="font-size: 0.78rem;">&times; Clear position filter</a>{% endif %}
+    </div>
     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-      {% for pos in ['QB', 'RB', 'WR', 'TE', 'C', 'G', 'T', 'DE', 'DT', 'LB', 'CB', 'S', 'K', 'P'] %}
-      {% if pos in position_quotas %}
+      <a href="{{ all_pill_link }}" class="quota-pill {% if total_roster_count >= max_roster_size %}met{% else %}short{% endif %} {% if not position_filter %}active{% endif %}">ALL {{ total_roster_count }}/{{ max_roster_size }}</a>
+      {% for pos in quota_pill_links %}
       {% set quota = position_quotas[pos] %}
-      {% set is_met = quota.current >= quota.min %}
-      {% set quota_color = '#4ade80' if is_met else '#ef4444' %}
-      <div style="display: inline-block; padding: 0.25rem 0.5rem; border: 1px solid {{ quota_color }}; border-radius: 0.25rem; font-size: 0.75rem; color: {{ quota_color }}; background: color-mix(in srgb, {{ quota_color }} 10%, transparent);">
-        {{ pos }} {{ quota.current }}/{{ quota.min }}
-      </div>
-      {% endif %}
+      <a href="{{ quota_pill_links[pos] }}" class="quota-pill {% if quota.current >= quota.min %}met{% else %}short{% endif %} {% if position_filter == [pos] %}active{% endif %}">{{ pos }} {{ quota.current }}/{{ quota.min }}</a>
       {% endfor %}
     </div>
   </div>
   {% endif %}
 
+  <details class="roster-filter-panel">
+    <summary>🔍 Filter Roster{% if generated_query %} (active){% endif %}</summary>
+    <div class="roster-filter-body">
+      <form method="get" action="/roster">
+        <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
+        <input type="hidden" name="view" value="{{ view }}">
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+
+        <label>Positions</label>
+        <div class="filter-checkbox-grid">
+          {% for pos in filter_groups %}
+          <label class="filter-checkbox"><input type="checkbox" name="position" value="{{ pos }}" {% if pos in position_filter %}checked{% endif %}> {{ pos }}</label>
+          {% endfor %}
+        </div>
+
+        <div class="filter-range-grid">
+          <div>
+            <label>Overall (OVR)</label>
+            <div class="range-inputs">
+              <input type="number" name="min_ovr" placeholder="Min" min="0" max="99" value="{{ min_ovr if min_ovr is not none else '' }}">
+              <span class="muted">&ndash;</span>
+              <input type="number" name="max_ovr" placeholder="Max" min="0" max="99" value="{{ max_ovr if max_ovr is not none else '' }}">
+            </div>
+          </div>
+          <div>
+            <label>Speed (SPD)</label>
+            <div class="range-inputs">
+              <input type="number" name="min_spd" placeholder="Min" min="0" max="99" value="{{ min_spd if min_spd is not none else '' }}">
+              <span class="muted">&ndash;</span>
+              <input type="number" name="max_spd" placeholder="Max" min="0" max="99" value="{{ max_spd if max_spd is not none else '' }}">
+            </div>
+          </div>
+          <div>
+            <label>Catching (CTH)</label>
+            <div class="range-inputs">
+              <input type="number" name="min_cth" placeholder="Min" min="0" max="99" value="{{ min_cth if min_cth is not none else '' }}">
+              <span class="muted">&ndash;</span>
+              <input type="number" name="max_cth" placeholder="Max" min="0" max="99" value="{{ max_cth if max_cth is not none else '' }}">
+            </div>
+          </div>
+          <div>
+            <label>Tackling (TCK)</label>
+            <div class="range-inputs">
+              <input type="number" name="min_tck" placeholder="Min" min="0" max="99" value="{{ min_tck if min_tck is not none else '' }}">
+              <span class="muted">&ndash;</span>
+              <input type="number" name="max_tck" placeholder="Max" min="0" max="99" value="{{ max_tck if max_tck is not none else '' }}">
+            </div>
+          </div>
+        </div>
+
+        <label>Status</label>
+        <div class="filter-checkbox-grid" style="margin-bottom: 1rem;">
+          <label class="filter-checkbox"><input type="checkbox" name="rookie" value="1" {% if rookie %}checked{% endif %}> Rookie (age &le; 23)</label>
+        </div>
+        <p class="muted" style="font-size: 0.78rem; margin-top: -0.5rem; margin-bottom: 1rem;">Injured-only and On-trade-block filters aren't offered &mdash; no in-season health status or trade system exists in this engine yet.</p>
+
+        {% if generated_query %}
+        <label>Generated Query</label>
+        <div class="filter-query-preview">{{ generated_query }}</div>
+        {% endif %}
+
+        <div class="filter-actions">
+          <a href="{{ clear_filters_link }}"><button type="button" style="background: transparent; border: 1px solid var(--border); color: var(--text);">Clear All</button></a>
+          <button type="submit">Apply Filters</button>
+        </div>
+      </form>
+    </div>
+  </details>
+
   {% if view == 'attributes' %}
+  <div class="roster-table-wrap">
   <table>
     <thead>
-      <tr><th>#</th><th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>POT</th><th>SPD</th><th>STR</th><th>AGI</th><th>AWR</th><th>STA</th></tr>
+      <tr>
+        <th>#</th>
+        <th><a href="{{ sort_links.name }}" class="stats-sort-link {% if sort == 'name' %}active-sort{% endif %}">Player{% if sort == 'name' %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
+        <th><a href="{{ sort_links[cid] }}" class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        {% endfor %}
+      </tr>
     </thead>
     <tbody>
       {% for p in players %}
-      <tr class="{% if p.player_id in starters %}starter{% endif %}">
+      {% set ovr = p.overall_rating %}
+      <tr class="{% if p.player_id in starters %}starter{% endif %}" data-card='{{ p | player_card_json }}'>
         <td>{{ p.jersey_number }}</td>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.position.value }}</td>
         <td>{{ p.age }}</td>
-        <td>{{ p.overall_rating }}</td>
+        <td><span class="ovr-badge {% if ovr >= 90 %}tier-elite{% elif ovr >= 80 %}tier-good{% elif ovr >= 70 %}tier-avg{% else %}tier-low{% endif %}">{{ ovr }}</span></td>
         <td>{{ p.potential }}</td>
         <td>{{ p.speed }}</td>
         <td>{{ p.strength }}</td>
         <td>{{ p.agility }}</td>
+        <td>{{ p.throw_power }}</td>
+        <td>{{ avg_throw_accuracy(p) }}</td>
+        <td>{{ p.catching }}</td>
+        <td>{{ p.tackle }}</td>
         <td>{{ p.awareness }}</td>
         <td>{{ p.stamina }}</td>
+        <td>{{ injury_risk(p) }}</td>
+        <td>{{ p.morale }}</td>
+        <td>{% if p.salary %}${{ '{:,}'.format(p.salary) }}{% else %}&mdash;{% endif %}</td>
+        <td>{{ p.years_pro }}</td>
+        <td>{{ depth_slot.get(p.player_id, '—') }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <!-- Stats view -->
+  <div class="roster-table-wrap">
   <table>
     <thead>
       <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>Pass</th><th>Rush</th><th>Rec</th><th>Def</th></tr>
@@ -91,7 +175,7 @@
       {% for p in players %}
       {% set stat = stats_data.get((p.full_name, p.position.value)) %}
       {% if stat %}
-      <tr class="{% if p.player_id in starters %}starter{% endif %}">
+      <tr class="{% if p.player_id in starters %}starter{% endif %}" data-card='{{ p | player_card_json }}'>
         <td>{{ p.jersey_number }}</td>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.position.value }}</td>
@@ -108,7 +192,83 @@
       {% endif %}
     </tbody>
   </table>
+  </div>
   {% endif %}
+</div>
+
+<!-- Quick-access boxes (RosterPage.tsx's 3-box row) -- Trade Block is
+     omitted, disclosed: no trade system exists in this engine yet (see
+     ROADMAP.md §2b's GM Desk audit note). Top Free Agents and Find
+     Player both use real league data. -->
+<div class="roster-quick-boxes">
+  <div class="card">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+      <h3 style="margin: 0;">Top Free Agents</h3>
+      <div class="fa-pager">
+        <a href="?team_abbr={{ team.abbr }}&view={{ view }}&fa_pos={{ fa_prev_pos }}">&lsaquo;</a>
+        <strong>{{ fa_pos }}</strong>
+        <a href="?team_abbr={{ team.abbr }}&view={{ view }}&fa_pos={{ fa_next_pos }}">&rsaquo;</a>
+      </div>
+    </div>
+    <p class="muted" style="font-size: 0.78rem; margin-top: -0.5rem;">OVR 75+, top 5 by rating.</p>
+    {% if top_free_agents %}
+    {% for p in top_free_agents %}
+    <div class="fa-row" data-card='{{ p | player_card_json }}' style="cursor: pointer;">
+      <div class="fa-row-top"><span>#{{ loop.index }} {{ player_link(p) }}</span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
+      <div class="fa-row-bottom"><span>{{ p.position.value }} &middot; Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="muted">No free agents at OVR 75+ for {{ fa_pos }}.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Find Player</h3>
+    <form method="get" action="/roster">
+      <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <div class="row" style="margin-bottom: 0.5rem;">
+        <div style="flex: 1;">
+          <label for="find_q">Name</label>
+          <input type="text" name="find_q" id="find_q" placeholder="Search by name..." value="{{ find_q }}" style="width: 100%; padding: 0.5rem 0.75rem; background: #14202e; color: var(--text); border: 1px solid var(--border); border-radius: 6px;">
+        </div>
+      </div>
+      <div class="row" style="margin-bottom: 0.5rem;">
+        <div>
+          <label for="find_pos">Position</label>
+          <select name="find_pos" id="find_pos">
+            <option value="all" {% if find_pos == 'all' %}selected{% endif %}>All Positions</option>
+            {% for pos in all_positions %}
+            <option value="{{ pos.value }}" {% if find_pos == pos.value %}selected{% endif %}>{{ pos.value }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="find_team">Team</label>
+          <select name="find_team" id="find_team">
+            <option value="all" {% if find_team == 'all' %}selected{% endif %}>All Teams</option>
+            {% for t in teams %}
+            <option value="{{ t.abbr }}" {% if find_team == t.abbr %}selected{% endif %}>{{ t.abbr }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div><button type="submit">Search</button></div>
+      </div>
+    </form>
+    {% if find_results %}
+    <div class="dashboard-scroll">
+      {% for p in find_results %}
+      <div class="find-row" data-card='{{ p | player_card_json }}' style="cursor: pointer;">
+        <div class="find-row-top"><span>{{ player_link(p) }} <span class="muted">#{{ p.jersey_number }}</span></span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
+        <div class="find-row-bottom"><span>{{ p.position.value }} &middot; {{ p.team_abbr or 'FA' }} &middot; Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% elif find_q or find_pos != 'all' or find_team != 'all' %}
+    <p class="muted">No players matched.</p>
+    {% endif %}
+  </div>
 </div>
 
 <!-- Embedded Depth Chart Widget (M4 requirement) -->

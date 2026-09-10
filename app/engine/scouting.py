@@ -195,7 +195,8 @@ def team_summary(season, team_abbr: str) -> dict:
         my_score = g.result.home_score if is_home else g.result.away_score
         opp_score = g.result.away_score if is_home else g.result.home_score
         opponent = g.away_abbr if is_home else g.home_abbr
-        recent.append(RecentGame(won=my_score > opp_score, my_score=my_score, opp_score=opp_score,
+        won = (g.result.winner == "home") == is_home
+        recent.append(RecentGame(won=won, my_score=my_score, opp_score=opp_score,
                                   opponent=opponent, at="vs" if is_home else "@"))
         my_tot = g.result.home_totals if is_home else g.result.away_totals
         opp_tot = g.result.away_totals if is_home else g.result.home_totals

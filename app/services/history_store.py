@@ -61,7 +61,7 @@ Deliberate, disclosed interpretations:
 """
 from __future__ import annotations
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -219,6 +219,7 @@ class CareerPassingLine:
     yards: int = 0
     touchdowns: int = 0
     interceptions: int = 0
+    sacks_taken: int = 0  # Player Card season-by-season redesign: sums SeasonPassingLine.sacks_taken (M13)
 
 
 @dataclass
@@ -229,6 +230,7 @@ class CareerRushingLine:
     carries: int = 0
     yards: int = 0
     touchdowns: int = 0
+    fumbles_lost: int = 0  # sums SeasonRushingLine.fumbles_lost (M13)
 
 
 @dataclass
@@ -303,6 +305,7 @@ def _career_stats_cached(path: Path) -> tuple[dict, dict, dict, dict]:
             line.yards += p.yards
             line.touchdowns += p.touchdowns
             line.interceptions += p.interceptions
+            line.sacks_taken += p.sacks_taken
         for r in rec.rushing_leaders:
             key = (r.team_abbr, r.name)
             line = rushing.setdefault(key, CareerRushingLine(name=r.name, team_abbr=r.team_abbr))
@@ -310,6 +313,7 @@ def _career_stats_cached(path: Path) -> tuple[dict, dict, dict, dict]:
             line.carries += r.carries
             line.yards += r.yards
             line.touchdowns += r.touchdowns
+            line.fumbles_lost += r.fumbles_lost
         for rc in rec.receiving_leaders:
             key = (rc.team_abbr, rc.name)
             line = receiving.setdefault(key, CareerReceivingLine(name=rc.name, team_abbr=rc.team_abbr))
@@ -332,6 +336,48 @@ def _career_stats_cached(path: Path) -> tuple[dict, dict, dict, dict]:
             line.defensive_touchdowns += dl.defensive_touchdowns
 
     return passing, rushing, receiving, defense
+
+
+def season_by_season_stats(team_abbr: str, name: str, path: Path | None = None) -> dict[str, list]:
+    """Real per-SEASON (not summed) Passing/Rushing/Receiving/Defense
+    lines for one player -- Brian's own request: a Madden-style year-
+    by-year table on the Player Card's Stats tab, not just one career-
+    cumulative total (career_stats() above still covers that, unchanged,
+    for the Career summary row the UI appends after these).
+
+    Not a new aggregation: every archived SeasonRecord's passing_leaders/
+    etc. lists ALREADY hold that player's full real season line (despite
+    the "leaders" name, these cover every player who touched the ball
+    that season -- see aggregate_season_stats()'s own docstring) -- this
+    just looks the player up in each season instead of summing across
+    all of them. Most-recent-season first, matching how a Madden career
+    stat table reads. Doesn't include the CURRENT in-progress season --
+    same reasoning career_stats() already documents (that's a genuinely
+    different, not-yet-final number); main.py's own caller adds that
+    separately from the live, not-yet-archived Season."""
+    passing: list[dict] = []
+    rushing: list[dict] = []
+    receiving: list[dict] = []
+    defense: list[dict] = []
+    for rec in get_history(path):
+        p = next((x for x in rec.passing_leaders if x.name == name and x.team_abbr == team_abbr), None)
+        if p:
+            passing.append({"season_number": rec.season_number, **asdict(p)})
+        r = next((x for x in rec.rushing_leaders if x.name == name and x.team_abbr == team_abbr), None)
+        if r:
+            rushing.append({"season_number": rec.season_number, **asdict(r)})
+        rc = next((x for x in rec.receiving_leaders if x.name == name and x.team_abbr == team_abbr), None)
+        if rc:
+            receiving.append({"season_number": rec.season_number, **asdict(rc)})
+        d = next((x for x in rec.defensive_leaders if x.name == name and x.team_abbr == team_abbr), None)
+        if d:
+            defense.append({"season_number": rec.season_number, **asdict(d)})
+    return {
+        "passing": list(reversed(passing)),
+        "rushing": list(reversed(rushing)),
+        "receiving": list(reversed(receiving)),
+        "defense": list(reversed(defense)),
+    }
 
 
 def clear_career_stats_cache() -> None:
@@ -381,6 +427,18 @@ class HOFCandidate:
     stat_line: str
     award_wins: int
     score: float
+    # M14 correction (real source: HOFPage.tsx): the structured per-
+    # category stat table member cards show, instead of only the single
+    # flattened `stat_line` summary -- (label, value) pairs in display
+    # order, built from the same real Career*Line this candidate was
+    # scored from. Induction year is NOT included here and stays a
+    # disclosed gap: deriving it precisely would mean re-running
+    # hall_of_fame() over every prior truncated history to find the
+    # first season each member's score cleared HOF_SCORE_THRESHOLD (the
+    # same technique _hof_new_inductee_keys() already uses for ONE
+    # season), which is real but non-trivial work this chunk didn't
+    # scope -- not something to fabricate a placeholder year for.
+    stats: list[tuple[str, str]] = field(default_factory=list)
 
 
 def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
@@ -396,7 +454,7 @@ def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
 
     candidates: list[HOFCandidate] = []
 
-    def _induct(pool: dict, position: str, stat_fmt, score_fn):
+    def _induct(pool: dict, position: str, stat_fmt, score_fn, stats_fn):
         eligible = [(k, l) for k, l in pool.items() if l.seasons >= MIN_HOF_SEASONS]
         if not eligible:
             return
@@ -409,6 +467,7 @@ def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
                 candidates.append(HOFCandidate(
                     name=name, team_abbr=abbr, position=position, seasons=line.seasons,
                     stat_line=stat_fmt(line), award_wins=wins, score=score,
+                    stats=stats_fn(line),
                 ))
 
     def _offensive_score_fn(eligible):
@@ -434,9 +493,30 @@ def hall_of_fame(path: Path | None = None) -> list[HOFCandidate]:
             + 0.10 * _normalize(l.defensive_touchdowns, td_pool)
         )
 
-    _induct(passing, "QB", lambda l: f"{l.yards:,} career pass yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)
-    _induct(rushing, "RB", lambda l: f"{l.yards:,} career rush yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)
-    _induct(receiving, "WR/TE", lambda l: f"{l.yards:,} career rec yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn)
-    _induct(defense, "DEF", lambda l: f"{l.solo_tackles} career tkl, {l.sacks} sacks, {l.interceptions} INT, {l.seasons} seasons", _defensive_score_fn)
+    _induct(
+        passing, "QB", lambda l: f"{l.yards:,} career pass yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn,
+        lambda l: [
+            ("Completions", f"{l.completions:,}"), ("Attempts", f"{l.attempts:,}"),
+            ("Passing Yards", f"{l.yards:,}"), ("TDs", f"{l.touchdowns:,}"), ("INTs", f"{l.interceptions:,}"),
+        ],
+    )
+    _induct(
+        rushing, "RB", lambda l: f"{l.yards:,} career rush yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn,
+        lambda l: [("Carries", f"{l.carries:,}"), ("Rushing Yards", f"{l.yards:,}"), ("TDs", f"{l.touchdowns:,}")],
+    )
+    _induct(
+        receiving, "WR/TE", lambda l: f"{l.yards:,} career rec yds, {l.touchdowns} TD, {l.seasons} seasons", _offensive_score_fn,
+        lambda l: [
+            ("Receptions", f"{l.receptions:,}"), ("Targets", f"{l.targets:,}"),
+            ("Receiving Yards", f"{l.yards:,}"), ("TDs", f"{l.touchdowns:,}"),
+        ],
+    )
+    _induct(
+        defense, "DEF", lambda l: f"{l.solo_tackles} career tkl, {l.sacks} sacks, {l.interceptions} INT, {l.seasons} seasons", _defensive_score_fn,
+        lambda l: [
+            ("Solo Tackles", f"{l.solo_tackles:,}"), ("TFL", f"{l.tackles_for_loss:,}"), ("Sacks", f"{l.sacks:,}"),
+            ("INTs", f"{l.interceptions:,}"), ("Forced Fumbles", f"{l.forced_fumbles:,}"), ("Def. TDs", f"{l.defensive_touchdowns:,}"),
+        ],
+    )
 
     return sorted(candidates, key=lambda c: -c.score)

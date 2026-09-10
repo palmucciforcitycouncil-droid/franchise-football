@@ -63,9 +63,94 @@ _ROSTER_POSITION_MINIMUMS: dict[str, int] = {
     "DE": 2, "DT": 1, "LB": 6, "CB": 4, "S": 4, "K": 1, "P": 1,
 }
 
+# M11 correction: Team Quota pills need a GENERIC group per player --
+# `_ROSTER_POSITION_MINIMUMS` above was always keyed by these generic
+# labels, but the original M4 build counted players by their RAW
+# Position enum value (QB/HB/FB/WR/TE/LT/LG/C/RG/RT/LE/RE/DT/LOLB/MLB/
+# ROLB/CB/FS/SS/K/P -- Madden's granular scheme, see player.py's own
+# docstring for why it's kept that granular). Since the minimums dict
+# has no "HB"/"LT"/"LOLB"/etc keys, 6 of 14 pills (RB/G/T/DE/LB/S) never
+# matched anything and silently never rendered -- a real, previously-
+# unnoticed bug, not a stale-doc issue like M9's. This mapping is what
+# was actually missing.
+_QUOTA_GROUP_FOR_POSITION: dict[Position, str] = {
+    Position.QB: "QB", Position.HB: "RB", Position.FB: "RB",
+    Position.WR: "WR", Position.TE: "TE",
+    Position.LT: "T", Position.RT: "T", Position.LG: "G", Position.RG: "G", Position.C: "C",
+    Position.LE: "DE", Position.RE: "DE", Position.DT: "DT",
+    Position.LOLB: "LB", Position.MLB: "LB", Position.ROLB: "LB",
+    Position.CB: "CB", Position.FS: "S", Position.SS: "S",
+    Position.K: "K", Position.P: "P",
+}
+QUOTA_GROUPS = ["QB", "RB", "WR", "TE", "C", "G", "T", "DE", "DT", "LB", "CB", "S", "K", "P"]
+
+# The real Figma source uses a SECOND, coarser 10-group breakdown for the
+# Filter panel's position checkboxes and the Top Free Agents pager
+# (FilterPanel.tsx's own `positions` list collapses OL/DL/ST further than
+# the Team Quota pills' 14-group split does). Deliberately NOT reproduced
+# as a second grouping here: a quota pill and a filter checkbox sharing
+# one `position` query param but two different label spaces (e.g. a "G"
+# pill setting `position=G`, which the 10-group filter would never match)
+# is a real bug, not a faithfulness nice-to-have -- so both widgets share
+# QUOTA_GROUPS/_QUOTA_GROUP_FOR_POSITION instead. Finer-grained than
+# Figma's filter panel, not a regression.
+
+MAX_ROSTER_SIZE = 53  # the real NFL active-roster limit (RosterTable.tsx's
+                       # own hardcoded constant) -- not fabricated per-team
+                       # data, just an unenforced real-world number this
+                       # engine doesn't cap rosters against yet.
+
+# Column ids sortable via the Roster table's header links (RosterTable.tsx's
+# own `handleSort` keys), GET-param + full-page-reload like Stats' M3
+# precedent -- not client JS state.
+ROSTER_SORT_KEYS = (
+    "num", "name", "pos", "age", "ovr", "pot", "spd", "str", "agi",
+    "tpw", "tac", "cth", "tck", "awr", "sta", "inj", "mor", "ctr", "yrs", "dep",
+)
+
+
+def _roster_avg_throw_accuracy(p: Player) -> int:
+    """RosterTable.tsx's TAC column -- not a single modeled attribute on
+    Player, but a real, disclosed average of the three throw-accuracy
+    splits the model already has (short/mid/deep), not a fabricated one."""
+    return round((p.throw_accuracy_short + p.throw_accuracy_mid + p.throw_accuracy_deep) / 3)
+
+
+def _roster_injury_risk(p: Player) -> int:
+    """RosterTable.tsx's INJ column, read the opposite direction from our
+    real `durability` field per Player's own module docstring formula
+    (`proneness = 99 - durability`) -- the same real data, not a second
+    modeled attribute."""
+    return 99 - p.durability
+
+
+def _roster_sort_value(p: Player, key: str, depth_slot: dict[str, str]):
+    return {
+        "num": p.jersey_number, "name": p.full_name.lower(), "pos": p.position.value,
+        "age": p.age, "ovr": p.overall_rating, "pot": p.potential, "spd": p.speed,
+        "str": p.strength, "agi": p.agility, "tpw": p.throw_power,
+        "tac": _roster_avg_throw_accuracy(p), "cth": p.catching, "tck": p.tackle,
+        "awr": p.awareness, "sta": p.stamina, "inj": _roster_injury_risk(p),
+        "mor": p.morale, "ctr": p.salary, "yrs": p.years_pro,
+        "dep": depth_slot.get(p.player_id, ""),
+    }.get(key, p.overall_rating)
+
 
 @app.get("/roster", response_class=HTMLResponse)
-def roster_view(request: Request, team_abbr: str | None = None, view: str = "attributes"):
+def roster_view(
+    request: Request,
+    team_abbr: str | None = None,
+    view: str = "attributes",
+    position: list[str] = Query(default=[]),
+    min_ovr: int | None = None, max_ovr: int | None = None,
+    min_spd: int | None = None, max_spd: int | None = None,
+    min_cth: int | None = None, max_cth: int | None = None,
+    min_tck: int | None = None, max_tck: int | None = None,
+    rookie: bool = False,
+    sort: str | None = None, dir: str = "asc",
+    fa_pos: str = "All",
+    find_q: str = "", find_pos: str = "all", find_team: str = "all",
+):
     """Real player data (2,365 players across 32 teams, plus 71 free
     agents) has existed since the roster import but was only ever
     consumed internally by the engine -- this is the first page that
@@ -78,9 +163,21 @@ def roster_view(request: Request, team_abbr: str | None = None, view: str = "att
     1 otherwise, matching how many depth_chart.py's OffensiveStarters/
     DefensiveStarters actually start at each position) -- always empty
     for free agents, since "starter" isn't a meaningful concept for
-    players with no team. M4 adds: Attributes/Stats view toggle,
-    Team Quota badges (position buttons), Filter/Export controls (stubs),
-    and embedded depth-chart widget (below main table)."""
+    players with no team.
+
+    M11 correction (real source: RosterPage.tsx/RosterTable.tsx/
+    FilterPanel.tsx, not M4's simplified build): real Filter panel
+    (position groups, OVR/SPD/CTH/TCK ranges, Rookie toggle -- Injured/
+    Trade-block toggles stayed omitted, no in-season health or trade
+    system exists), clickable Team Quota pills (+ a real ALL/53 pill,
+    fixing the quota-count bug described above `_QUOTA_GROUP_FOR_POSITION`),
+    sortable/sticky-column table with the 8 real attribute columns M4
+    never added (TPW/TAC/CTH/TCK/INJ/MOR/Contract/Depth -- Health/Trade
+    columns stay omitted, same disclosed no-real-data reasoning), a
+    whole-row click to open the Player Card, and the two of Figma's three
+    quick-access boxes with real underlying data (Top Free Agents, Find
+    Player -- Trade Block is skipped, no trade system exists, see the
+    GM Desk audit note in ROADMAP.md §2b)."""
     if view not in ("attributes", "stats"):
         view = "attributes"
     if team_abbr is None:
@@ -110,8 +207,14 @@ def roster_view(request: Request, team_abbr: str | None = None, view: str = "att
                 starters.add(p.player_id)
             seen_counts[p.position] = count_so_far + 1
 
-    # Position quotas for Team Quota badges (per GDD §10.4.2 Figma source)
-    position_quotas = {pos.value: {"current": sum(1 for p in players if p.position == pos), "min": _ROSTER_POSITION_MINIMUMS.get(pos.value, 1)} for pos in Position}
+    # Team Quota badges: counted by the fixed generic grouping (see
+    # _QUOTA_GROUP_FOR_POSITION's docstring for the bug this replaces).
+    total_roster_count = len(players)
+    position_quotas = {
+        grp: {"current": sum(1 for p in players if _QUOTA_GROUP_FOR_POSITION[p.position] == grp),
+              "min": _ROSTER_POSITION_MINIMUMS.get(grp, 1)}
+        for grp in QUOTA_GROUPS
+    }
 
     # Depth chart groups (reusing depth_chart_view's logic)
     by_position = defaultdict(list)
@@ -126,6 +229,99 @@ def roster_view(request: Request, team_abbr: str | None = None, view: str = "att
         for pos, players_at_pos in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
     ] if team_abbr != "FA" else []
 
+    # Depth slot label per player ("QB1", "QB2", ...) -- RosterTable.tsx's
+    # DEP column, real (each group's already-resolved starter order),
+    # not fabricated. Empty for free agents (no depth chart concept).
+    depth_slot: dict[str, str] = {}
+    for group in depth_chart_groups:
+        for i, p in enumerate(group["players"], start=1):
+            depth_slot[p.player_id] = f"{group['position']}{i}"
+
+    # Real Filter panel (FilterPanel.tsx): position groups (QUOTA_GROUPS --
+    # see that constant's own comment for why this reuses the quota
+    # grouping instead of Figma's separate 10-group filter list), attribute
+    # ranges, Rookie (age <= 23, Figma's own definition). Applied to the
+    # TABLE ROWS only -- position_quotas/total_roster_count above stay
+    # computed off the full roster, same as RosterTable.tsx's own
+    # `totalRosterCount = players.length` (the unfiltered prop), not the
+    # filtered `sortedPlayers`.
+    filtered_players = players
+    if position:
+        wanted = set(position)
+        filtered_players = [p for p in filtered_players if _QUOTA_GROUP_FOR_POSITION[p.position] in wanted]
+    if min_ovr is not None:
+        filtered_players = [p for p in filtered_players if p.overall_rating >= min_ovr]
+    if max_ovr is not None:
+        filtered_players = [p for p in filtered_players if p.overall_rating <= max_ovr]
+    if min_spd is not None:
+        filtered_players = [p for p in filtered_players if p.speed >= min_spd]
+    if max_spd is not None:
+        filtered_players = [p for p in filtered_players if p.speed <= max_spd]
+    if min_cth is not None:
+        filtered_players = [p for p in filtered_players if p.catching >= min_cth]
+    if max_cth is not None:
+        filtered_players = [p for p in filtered_players if p.catching <= max_cth]
+    if min_tck is not None:
+        filtered_players = [p for p in filtered_players if p.tackle >= min_tck]
+    if max_tck is not None:
+        filtered_players = [p for p in filtered_players if p.tackle <= max_tck]
+    if rookie:
+        filtered_players = [p for p in filtered_players if p.age <= 23]
+
+    active_filters = []
+    if position:
+        active_filters.append("Position: " + ", ".join(position))
+    if min_ovr is not None or max_ovr is not None:
+        active_filters.append(f"OVR {min_ovr if min_ovr is not None else 0}-{max_ovr if max_ovr is not None else 99}")
+    if min_spd is not None or max_spd is not None:
+        active_filters.append(f"SPD {min_spd if min_spd is not None else 0}-{max_spd if max_spd is not None else 99}")
+    if min_cth is not None or max_cth is not None:
+        active_filters.append(f"CTH {min_cth if min_cth is not None else 0}-{max_cth if max_cth is not None else 99}")
+    if min_tck is not None or max_tck is not None:
+        active_filters.append(f"TCK {min_tck if min_tck is not None else 0}-{max_tck if max_tck is not None else 99}")
+    if rookie:
+        active_filters.append("Rookie (age <= 23)")
+    generated_query = " AND ".join(active_filters) if active_filters else None
+
+    # Sortable columns (GET-param + full-page-reload, Stats' M3 precedent).
+    effective_sort = sort if sort in ROSTER_SORT_KEYS else None
+    direction = dir if dir in ("asc", "desc") else "asc"
+    if effective_sort:
+        rows = sorted(filtered_players, key=lambda p: _roster_sort_value(p, effective_sort, depth_slot), reverse=(direction == "desc"))
+    else:
+        rows = filtered_players
+
+    def roster_query(overrides: dict) -> str:
+        base: dict = {
+            "team_abbr": team_abbr, "view": view, "position": position,
+            "min_ovr": min_ovr, "max_ovr": max_ovr, "min_spd": min_spd, "max_spd": max_spd,
+            "min_cth": min_cth, "max_cth": max_cth, "min_tck": min_tck, "max_tck": max_tck,
+            "rookie": "1" if rookie else None,
+        }
+        base.update(overrides)
+        params = []
+        for key, val in base.items():
+            if key == "position":
+                params.extend(("position", v) for v in val)
+            elif val not in (None, "", False):
+                params.append((key, val))
+        return "/roster?" + urlencode(params)
+
+    sort_links = {}
+    for cid in ROSTER_SORT_KEYS:
+        next_dir = "desc" if (effective_sort == cid and direction == "asc") else "asc"
+        sort_links[cid] = roster_query({"sort": cid, "dir": next_dir})
+
+    quota_pill_links = {}
+    for grp in QUOTA_GROUPS:
+        new_position = [] if position == [grp] else [grp]
+        quota_pill_links[grp] = roster_query({"position": new_position})
+    all_pill_link = roster_query({"position": []})
+    clear_filters_link = roster_query({
+        "position": [], "min_ovr": None, "max_ovr": None, "min_spd": None, "max_spd": None,
+        "min_cth": None, "max_cth": None, "min_tck": None, "max_tck": None, "rookie": None,
+    })
+
     # Compute stats data if needed
     stats_data = None
     if view == "stats":
@@ -134,14 +330,58 @@ def roster_view(request: Request, team_abbr: str | None = None, view: str = "att
         # Filter to this team only
         stats_data = {(r["player_name"], r["player_pos"]): r for r in player_rows if r["player_team"] == team_abbr}
 
+    # Top Free Agents (TopFreeAgentsBox.tsx): real free agents, OVR >= 75,
+    # top 5 for the currently-paged position group. Position-paged via a
+    # GET param (fa_pos) rather than JS prev/next state, same pattern as
+    # everything else on this page.
+    if fa_pos not in QUOTA_GROUPS and fa_pos != "All":
+        fa_pos = "All"
+    with get_session() as s:
+        all_free_agents = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
+    if fa_pos != "All":
+        all_free_agents = [p for p in all_free_agents if _QUOTA_GROUP_FOR_POSITION[p.position] == fa_pos]
+    top_free_agents = sorted((p for p in all_free_agents if p.overall_rating >= 75), key=lambda p: -p.overall_rating)[:5]
+    fa_pos_options = ["All"] + QUOTA_GROUPS
+    fa_prev_pos = fa_pos_options[fa_pos_options.index(fa_pos) - 1]
+    fa_next_pos = fa_pos_options[(fa_pos_options.index(fa_pos) + 1) % len(fa_pos_options)]
+
+    # Find Player (FindPlayerBox.tsx): real league-wide name/position/team
+    # search -- unlike Figma's own mock version, results reuse this
+    # project's existing Player Card modal (player_link()) instead of a
+    # second, separate detail dialog.
+    find_results = []
+    if find_q or find_pos != "all" or find_team != "all":
+        with get_session() as s:
+            find_results = list(s.exec(select(Player)))
+        if find_q:
+            ql = find_q.lower()
+            find_results = [p for p in find_results if ql in p.full_name.lower()]
+        if find_pos != "all":
+            find_results = [p for p in find_results if p.position.value == find_pos]
+        if find_team != "all":
+            find_results = [p for p in find_results if p.team_abbr == find_team]
+        find_results.sort(key=lambda p: -p.overall_rating)
+        find_results = find_results[:25]
+
     team = FREE_AGENTS_TEAM if team_abbr == "FA" else TEAMS_BY_ABBR[team_abbr]
     return templates.TemplateResponse(
         request,
         "roster.html",
         {
-            "teams": TEAMS, "team": team, "players": players, "starters": starters,
+            "teams": TEAMS, "team": team, "players": rows, "starters": starters,
             "view": view, "position_quotas": position_quotas, "depth_chart_groups": depth_chart_groups,
-            "stats_data": stats_data,
+            "stats_data": stats_data, "depth_slot": depth_slot,
+            "total_roster_count": total_roster_count, "max_roster_size": MAX_ROSTER_SIZE,
+            "quota_pill_links": quota_pill_links, "all_pill_link": all_pill_link,
+            "position_filter": position, "sort_links": sort_links, "sort": effective_sort, "dir": direction,
+            "filter_groups": QUOTA_GROUPS,
+            "min_ovr": min_ovr, "max_ovr": max_ovr, "min_spd": min_spd, "max_spd": max_spd,
+            "min_cth": min_cth, "max_cth": max_cth, "min_tck": min_tck, "max_tck": max_tck,
+            "rookie": rookie, "generated_query": generated_query, "clear_filters_link": clear_filters_link,
+            "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
+            "top_free_agents": top_free_agents, "fa_pos": fa_pos, "fa_prev_pos": fa_prev_pos, "fa_next_pos": fa_next_pos,
+            "find_q": find_q, "find_pos": find_pos, "find_team": find_team, "find_results": find_results,
+            "all_positions": list(Position),
         },
     )
 
@@ -205,6 +445,22 @@ def depth_chart_move(team_abbr: str, position_value: str, player_id: str = Form(
     return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
 
 
+@app.post("/depth-chart/{team_abbr}/auto-fill")
+def depth_chart_auto_fill(team_abbr: str, respect_fatigue: bool = Form(False), lock_starters: bool = Form(False)):
+    """M15 correction (real source: AutoFillModal.tsx) -- see
+    depth_chart_overrides.auto_fill()'s own docstring for exactly which
+    2 of the source's 4 toggles are offered and why the other 2 aren't
+    (both need data this engine's Player model doesn't have)."""
+    if team_abbr not in TEAMS_BY_ABBR:
+        raise HTTPException(404, "No such team")
+
+    by_position = _roster_by_position(team_abbr)
+    depth_chart_overrides.auto_fill(team_abbr, by_position, STARTER_COUNTS, respect_fatigue=respect_fatigue, lock_starters=lock_starters)
+    clear_starters_cache()
+
+    return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
+
+
 def _season_stat_leaders(season, top_n: int = 15):
     """Thin wrapper: aggregate_season_stats does the real work (shared
     with app/engine/awards.py, which needs the full untruncated
@@ -245,7 +501,8 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
         if game.result is not None:
             user_score = game.result.home_score if is_home else game.result.away_score
             opp_score = game.result.away_score if is_home else game.result.home_score
-            result = {"won": user_score > opp_score, "user_score": user_score, "opp_score": opp_score}
+            won = (game.result.winner == "home") == is_home
+            result = {"won": won, "user_score": user_score, "opp_score": opp_score}
         rows.append({"week": week_num, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
     return rows
 
@@ -273,6 +530,7 @@ def _last_played_game_for(season, team_abbr: str) -> dict | None:
             "is_home": is_home,
             "home_abbr": game.home_abbr,
             "away_abbr": game.away_abbr,
+            "won": (game.result.winner == "home") == is_home,
             "user_score": game.result.home_score if is_home else game.result.away_score,
             "opp_score": game.result.away_score if is_home else game.result.home_score,
             "box": build_box_score(game.result.plays, team_abbr),
@@ -427,14 +685,18 @@ PLAYER_STAT_CATEGORIES: list[dict] = [
         {"id": "pass_cmp", "label": "Completions"},
         {"id": "pass_cmp_pct", "label": "Completion %"},
         {"id": "pass_yds", "label": "Passing Yards"},
+        {"id": "pass_yds_per_att", "label": "Yards per Attempt"},
         {"id": "pass_td", "label": "Passing TDs"},
         {"id": "pass_int", "label": "Interceptions Thrown"},
+        {"id": "sacks_taken", "label": "Sacks Taken"},
+        {"id": "qb_rating", "label": "Passer Rating"},
     ]},
     {"label": "Rushing", "stats": [
         {"id": "rush_att", "label": "Rush Attempts"},
         {"id": "rush_yds", "label": "Rushing Yards"},
         {"id": "yds_per_rush", "label": "Yards per Rush"},
         {"id": "rush_td", "label": "Rushing TDs"},
+        {"id": "fumbles_lost", "label": "Fumbles Lost"},
     ]},
     {"label": "Receiving", "stats": [
         {"id": "targets", "label": "Targets"},
@@ -453,15 +715,35 @@ PLAYER_STAT_CATEGORIES: list[dict] = [
         {"id": "fumble_recoveries", "label": "Fumble Recoveries"},
         {"id": "defensive_tds", "label": "Defensive TDs"},
     ]},
+    {"label": "Kicking", "stats": [
+        {"id": "fg_att", "label": "FG Attempts"},
+        {"id": "fg_made", "label": "FG Made"},
+        {"id": "fg_pct", "label": "FG %"},
+        {"id": "fg_lt30", "label": "FG <30 yds"},
+        {"id": "fg_30_39", "label": "FG 30-39 yds"},
+        {"id": "fg_40_49", "label": "FG 40-49 yds"},
+        {"id": "fg_50_plus", "label": "FG 50+ yds"},
+        {"id": "xp_att", "label": "XP Attempts"},
+        {"id": "xp_made", "label": "XP Made"},
+        {"id": "xp_pct", "label": "XP %"},
+    ]},
+    {"label": "Punting", "stats": [
+        {"id": "punts", "label": "Punts"},
+        {"id": "punt_net_yds", "label": "Punt Yards (Net)"},
+        {"id": "punt_net_avg", "label": "Net Punt Average"},
+        {"id": "punts_inside_20", "label": "Punts Inside 20"},
+    ]},
 ]
 PLAYER_DEFAULT_COLUMNS = ["player_name", "player_pos", "player_team", "player_age", "games_played"]
 PLAYER_STAT_LABELS = {s["id"]: s["label"] for cat in PLAYER_STAT_CATEGORIES for s in cat["stats"]}
 PLAYER_PRESETS: dict[str, list[str]] = {
     "default": PLAYER_DEFAULT_COLUMNS,
-    "qb": ["player_name", "player_pos", "player_team", "games_played", "pass_att", "pass_cmp", "pass_cmp_pct", "pass_yds", "pass_td", "pass_int"],
-    "rushing": ["player_name", "player_pos", "player_team", "games_played", "rush_att", "rush_yds", "yds_per_rush", "rush_td"],
+    "qb": ["player_name", "player_pos", "player_team", "games_played", "pass_att", "pass_cmp", "pass_cmp_pct", "pass_yds", "pass_yds_per_att", "pass_td", "pass_int", "qb_rating"],
+    "rushing": ["player_name", "player_pos", "player_team", "games_played", "rush_att", "rush_yds", "yds_per_rush", "rush_td", "fumbles_lost"],
     "receiving": ["player_name", "player_pos", "player_team", "games_played", "targets", "receptions", "catch_pct", "rec_yds", "rec_td"],
     "defense": ["player_name", "player_pos", "player_team", "games_played", "solo_tackles", "tackles_for_loss", "sacks", "def_int", "passes_defended", "forced_fumbles", "fumble_recoveries", "defensive_tds"],
+    "kicking": ["player_name", "player_team", "games_played", "fg_made", "fg_att", "fg_pct", "xp_made", "xp_att", "xp_pct"],
+    "punting": ["player_name", "player_team", "games_played", "punts", "punt_net_yds", "punt_net_avg", "punts_inside_20"],
     "all": list(PLAYER_STAT_LABELS),
 }
 
@@ -499,6 +781,10 @@ TEAM_STAT_CATEGORIES: list[dict] = [
         {"id": "team_fumble_recoveries", "label": "Fumble Recoveries"},
         {"id": "def_turnovers_forced", "label": "Turnovers Forced"},
     ]},
+    {"label": "Special Teams", "stats": [
+        {"id": "team_fg_pct", "label": "FG %"},
+        {"id": "team_punt_net_avg", "label": "Net Punt Average"},
+    ]},
 ]
 TEAM_DEFAULT_COLUMNS = ["team_name", "conference", "division", "wins", "losses", "win_pct"]
 TEAM_STAT_LABELS = {s["id"]: s["label"] for cat in TEAM_STAT_CATEGORIES for s in cat["stats"]}
@@ -507,10 +793,11 @@ TEAM_PRESETS: dict[str, list[str]] = {
     "record": ["team_name", "wins", "losses", "win_pct", "points_for", "points_against", "point_diff", "power_rating"],
     "offense": ["team_name", "wins", "losses", "points_for", "off_yds", "team_pass_yds", "team_rush_yds"],
     "defense": ["team_name", "wins", "losses", "points_against", "def_yds_allowed", "team_sacks", "def_turnovers_forced"],
+    "special-teams": ["team_name", "team_fg_pct", "team_punt_net_avg"],
     "all": list(TEAM_STAT_LABELS),
 }
 
-STATS_PERCENT_COLUMNS = {"pass_cmp_pct", "catch_pct", "win_pct"}
+STATS_PERCENT_COLUMNS = {"pass_cmp_pct", "catch_pct", "win_pct", "fg_pct", "xp_pct", "team_fg_pct"}
 CONFERENCES = ["AFC", "NFC"]
 DIVISIONS = ["East", "North", "South", "West"]
 
@@ -538,6 +825,14 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
     games_played: dict[tuple[str, str], int] = defaultdict(int)
     team_off: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     team_def: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # M13: Kicking/Punting season totals -- box_score.py's KickingLine/
+    # PuntingLine (real, per-game, built by M2) were never rolled up into
+    # a season aggregate anywhere before this. Kept local to this
+    # function (not a new season_stats.py aggregator) since nothing else
+    # -- awards.py included -- needs a Kicking/Punting season view yet.
+    kicking: dict[tuple[str, str], dict] = {}
+    punting: dict[tuple[str, str], dict] = {}
+    team_st: dict[str, dict] = defaultdict(lambda: {"fg_made": 0, "fg_att": 0, "punts": 0, "punt_net_yds": 0})
 
     for week in season.schedule:
         for g in week:
@@ -547,6 +842,28 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
             def_boxes = {abbr: build_defensive_box_score(g.result.plays, abbr) for abbr in (g.home_abbr, g.away_abbr)}
 
             for abbr in (g.home_abbr, g.away_abbr):
+                for k in boxes[abbr].kicking:
+                    row = kicking.setdefault((abbr, k.name), {
+                        "fg_made": 0, "fg_att": 0, "xp_made": 0, "xp_att": 0,
+                        "fg_lt30": [0, 0], "fg_30_39": [0, 0], "fg_40_49": [0, 0], "fg_50_plus": [0, 0],
+                    })
+                    row["fg_made"] += k.fg_made
+                    row["fg_att"] += k.fg_attempted
+                    row["xp_made"] += k.xp_made
+                    row["xp_att"] += k.xp_attempted
+                    for bucket, bucket_key in (("<30", "fg_lt30"), ("30-39", "fg_30_39"), ("40-49", "fg_40_49"), ("50+", "fg_50_plus")):
+                        made, att = k.fg_by_bucket[bucket]
+                        row[bucket_key][0] += made
+                        row[bucket_key][1] += att
+                    team_st[abbr]["fg_made"] += k.fg_made
+                    team_st[abbr]["fg_att"] += k.fg_attempted
+                for pu in boxes[abbr].punting:
+                    row = punting.setdefault((abbr, pu.name), {"punts": 0, "net_yards": 0, "inside_20": 0})
+                    row["punts"] += pu.punts
+                    row["net_yards"] += pu.net_yards
+                    row["inside_20"] += pu.inside_20
+                    team_st[abbr]["punts"] += pu.punts
+                    team_st[abbr]["punt_net_yds"] += pu.net_yards
                 box = boxes[abbr]
                 participants = {p.name for p in box.passing} | {r.name for r in box.rushing} | {rc.name for rc in box.receiving} | {d.name for d in def_boxes[abbr]}
                 for name in participants:
@@ -583,7 +900,7 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
         live_players = list(s.exec(select(Player)))
     player_by_key = {(p.team_abbr, p.full_name): p for p in live_players if p.team_abbr}
 
-    all_keys = set(passing) | set(rushing) | set(receiving) | set(defense)
+    all_keys = set(passing) | set(rushing) | set(receiving) | set(defense) | set(kicking) | set(punting)
     player_rows = []
     for abbr, name in all_keys:
         p = player_by_key.get((abbr, name))
@@ -591,6 +908,8 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
         rus = rushing.get((abbr, name))
         rec = receiving.get((abbr, name))
         dfn = defense.get((abbr, name))
+        kck = kicking.get((abbr, name))
+        pnt = punting.get((abbr, name))
         player_rows.append({
             "player_name": name,
             "player_pos": p.position.value if p else "-",
@@ -605,10 +924,14 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
             "pass_td": pas.touchdowns if pas else 0,
             "pass_int": pas.interceptions if pas else 0,
             "pass_cmp_pct": round(pas.completions / pas.attempts * 100, 1) if pas and pas.attempts else None,
+            "pass_yds_per_att": round(pas.yards / pas.attempts, 1) if pas and pas.attempts else None,
+            "sacks_taken": pas.sacks_taken if pas else 0,
+            "qb_rating": _passer_rating(pas.attempts, pas.completions, pas.yards, pas.touchdowns, pas.interceptions) if pas else None,
             "rush_att": rus.carries if rus else 0,
             "rush_yds": rus.yards if rus else 0,
             "rush_td": rus.touchdowns if rus else 0,
             "yds_per_rush": round(rus.yards / rus.carries, 1) if rus and rus.carries else None,
+            "fumbles_lost": rus.fumbles_lost if rus else 0,
             "targets": rec.targets if rec else 0,
             "receptions": rec.receptions if rec else 0,
             "rec_yds": rec.yards if rec else 0,
@@ -622,6 +945,20 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
             "forced_fumbles": dfn.forced_fumbles if dfn else 0,
             "fumble_recoveries": dfn.fumble_recoveries if dfn else 0,
             "defensive_tds": dfn.defensive_touchdowns if dfn else 0,
+            "fg_att": kck["fg_att"] if kck else 0,
+            "fg_made": kck["fg_made"] if kck else 0,
+            "fg_pct": round(kck["fg_made"] / kck["fg_att"] * 100, 1) if kck and kck["fg_att"] else None,
+            "fg_lt30": f"{kck['fg_lt30'][0]}/{kck['fg_lt30'][1]}" if kck else "-",
+            "fg_30_39": f"{kck['fg_30_39'][0]}/{kck['fg_30_39'][1]}" if kck else "-",
+            "fg_40_49": f"{kck['fg_40_49'][0]}/{kck['fg_40_49'][1]}" if kck else "-",
+            "fg_50_plus": f"{kck['fg_50_plus'][0]}/{kck['fg_50_plus'][1]}" if kck else "-",
+            "xp_att": kck["xp_att"] if kck else 0,
+            "xp_made": kck["xp_made"] if kck else 0,
+            "xp_pct": round(kck["xp_made"] / kck["xp_att"] * 100, 1) if kck and kck["xp_att"] else None,
+            "punts": pnt["punts"] if pnt else 0,
+            "punt_net_yds": pnt["net_yards"] if pnt else 0,
+            "punt_net_avg": round(pnt["net_yards"] / pnt["punts"], 1) if pnt and pnt["punts"] else None,
+            "punts_inside_20": pnt["inside_20"] if pnt else 0,
         })
 
     team_rows = []
@@ -658,9 +995,25 @@ def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
             "team_int_def": d.get("int", 0),
             "team_fumble_recoveries": d.get("fumble_rec", 0),
             "def_turnovers_forced": d.get("int", 0) + d.get("fumble_rec", 0),
+            "team_fg_pct": round(team_st[t.abbr]["fg_made"] / team_st[t.abbr]["fg_att"] * 100, 1) if team_st[t.abbr]["fg_att"] else None,
+            "team_punt_net_avg": round(team_st[t.abbr]["punt_net_yds"] / team_st[t.abbr]["punts"], 1) if team_st[t.abbr]["punts"] else None,
         })
 
     return player_rows, team_rows
+
+
+def _passer_rating(att: int, cmp: int, yds: int, td: int, ints: int) -> float | None:
+    """The real, standard NFL passer rating formula (not a fabricated or
+    simplified stand-in) -- computed from stats this engine already
+    tracks in full (att/cmp/yds/td/int), same as StatColumnChooser.tsx's
+    `qb_rating` column."""
+    if not att:
+        return None
+    a = max(0.0, min(2.375, ((cmp / att) - 0.3) * 5))
+    b = max(0.0, min(2.375, ((yds / att) - 3) * 0.25))
+    c = max(0.0, min(2.375, (td / att) * 20))
+    d = max(0.0, min(2.375, 2.375 - (ints / att) * 25))
+    return round((a + b + c + d) / 6 * 100, 1)
 
 
 def _sort_stat_rows(rows: list[dict], key: str, direction: str) -> list[dict]:
@@ -934,29 +1287,108 @@ ATTRIBUTE_LABELS: dict[str, str] = {
 }
 
 
-def _career_stats_for(p: Player) -> dict | None:
-    """M6: real archived-season totals (history_store.career_stats(),
-    already real/tested, previously had no UI consumer) for the Player
-    Card's Stats tab. Keyed by (team_abbr, name), the same identity
-    career_stats() itself uses -- see history_store.py's docstring for
-    why that's safe here (no trade system yet). A player only shows up
-    here once at least one full season has been archived (start_new_season()
-    has run at least once); brand-new/current-season production isn't
-    included, since career_stats() only ever sums ARCHIVED seasons --
-    that's genuinely a different, not-yet-final number, not this tab's job."""
+def _passing_row(label: str, completions: int, attempts: int, yards: int, touchdowns: int, interceptions: int, sacks_taken: int) -> dict:
+    return {
+        "season_label": label, "completions": completions, "attempts": attempts,
+        "pct": round(completions / attempts * 100, 1) if attempts else None,
+        "yards": yards, "ypa": round(yards / attempts, 1) if attempts else None,
+        "touchdowns": touchdowns, "interceptions": interceptions, "sacks_taken": sacks_taken,
+        "rating": _passer_rating(attempts, completions, yards, touchdowns, interceptions),
+    }
+
+
+def _rushing_row(label: str, carries: int, yards: int, touchdowns: int, fumbles_lost: int) -> dict:
+    return {
+        "season_label": label, "carries": carries, "yards": yards,
+        "avg": round(yards / carries, 1) if carries else None,
+        "touchdowns": touchdowns, "fumbles_lost": fumbles_lost,
+    }
+
+
+def _receiving_row(label: str, receptions: int, targets: int, yards: int, touchdowns: int) -> dict:
+    return {
+        "season_label": label, "receptions": receptions, "targets": targets, "yards": yards,
+        "avg": round(yards / receptions, 1) if receptions else None, "touchdowns": touchdowns,
+    }
+
+
+def _defense_row(label: str, solo_tackles: int, tackles_for_loss: int, sacks: int, interceptions: int,
+                  passes_defended: int, forced_fumbles: int, fumble_recoveries: int, defensive_touchdowns: int) -> dict:
+    return {
+        "season_label": label, "solo_tackles": solo_tackles, "tackles_for_loss": tackles_for_loss,
+        "sacks": sacks, "interceptions": interceptions, "passes_defended": passes_defended,
+        "forced_fumbles": forced_fumbles, "fumble_recoveries": fumble_recoveries,
+        "defensive_touchdowns": defensive_touchdowns,
+    }
+
+
+def _season_by_season_stats_for(p: Player) -> dict | None:
+    """Player Card Stats tab, redesigned per Brian's own request into a
+    real Madden-style year-by-year table instead of one combined career
+    total: one row per season (current in-progress season first, then
+    every archived season most-recent-first, via
+    history_store.season_by_season_stats()), with a Career summary row
+    (history_store.career_stats(), unchanged, still real/cumulative)
+    appended last. No Team column -- every row would show the same
+    abbr today anyway, since no trade system exists yet (Player.team_abbr
+    is stable for a player's whole tenure); add one if/when R4c (Trades)
+    ever makes it a real per-season fact instead of a constant.
+    Games Played/Started aren't included either -- SeasonRecord's
+    archived leader lines don't carry that, only the CURRENT season's
+    live aggregation does (see _stats_page_aggregates's own games_played
+    dict), so it isn't available for past seasons without a real
+    archival-schema change this chunk didn't scope."""
     if not p.team_abbr:
         return None
-    passing, rushing, receiving, defense = history_store.career_stats()
+
+    season = season_state.get_season()
+    cur_passing, cur_rushing, cur_receiving = aggregate_season_stats(season)
+    cur_defense = aggregate_season_defensive_stats(season)
     key = (p.team_abbr, p.full_name)
-    lines: dict[str, dict] = {}
-    if key in passing:
-        lines["passing"] = asdict(passing[key])
-    if key in rushing:
-        lines["rushing"] = asdict(rushing[key])
-    if key in receiving:
-        lines["receiving"] = asdict(receiving[key])
-    if key in defense:
-        lines["defense"] = asdict(defense[key])
+    cur_label = f"Season {season.season_number + 1} (in progress)"
+
+    archived = history_store.season_by_season_stats(p.team_abbr, p.full_name)
+    passing_rows = [_passing_row(f"Season {r['season_number'] + 1}", r["completions"], r["attempts"], r["yards"], r["touchdowns"], r["interceptions"], r.get("sacks_taken", 0)) for r in archived["passing"]]
+    rushing_rows = [_rushing_row(f"Season {r['season_number'] + 1}", r["carries"], r["yards"], r["touchdowns"], r.get("fumbles_lost", 0)) for r in archived["rushing"]]
+    receiving_rows = [_receiving_row(f"Season {r['season_number'] + 1}", r["receptions"], r["targets"], r["yards"], r["touchdowns"]) for r in archived["receiving"]]
+    defense_rows = [_defense_row(f"Season {r['season_number'] + 1}", r["solo_tackles"], r["tackles_for_loss"], r["sacks"], r["interceptions"], r["passes_defended"], r["forced_fumbles"], r["fumble_recoveries"], r["defensive_touchdowns"]) for r in archived["defense"]]
+
+    if key in cur_passing:
+        l = cur_passing[key]
+        passing_rows.insert(0, _passing_row(cur_label, l.completions, l.attempts, l.yards, l.touchdowns, l.interceptions, l.sacks_taken))
+    if key in cur_rushing:
+        l = cur_rushing[key]
+        rushing_rows.insert(0, _rushing_row(cur_label, l.carries, l.yards, l.touchdowns, l.fumbles_lost))
+    if key in cur_receiving:
+        l = cur_receiving[key]
+        receiving_rows.insert(0, _receiving_row(cur_label, l.receptions, l.targets, l.yards, l.touchdowns))
+    if key in cur_defense:
+        l = cur_defense[key]
+        defense_rows.insert(0, _defense_row(cur_label, l.solo_tackles, l.tackles_for_loss, l.sacks, l.interceptions, l.passes_defended, l.forced_fumbles, l.fumble_recoveries, l.defensive_touchdowns))
+
+    career_passing, career_rushing, career_receiving, career_defense = history_store.career_stats()
+    if key in career_passing:
+        l = career_passing[key]
+        passing_rows.append(_passing_row(f"Career ({l.seasons} seasons)", l.completions, l.attempts, l.yards, l.touchdowns, l.interceptions, l.sacks_taken))
+    if key in career_rushing:
+        l = career_rushing[key]
+        rushing_rows.append(_rushing_row(f"Career ({l.seasons} seasons)", l.carries, l.yards, l.touchdowns, l.fumbles_lost))
+    if key in career_receiving:
+        l = career_receiving[key]
+        receiving_rows.append(_receiving_row(f"Career ({l.seasons} seasons)", l.receptions, l.targets, l.yards, l.touchdowns))
+    if key in career_defense:
+        l = career_defense[key]
+        defense_rows.append(_defense_row(f"Career ({l.seasons} seasons)", l.solo_tackles, l.tackles_for_loss, l.sacks, l.interceptions, l.passes_defended, l.forced_fumbles, l.fumble_recoveries, l.defensive_touchdowns))
+
+    lines = {}
+    if passing_rows:
+        lines["passing"] = passing_rows
+    if rushing_rows:
+        lines["rushing"] = rushing_rows
+    if receiving_rows:
+        lines["receiving"] = receiving_rows
+    if defense_rows:
+        lines["defense"] = defense_rows
     return lines or None
 
 
@@ -966,7 +1398,7 @@ def _player_card_json(p: Player) -> str:
         "name": p.full_name, "num": p.jersey_number, "pos": p.position.value,
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
         "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
-        "attrs": attrs, "career": _career_stats_for(p),
+        "attrs": attrs, "career": _season_by_season_stats_for(p),
         "salary": p.salary, "signing_bonus": p.signing_bonus,
     })
 
@@ -1243,14 +1675,36 @@ def _conference_hunt_and_standings(season, bracket) -> tuple[dict, dict]:
     the AFC/NFC Playoffs views (GDD Sec 10.4.6) -- both built from the
     same real tiebreak-chain functions the bracket seeding itself uses
     (`bubble_teams`/`final_division_standings` in playoffs.py), not a
-    separate approximate ranking."""
+    separate approximate ranking.
+
+    M12 correction adds two real per-team fields HuntCard.tsx specifies
+    (`seed_if_made`/`gb`), computed rather than fabricated:
+    - `seed_if_made`: `8 + index` in `bubble_teams`' own real wildcard-
+      tiebreak-chain order (the exact order between bubble teams is
+      exact, from the real chain -- the "8" starting point is a stated,
+      disclosed simplifying convention assuming all 7 real seeds already
+      outrank every bubble team in that same chain, true for the
+      overwhelming majority of real standings; not re-deriving a second,
+      separate absolute-rank computation across all 16 conference teams
+      just to cover the rare case a weak division winner doesn't).
+    - `gb` ("games back"): the standard sports games-behind formula
+      against the conference's actual 7-seed (the real cutoff line),
+      using each team's real win/loss record -- not a modeled stat, just
+      arithmetic on data already in `season.records`.
+    """
     div_standings_raw = final_division_standings(season)
     hunt: dict[str, list[dict]] = {}
     standings: dict[str, dict[str, list[dict]]] = {}
     for conf, seeds in (("AFC", bracket.afc_seeds), ("NFC", bracket.nfc_seeds)):
+        cutoff = season.records[seeds[6]]  # the real 7-seed -- the actual bubble line
+        bubble = bubble_teams(season, conf, seeds)
         hunt[conf] = [
-            {"abbr": abbr, "location": TEAMS_BY_ABBR[abbr].location, "record": season.records[abbr]}
-            for abbr in bubble_teams(season, conf, seeds)
+            {
+                "abbr": abbr, "location": TEAMS_BY_ABBR[abbr].location, "record": season.records[abbr],
+                "seed_if_made": 8 + i,
+                "gb": round(((cutoff.wins - season.records[abbr].wins) + (season.records[abbr].losses - cutoff.losses)) / 2, 1),
+            }
+            for i, abbr in enumerate(bubble)
         ]
         standings[conf] = {
             div: [
@@ -1260,6 +1714,17 @@ def _conference_hunt_and_standings(season, bracket) -> tuple[dict, dict]:
             for (c, div), abbrs in div_standings_raw.items() if c == conf
         }
     return hunt, standings
+
+
+def _conference_champion(bracket, conference: str) -> dict | None:
+    """The real conference champion once that conference's CONF round is
+    complete, for the Full Bracket/Conference Bracket Champion columns
+    (FullPlayoffTree.tsx/ConferenceBracket.tsx) -- None (renders as TBD)
+    until then."""
+    conf_matchup = next((m for round_ in bracket.rounds for m in round_ if m.conference == conference and m.round_name == "CONF"), None)
+    if conf_matchup is None or not conf_matchup.is_complete:
+        return None
+    return {"abbr": conf_matchup.winner_abbr, "seed": conf_matchup.winner_seed, "location": TEAMS_BY_ABBR[conf_matchup.winner_abbr].location}
 
 
 @app.get("/playoffs", response_class=HTMLResponse)
@@ -1282,12 +1747,50 @@ def playoffs_view(request: Request, view: str = "full"):
     afc_rounds = _rounds_by_conference(bracket, "AFC")
     nfc_rounds = _rounds_by_conference(bracket, "NFC")
     sb_matchups = _rounds_by_conference(bracket, None).get("SB", [])
-    return templates.TemplateResponse(request, "playoffs.html", {
+    sb_matchup = sb_matchups[0] if sb_matchups else None
+
+    ctx = {
         "season": season, "bracket": bracket, "round_labels": ROUND_LABELS,
         "view": view, "in_the_hunt": in_the_hunt, "division_standings": division_standings,
-        "afc_rounds": afc_rounds, "nfc_rounds": nfc_rounds,
-        "sb_matchup": sb_matchups[0] if sb_matchups else None,
-    })
+        "afc_rounds": afc_rounds, "nfc_rounds": nfc_rounds, "sb_matchup": sb_matchup,
+        "teams_by_abbr": TEAMS_BY_ABBR,
+    }
+
+    if view == "full":
+        # M12 correction (real source: FullPlayoffTree.tsx): the Champion
+        # columns flanking the Super Bowl card.
+        ctx["afc_champion"] = _conference_champion(bracket, "AFC")
+        ctx["nfc_champion"] = _conference_champion(bracket, "NFC")
+
+    if view in ("afc", "nfc"):
+        # M12 correction (real source: ConferenceBracket.tsx): the 4th
+        # "Champion" column this view never had.
+        ctx["conf_champion"] = _conference_champion(bracket, "AFC" if view == "afc" else "NFC")
+
+    if view == "superbowl":
+        # M12 correction (real source: SuperBowlView.tsx): compact side
+        # Wild Card previews (real, just the first 2 of each conference's
+        # 3 WC games), a real Scouting Panel per SB team (reusing
+        # build_scouting_report() and the Dashboard's own .dash-tab
+        # widget, not a second implementation), and -- once the game is
+        # actually simulated -- a real final-score summary linking to the
+        # full box score/play-by-play (playoffs_game_view below) rather
+        # than a second, duplicate inline copy of that same page. MVP is
+        # deliberately NOT included: no per-game "player of the game"
+        # stat exists anywhere in this engine (awards.py's MVP is a real,
+        # but SEASON-long, computation), and Figma's own MVP block is
+        # itself hardcoded demo data ("Tom Brady... Kansas City Chiefs"),
+        # not something a real API would ever return either -- faking a
+        # number here would be strictly worse than the source.
+        ctx["afc_wc_preview"] = afc_rounds.get("WC", [])[:2]
+        ctx["nfc_wc_preview"] = nfc_rounds.get("WC", [])[:2]
+        if sb_matchup is not None:
+            ctx["sb_scouting"] = {
+                sb_matchup.home_abbr: build_scouting_report(season, sb_matchup.home_abbr),
+                sb_matchup.away_abbr: build_scouting_report(season, sb_matchup.away_abbr),
+            }
+
+    return templates.TemplateResponse(request, "playoffs.html", ctx)
 
 
 @app.get("/playoffs/game/{round_name}/{home_abbr}/{away_abbr}", response_class=HTMLResponse)

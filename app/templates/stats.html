@@ -96,6 +96,7 @@
     <details class="stats-customize">
       <summary>Customize Columns ({{ column_ids | length }} selected)</summary>
       <div class="stats-customize-body">
+        <input type="text" class="stats-column-search" placeholder="Search stat names..." style="margin-bottom: 0.75rem;">
         <div class="stats-presets">
           {% for pid, plink in preset_links.items() %}
           <a href="{{ plink }}" class="stats-preset-btn">{{ pid | capitalize }}</a>
