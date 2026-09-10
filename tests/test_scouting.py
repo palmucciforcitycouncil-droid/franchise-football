@@ -255,6 +255,23 @@ def test_team_summary_streak_and_last3_most_recent_first():
     assert result["last3"][-1].opponent == "DEN"
 
 
+def test_team_summary_tie_credits_the_home_team_a_win_not_a_loss():
+    """A tied score (game_sim.py has no overtime, so h == a is a real
+    outcome) still resolves to a winner -- GDD Sec 3.1.2's `ties` field
+    is "reserved even if engine forces a winner" (home wins the tie,
+    game_sim.py's `winner = "home" if h >= a else "away"`). last3's
+    won flag must agree with that forced winner instead of independently
+    recomputing my_score > opp_score, which would show the tie as a loss
+    for BOTH teams and contradict season.records' win/loss counts."""
+    schedule = [[_played_game("KC", "BUF", 6, 6)]]  # tie -- home (KC) is the forced winner
+    season = _season(schedule, current_week=2)
+    kc_result = scouting.team_summary(season, "KC")
+    buf_result = scouting.team_summary(season, "BUF")
+
+    assert kc_result["last3"][0].won is True
+    assert buf_result["last3"][0].won is False
+
+
 def test_team_summary_turnover_differential_is_forced_minus_committed():
     schedule = [[_played_game(
         "KC", "BUF", 10, 7,
