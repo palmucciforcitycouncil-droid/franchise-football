@@ -7832,11 +7832,11 @@ The real seed (see 3.6.1) lists far more titles per team than the 5-value role e
 
 \- \*\*Everything else\*\* -\\> role = AC, with \`specialty\` set to the real listed title/position group (e.g. "Quarterbacks", "Passing Game", "Running Backs", "Wide Receivers", "Tight Ends", "Offensive Line", "Defensive Line", "Linebackers", "Secondary"). This explicitly includes \*\*Assistant Special Teams Coach / Assistant Special Teams Coordinator\*\* (specialty = "Special Teams (Assistant)") and \*\*Assistant Quarterbacks Coach\*\* (specialty = "Quarterbacks (Assistant)") -- both stay AC even though they sit on the ST/QB coordinator's staff, per Brian's explicit instruction, not promoted to ST/OC.
 
-\- \*\*Dual-titled entries\*\* (e.g. a position coach who's also "Assistant Head Coach"): specialty = the primary functional position-group title; the secondary "Assistant Head Coach" tag is not a separate role or field yet -- open question for whoever builds this (see ROADMAP.md R3 notes).
+\- \*\*Dual-titled entries\*\* (e.g. a position coach who's also "Assistant Head Coach"): role = AC, specialty = the primary functional position-group title only -- decided 2026-09-11 (e.g. BUF's real "Linebackers Coach / Assistant Head Coach" becomes role=AC, specialty="Linebackers"). The secondary "Assistant Head Coach" tag is dropped entirely, not stored as a second field.
 
 
 
-Not yet decided (flagged for the R3 design pass, not resolved here): whether ST gets its own HOF-weight tier in 7.9.5/3.10 (between OC/DC and AC, given it's now a coordinator-level role) or inherits the existing OC/DC tier outright.
+Decided 2026-09-11: ST shares OC/DC's HOF-weight tier in 7.9.5/3.10 (its own tier, but weighted the same as OC/DC, not a lighter one) -- see 7.9.5.
 
 
 
@@ -8116,7 +8116,7 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 \- Hall of Fame scoring (see 3.10):
 
-&nbsp; - Heavier weight for HC rings; OC/DC rings weighted moderately; AC lightly. ST's exact tier is an open question (added 2026-09-11 with the new role) -- not yet decided whether it shares OC/DC's tier or gets its own; leave for the R3 design pass (see ROADMAP.md).
+&nbsp; - Heavier weight for HC rings; OC/DC/ST rings weighted moderately (same tier -- decided 2026-09-11); AC lightly.
 
 
 
