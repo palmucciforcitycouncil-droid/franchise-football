@@ -1602,6 +1602,16 @@ The following features are explicitly deferred to R2. Their fields and DTOs will
 
 \- Awards may include SB MVP in R2.
 
+\- \*\*Preseason (R2)\*\*
+
+\- A short slate of preseason games simulated before Week 1, using the same drive/box-score engine as the regular season (GameResult schema unchanged; a \`season\_phase: "preseason"\` flag distinguishes these from regular-season/postseason rows rather than a new entity).
+
+\- Preseason snaps/touches feed \\\S8.1's existing Usage Model (U) as a small, capped nudge to in-season player development \\\-\\\- not a second progression pass, just an earlier, smaller data point for the same Δ\_attr formula (\\\S8.1.4), still respecting \\\S8.1's per-attribute annual caps.
+
+\- Preseason box-score stats backfill the Scouting Panel and Week-1 Top Performers/leaders views, which today have no data to show until real regular-season games exist (Week 1's scouting box is effectively empty for exactly this reason).
+
+\- Preseason results themselves do not count toward regular-season standings, Power Rankings, or awards eligibility.
+
 
 
 \## 3.6 Data Seeds \& Imports
@@ -1628,7 +1638,13 @@ Exact filenames and canonical paths, with purpose and target domain tables (prim
 
 \- Coach Roster Seed - Sheet1.csv - /data/seeds/Coach Roster Seed - Sheet1.csv  
 
-&nbsp;   Purpose: Active coaches/staff at league start  
+&nbsp;   Purpose: Active coaches/staff at league start (originally-planned filename/format; never actually delivered -- superseded by the real seed below)  
+
+&nbsp;   Targets: coach, team\_coach
+
+\- Comprehensive NFL Coaching Staff Directory with Salaries 2026.md - /data/raw/coaches/Comprehensive NFL Coaching Staff Directory with Salaries 2026.md  
+
+&nbsp;   Purpose: The real, current (2026 season) coach/staff seed -- name + title + salary\_aav for all 32 teams' full staffs (HC, OC, DC, Special Teams Coordinator, every position-group assistant, and dedicated assistant-to-a-coordinator titles). Added 2026-09-11, R3 scoping. Markdown, not CSV (mirrors the real \`/data/raw/rosters/players.csv\` convention this project actually uses, not the aspirational \`/data/seeds/\` path above, which was never realized for any domain). See \*\*7.7.2.1a\*\* for the exact title-\\>role\\+specialty mapping rule an eventual import script must apply.  
 
 &nbsp;   Targets: coach, team\_coach
 
@@ -1762,7 +1778,7 @@ No reseeding on routine server start; no destructive deletes unless a dedicated 
 
 \- Players: first\_name, last\_name, position, age, attributes{…}, salary\_aav, contract\_years
 
-\- Coaches: first\_name, last\_name, role (HC | OC | DC | STC), scheme\_tendencies{run\_pass, aggression, pace}
+\- Coaches: first\_name, last\_name, role (HC | OC | DC | ST | AC), specialty (AC-only), scheme\_tendencies{run\_pass, aggression, pace} -- role list reconciled 2026-09-11 to match 7.7.2.1's canonical enum (this line previously said "STC" and omitted AC, an earlier-draft inconsistency)
 
 \- Roster: team\_id, player\_id, depth\_slot
 
@@ -2420,7 +2436,7 @@ This data feeds the \*\*Stats Page\*\*, \*\*Milestone Tracker\*\*, and \*\*Award
 
 \- Section 7.6 - Stat Aggregation source.
 
-\- Section 7.7 - Coach Role Titles adds coach-specific categories.
+\- Section 7.9 - Coach Role Titles adds coach-specific categories. (Fixed 2026-09-11: previously misreferenced as "Section 7.7" -- 7.7 is the Player \& Coach Attribute Catalog, 7.9 is Coach Role Titles.)
 
 \- Section 15.x - Validation tests for record integrity.
 
@@ -4624,15 +4640,19 @@ Logged to:
 
 \## 6.8. Special Teams Outcome Pipelines
 
+Implemented (\`app/engine/drive\_sim.py\` + \`app/engine/special\_teams.py\`, added alongside the Preseason/Find-Player/FA future-feature docs above -- see ROADMAP.md's R2 row for what this superseded):
 
+\*\*FG/XP:\*\* Distance-band make% from calibration (unchanged from the MVP build); P(Block) rolled BEFORE the make/miss roll at a flat \*\*0.3%\*\* (FG) / \*\*0.3%\*\* (XP, same constant -- a PAT is functionally a ~33-yard FG) -- comfortably under the \*\*3.5% cap\*\* this section originally specced as a ceiling, not a flat rate; weather penalties still not modeled (§6.9 itself isn't built).  
 
-\*\*FG/XP:\*\* Distance-band \*\*make%\*\* from calibration; P(Block) capped \*\*3.5%\*\*; weather penalties (§6.9).  
+\*\*Punts:\*\* Unchanged net-yardage distance model (mean/stdev); P(Block) at \*\*0.2%\*\*, modeled as the receiving team taking over near the line of scrimmage (the block-recovery race itself isn't simulated, a disclosed simplification). Punt returns are still NOT modeled with real yardage -- "net yards" already folds any hypothetical return into one number, same disclosed gap as before this section was implemented.  
 
-\*\*Punts:\*\* Distance model (mean/stdev), TB/I-20 odds; returns via same model as kicks; includes P(Block).  
+\*\*Kickoffs:\*\* A flat \*\*55% touchback\*\* rate (not tied to K power specifically -- no per-kicker touchback-distance formula exists) spotting the receiving team at their own 25; otherwise a real Gaussian return (mean 24 yards, adjusted by the returner's own \`kick\_return\` rating) starting from the goal line. No dedicated kick-returner roster slot exists (depth\_chart.py has none) -- the returner is picked dynamically from the receiving team's WR/HB depth pool by best \`kick\_return\` rating, the same "pick a fitting player" approach the engine already used for run-play tacklers/sack credit.  
 
-\*\*Kickoffs:\*\* Touchback from K power + SFS; returns vary starting FP; rare TDs.  
+\*\*Kickoff/Return TDs:\*\* A real, small, distance-sensitive chance (0.2%-6%, same single-roll shape as the existing Defensive TD mechanic) that a return goes all the way -- not a full open-field return simulation play by play.  
 
-\*\*Onside Kick:\*\* Late, trailing; success ≈ \*\*7%\*\*.
+\*\*Onside Kick:\*\* Offered only when the kicking team is trailing with 3 or fewer drives left in the game; success flat \*\*7%\*\*, matching this section's original target.  
+
+\*\*2-Point Conversions:\*\* A real PAT-vs-2-point decision after every offensive touchdown (using the previously-unused \`two\_point\_try\` tuning constant as a baseline, boosted late and trailing) and after a kickoff-return touchdown; a 2-point attempt succeeds at a flat \*\*48%\*\* (no goal-line-package/play-resolution model exists to simulate the attempt itself, a disclosed simplification, same spirit as a single roll deciding a kick).
 
 
 
@@ -7776,7 +7796,9 @@ Policy: All ratings below are active in MVP and may be referenced by OVR and the
 
 \- \*\*coach\_id (int), team\_id (int | null if FA)\*\*
 
-\- \*\*role (enum: HC | OC | DC | AC)\*\*
+\- \*\*role (enum: HC | OC | DC | ST | AC)\*\* -- ST (Special Teams Coordinator) added 2026-09-11 as its own role, split out of the original AC catch-all, per the real seed doc (every team's staff directory lists a distinct Special Teams Coordinator, same organizational tier as OC/DC). See \*\*7.7.2.1a\*\* for how every other title in the real seed collapses into AC.
+
+\- \*\*specialty (str | null, AC-only)\*\* -- free-text position-group/focus tag for AC-role coaches (e.g. "Quarterbacks", "Running Backs", "Offensive Line", "Secondary"), added alongside ST. Null for HC/OC/DC/ST (their role already says what they do). See \*\*7.7.2.1a\*\*.
 
 \- \*\*first\_name, last\_name (str)\*\*
 
@@ -7789,6 +7811,32 @@ Policy: All ratings below are active in MVP and may be referenced by OVR and the
 \- \*\*offensive\_profile (enum/tag: WestCoast | AirRaid | Vertical | GroundNPound | RPO | Balanced)\*\*
 
 \- \*\*defensive\_profile (enum/tag: Man | Zone | BlitzHeavy | TwoHigh | StopRun | Balanced)\*\*
+
+
+
+\*\*7.7.2.1a Real-Seed Title -\\> Role + Specialty Mapping (added 2026-09-11)\*\*
+
+
+
+The real seed (see 3.6.1) lists far more titles per team than the 5-value role enum has slots for -- e.g. Passing Game Coordinator, Quarterbacks Coach, Running Backs Coach, Wide Receivers Coach, Tight Ends Coach, Offensive Line Coach, Assistant Offensive Line Coach, Defensive Line Coach, Linebackers Coach, Secondary/Safeties/Cornerbacks Coach, Assistant Special Teams Coach/Coordinator, Assistant Quarterbacks Coach, and occasional dual titles (e.g. "Linebackers Coach / Assistant Head Coach"). Brian's explicit mapping rule (2026-09-11):
+
+
+
+\- \*\*Head Coach\*\* -\\> role = HC.
+
+\- \*\*Offensive Coordinator\*\* -\\> role = OC.
+
+\- \*\*Defensive Coordinator\*\* -\\> role = DC.
+
+\- \*\*Special Teams Coordinator\*\* -\\> role = ST (the coordinator only -- not their assistants, see below).
+
+\- \*\*Everything else\*\* -\\> role = AC, with \`specialty\` set to the real listed title/position group (e.g. "Quarterbacks", "Passing Game", "Running Backs", "Wide Receivers", "Tight Ends", "Offensive Line", "Defensive Line", "Linebackers", "Secondary"). This explicitly includes \*\*Assistant Special Teams Coach / Assistant Special Teams Coordinator\*\* (specialty = "Special Teams (Assistant)") and \*\*Assistant Quarterbacks Coach\*\* (specialty = "Quarterbacks (Assistant)") -- both stay AC even though they sit on the ST/QB coordinator's staff, per Brian's explicit instruction, not promoted to ST/OC.
+
+\- \*\*Dual-titled entries\*\* (e.g. a position coach who's also "Assistant Head Coach"): specialty = the primary functional position-group title; the secondary "Assistant Head Coach" tag is not a separate role or field yet -- open question for whoever builds this (see ROADMAP.md R3 notes).
+
+
+
+Not yet decided (flagged for the R3 design pass, not resolved here): whether ST gets its own HOF-weight tier in 7.9.5/3.10 (between OC/DC and AC, given it's now a coordinator-level role) or inherits the existing OC/DC tier outright.
 
 
 
@@ -7936,13 +7984,13 @@ Policy: All ratings below are active in MVP and may be referenced by OVR and the
 
 
 
-\## 7.9 Coach Role Titles (HC/OC/DC/AC) - Season \& Career Accounting
+\## 7.9 Coach Role Titles (HC/OC/DC/ST/AC) - Season \& Career Accounting
 
 
 
 \*\*Purpose\*\*  
 
-Credit coaches for conference championships and Super Bowls \*\*by the role they held\*\* that season/game (Head Coach, Offensive Coordinator, Defensive Coordinator, Assistant Coach). These credits appear on season logs and roll up to career totals on the coach profile, and they feed Records and Hall of Fame.
+Credit coaches for conference championships and Super Bowls \*\*by the role they held\*\* that season/game (Head Coach, Offensive Coordinator, Defensive Coordinator, Special Teams Coordinator, Assistant Coach). These credits appear on season logs and roll up to career totals on the coach profile, and they feed Records and Hall of Fame.
 
 
 
@@ -7960,7 +8008,7 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 \- team\_id (FK → Team)
 
-\- role (enum: HC, OC, DC, AC)
+\- role (enum: HC, OC, DC, ST, AC) -- ST added 2026-09-11, see 7.7.2.1/7.7.2.1a
 
 \- made\_playoffs (bool)
 
@@ -7980,6 +8028,8 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 \- dc\_afc\_championships, dc\_nfc\_championships, dc\_super\_bowl\_wins
 
+\- st\_afc\_championships, st\_nfc\_championships, st\_super\_bowl\_wins -- added 2026-09-11 alongside the new ST role
+
 \- ac\_afc\_championships, ac\_nfc\_championships, ac\_super\_bowl\_wins
 
 
@@ -7988,7 +8038,7 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 
 
-\- coach\_id, team\_id, role (HC/OC/DC/AC/S\&C), effective\_from (date), effective\_to (date?)
+\- coach\_id, team\_id, role (HC/OC/DC/ST/AC/S\&C), effective\_from (date), effective\_to (date?)
 
 
 
@@ -8000,7 +8050,7 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 &nbsp; - On game finalize, find the \*\*winning team\*\* and its staff \*\*at kickoff\*\* using StaffAssignment.
 
-&nbsp; - For each of HC, OC, DC, and all ACs on the winning team:
+&nbsp; - For each of HC, OC, DC, ST, and all ACs on the winning team:
 
 &nbsp;   - Upsert CoachSeasonStats with conference\_title = AFC or NFC.
 
@@ -8058,15 +8108,15 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 \- Record Book categories added (career, scope=COACH):
 
-&nbsp; - MOST\_AFC\_TITLES\_HC / OC / DC / AC
+&nbsp; - MOST\_AFC\_TITLES\_HC / OC / DC / ST / AC
 
-&nbsp; - MOST\_NFC\_TITLES\_HC / OC / DC / AC
+&nbsp; - MOST\_NFC\_TITLES\_HC / OC / DC / ST / AC
 
-&nbsp; - MOST\_SUPER\_BOWL\_WINS\_HC / OC / DC / AC
+&nbsp; - MOST\_SUPER\_BOWL\_WINS\_HC / OC / DC / ST / AC
 
 \- Hall of Fame scoring (see 3.10):
 
-&nbsp; - Heavier weight for HC rings; OC/DC rings weighted moderately; AC lightly.
+&nbsp; - Heavier weight for HC rings; OC/DC rings weighted moderately; AC lightly. ST's exact tier is an open question (added 2026-09-11 with the new role) -- not yet decided whether it shares OC/DC's tier or gets its own; leave for the R3 design pass (see ROADMAP.md).
 
 
 
@@ -8086,7 +8136,7 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 
 
-\- AFCCG + SB simulation with staff {HC, OC, DC, 2×AC}: verify winners receive season and career increments by role; losers get SB=LOSS only.
+\- AFCCG + SB simulation with staff {HC, OC, DC, ST, 2×AC}: verify winners receive season and career increments by role; losers get SB=LOSS only.
 
 \- Interim HC promotion before SB: credit as HC (not OC).
 
@@ -9519,6 +9569,14 @@ This is a consolidated list of pending items for future development cycles.
 \- \*\*UI/UX:\*\*
 
 \- Allow users to customize page layouts by moving and resizing modules/cards. Their location and size should be user-definable.
+
+\- \*\*Roster - Find Player \& Free Agents (R2):\*\*
+
+\- Find Player results become sortable by any returned column (age, OVR, POT, and individual attributes like speed/acceleration), not just the default OVR-descending order (reuse the Roster table's own \`ROSTER\_SORT\_KEYS\`/sortable-header pattern rather than a new mechanism).
+
+\- Both Find Player and Free Agents grow a tabbed detail view reusing the Player Card's own tab set \\\-\\\- Overview (default), Ratings, Stats, Contract \\\-\\\- so a result row can be inspected in place instead of only opening the full Player Card modal; each tab's own columns (e.g. every rating under Ratings) are independently sortable.
+
+\- Free Agents adds a fourth tab, \*\*Contract Sought\*\*, following the Global MVP "Coming Soon" Shell Pattern (\\\S9.2.8, "Available in R2") until a real expected-salary/negotiation system exists to back it.
 
 \- \*\*Coaching Staff:\*\*
 
