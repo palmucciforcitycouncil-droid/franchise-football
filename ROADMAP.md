@@ -2,7 +2,7 @@
 
 **Read this after HANDOFF.md, before starting any new chunk of work.** HANDOFF.md is the detailed "what happened and why" log. This file is the forward-looking "what's left and how to spend tokens efficiently doing it" plan. Update the checkboxes here as chunks land; leave HANDOFF.md's own numbered-item narrative style for the detailed record of *how* each chunk was actually built.
 
-Written 2026-09-09, after item 37 (roster-depth rotation); updated repeatedly the same day through M1-M9 (original MVP chunks) and M10-M15 (the Figma re-audit's correction chunks -- see §2b for the full account, including two real data-persistence incidents found and fixed along the way). Current state: 265 tests passing (1 skipped) as of the last full run — **M1-M15 are all done, and §2d (Scouting Panel + Standings/Power Rankings/Top Performers deep-dive, Chunks A and B) is now all done too, 2026-09-10.** Most recently updated after adding GDD §12 (Headlines Feature) and its own new R-series row below (§4). **Outstanding: §2c (Dashboard v2 redesign + UI conventions) — new items filed from live testing on 2026-09-10, not yet started.**
+Written 2026-09-09, after item 37 (roster-depth rotation); updated repeatedly the same day through M1-M9 (original MVP chunks) and M10-M15 (the Figma re-audit's correction chunks -- see §2b for the full account, including two real data-persistence incidents found and fixed along the way). Current state: 270 tests passing (1 skipped) as of the last full run — **M1-M15, §2c (Dashboard v2 redesign + UI conventions), and §2d (Scouting Panel + Standings/Power Rankings/Top Performers deep-dive, Chunks A and B) are now all done, 2026-09-10.** Most recently updated after adding GDD §12 (Headlines Feature) and its own new R-series row below (§4).
 
 ---
 
@@ -73,29 +73,25 @@ Each row is sized to run as its own fresh Claude Code session (or bundled per th
 
 ---
 
-## 2c. Dashboard v2 redesign + UI conventions — from live testing (2026-09-10)
+## 2c. Dashboard v2 redesign + UI conventions — DONE (2026-09-10)
 
-**Status: NOT STARTED.** Brian tested the live M10 dashboard (port 8010, KC franchise, Season 25 Week 13) and filed the following as outstanding items — a future session must scope and implement these before this section can be marked done. Do not treat M10's "Done" status in §2b as covering this; these are new requirements raised after that chunk shipped, not a defect in it.
+**Status: DONE.** Brian tested the live M10 dashboard (port 8010, KC franchise, Season 25 Week 13) and filed the items below; a later session (the same one that built Sec2d-B Chunk B) implemented all of them directly, at Brian's own request, once he saw the live Chunk B dashboard didn't yet reflect this section.
 
-**1. Coming-soon placeholder convention (general UI rule, not dashboard-only):** anywhere a box/widget would appear for a feature that isn't built yet, render a box with the feature's title and the body "Coming soon" — rather than omitting the box entirely. Named examples: an Awards Race box (see #2 below) and a Headlines box (see #3 below, ties to R9) should both follow this convention until their real content lands.
+**1. DONE — Coming-soon placeholder convention.** Applied to the new Headlines box (item 2) -- the only box in this redesign without real data behind it yet. Awards Race turned out NOT to need this treatment: `awards.py`'s `season_awards()` already computes real MVP/OPOY/DPOY/ROY data (confirmed the real category set is exactly those 4, not the 5 this item's original guess of "O-ROY/D-ROY" split assumed -- `rookie_of_the_year()` is a single combined ROY drawing from both offensive and defensive rookie pools), so it was built for real instead, the same reuse precedent M9/M10's Scouting Panel already established with `build_scouting_report()`.
 
-**2. Dashboard grid rearrangement.** New row-by-row layout, replacing M10's current grid:
-   - **Row 1:** Standings | Box Score (Box Score spans 2 of the 3 columns — it's large, see #4 below for its new internal content)
-   - **Row 2:** Schedule | Scouting | Game Plan
-   - **Row 3:** League Power Rankings | Top Performers | Awards Race
-     - Awards Race box: tabs for each award category (MVP/OPOY/DPOY/O-ROY/D-ROY per `awards.py`'s real categories — confirm exact set/labels when scoping), each tab showing the top 5-10 players in that category with their stat line. Same underlying data `awards.py` already computes, just surfaced here too (same reuse precedent as M9/M10's Scouting Panel reusing `build_scouting_report()`).
-   - **Play-by-Play box removed from the dashboard entirely.** It's still reachable, just relocated: a "Full box score & play-by-play →" link inside the Box Score box (see #4) should take the user to the existing full page that has it.
-   - The current top header box ("Dashboard — Season N · LEAGUE_SEED=X" / "Week Y of Z up next...") gets **replaced by the Headlines box** (R9 — GDD §12). Until R9 actually lands, this box should render per the #1 coming-soon convention.
+**2. DONE — Dashboard grid rearrangement.** New row-by-row layout replaced M10's `.dashboard-col1-stack` layout exactly as specified:
+   - **Row 1:** Standings | Box Score (span 2)
+   - **Row 2:** Team Schedule | Scouting Panel | Weekly Gameplan
+   - **Row 3:** Power Rankings | Top Performers | Awards Race (real, tabbed MVP/OPOY/DPOY/ROY via `season_awards()`, same `games_played` gate the Stats page's own Awards Race section already uses)
+   - Play-by-Play box removed from the dashboard grid entirely -- still reachable via a "Full box score & play-by-play →" link inside the redesigned Box Score box.
+   - The old "Dashboard — Season N · LEAGUE_SEED=X" header is now a Headlines box, coming-soon per item 1 (GDD §12/R9 needs its own scoping session -- event detection, a real Claude API call, an offline fallback, and a determinism-policy decision, none of which exist yet). Kept the old header's real week-status line ("Week N of 18 up next...") and its `/season`/`/stats` nav links underneath the coming-soon message, since those are genuinely useful, non-spec-sounding info -- not the kind of filler item 4 asks to strip.
+   - No explicit `grid-row`/`grid-column` placement needed for the reordered boxes: the grid is a plain `repeat(3, 1fr)` auto-flow, so simply emitting the 8 cards in the new DOM order (plus `.dashboard-span-2` on Box Score, unchanged) places everything correctly.
 
-**3. Box Score box redesign.** Keep everything the current box score already shows (M9/M10's real stat tables) — just add a condensed summary ABOVE it, modeled on the two attached reference screenshots:
-   - Top section: big team names (or abbreviations) and a big final score, side by side, matching screenshot 1's "NFL · Yesterday / Final" scoreboard style (final score prominent — the point is the user can read the result at a glance right after a week sims).
-   - Middle section: a compact "Game Leaders" mini-leaderboard (passing/rushing/receiving, one leader per team per category), matching screenshot 2.
-   - Bottom section: the existing full box score content, unchanged.
-   - A "Full box score & play-by-play →" link somewhere in this box (see #2's Play-by-Play removal above) takes the user to the full page.
+**3. DONE — Box Score box redesign.** Added a condensed scoreboard summary (big `.team-badge` abbreviations + a big final score, the winning side styled bold) and a real "Game Leaders" mini-leaderboard (passing/rushing/receiving, one leader per team, by yards, via a new `_game_leaders()` helper) ABOVE the existing full box score tables (M9/M10, unchanged). `_last_played_game_for()` now also builds the OPPONENT's box score (it previously only built the user's own team's), needed to show both teams' leaders. No team logo assets exist anywhere in this project -- reused the exact `.team-badge` abbreviation-in-a-box convention the persistent header already established, per the original write-up's own "Open items" note. **Caught and fixed a real bug during live verification**: the away team's Game Leaders column initially showed the HOME team's abbreviation twice (a leftover incorrect ternary using `home_abbr`/`opponent_abbr` instead of the simpler, always-correct `home_abbr`/`away_abbr` pair) -- fixed before shipping, and now covered by a regression test.
 
-**4. Remove filler/descriptive subtext lines from dashboard widgets.** E.g. the Game Plan box currently has lines like "Sets your Head Coach's strategy for this week's opponent (GDD §10.4.1) — read by the play-calling AI for your team only." — strip these kinds of explanatory captions out; they read as debug/spec text, not real UI copy. Apply this across whichever boxes currently have similar lines, not just Game Plan.
+**4. DONE — Removed filler/descriptive subtext.** Weekly Gameplan's "Sets your Head Coach's strategy for this week's opponent (GDD §10.4.1) — read by the play-calling AI for your team only." line is gone (its field-level tooltips already explain each setting); confirmed via grep this was the ONLY such line anywhere in `dashboard.html` -- no other box had one.
 
-**Open items for whoever scopes/implements this:** no team logo/crest assets exist anywhere in this project (it's server-rendered HTML/Jinja, no image pipeline) — screenshot 1's team logos will need a text/abbreviation-only substitute, consistent with how the rest of the app already handles teams. Confirm the exact Awards Race category set and labels against `awards.py` before building. This chunk has NOT been sized/assigned a model recommendation yet — do that as part of scoping, per this file's own §5 playbook.
+**Verification:** 5 new tests in `tests/test_season.py` covering the Headlines coming-soon box, the removed filler text, the removed Play-by-Play box, the redesigned Box Score's scoreboard/Game Leaders (including a regression test for the home/away abbreviation bug caught during verification), and the real Awards Race box. Live-verified via the real dev server (port 8010, read-only -- same "don't touch state, only view" discipline as Sec2d-B's own verification): confirmed the DOM order of all 8 cards matches the new row spec exactly, the nested Standings tabs (Sec2d-B item 9) still work unchanged, and the Awards Race tabs switch correctly. Full suite: 270 passed, 1 skipped (up from Sec2d-B's 265 -- 5 new tests).
 
 ---
 
