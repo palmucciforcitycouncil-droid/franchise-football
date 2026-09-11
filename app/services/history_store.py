@@ -192,7 +192,29 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
 
 
 def get_history(path: Path | None = None) -> list[SeasonRecord]:
-    """All archived seasons, oldest first (matches append order)."""
+    """All archived seasons, oldest first (matches append order). A thin
+    wrapper resolving `path` before handing off to the cached
+    implementation below -- same reasoning as career_stats()'s own
+    wrapper just below (never cache on a raw `None` default, or tests
+    redirecting DEFAULT_PATH would collide on one shared cache key)."""
+    return _get_history_cached(path if path is not None else DEFAULT_PATH)
+
+
+@lru_cache(maxsize=32)
+def _get_history_cached(path: Path) -> list[SeasonRecord]:
+    """Real perf fix found live while verifying ROADMAP.md Sec2d-B item 11:
+    history.json is a real ~13.5MB file (24 archived real/simulated
+    seasons) -- reading + json.loads + reconstructing every SeasonRecord
+    dataclass from it costs ~0.4s per call, and season_by_season_stats()
+    (the Player Card Stats tab's year-by-year table) called this with
+    zero caching of its own on every single player-card render. The
+    Dashboard's new Top Performers box renders up to 100 player-card
+    links in one request, which is what actually exposed this (a 46s+
+    real Dashboard load) -- not something item 11 itself directly added.
+    Same lru_cache-plus-explicit-clear pattern career_stats() already
+    uses below; see clear_career_stats_cache(), extended to also clear
+    this cache at the same call site (right after archive_season()/
+    append_season_record() add a new season to this file)."""
     return [_record_from_dict(d) for d in _load(path)]
 
 
@@ -384,8 +406,13 @@ def clear_career_stats_cache() -> None:
     """Call right after this module's own history file gains a new
     season (archive_season()/append_season_record()) -- otherwise
     career_stats()'s lru_cache would keep serving the pre-archive
-    totals for the rest of the process's life."""
+    totals for the rest of the process's life. Also clears
+    get_history()'s own cache (added alongside career_stats()'s
+    existing one, ROADMAP.md Sec2d-B item 11's perf fix) for the same
+    reason -- both read the same underlying file and both need to see
+    a just-added season immediately."""
     _career_stats_cached.cache_clear()
+    _get_history_cached.cache_clear()
 
 
 def _normalize(value: float, pool: list[float]) -> float:

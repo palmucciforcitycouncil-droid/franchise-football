@@ -142,6 +142,7 @@ def reset_season() -> Season:
     with _STATE_LOCK:
         from app.services import save_service
         _season = _build_season(get_league_seed())
+        season_stats.clear_current_season_cache()
         save_service.save_season(_season)
         return _season
 
@@ -257,6 +258,7 @@ def simulate_current_week() -> int:
             )
         }
         power_rank_history.record_snapshot(season.season_number, week_num, ranks)
+        season_stats.clear_current_season_cache()
 
         season.current_week += 1
 
@@ -395,6 +397,7 @@ def start_new_season() -> Season:
         prior_standings = playoffs.final_division_standings(season)
         history_store.archive_season(season)
         history_store.clear_career_stats_cache()
+        season_stats.clear_current_season_cache()
         apply_progression_to_roster(season)
 
         next_number = season.season_number + 1

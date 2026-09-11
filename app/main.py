@@ -24,6 +24,7 @@ from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.box_score import build_box_score
 from app.engine.defensive_box_score import build_defensive_box_score
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
+from app.engine import season_stats
 from app.engine import score_fidelity, awards
 from app.engine.playoffs import bubble_teams, final_division_standings
 from app.engine.scouting import find_next_opponent, build_scouting_report
@@ -1437,8 +1438,7 @@ def _season_by_season_stats_for(p: Player) -> dict | None:
         return None
 
     season = season_state.get_season()
-    cur_passing, cur_rushing, cur_receiving = aggregate_season_stats(season)
-    cur_defense = aggregate_season_defensive_stats(season)
+    cur_passing, cur_rushing, cur_receiving, cur_defense = season_stats.cached_current_season_aggregates(season)
     key = (p.team_abbr, p.full_name)
     cur_label = f"Season {season.season_number + 1} (in progress)"
 
