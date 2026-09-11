@@ -34,7 +34,7 @@ from app.engine.game_state import GameResult
 from app.engine import power_rating, score_fidelity, playoffs, progression, season_stats
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
-from app.services import gameplan_store, history_store
+from app.services import gameplan_store, history_store, power_rank_history
 from app.core.db import get_session
 from app.models.player import Player
 from sqlmodel import select
@@ -244,6 +244,19 @@ def simulate_current_week() -> int:
 
             week_total_points += result.home_score + result.away_score
             week_total_teams += 2
+
+        # ROADMAP.md Sec2d-B item 10: real week-over-week Power Ranking
+        # movement needs a persisted snapshot to diff against -- this is
+        # the one place every team's rank for this week is known, right
+        # after every game's power_rating update above and before the
+        # week advances. See power_rank_history.py's own docstring for
+        # the store's shape and the test-isolation convention it follows.
+        ranks = {
+            r.abbr: i for i, r in enumerate(
+                sorted(season.records.values(), key=lambda r: -r.power_rating), start=1
+            )
+        }
+        power_rank_history.record_snapshot(season.season_number, week_num, ranks)
 
         season.current_week += 1
 

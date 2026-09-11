@@ -537,14 +537,41 @@
        modal. Two rows of 3, mirroring ScoutingPanel.tsx's own
        `grid-cols-3` TabsList x2 -- 6 tabs don't fit legibly in one row
        at this card's ~1/3-page width. */
-    .dash-tabs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.35rem; margin-bottom: 0.35rem; }
-    .dash-tab {
+    /* .dash-tabs-grid is now column-count-agnostic (see the .cols-N
+       modifiers below) -- Standings' AFC/NFC (2) and East/North/South/West
+       (4) sub-tabs (ROADMAP.md Sec2d-B item 9) reuse the same base rule
+       the Scouting Panel's original 6-tab/3-col grid (M10) used, instead
+       of a second, parallel CSS pattern. */
+    .dash-tabs-grid { display: grid; gap: 0.35rem; margin-bottom: 0.35rem; }
+    .dash-tabs-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .dash-tabs-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .dash-tabs-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .dash-tab, .tp-conf-tab {
       background: var(--bg); border: 1px solid var(--border); color: var(--muted);
       border-radius: 6px; padding: 0.4rem 0.3rem; font-size: 0.78rem; cursor: pointer; text-align: center;
       font-family: inherit;
     }
-    .dash-tab.active { background: var(--border); color: var(--text); font-weight: 600; }
+    .dash-tab.active, .tp-conf-tab.active { background: var(--border); color: var(--text); font-weight: 600; }
     .dash-panel[hidden] { display: none; }
+
+    /* Top Performers box (ROADMAP.md Sec2d-B item 11): tp-conf-tab reuses
+       .dash-tab's look (shared rule above) but is handled by its own JS
+       listener, not the .dash-tab/[data-tabgroup] delegation below -- it
+       filters rows by data-conf rather than swapping panels. */
+    .tp-conf-tabs { display: flex; gap: 0.35rem; }
+    .tp-category-select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.4rem 0.5rem; font-family: inherit; width: 100%; }
+    .tp-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.2rem; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
+    .tp-row:last-child { border-bottom: none; }
+    .tp-rank { color: var(--gold); font-size: 0.85rem; width: 1.4rem; flex-shrink: 0; text-align: right; }
+    .tp-row-main { flex: 1; min-width: 0; }
+    .tp-value { font-weight: 600; flex-shrink: 0; }
+
+    /* Power Rankings box (ROADMAP.md Sec2d-B item 10): real week-over-week
+       rank delta from power_rank_history.py, styled like
+       LeaguePowerRankings.tsx's own CHG column (green up, red down). */
+    .pr-delta-up { color: #4ade80; }
+    .pr-delta-down { color: #f87171; }
+    .pr-delta-none { color: var(--muted); }
     .dash-stat-row { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 0.3rem 0; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
     .dash-stat-row:last-child { border-bottom: none; }
     .dash-subhead { color: var(--gold); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0.9rem 0 0.4rem; }
@@ -780,6 +807,19 @@
         });
       }
 
+      // Dashboard Top Performers (ROADMAP.md Sec2d-B item 11): the stat
+      // category <select> just swaps which already-rendered .tp-panel is
+      // visible -- same "cheap client-side show/hide of pre-rendered
+      // content" spirit as the search box above, no page reload.
+      var tpSelect = document.querySelector('.tp-category-select');
+      if (tpSelect) {
+        tpSelect.addEventListener('change', function () {
+          document.querySelectorAll('.tp-panel').forEach(function (p) { p.hidden = true; });
+          var panel = document.querySelector('.tp-panel[data-stat="' + tpSelect.value + '"]');
+          if (panel) { panel.hidden = false; }
+        });
+      }
+
       document.addEventListener('click', function (e) {
         // M11: Roster table row click opens the Player Card (RosterTable.tsx's
         // own whole-row onClick), not just the name link inside it.
@@ -815,16 +855,49 @@
           return;
         }
 
-        // M10: Dashboard Scouting Panel tabs -- same show/hide pattern as
-        // .pc-tab above, scoped to the enclosing .card so more than one
-        // .dash-tabs-grid on a page (none today) wouldn't cross-toggle.
+        // Dashboard Top Performers conference filter (ROADMAP.md Sec2d-B
+        // item 11): styled like a .dash-tab (shared CSS rule) but this
+        // filters rows by data-conf rather than swapping panels, so it's
+        // handled here rather than falling into the .dash-tab branch below.
+        var tpConfBtn = e.target.closest('.tp-conf-tab');
+        if (tpConfBtn) {
+          var tpGroup = tpConfBtn.closest('.tp-conf-tabs');
+          tpGroup.querySelectorAll('.tp-conf-tab').forEach(function (b) { b.classList.remove('active'); });
+          tpConfBtn.classList.add('active');
+          var want = tpConfBtn.dataset.conf;
+          document.querySelectorAll('.tp-row').forEach(function (row) {
+            row.hidden = want !== 'ALL' && row.dataset.conf !== want;
+          });
+          return;
+        }
+
+        // M10: Dashboard Scouting Panel tabs, extended (ROADMAP.md Sec2d-B
+        // item 9) to support NESTED tab groups -- Standings' AFC/NFC tabs
+        // each contain their own East/North/South/West sub-tabs. A
+        // [data-tabgroup] ancestor (set on the tab-button container) means
+        // "scope strictly to this group's own direct-child buttons/panels"
+        // (:scope >) so a division sub-tab click can never also toggle its
+        // parent conference tabs, and vice versa. No [data-tabgroup]
+        // ancestor (the Scouting Panel's original single-level tabs) falls
+        // back to M10's original whole-.card scoping, unchanged.
         var dashTabBtn = e.target.closest('.dash-tab');
         if (dashTabBtn) {
-          var dashCard = dashTabBtn.closest('.card');
-          dashCard.querySelectorAll('.dash-tab').forEach(function (b) { b.classList.remove('active'); });
-          dashTabBtn.classList.add('active');
-          dashCard.querySelectorAll('.dash-panel').forEach(function (p) { p.hidden = true; });
-          dashCard.querySelector('.dash-panel[data-panel="' + dashTabBtn.dataset.tab + '"]').hidden = false;
+          var tabGroup = dashTabBtn.closest('[data-tabgroup]');
+          if (tabGroup) {
+            var groupId = tabGroup.dataset.tabgroup;
+            tabGroup.querySelectorAll(':scope > .dash-tab').forEach(function (b) { b.classList.remove('active'); });
+            dashTabBtn.classList.add('active');
+            var panelHost = tabGroup.parentElement;
+            panelHost.querySelectorAll(':scope > .dash-panel[data-tabgroup-panel="' + groupId + '"]').forEach(function (p) { p.hidden = true; });
+            var target = panelHost.querySelector(':scope > .dash-panel[data-panel="' + dashTabBtn.dataset.tab + '"][data-tabgroup-panel="' + groupId + '"]');
+            if (target) { target.hidden = false; }
+          } else {
+            var dashCard = dashTabBtn.closest('.card');
+            dashCard.querySelectorAll('.dash-tab').forEach(function (b) { b.classList.remove('active'); });
+            dashTabBtn.classList.add('active');
+            dashCard.querySelectorAll('.dash-panel').forEach(function (p) { p.hidden = true; });
+            dashCard.querySelector('.dash-panel[data-panel="' + dashTabBtn.dataset.tab + '"]').hidden = false;
+          }
         }
       });
 

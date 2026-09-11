@@ -6,7 +6,7 @@ os.environ.setdefault("LEAGUE_SEED", "2025")
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import season_state, save_service, gameplan_store, history_store
+from app.services import season_state, save_service, gameplan_store, history_store, power_rank_history
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.data.teams import TEAMS
 
@@ -23,6 +23,9 @@ gameplan_store.DEFAULT_PATH = Path("data/saves/_test_gameplans.json")
 # REAL data/saves/history.json and get a non-zero, environment-dependent season_number,
 # breaking the season_number=0 assumption several of these tests make.
 history_store.DEFAULT_PATH = Path("data/saves/_test_season_history.json")
+# ROADMAP.md Sec2d-B item 10: simulate_current_week() now writes a weekly
+# Power Ranking snapshot too -- same isolation reasoning as the paths above.
+power_rank_history.DEFAULT_PATH = Path("data/saves/_test_season_power_ranks.json")
 
 
 def setup_function(_):
@@ -30,6 +33,7 @@ def setup_function(_):
     history_store.DEFAULT_PATH.unlink(missing_ok=True)
     season_state.reset_season()
     gameplan_store.DEFAULT_PATH.unlink(missing_ok=True)
+    power_rank_history.DEFAULT_PATH.unlink(missing_ok=True)
 
 
 def test_schedule_shape():
@@ -466,3 +470,82 @@ def test_staff_gm_desk_and_draft_render_coming_soon():
         assert resp.status_code == 200
         assert title in resp.text
         assert "Coming soon" in resp.text
+
+
+def test_simulate_current_week_records_a_power_rank_snapshot():
+    """ROADMAP.md Sec2d-B item 10: the Dashboard's Power Rankings CHG
+    column needs a real persisted snapshot to diff against -- confirms
+    simulate_current_week() actually writes one, with the same
+    power_rating-descending order the Dashboard itself sorts by."""
+    season_state.simulate_current_week()
+    season = season_state.get_season()
+
+    expected_ranks = {
+        r.abbr: i for i, r in enumerate(
+            sorted(season.records.values(), key=lambda r: -r.power_rating), start=1
+        )
+    }
+    stored = power_rank_history.get_ranks(season.season_number, 1)
+    assert stored == expected_ranks
+
+
+def test_power_rank_snapshot_has_no_delta_available_on_the_first_tracked_week():
+    """Week 1 has no "week 0" snapshot to diff against -- the Dashboard
+    route must treat this as "no delta yet," not fabricate one."""
+    season_state.simulate_current_week()
+    season = season_state.get_season()
+    assert power_rank_history.get_ranks(season.season_number, 0) is None
+
+
+def test_dashboard_power_rankings_show_a_real_delta_after_two_simulated_weeks():
+    """First simulated week has nothing to diff against (delta is None,
+    not a fabricated arrow); the second week's Dashboard render should
+    show a real delta for at least one team, since Elo-style power
+    ratings essentially never produce a perfect rank tie across 32 teams
+    two weeks running."""
+    season_state.set_user_team("KC")
+    season_state.simulate_current_week()
+    season_state.simulate_current_week()
+    season = season_state.get_season()
+
+    week1_ranks = power_rank_history.get_ranks(season.season_number, 1)
+    week2_ranks = power_rank_history.get_ranks(season.season_number, 2)
+    assert week1_ranks is not None and week2_ranks is not None
+    assert any(week1_ranks[abbr] != week2_ranks[abbr] for abbr in week1_ranks)
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Power Rankings" in resp.text
+
+
+def test_dashboard_standings_box_has_afc_nfc_and_division_tabs():
+    """ROADMAP.md Sec2d-B item 9: real source is a Figma screenshot with
+    AFC/NFC top-level tabs and East/North/South/West division sub-tabs
+    underneath -- confirms all 8 real groups actually render (not just
+    the user's own division, which is all the pre-existing box showed)."""
+    season_state.set_user_team("KC")  # AFC West
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Standings" in resp.text
+    for conf in ("AFC", "NFC"):
+        assert f'data-tab="{conf}"' in resp.text
+    for division in ("East", "North", "South", "West"):
+        assert f'data-tab="{division}"' in resp.text
+    # Kansas City (AFC West) should appear in the standings data somewhere.
+    assert "Kansas City (KC)" in resp.text
+
+
+def test_dashboard_top_performers_has_category_dropdown_and_conference_tabs():
+    """ROADMAP.md Sec2d-B item 11: a real stat-category dropdown (reusing
+    the same per-player season aggregates the Stats page already
+    computes) plus an AFC/NFC/All toggle styled like the Standings tabs,
+    not Figma's own small inline dropdown."""
+    season_state.set_user_team("KC")
+    season_state.simulate_current_week()
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Top Performers" in resp.text
+    assert 'class="tp-category-select"' in resp.text
+    assert "QB Rating" in resp.text and "Passing Yards" in resp.text
+    for conf in ("ALL", "AFC", "NFC"):
+        assert f'data-conf="{conf}"' in resp.text

@@ -131,7 +131,7 @@
       {%- if scouting.summary.power_rank %} &middot; Power Rank: {{ scouting.summary.power_rank }}{% endif %}
     </p>
 
-    <div class="dash-tabs-grid">
+    <div class="dash-tabs-grid cols-3">
       <button type="button" class="dash-tab active" data-tab="overview">Overview</button>
       <button type="button" class="dash-tab" data-tab="offense">Offense</button>
       <button type="button" class="dash-tab" data-tab="defense">Defense</button>
@@ -255,36 +255,79 @@
        cells (that's what let M9 accidentally scatter them one-per-row
        instead of keeping them together in column 1). -->
   <div class="dashboard-col1-stack">
+    <!-- Standings (ROADMAP.md Sec2d-B item 9): real source is
+         DivisionStandings.tsx -- AFC/NFC top-level tabs, then
+         East/North/South/West sub-tabs underneath, reusing the .dash-tab
+         pattern via nested [data-tabgroup]s (see base.html's script).
+         Defaults to the user's own conference/division open, same as
+         the pre-redesign box only ever showing that one division. -->
     <div class="card">
-      <h3>Division Standings</h3>
-      <table>
-        <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>Diff</th></tr></thead>
-        <tbody>
-          {% for r in division_standings %}
-          <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
-            <td>{{ loop.index }}</td>
-            <td>{{ r.location }} ({{ r.abbr }})</td>
-            <td>{{ r.wins }}</td>
-            <td>{{ r.losses }}</td>
-            <td>{{ "%.3f"|format(r.win_pct) }}</td>
-            <td>{{ r.point_diff }}</td>
-          </tr>
+      <h3>Standings</h3>
+      <div class="dash-tabs-grid cols-2" data-tabgroup="standings-conf">
+        {% for conf in ['AFC', 'NFC'] %}
+        <button type="button" class="dash-tab {% if user_info.conference == conf %}active{% endif %}" data-tab="{{ conf }}">{{ conf }}</button>
+        {% endfor %}
+      </div>
+      {% for conf in ['AFC', 'NFC'] %}
+      {% set default_div = user_info.division if user_info.conference == conf else 'East' %}
+      <div class="dash-panel" data-panel="{{ conf }}" data-tabgroup-panel="standings-conf" {% if user_info.conference != conf %}hidden{% endif %}>
+        <div class="dash-tabs-grid cols-4" data-tabgroup="standings-div-{{ conf }}">
+          {% for division in ['East', 'North', 'South', 'West'] %}
+          <button type="button" class="dash-tab {% if default_div == division %}active{% endif %}" data-tab="{{ division }}">{{ division }}</button>
           {% endfor %}
-        </tbody>
-      </table>
+        </div>
+        {% for division in ['East', 'North', 'South', 'West'] %}
+        <div class="dash-panel" data-panel="{{ division }}" data-tabgroup-panel="standings-div-{{ conf }}" {% if default_div != division %}hidden{% endif %}>
+          <table>
+            <thead><tr><th>Team</th><th>W-L</th><th>PF</th><th>PA</th><th>Power</th></tr></thead>
+            <tbody>
+              {% for r in all_standings[conf][division] %}
+              <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
+                <td>{{ r.location }} ({{ r.abbr }})</td>
+                <td>{{ r.wins }}-{{ r.losses }}</td>
+                <td>{{ r.points_for }}</td>
+                <td>{{ r.points_against }}</td>
+                <td>{{ r.power_rating | round | int }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
     </div>
 
+    <!-- Power Rankings (ROADMAP.md Sec2d-B item 10): real source is
+         LeaguePowerRankings.tsx -- record next to the team name, real
+         PF/PA columns, and a real week-over-week rank delta from the new
+         power_rank_history.py store (None -- "N/A", not a fabricated
+         arrow -- until a second week's been simulated). -->
     <div class="card">
-      <h3>League Power Rankings</h3>
+      <h3>Power Rankings</h3>
       <div class="dashboard-scroll">
         <table>
-          <thead><tr><th>#</th><th>Team</th><th>Rating</th></tr></thead>
+          <thead><tr><th>#</th><th>Team</th><th>Record</th><th>PF</th><th>PA</th><th>Power</th><th>Chg</th></tr></thead>
           <tbody>
-            {% for r in power_rankings %}
-            <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
-              <td>{{ loop.index }}</td>
-              <td>{{ r.location }} ({{ r.abbr }})</td>
-              <td>{{ r.power_rating | round | int }}</td>
+            {% for pr in power_rankings %}
+            <tr class="{% if pr.record.abbr == season.user_team_abbr %}starter{% endif %}">
+              <td>{{ pr.rank }}</td>
+              <td>{{ pr.record.location }} ({{ pr.record.abbr }})</td>
+              <td>{{ pr.record.wins }}-{{ pr.record.losses }}</td>
+              <td>{{ pr.record.points_for }}</td>
+              <td>{{ pr.record.points_against }}</td>
+              <td>{{ pr.record.power_rating | round | int }}</td>
+              <td>
+                {% if pr.delta is none %}
+                <span class="pr-delta-none">N/A</span>
+                {% elif pr.delta > 0 %}
+                <span class="pr-delta-up">&#9650; {{ pr.delta }}</span>
+                {% elif pr.delta < 0 %}
+                <span class="pr-delta-down">&#9660; {{ -pr.delta }}</span>
+                {% else %}
+                <span class="pr-delta-none">&mdash;</span>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -292,39 +335,49 @@
       </div>
     </div>
 
+    <!-- Top Performers (ROADMAP.md Sec2d-B item 11): real source is
+         LeagueTopPerformers.tsx -- a stat-category dropdown (real ids
+         from _stats_page_aggregates(), same data backing the Stats
+         page's Player tab) and an AFC/NFC/All toggle styled like the
+         Standings box's own tabs (Brian's explicit ask), not Figma's own
+         small inline conference dropdown. Both are pure client-side
+         show/hide of already-rendered content -- see base.html's script. -->
     <div class="card">
       <h3>Top Performers</h3>
-      {% if passing_leaders %}
+      <div class="row" style="align-items: flex-end; gap: 0.6rem; margin-bottom: 0.5rem;">
+        <div style="flex: 1;">
+          <label for="tp-category">Category</label>
+          <select id="tp-category" class="tp-category-select">
+            {% for stat_id, label in top_performers_categories %}
+            <option value="{{ stat_id }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="tp-conf-tabs">
+          <button type="button" class="tp-conf-tab active" data-conf="ALL">All</button>
+          <button type="button" class="tp-conf-tab" data-conf="AFC">AFC</button>
+          <button type="button" class="tp-conf-tab" data-conf="NFC">NFC</button>
+        </div>
+      </div>
       <div class="dashboard-scroll">
-        <table class="boxtable">
-          <thead><tr><th>Passing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
-          <tbody>
-            {% for p in passing_leaders %}
-            <tr><td>{{ player_link_or_name(p.name, p.team_abbr) }}</td><td>{{ p.team_abbr }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        <table class="boxtable">
-          <thead><tr><th>Rushing</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
-          <tbody>
-            {% for r in rushing_leaders %}
-            <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        <table class="boxtable">
-          <thead><tr><th>Receiving</th><th>Team</th><th>Yds</th><th>TD</th></tr></thead>
-          <tbody>
-            {% for r in receiving_leaders %}
-            <tr><td>{{ player_link_or_name(r.name, r.team_abbr) }}</td><td>{{ r.team_abbr }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        {% for stat_id, label in top_performers_categories %}
+        <div class="tp-panel" data-stat="{{ stat_id }}" {% if not loop.first %}hidden{% endif %}>
+          {% for row in top_performers_by_stat[stat_id] %}
+          <div class="tp-row" data-conf="{{ row.conference }}">
+            <span class="tp-rank">{{ loop.index }}</span>
+            <div class="tp-row-main">
+              <div>{{ player_link_or_name(row.player_name, row.player_team) }}</div>
+              <div class="muted">{{ row.player_team }} &middot; {{ row.player_pos }}</div>
+            </div>
+            <span class="tp-value">{{ row[stat_id] if row[stat_id] is not none else "N/A" }}</span>
+          </div>
+          {% else %}
+          <p class="muted">No data yet this season.</p>
+          {% endfor %}
+        </div>
+        {% endfor %}
       </div>
       <p><a href="/stats">See full leaderboards &rarr;</a></p>
-      {% else %}
-      <p class="muted">No games played yet this season.</p>
-      {% endif %}
     </div>
   </div>
 

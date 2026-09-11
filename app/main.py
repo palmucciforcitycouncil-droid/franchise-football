@@ -32,7 +32,7 @@ from app.engine.gameplan import (
     COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
 )
 from app.engine.progression import PROGRESSED_ATTRIBUTES
-from app.services import season_state, depth_chart_overrides, gameplan_store, history_store
+from app.services import season_state, depth_chart_overrides, gameplan_store, history_store, power_rank_history
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
@@ -461,24 +461,11 @@ def depth_chart_auto_fill(team_abbr: str, respect_fatigue: bool = Form(False), l
     return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
 
 
-def _season_stat_leaders(season, top_n: int = 15):
-    """Thin wrapper: aggregate_season_stats does the real work (shared
-    with app/engine/awards.py, which needs the full untruncated
-    aggregation); this just sorts by yards and slices to top_n for
-    Dashboard/Stats display."""
-    passing, rushing, receiving = aggregate_season_stats(season)
-    return (
-        sorted(passing.values(), key=lambda l: -l.yards)[:top_n],
-        sorted(rushing.values(), key=lambda l: -l.yards)[:top_n],
-        sorted(receiving.values(), key=lambda l: -l.yards)[:top_n],
-    )
-
-
 def _defensive_stat_leaders(season, top_n: int = 15):
-    """Same pattern as _season_stat_leaders, sorted by solo tackles
-    (the closest single-number analog to "yards" for a defensive
-    leaderboard) -- see app/engine/defensive_box_score.py for what's
-    real here, including Defensive TD (GDD Sec 6.7.2, ROADMAP.md M1)."""
+    """Sorted by solo tackles (the closest single-number analog to
+    "yards" for a defensive leaderboard) -- see
+    app/engine/defensive_box_score.py for what's real here, including
+    Defensive TD (GDD Sec 6.7.2, ROADMAP.md M1)."""
     defense = aggregate_season_defensive_stats(season)
     return sorted(defense.values(), key=lambda l: -l.solo_tackles)[:top_n]
 
@@ -565,6 +552,88 @@ def _placeholder_coach() -> dict:
     return {"name": "Coach Name", "record": None}
 
 
+def _all_division_standings(season) -> dict[str, dict[str, list]]:
+    """Every conference's every division, sorted the same way the
+    Dashboard's original (user-division-only) Standings box already
+    sorted (win_pct desc, point_diff desc, location as a stable
+    tiebreak) -- ROADMAP.md Sec2d-B item 9's AFC/NFC + division sub-tab
+    redesign needs all 8 real groups, not just the user's own. Reuses
+    _grouped_teams() (already real, already used by /playoffs) instead
+    of re-deriving conference/division membership."""
+    grouped: dict[str, dict[str, list]] = {}
+    for conf, divisions in _grouped_teams().items():
+        grouped[conf] = {
+            division: sorted(
+                (season.records[t.abbr] for t in teams),
+                key=lambda r: (-r.win_pct, -r.point_diff, r.location),
+            )
+            for division, teams in divisions.items()
+        }
+    return grouped
+
+
+def _power_rankings_with_deltas(season) -> list[dict]:
+    """Ranked by power_rating descending -- the same order
+    simulate_current_week() itself uses when it writes each week's
+    snapshot (app/services/power_rank_history.py) -- with a real
+    week-over-week rank delta read from that snapshot store
+    (ROADMAP.md Sec2d-B item 10) instead of Figma's own fabricated demo
+    deltas. delta is None (not a fabricated 0/dash) whenever there's no
+    prior-week snapshot yet: the season's first tracked week, or an old
+    save that predates this store."""
+    ordered = sorted(season.records.values(), key=lambda r: -r.power_rating)
+    week_just_played = season.current_week - 1
+    prior_ranks = (
+        power_rank_history.get_ranks(season.season_number, week_just_played - 1)
+        if week_just_played > 0 else None
+    )
+    rows = []
+    for idx, r in enumerate(ordered, start=1):
+        delta = prior_ranks[r.abbr] - idx if prior_ranks and r.abbr in prior_ranks else None
+        rows.append({"rank": idx, "record": r, "delta": delta})
+    return rows
+
+
+# ROADMAP.md Sec2d-B item 11: Dashboard Top Performers category dropdown.
+# Every id is a real field _stats_page_aggregates() already computes (same
+# per-player season rows backing the Stats page's Player tab) -- labels
+# match LeagueTopPerformers.tsx's own category wording rather than
+# PLAYER_STAT_LABELS' slightly different phrasing (e.g. "Tackles" not
+# "Solo Tackles"), since this dropdown is specifically replicating that
+# source. "Tackles" -> solo_tackles is the same closest-real-analog choice
+# _defensive_stat_leaders() already makes for a defensive leaderboard.
+TOP_PERFORMERS_CATEGORIES: list[tuple[str, str]] = [
+    ("qb_rating", "QB Rating"),
+    ("pass_yds", "Passing Yards"),
+    ("pass_td", "Passing TDs"),
+    ("rush_yds", "Rushing Yards"),
+    ("rush_td", "Rushing TDs"),
+    ("rec_yds", "Receiving Yards"),
+    ("rec_td", "Receiving TDs"),
+    ("sacks", "Sacks"),
+    ("solo_tackles", "Tackles"),
+    ("def_int", "Interceptions"),
+]
+
+
+def _top_performer_leaders(player_rows: list[dict], stat_id: str, top_n: int = 10) -> list[dict]:
+    """Ranks the real per-player season rows _stats_page_aggregates()
+    already computes by one stat id, descending -- a straight reuse, not
+    new computation, per ROADMAP.md Sec2d-B item 11's own instruction to
+    check for an existing source before assuming anything's missing.
+    A None stat value (an empty sample -- e.g. a non-kicker has no
+    qb_rating) sorts last rather than crashing or being coerced to a
+    fabricated 0. Each row gains its real conference (for the
+    AFC/NFC/All client-side filter) looked up from the same TEAMS_BY_ABBR
+    every other conference/division grouping on this page already uses."""
+    ranked = sorted(player_rows, key=lambda r: (r[stat_id] is None, -(r[stat_id] or 0)))[:top_n]
+    return [
+        {**row, "conference": TEAMS_BY_ABBR[row["player_team"]].conference}
+        for row in ranked
+        if row["player_team"] in TEAMS_BY_ABBR
+    ]
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_view(request: Request):
     """League-at-a-glance landing page, pulling from pieces that already
@@ -604,23 +673,23 @@ def dashboard_view(request: Request):
         scouting["notable_players"] = _notable_players_for(opponent_abbr)
         scouting["coach"] = _placeholder_coach()
 
-    division_standings = sorted(
-        (r for r in season.records.values()
-         if TEAMS_BY_ABBR[r.abbr].conference == user_info.conference
-         and TEAMS_BY_ABBR[r.abbr].division == user_info.division),
-        key=lambda r: (-r.win_pct, -r.point_diff, r.location),
-    )
-    power_rankings = sorted(season.records.values(), key=lambda r: -r.power_rating)[:10]
+    all_standings = _all_division_standings(season)
+    power_rankings = _power_rankings_with_deltas(season)
     team_schedule = _team_schedule_for(season, user_abbr)
     last_game = _last_played_game_for(season, user_abbr)
 
-    passing_leaders, rushing_leaders, receiving_leaders = _season_stat_leaders(season, top_n=5)
+    player_rows, _team_rows = _stats_page_aggregates(season)
+    top_performers_by_stat = {
+        stat_id: _top_performer_leaders(player_rows, stat_id)
+        for stat_id, _label in TOP_PERFORMERS_CATEGORIES
+    }
 
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "season": season,
+            "user_info": user_info,
             "gameplan": gameplan,
             "scouting": scouting,
             "offensive_aggressiveness_options": OFFENSIVE_AGGRESSIVENESS,
@@ -629,13 +698,12 @@ def dashboard_view(request: Request):
             "blitz_options": BLITZ_STRATEGIES,
             "rz_offense_options": RZ_OFFENSE_STYLES,
             "rz_defense_options": RZ_DEFENSE_STYLES,
-            "division_standings": division_standings,
+            "all_standings": all_standings,
             "power_rankings": power_rankings,
             "team_schedule": team_schedule,
             "last_game": last_game,
-            "passing_leaders": passing_leaders,
-            "rushing_leaders": rushing_leaders,
-            "receiving_leaders": receiving_leaders,
+            "top_performers_categories": TOP_PERFORMERS_CATEGORIES,
+            "top_performers_by_stat": top_performers_by_stat,
         },
     )
 
