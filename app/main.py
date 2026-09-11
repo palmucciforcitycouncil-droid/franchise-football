@@ -540,6 +540,31 @@ def _last_played_game_for(season, team_abbr: str) -> dict | None:
     return None
 
 
+def _notable_players_for(team_abbr: str, min_ovr: int = 85) -> list[dict]:
+    """Scouting Panel Overview tab: any real roster player above min_ovr,
+    not a fixed QB/RB/WR1-style slot table -- Brian's own instruction
+    (ROADMAP.md Sec2d item 3), and more robust than a forced slot layout
+    (a team with no elite LB just shows fewer rows instead of a blank
+    one). Real query against the roster DB, same field roster.html's own
+    OVR badge already uses (Player.overall_rating)."""
+    with get_session() as s:
+        players = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+    notable = sorted((p for p in players if p.overall_rating >= min_ovr), key=lambda p: -p.overall_rating)
+    return [{"name": p.full_name, "position": p.position.value, "ovr": p.overall_rating} for p in notable]
+
+
+def _placeholder_coach() -> dict:
+    """ROADMAP.md Sec2d item 3: no Coach entity exists anywhere in this
+    engine yet (ROADMAP.md R3, Coaching Staff -- Post-MVP). Brian's
+    explicit decision was a disclosed placeholder now rather than either
+    fabricating a real-looking name/record or silently omitting the
+    section: the front end renders the literal name "Coach Name" (not a
+    real coach), and this is the ONE place that string comes from, so
+    R3 only has to replace this function's body with a real query later,
+    not hunt for a hardcoded template string."""
+    return {"name": "Coach Name", "record": None}
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_view(request: Request):
     """League-at-a-glance landing page, pulling from pieces that already
@@ -576,6 +601,8 @@ def dashboard_view(request: Request):
         scouting = build_scouting_report(season, opponent_abbr)
         scouting["opponent_team"] = TEAMS_BY_ABBR[opponent_abbr]
         scouting["is_home_game"] = team_is_home
+        scouting["notable_players"] = _notable_players_for(opponent_abbr)
+        scouting["coach"] = _placeholder_coach()
 
     division_standings = sorted(
         (r for r in season.records.values()

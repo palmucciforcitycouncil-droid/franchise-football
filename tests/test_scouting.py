@@ -145,6 +145,56 @@ def test_situational_defense_computes_blitz_and_coverage_rates():
     assert result["redzone_blitz_pct"] == 100.0
 
 
+def test_situational_defense_run_tactic_and_primary_call_splits():
+    # Same 3-play fixture as above: 1 "Standard" call, 1 "Run Defense"
+    # call (with a real Plug Gaps run tactic), 1 "Pass Defense" call
+    # (the red-zone play, real Man coverage).
+    plays = [
+        _play(1, 10, 30, "pass", "BUF", defensive_call="Standard, Blitz (J. Smith), Man"),
+        _play(1, 10, 30, "run", "BUF", defensive_call="Run Defense, Zone, Plug Gaps"),
+        _play(2, 5, 85, "pass", "BUF", defensive_call="Pass Defense, Blitz (K. Jones), Man"),  # red zone
+    ]
+    schedule = [[_played_game("KC", "BUF", 10, 7, plays=plays)]]
+    season = _season(schedule, current_week=2)
+
+    result = scouting.situational_defense(season, "KC")
+    assert result["standard_pct"] == pytest.approx(33.3, abs=0.1)
+    assert result["run_defense_pct"] == pytest.approx(33.3, abs=0.1)
+    assert result["pass_defense_pct"] == pytest.approx(33.3, abs=0.1)
+    # Only 1 of the 3 plays has a run tactic at all (Plug Gaps) -- the
+    # tactic split is a percentage of THAT subset, not of all 3 plays.
+    assert result["plug_gaps_pct"] == 100.0
+    assert result["contain_edge_pct"] == 0.0
+    assert result["redzone_man_pct"] == 100.0
+    assert result["third_long_blitz_pct"] is None  # no down==3 & distance>=8 plays in this fixture
+
+
+# --- red_zone_efficiency -----------------------------------------------------
+
+def _drive_play(drive_number, down, distance, field_pos, offense_abbr, outcome="gain"):
+    return PlayEvent(down=down, distance=distance, field_pos=field_pos, play_type="run" if down != 4 else "pass",
+                      yards=4, desc="x", outcome=outcome, offense_abbr=offense_abbr, drive_number=drive_number)
+
+
+def test_red_zone_efficiency_counts_real_drive_conversions_not_per_play():
+    plays = [
+        # Drive 1: reaches the red zone, ends in a real touchdown -- a converted trip.
+        _drive_play(1, 1, 10, 60, "KC"),
+        _drive_play(1, 2, 5, 85, "KC", outcome="touchdown"),
+        # Drive 2: reaches the red zone, ends in a field goal -- a trip, not converted.
+        _drive_play(2, 1, 10, 82, "KC", outcome="field_goal"),
+        # Drive 3: never reaches the red zone at all -- not a trip.
+        _drive_play(3, 1, 10, 50, "KC", outcome="first_down"),
+    ]
+    schedule = [[_played_game("KC", "BUF", 10, 7, plays=plays)]]
+    season = _season(schedule, current_week=2)
+
+    result = scouting.red_zone_efficiency(season, "KC")
+    assert result["trips"] == 2
+    assert result["touchdowns"] == 1
+    assert result["td_pct"] == 50.0
+
+
 # --- fourth_down_aggressiveness ---------------------------------------------
 
 def test_fourth_down_aggressiveness_counts_attempts_and_conversions():
@@ -156,7 +206,9 @@ def test_fourth_down_aggressiveness_counts_attempts_and_conversions():
     schedule = [[_played_game("KC", "BUF", 10, 7, plays=plays)]]
     season = _season(schedule, current_week=2)
     result = scouting.fourth_down_aggressiveness(season, "KC")
-    assert result == {"attempts": 3, "conversions": 2}
+    assert result["attempts"] == 3
+    assert result["conversions"] == 2
+    assert result["success_rate"] == pytest.approx(66.7, abs=0.1)
 
 
 # --- field_goal_accuracy -----------------------------------------------------
@@ -179,6 +231,21 @@ def test_field_goal_accuracy_buckets_by_real_parsed_distance():
     result = scouting.field_goal_accuracy(season, "KC")
     assert result["<30"] == {"made": 1, "attempted": 1, "pct": 100.0}
     assert result["30-39"] == {"made": 1, "attempted": 2, "pct": 50.0}
+    assert result["40-49"] == {"made": 0, "attempted": 0, "pct": None}
+    assert result["50+"] == {"made": 1, "attempted": 1, "pct": 100.0}
+
+
+def test_field_goal_accuracy_3bucket_regroups_the_same_real_data():
+    plays = [
+        _fg_play("KC", 25, True),
+        _fg_play("KC", 35, True),
+        _fg_play("KC", 35, False),
+        _fg_play("KC", 52, True),
+    ]
+    schedule = [[_played_game("KC", "BUF", 10, 7, plays=plays)]]
+    season = _season(schedule, current_week=2)
+    result = scouting.field_goal_accuracy_3bucket(season, "KC")
+    assert result["Under 40"] == {"made": 2, "attempted": 3, "pct": pytest.approx(66.7, abs=0.1)}
     assert result["40-49"] == {"made": 0, "attempted": 0, "pct": None}
     assert result["50+"] == {"made": 1, "attempted": 1, "pct": 100.0}
 
@@ -283,6 +350,34 @@ def test_team_summary_turnover_differential_is_forced_minus_committed():
     assert result["turnover_diff"] == 2  # 3 forced - 1 committed
 
 
+def test_team_summary_yards_allowed_and_total_ypg():
+    schedule = [[_played_game(
+        "KC", "BUF", 10, 7,
+        home_totals=_totals(pass_yards=200, rush_yards=100),  # KC's own offense
+        away_totals=_totals(pass_yards=150, rush_yards=80),   # BUF's offense -- what KC's defense allowed
+    )]]
+    season = _season(schedule, current_week=2)
+    result = scouting.team_summary(season, "KC")
+    assert result["total_ypg"] == 300.0
+    assert result["pass_ypg_allowed"] == 150.0
+    assert result["rush_ypg_allowed"] == 80.0
+    assert result["total_ypg_allowed"] == 230.0
+
+
+def test_team_summary_philosophy_label_from_real_pass_rate():
+    def _plays(pass_count, run_count):
+        return [_play(1, 10, 30, "pass", "KC") for _ in range(pass_count)] + \
+               [_play(1, 10, 30, "run", "KC") for _ in range(run_count)]
+
+    pass_heavy = _season([[_played_game("KC", "BUF", 10, 7, plays=_plays(7, 3))]], current_week=2)
+    run_heavy = _season([[_played_game("KC", "BUF", 10, 7, plays=_plays(3, 7))]], current_week=2)
+    balanced = _season([[_played_game("KC", "BUF", 10, 7, plays=_plays(5, 5))]], current_week=2)
+
+    assert scouting.team_summary(pass_heavy, "KC")["philosophy"] == "Pass-Heavy"
+    assert scouting.team_summary(run_heavy, "KC")["philosophy"] == "Run-Heavy"
+    assert scouting.team_summary(balanced, "KC")["philosophy"] == "Balanced"
+
+
 def test_team_summary_before_any_games_is_all_none_not_zero():
     schedule = [[_unplayed_game("KC", "BUF")]]
     season = _season(schedule, current_week=1)
@@ -291,6 +386,37 @@ def test_team_summary_before_any_games_is_all_none_not_zero():
     assert result["ppg"] is None
     assert result["streak"] == "-"
     assert result["last3"] == []
+    assert result["total_ypg"] is None
+    assert result["pass_ypg_allowed"] is None
+    assert result["philosophy"] is None
+
+
+# --- league_ranks --------------------------------------------------------------
+
+def test_league_ranks_ranks_a_team_among_the_whole_league():
+    # A: 0 penalties, turnover_diff +3 (best in both).
+    # B: 2 penalties, turnover_diff -3 (the team under test -- unambiguous
+    #    middle rank on penalties, unambiguous last on turnover diff).
+    # C vs D: 4 penalties for C / 0 for D, turnover_diff 0/0 (a tie between
+    #    A(0.0)/D(0.0) on penalties is fine -- B's own rank stays
+    #    deterministic either way since its value is strictly between them).
+    penalty_plays_b = [_penalty_play("B", "False start, X: 5 yards"), _penalty_play("B", "False start, X: 5 yards")]
+    penalty_plays_c = [_penalty_play("C", "False start, X: 5 yards") for _ in range(4)]
+    schedule = [[
+        _played_game("A", "B", 10, 7, plays=penalty_plays_b,
+                      home_totals=_totals(turnovers=0), away_totals=_totals(turnovers=3)),
+        _played_game("C", "D", 10, 7, plays=penalty_plays_c,
+                      home_totals=_totals(turnovers=1), away_totals=_totals(turnovers=1)),
+    ]]
+    season = _season(schedule, current_week=2)
+
+    b_ranks = scouting.league_ranks(season, "B")
+    assert b_ranks["of_teams"] == 4
+    assert b_ranks["penalty_rank"] == 3  # worse than A and D (0.0 each), better than C (4.0)
+    assert b_ranks["turnover_rank"] == 4  # strictly worst turnover_diff (-3)
+
+    a_ranks = scouting.league_ranks(season, "A")
+    assert a_ranks["turnover_rank"] == 1  # strictly best turnover_diff (+3)
 
 
 # --- end-to-end smoke test against a real simulated season -------------------

@@ -63,6 +63,39 @@
       white-space: nowrap;
     }
     .sim-week-form button:hover { background: rgba(212, 175, 55, 0.12); filter: none; }
+    .sim-week-form button:disabled { opacity: 0.6; cursor: default; }
+
+    /* Sim-in-progress overlay: shown on submit of any .sim-week-form (the
+       header's week-simulate button) so a multi-second week simulation
+       gives real feedback instead of looking hung, and so the button
+       can't be mashed into firing a second POST while the first is
+       still in flight. (Deliberately not spelling out this button's own
+       label here -- test_season.py's header test asserts that exact
+       text is absent from the whole page before a team is chosen, and
+       this comment renders unconditionally inside <style>.) */
+    .sim-loading-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(10, 25, 41, 0.82);
+      align-items: center; justify-content: center;
+    }
+    .sim-loading-overlay.active { display: flex; }
+    .sim-loading-box { text-align: center; }
+    .sim-football {
+      font-size: 3.5rem;
+      display: inline-block;
+      animation: sim-spin 0.9s linear infinite;
+    }
+    .sim-loading-text {
+      margin-top: 0.75rem;
+      color: var(--gold);
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    @keyframes sim-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     nav.subnav {
       position: sticky; top: 65px; z-index: 9;
       background: var(--panel);
@@ -486,6 +519,12 @@
       display: flex; flex-direction: column; gap: 1.5rem;
     }
     .dashboard-scroll { max-height: 420px; overflow-y: auto; }
+
+    /* Scouting Panel opponent header (ROADMAP.md Sec2d item 2): the
+       "@ SEA" line is the thing the user most needs to spot at a
+       glance, rendered separately from the smaller record/streak/
+       power-rank line below it instead of both sharing one <p class="muted">. */
+    .scouting-opponent { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.15rem; }
     @media (max-width: 900px) {
       .dashboard-grid { grid-template-columns: 1fr; }
       .dashboard-span-2 { grid-column: span 1; }
@@ -553,8 +592,14 @@
     <h1>Franchise <span>Football</span></h1>
     {% endif %}
   </header>
+  <div id="sim-loading-overlay" class="sim-loading-overlay" role="status" aria-live="polite">
+    <div class="sim-loading-box">
+      <div class="sim-football" aria-hidden="true">&#127944;</div>
+      <div class="sim-loading-text">Simulating...</div>
+    </div>
+  </div>
   {% set nav_links = [
-    ("/dashboard", "Dashboard"), ("/", "Simulate"), ("/season", "Season"), ("/roster", "Roster"),
+    ("/dashboard", "Dashboard"), ("/roster", "Roster"),
     ("/depth-chart", "Depth Chart"), ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
     ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/history", "History"), ("/hof", "HOF"),
   ] %}
@@ -781,6 +826,21 @@
           dashCard.querySelectorAll('.dash-panel').forEach(function (p) { p.hidden = true; });
           dashCard.querySelector('.dash-panel[data-panel="' + dashTabBtn.dataset.tab + '"]').hidden = false;
         }
+      });
+
+      // Sim-in-progress feedback: a full week-sim is a real, multi-second
+      // server call, not instant -- show the spinning-football overlay and
+      // disable the button on submit so mashing it can't fire a second
+      // overlapping /season/simulate-week POST. Plain form POST + full-page
+      // redirect, so there's no matching "hide" call -- the overlay simply
+      // stops mattering once the browser navigates to the response page.
+      var simOverlay = document.getElementById('sim-loading-overlay');
+      document.querySelectorAll('.sim-week-form').forEach(function (form) {
+        form.addEventListener('submit', function () {
+          simOverlay.classList.add('active');
+          var btn = form.querySelector('button[type="submit"]');
+          if (btn) { btn.disabled = true; }
+        });
       });
     })();
   </script>

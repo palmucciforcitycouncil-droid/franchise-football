@@ -3,3 +3,8 @@
    Renders as a plain-looking gold link, not a boxy <button>, so it drops
    into an existing table cell/text flow unchanged. #}
 {% macro player_link(p) %}<button type="button" class="player-link" data-card='{{ p | player_card_json }}'>{{ p.full_name }}</button>{% endmacro %}
+
+{# Renders a real stat value with its % suffix, or "N/A" for a real None
+   (an empty sample -- e.g. no 3rd-and-long plays yet), never a fabricated
+   0. Used throughout the Scouting Panel's real per-category splits. #}
+{% macro pct(value, suffix='%') %}{% if value is not none %}{{ value }}{{ suffix }}{% else %}N/A{% endif %}{% endmacro %}

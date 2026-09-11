@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import pct %}
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
@@ -123,9 +124,9 @@
   <div class="card">
     <h3>Scouting &mdash; Next Opponent</h3>
     {% if scouting %}
+    <div class="scouting-opponent">{{ scouting.is_home_game and "vs" or "@" }} {{ scouting.opponent_team.location }} ({{ scouting.opponent_team.abbr }})</div>
     <p class="muted">
-      {{ scouting.is_home_game and "vs" or "@" }} {{ scouting.opponent_team.location }} ({{ scouting.opponent_team.abbr }})
-      &middot; Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
+      Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
       {%- if scouting.summary.streak != "-" %} &middot; {{ scouting.summary.streak }}{% endif %}
       {%- if scouting.summary.power_rank %} &middot; Power Rank: {{ scouting.summary.power_rank }}{% endif %}
     </p>
@@ -141,6 +142,9 @@
 
     <div class="dashboard-scroll">
       <div class="dash-panel" data-panel="overview">
+        {% if scouting.summary.philosophy %}
+        <div class="dash-stat-row"><span>Philosophy</span><span>{{ scouting.summary.philosophy }}</span></div>
+        {% endif %}
         {% if scouting.summary.last3 %}
         <div class="dash-subhead">Last 3 Games</div>
         {% for g in scouting.summary.last3 %}
@@ -149,42 +153,74 @@
         {% else %}
         <p class="muted">No games played yet this season.</p>
         {% endif %}
+
+        {% if scouting.notable_players %}
+        <div class="dash-subhead">Key Players (85+ OVR)</div>
+        {% for np in scouting.notable_players %}
+        <div class="dash-stat-row"><span>{{ np.name }}, {{ np.position }}</span><span>{{ np.ovr }} OVR</span></div>
+        {% endfor %}
+        {% endif %}
+
+        <div class="dash-subhead">Coaching Staff</div>
+        <div class="dash-stat-row"><span>Head Coach</span><span>{{ scouting.coach.name }}</span></div>
       </div>
 
       <div class="dash-panel" data-panel="offense" hidden>
-        <div class="dash-subhead">1st Down Pass %{% if scouting.offense.sample_size %} <span class="muted">({{ scouting.offense.sample_size }} plays)</span>{% endif %}</div>
-        <div class="dash-stat-row"><span>Pass</span><span>{{ scouting.offense.first_down_pass_pct if scouting.offense.first_down_pass_pct is not none else "N/A" }}{% if scouting.offense.first_down_pass_pct is not none %}%{% endif %}</span></div>
+        <div class="dash-subhead">Situational Play-Calling{% if scouting.offense.sample_size %} <span class="muted">({{ scouting.offense.sample_size }} plays)</span>{% endif %}</div>
+        <div class="dash-subhead">1st Down Tendencies</div>
+        <div class="dash-stat-row"><span>Run</span><span>{{ pct(scouting.offense.first_down_run_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Pass</span><span>{{ pct(scouting.offense.first_down_pass_pct) }}</span></div>
         <div class="dash-subhead">3rd Down by Distance</div>
-        <div class="dash-stat-row"><span>3rd &amp; Short (1-3)</span><span>{{ scouting.offense.third_short_pass_pct if scouting.offense.third_short_pass_pct is not none else "N/A" }}{% if scouting.offense.third_short_pass_pct is not none %}% pass{% endif %}</span></div>
-        <div class="dash-stat-row"><span>3rd &amp; Medium (4-7)</span><span>{{ scouting.offense.third_medium_pass_pct if scouting.offense.third_medium_pass_pct is not none else "N/A" }}{% if scouting.offense.third_medium_pass_pct is not none %}% pass{% endif %}</span></div>
-        <div class="dash-stat-row"><span>3rd &amp; Long (8+)</span><span>{{ scouting.offense.third_long_pass_pct if scouting.offense.third_long_pass_pct is not none else "N/A" }}{% if scouting.offense.third_long_pass_pct is not none %}% pass{% endif %}</span></div>
-        <div class="dash-subhead">Red Zone</div>
-        <div class="dash-stat-row"><span>Pass %</span><span>{{ scouting.offense.redzone_pass_pct if scouting.offense.redzone_pass_pct is not none else "N/A" }}{% if scouting.offense.redzone_pass_pct is not none %}%{% endif %}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Short (1-3 yds) Run</span><span>{{ pct(scouting.offense.third_short_run_pct) }}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Short (1-3 yds) Pass</span><span>{{ pct(scouting.offense.third_short_pass_pct) }}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Medium (4-7 yds) Run</span><span>{{ pct(scouting.offense.third_medium_run_pct) }}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Medium (4-7 yds) Pass</span><span>{{ pct(scouting.offense.third_medium_pass_pct) }}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Long (8+ yds) Run</span><span>{{ pct(scouting.offense.third_long_run_pct) }}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Long (8+ yds) Pass</span><span>{{ pct(scouting.offense.third_long_pass_pct) }}</span></div>
+        <div class="dash-subhead">Red Zone Offense</div>
+        <div class="dash-stat-row"><span>Run</span><span>{{ pct(scouting.offense.redzone_run_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Pass</span><span>{{ pct(scouting.offense.redzone_pass_pct) }}</span></div>
+        <div class="dash-stat-row"><span>TD Conversion %{% if scouting.red_zone.trips %} <span class="muted">({{ scouting.red_zone.touchdowns }}/{{ scouting.red_zone.trips }} trips)</span>{% endif %}</span><span>{{ pct(scouting.red_zone.td_pct) }}</span></div>
+        <p class="muted">Pass depth (quick/standard/deep), target distribution, and run point-of-attack aren't tracked by this engine yet -- no depth-of-target, receiver-rank, or run-direction data exists on individual plays.</p>
       </div>
 
       <div class="dash-panel" data-panel="defense" hidden>
-        <div class="dash-subhead">Base Tendencies{% if scouting.defense.sample_size %} <span class="muted">({{ scouting.defense.sample_size }} plays)</span>{% endif %}</div>
-        <div class="dash-stat-row"><span>Blitz %</span><span>{{ scouting.defense.blitz_pct if scouting.defense.blitz_pct is not none else "N/A" }}{% if scouting.defense.blitz_pct is not none %}%{% endif %}</span></div>
-        <div class="dash-stat-row"><span>Man Coverage %</span><span>{{ scouting.defense.man_pct if scouting.defense.man_pct is not none else "N/A" }}{% if scouting.defense.man_pct is not none %}%{% endif %}</span></div>
-        <div class="dash-subhead">Red Zone</div>
-        <div class="dash-stat-row"><span>Blitz %</span><span>{{ scouting.defense.redzone_blitz_pct if scouting.defense.redzone_blitz_pct is not none else "N/A" }}{% if scouting.defense.redzone_blitz_pct is not none %}%{% endif %}</span></div>
+        <div class="dash-subhead">Base Philosophy{% if scouting.defense.sample_size %} <span class="muted">({{ scouting.defense.sample_size }} plays)</span>{% endif %}</div>
+        <div class="dash-stat-row"><span>Run Defense</span><span>{{ pct(scouting.defense.run_defense_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Pass Defense</span><span>{{ pct(scouting.defense.pass_defense_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Standard (Balanced)</span><span>{{ pct(scouting.defense.standard_pct) }}</span></div>
+        <div class="dash-subhead">Aggressiveness &amp; Blitzing</div>
+        <div class="dash-stat-row"><span>Overall Blitz %</span><span>{{ pct(scouting.defense.blitz_pct) }}</span></div>
+        <div class="dash-stat-row"><span>3rd &amp; Long Blitz %</span><span>{{ pct(scouting.defense.third_long_blitz_pct) }}</span></div>
+        <div class="dash-subhead">Coverage Scheme</div>
+        <div class="dash-stat-row"><span>Man Coverage</span><span>{{ pct(scouting.defense.man_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Zone Coverage</span><span>{{ pct(scouting.defense.zone_pct) }}</span></div>
+        <div class="dash-subhead">Red Zone Coverage</div>
+        <div class="dash-stat-row"><span>Man</span><span>{{ pct(scouting.defense.redzone_man_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Zone</span><span>{{ pct(scouting.defense.redzone_zone_pct) }}</span></div>
+        <div class="dash-subhead">Run Defense Scheme</div>
+        <div class="dash-stat-row"><span>Plug Gaps</span><span>{{ pct(scouting.defense.plug_gaps_pct) }}</span></div>
+        <div class="dash-stat-row"><span>Contain Edge</span><span>{{ pct(scouting.defense.contain_edge_pct) }}</span></div>
       </div>
 
       <div class="dash-panel" data-panel="special" hidden>
         <div class="dash-subhead">4th Down Aggressiveness</div>
-        <div class="dash-stat-row"><span>Attempts / Conversions</span><span>{{ scouting.fourth_down.attempts }} / {{ scouting.fourth_down.conversions }}</span></div>
+        <div class="dash-stat-row"><span>Attempts</span><span>{{ scouting.fourth_down.attempts }}</span></div>
+        <div class="dash-stat-row"><span>Conversions</span><span>{{ scouting.fourth_down.conversions }}</span></div>
+        <div class="dash-stat-row"><span>Success Rate</span><span>{{ pct(scouting.fourth_down.success_rate) }}</span></div>
         <div class="dash-subhead">Field Goal Success %</div>
         {% for bucket, fg in scouting.field_goals.items() %}
-        {% if fg.attempted %}
-        <div class="dash-stat-row"><span>{{ bucket }} yards</span><span>{{ fg.made }}/{{ fg.attempted }} ({{ fg.pct }}%)</span></div>
-        {% endif %}
+        <div class="dash-stat-row"><span>{{ bucket }} yards</span><span>{% if fg.attempted %}{{ fg.made }}/{{ fg.attempted }} ({{ fg.pct }}%){% else %}N/A{% endif %}</span></div>
         {% endfor %}
+        <div class="dash-subhead">Return Game Threat</div>
+        <p class="muted">No return-game simulation exists yet in this engine -- kick/punt returns aren't modeled (ROADMAP.md R2).</p>
       </div>
 
       <div class="dash-panel" data-panel="discipline" hidden>
         <div class="dash-subhead">Penalty Statistics{% if scouting.discipline.total %} <span class="muted">({{ scouting.discipline.total }} total)</span>{% endif %}</div>
         <div class="dash-stat-row"><span>Penalties / Game</span><span>{{ scouting.discipline.per_game if scouting.discipline.per_game is not none else "N/A" }}</span></div>
-        <div class="dash-subhead">Most Common</div>
+        <div class="dash-stat-row"><span>League Rank</span><span>{% if scouting.league_ranks.penalty_rank %}#{{ scouting.league_ranks.penalty_rank }} of {{ scouting.league_ranks.of_teams }}{% else %}N/A{% endif %}</span></div>
+        <div class="dash-subhead">Most Common Penalties</div>
         {% for ptype, count in scouting.discipline.top_types %}
         <div class="dash-stat-row"><span>{{ ptype }}</span><span>{{ count }}</span></div>
         {% else %}
@@ -193,12 +229,19 @@
       </div>
 
       <div class="dash-panel" data-panel="stats" hidden>
-        <div class="dash-subhead">Season Production</div>
+        <div class="dash-subhead">Turnover Differential</div>
+        <div class="dash-stat-row"><span>Season Total</span><span>{{ scouting.summary.turnover_diff }}</span></div>
+        <div class="dash-stat-row"><span>League Rank</span><span>{% if scouting.league_ranks.turnover_rank %}#{{ scouting.league_ranks.turnover_rank }} of {{ scouting.league_ranks.of_teams }}{% else %}N/A{% endif %}</span></div>
+        <div class="dash-subhead">Offensive Production</div>
         <div class="dash-stat-row"><span>Points/Game</span><span>{{ scouting.summary.ppg if scouting.summary.ppg is not none else "N/A" }}</span></div>
+        <div class="dash-stat-row"><span>Passing Yds/Game</span><span>{{ scouting.summary.pass_ypg if scouting.summary.pass_ypg is not none else "N/A" }}</span></div>
+        <div class="dash-stat-row"><span>Rushing Yds/Game</span><span>{{ scouting.summary.rush_ypg if scouting.summary.rush_ypg is not none else "N/A" }}</span></div>
+        <div class="dash-stat-row"><span>Total Yds/Game</span><span>{{ scouting.summary.total_ypg if scouting.summary.total_ypg is not none else "N/A" }}</span></div>
+        <div class="dash-subhead">Defensive Performance</div>
         <div class="dash-stat-row"><span>Points Allowed/Game</span><span>{{ scouting.summary.papg if scouting.summary.papg is not none else "N/A" }}</span></div>
-        <div class="dash-stat-row"><span>Pass Yds/Game</span><span>{{ scouting.summary.pass_ypg if scouting.summary.pass_ypg is not none else "N/A" }}</span></div>
-        <div class="dash-stat-row"><span>Rush Yds/Game</span><span>{{ scouting.summary.rush_ypg if scouting.summary.rush_ypg is not none else "N/A" }}</span></div>
-        <div class="dash-stat-row"><span>Turnover Diff</span><span>{{ scouting.summary.turnover_diff }}</span></div>
+        <div class="dash-stat-row"><span>Pass Yds Allowed/Game</span><span>{{ scouting.summary.pass_ypg_allowed if scouting.summary.pass_ypg_allowed is not none else "N/A" }}</span></div>
+        <div class="dash-stat-row"><span>Rush Yds Allowed/Game</span><span>{{ scouting.summary.rush_ypg_allowed if scouting.summary.rush_ypg_allowed is not none else "N/A" }}</span></div>
+        <div class="dash-stat-row"><span>Total Yds Allowed/Game</span><span>{{ scouting.summary.total_ypg_allowed if scouting.summary.total_ypg_allowed is not none else "N/A" }}</span></div>
       </div>
     </div>
     {% else %}
