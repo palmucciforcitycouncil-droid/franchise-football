@@ -92,17 +92,27 @@
       <div>
         <div class="boxscore-leaders-team">{{ last_game.home_abbr }}</div>
         {% set home_leaders = last_game.user_leaders if last_game.is_home else last_game.opponent_leaders %}
-        {% for cat, label in [("passing", "Passing"), ("rushing", "Rushing"), ("receiving", "Receiving")] %}
+        {% for cat in ["passing", "rushing", "receiving"] %}
         {% set leader = home_leaders[cat] %}
-        <div class="dash-stat-row"><span>{{ label }}</span><span>{% if leader %}{{ player_link_or_name(leader[0], last_game.home_abbr) }} &mdash; {{ leader[1] }} yds{% else %}N/A{% endif %}</span></div>
+        {% if leader %}
+        <div class="boxscore-leader">
+          <div class="boxscore-leader-name">{{ player_link_or_name(leader.name, last_game.home_abbr) }}</div>
+          <div class="boxscore-leader-stats">{{ format_leader_stat_line(cat, leader) }}</div>
+        </div>
+        {% endif %}
         {% endfor %}
       </div>
       <div>
         <div class="boxscore-leaders-team">{{ last_game.away_abbr }}</div>
         {% set away_leaders = last_game.opponent_leaders if last_game.is_home else last_game.user_leaders %}
-        {% for cat, label in [("passing", "Passing"), ("rushing", "Rushing"), ("receiving", "Receiving")] %}
+        {% for cat in ["passing", "rushing", "receiving"] %}
         {% set leader = away_leaders[cat] %}
-        <div class="dash-stat-row"><span>{{ label }}</span><span>{% if leader %}{{ player_link_or_name(leader[0], last_game.away_abbr) }} &mdash; {{ leader[1] }} yds{% else %}N/A{% endif %}</span></div>
+        {% if leader %}
+        <div class="boxscore-leader">
+          <div class="boxscore-leader-name">{{ player_link_or_name(leader.name, last_game.away_abbr) }}</div>
+          <div class="boxscore-leader-stats">{{ format_leader_stat_line(cat, leader) }}</div>
+        </div>
+        {% endif %}
         {% endfor %}
       </div>
     </div>
@@ -500,7 +510,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="muted">No games played yet this season.</p>
+    <p class="muted">Check back after Week 4 &mdash; too few games played so far to rank candidates meaningfully.</p>
     {% endif %}
   </div>
 </div>

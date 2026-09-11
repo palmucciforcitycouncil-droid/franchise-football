@@ -360,7 +360,15 @@ def test_playoffs_page_renders_before_and_after_the_bracket_exists():
 
     resp = client.get("/playoffs")
     assert resp.status_code == 200
+    assert "Check back after Week 4" in resp.text  # too few games for a real preview yet
+
+    for _ in range(4):
+        season_state.simulate_current_week()
+    resp = client.get("/playoffs")  # ROADMAP.md Sec2c follow-up: real in-season preview from Week 5 on
+    assert resp.status_code == 200
     assert "regular season finishes" in resp.text
+    assert "Current Playoff Picture" in resp.text
+    assert "In The Hunt" in resp.text
 
     from app.engine.schedule import N_WEEKS
     for _ in range(N_WEEKS):

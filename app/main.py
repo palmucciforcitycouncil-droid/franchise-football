@@ -26,7 +26,7 @@ from app.engine.defensive_box_score import build_defensive_box_score
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 from app.engine import season_stats
 from app.engine import score_fidelity, awards
-from app.engine.playoffs import bubble_teams, final_division_standings
+from app.engine.playoffs import bubble_teams, final_division_standings, seed_conference
 from app.engine.scouting import find_next_opponent, build_scouting_report
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
@@ -495,17 +495,42 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
     return rows
 
 
-def _game_leaders(box) -> dict[str, tuple[str, int] | None]:
-    """One (name, yards) leader per real offensive category for a SINGLE
-    game's box score -- ROADMAP.md Sec2c item 3's condensed "Game
-    Leaders" mini-leaderboard, not a season aggregate (that's Top
+def _game_leaders(box) -> dict[str, object | None]:
+    """One full stat line (the PassingLine/RushingLine/ReceivingLine
+    itself, not just a name+yards tuple) per real offensive category for
+    a SINGLE game's box score -- ROADMAP.md Sec2c item 3's condensed
+    "Game Leaders" mini-leaderboard, not a season aggregate (that's Top
     Performers' job). None (not a fabricated 0) when a team recorded
-    nothing in a category, e.g. a team with zero completed passes."""
+    nothing in a category, e.g. a team with zero completed passes.
+    Returning the whole line (not just yards) lets the dashboard render
+    a real box-score stat line, e.g. "23-33, 178 Yds, 1 TD, 3 Ints"."""
     return {
-        "passing": max(((p.name, p.yards) for p in box.passing), key=lambda t: t[1], default=None),
-        "rushing": max(((r.name, r.yards) for r in box.rushing), key=lambda t: t[1], default=None),
-        "receiving": max(((r.name, r.yards) for r in box.receiving), key=lambda t: t[1], default=None),
+        "passing": max(box.passing, key=lambda p: p.yards, default=None),
+        "rushing": max(box.rushing, key=lambda r: r.yards, default=None),
+        "receiving": max(box.receiving, key=lambda r: r.yards, default=None),
     }
+
+
+def _format_leader_stat_line(cat: str, line) -> str:
+    """Condensed single-line stat summary for the Game Leaders widget,
+    matching real box-score shorthand (e.g. "23-33, 178 Yds, 1 TD, 3
+    Ints") -- TD/INT are only appended when nonzero so a leader with
+    neither doesn't show a stray "0 TD"."""
+    if cat == "passing":
+        parts = [f"{line.completions}-{line.attempts}", f"{line.yards} Yds"]
+        if line.touchdowns:
+            parts.append(f"{line.touchdowns} TD")
+        if line.interceptions:
+            parts.append(f"{line.interceptions} Ints")
+    elif cat == "rushing":
+        parts = [f"{line.carries} Car", f"{line.yards} Yds"]
+        if line.touchdowns:
+            parts.append(f"{line.touchdowns} TD")
+    else:  # receiving
+        parts = [f"{line.receptions} Rec", f"{line.yards} Yds"]
+        if line.touchdowns:
+            parts.append(f"{line.touchdowns} TD")
+    return ", ".join(parts)
 
 
 def _last_played_game_for(season, team_abbr: str) -> dict | None:
@@ -710,11 +735,10 @@ def dashboard_view(request: Request):
     }
 
     # ROADMAP.md Sec2c item 2: new Row 3 Awards Race box, real data via
-    # awards.py's season_awards() -- same games_played gate the Stats
-    # page's own Awards Race already uses, so an empty/all-None race
-    # isn't shown before any games exist this season.
-    games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
-    awards_race = awards.season_awards(season) if games_played else None
+    # awards.py's season_awards() -- gated on Week 4 completion (see
+    # STANDINGS_BASED_FEATURES_MIN_WEEK's own docstring), same gate the
+    # Stats page's own Awards Race section now uses too.
+    awards_race = awards.season_awards(season) if season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK else None
 
     return templates.TemplateResponse(
         request,
@@ -928,6 +952,17 @@ TEAM_PRESETS: dict[str, list[str]] = {
 STATS_PERCENT_COLUMNS = {"pass_cmp_pct", "catch_pct", "win_pct", "fg_pct", "xp_pct", "team_fg_pct"}
 CONFERENCES = ["AFC", "NFC"]
 DIVISIONS = ["East", "North", "South", "West"]
+
+# Brian's own explicit ask: Awards Race (Dashboard + Stats page) and the
+# Playoffs page's real in-season "current playoff picture" preview both
+# wait until Week 4 is complete before showing real content -- a
+# 1-3-game sample makes both genuinely misleading (a single 300-yard
+# passer "leading" MVP with nobody else having played yet, or a 1-0 team
+# looking like a division "winner"). Week 5 is the first week these can
+# show real content (i.e. AFTER week 4 completes) -- current_week is the
+# NEXT week to simulate, so current_week > 4 means at least 4 weeks are
+# already in the books.
+STANDINGS_BASED_FEATURES_MIN_WEEK = 5
 
 
 def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
@@ -1172,7 +1207,7 @@ def stats_view(
 
     season = season_state.get_season()
     games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
-    awards_race = awards.season_awards(season) if games_played else None
+    awards_race = awards.season_awards(season) if season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK else None
 
     ctx = {
         "season": season, "games_played": games_played, "awards_race": awards_race, "tab": tab,
@@ -1555,6 +1590,7 @@ def _player_link_or_name(name: str, team_abbr: str | None) -> Markup:
 
 
 templates.env.globals["player_link_or_name"] = _player_link_or_name
+templates.env.globals["format_leader_stat_line"] = _format_leader_stat_line
 
 
 def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
@@ -1797,12 +1833,23 @@ def _rounds_by_conference(bracket, conference: str | None) -> dict[str, list]:
     return result
 
 
-def _conference_hunt_and_standings(season, bracket) -> tuple[dict, dict]:
+def _conference_hunt_and_standings(season, afc_seeds: list[str], nfc_seeds: list[str]) -> tuple[dict, dict]:
     """Real "In The Hunt" bubble teams and real division standings for
     the AFC/NFC Playoffs views (GDD Sec 10.4.6) -- both built from the
     same real tiebreak-chain functions the bracket seeding itself uses
     (`bubble_teams`/`final_division_standings` in playoffs.py), not a
     separate approximate ranking.
+
+    Takes plain seed lists rather than a `PlayoffBracket` (ROADMAP.md
+    Sec2c follow-up: Brian's own ask for a real in-season "current
+    playoff picture" preview, not just a post-season one) -- `seed_
+    conference()` is pure computation over `season.records` and works
+    perfectly well mid-season, so this function never actually needed a
+    real, already-built bracket at all. Callers pass either
+    `bracket.afc_seeds`/`nfc_seeds` (post-season, real final seeds) or
+    `seed_conference(season, "AFC"/"NFC")` directly (in-season, "if the
+    season ended today" seeds) -- same function, same real tiebreak
+    logic either way.
 
     M12 correction adds two real per-team fields HuntCard.tsx specifies
     (`seed_if_made`/`gb`), computed rather than fabricated:
@@ -1822,7 +1869,7 @@ def _conference_hunt_and_standings(season, bracket) -> tuple[dict, dict]:
     div_standings_raw = final_division_standings(season)
     hunt: dict[str, list[dict]] = {}
     standings: dict[str, dict[str, list[dict]]] = {}
-    for conf, seeds in (("AFC", bracket.afc_seeds), ("NFC", bracket.nfc_seeds)):
+    for conf, seeds in (("AFC", afc_seeds), ("NFC", nfc_seeds)):
         cutoff = season.records[seeds[6]]  # the real 7-seed -- the actual bubble line
         bubble = bubble_teams(season, conf, seeds)
         hunt[conf] = [
@@ -1858,19 +1905,35 @@ def _conference_champion(bracket, conference: str) -> dict | None:
 def playoffs_view(request: Request, view: str = "full"):
     """GDD Sec 10.4.6: Full Bracket / AFC / NFC / Super Bowl tab views,
     matching the Figma-derived layout -- AFC/NFC views also show real
-    "In The Hunt" bubble teams and real division standings."""
+    "In The Hunt" bubble teams and real division standings.
+
+    ROADMAP.md Sec2c follow-up: before the regular season finishes (no
+    real bracket exists yet), Week 5+ shows a real "current playoff
+    picture" preview instead of nothing -- current seeds/hunt/standings
+    computed live from `season.records` via `seed_conference()` (pure
+    computation, not dependent on a real, already-built bracket), same
+    real data the post-season view uses, just not yet final. Weeks 1-4
+    show a "check back after Week 4" message instead (see
+    STANDINGS_BASED_FEATURES_MIN_WEEK's own docstring for why)."""
     if view not in PLAYOFF_VIEWS:
         view = "full"
     season = season_state.get_season()
     if not season.is_complete:
+        preview = None
+        if season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK:
+            afc_seeds = seed_conference(season, "AFC")
+            nfc_seeds = seed_conference(season, "NFC")
+            in_the_hunt, division_standings = _conference_hunt_and_standings(season, afc_seeds, nfc_seeds)
+            preview = {"in_the_hunt": in_the_hunt, "division_standings": division_standings}
         return templates.TemplateResponse(request, "playoffs.html", {
             "season": season, "bracket": None, "round_labels": ROUND_LABELS, "view": view,
+            "preview": preview,
         })
     if season.playoffs is None:
         season_state.simulate_playoff_round()  # builds the Wild Card round on first visit
         season = season_state.get_season()
     bracket = season.playoffs
-    in_the_hunt, division_standings = _conference_hunt_and_standings(season, bracket)
+    in_the_hunt, division_standings = _conference_hunt_and_standings(season, bracket.afc_seeds, bracket.nfc_seeds)
     afc_rounds = _rounds_by_conference(bracket, "AFC")
     nfc_rounds = _rounds_by_conference(bracket, "NFC")
     sb_matchups = _rounds_by_conference(bracket, None).get("SB", [])

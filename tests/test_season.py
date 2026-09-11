@@ -621,14 +621,17 @@ def test_dashboard_awards_race_box_renders_real_categories():
     """ROADMAP.md Sec2c item 2's Row 3: a real Awards Race box reusing
     awards.py's season_awards() (same data the Stats page's own Awards
     Race section already shows), tabbed MVP/OPOY/DPOY/ROY rather than
-    the Stats page's four-tables-in-a-row layout."""
+    the Stats page's four-tables-in-a-row layout. Gated on Week 4
+    completion (a follow-up ask, same session): too small a sample
+    before that to rank candidates meaningfully."""
     season_state.set_user_team("KC")
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Awards Race" in resp.text
-    assert "No games played yet this season." in resp.text  # no games simulated in THIS test yet
+    assert "Check back after Week 4" in resp.text  # only 0 weeks simulated so far in THIS test
 
-    season_state.simulate_current_week()
+    for _ in range(4):
+        season_state.simulate_current_week()
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     for tab in ("MVP", "OPOY", "DPOY", "ROY"):

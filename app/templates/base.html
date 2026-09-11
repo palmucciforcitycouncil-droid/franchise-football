@@ -113,7 +113,7 @@
     nav.subnav a:hover { color: var(--text); }
     nav.subnav a.active { color: var(--text); border-bottom-color: var(--tab-active); font-weight: 600; }
     main {
-      max-width: 1200px;
+      max-width: 1600px;
       margin: 1.5rem auto;
       padding: 0 1.5rem;
     }
@@ -501,15 +501,20 @@
        Box Score -- replaces M10's own .dashboard-col1-stack layout
        (Standings/Power Rankings/Top Performers stacked in one flex
        column), which this redesign's row-by-row spec no longer needs.
-       align-items: start keeps each card's own height instead of every
-       card in a row stretching to match the tallest. Collapses to one
-       column below 900px, same breakpoint style as
+       Every card in a row now stretches to match the row's tallest card
+       (CSS Grid's own default align-items: stretch -- a prior revision
+       deliberately opted OUT of this with align-items: start, which is
+       exactly what made Standings and Box Score render at different
+       heights side by side; removed per Brian's own explicit ask that
+       boxes in a row be the same height). Any box whose real content
+       would overflow a consistent height still scrolls internally via
+       .dashboard-scroll below, unaffected by the outer card's height.
+       Collapses to one column below 900px, same breakpoint style as
        .division-standings-grid/.hof-grid's own auto-fit fallback. */
     .dashboard-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1.5rem;
-      align-items: start;
     }
     .dashboard-grid .card { margin-bottom: 0; }
     .dashboard-span-2 { grid-column: span 2; }
@@ -534,11 +539,19 @@
       gap: 1.5rem; padding: 1rem 0; margin-bottom: 0.75rem;
     }
     .boxscore-team { display: flex; align-items: center; gap: 0.75rem; }
-    .boxscore-score { font-size: 2rem; font-weight: 700; color: var(--muted); min-width: 2.5rem; text-align: center; }
+    /* Larger than the header's own 44px .team-badge (Brian's explicit ask
+       for bigger team names/final score on the scoreboard) -- scoped to
+       .boxscore-team only, not a global .team-badge size change. */
+    .boxscore-team .team-badge { width: 60px; height: 60px; font-size: 1.15rem; }
+    .boxscore-score { font-size: 3rem; font-weight: 700; color: var(--muted); min-width: 3rem; text-align: center; }
     .boxscore-score.winner { color: var(--text); }
     .boxscore-meta { text-align: center; }
     .boxscore-leaders { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 0.75rem; }
     .boxscore-leaders-team { color: var(--gold); font-weight: 700; margin-bottom: 0.3rem; }
+    .boxscore-leader { padding: 0.4rem 0; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
+    .boxscore-leader:last-child { border-bottom: none; }
+    .boxscore-leader-name { font-weight: 600; }
+    .boxscore-leader-stats { color: var(--muted); font-size: 0.85rem; margin-top: 0.1rem; }
 
     /* Dashboard Scouting Panel tabs (M10): same vanilla-JS show/hide
        pattern as the Player Card's .pc-tab (see base.html's script

@@ -58,7 +58,11 @@
 <div class="card">
   <h2>Playoffs</h2>
   {% if bracket is none %}
-  <p class="muted">The playoff bracket is set once the regular season finishes (GDD &sect;7.3). See the <a href="/season">Season</a> page to keep simulating weeks &mdash; Week {{ season.current_week }} of {{ season.schedule | length }} up next.</p>
+    {% if preview %}
+    <p class="muted">The real bracket (seeds, matchups) is only set once the regular season finishes (GDD &sect;7.3) &mdash; below is the current playoff picture if the season ended today, from real standings. See the <a href="/season">Season</a> page to keep simulating weeks &mdash; Week {{ season.current_week }} of {{ season.schedule | length }} up next.</p>
+    {% else %}
+    <p class="muted">Check back after Week 4 &mdash; too few games played so far for a meaningful playoff picture. See the <a href="/season">Season</a> page to keep simulating weeks.</p>
+    {% endif %}
   {% elif bracket.is_complete %}
   <p class="muted">Champion: <strong>{{ bracket.champion_abbr }}</strong></p>
   <form method="post" action="/season/new-season">
@@ -69,6 +73,47 @@
   <p class="muted">Current round: {{ round_labels[bracket.current_round_name] }}. Press "Sim Week" on the <a href="/season">Season</a> page to simulate it.</p>
   {% endif %}
 </div>
+
+{% if preview %}
+<!-- ROADMAP.md Sec2c follow-up: a real in-season "current playoff
+     picture" (real seeds/hunt/standings via seed_conference(), not the
+     final bracket) -- same In The Hunt / Division Standings components
+     the post-season AFC/NFC view already uses below, just fed from a
+     live mid-season snapshot instead of the completed bracket. -->
+{% for conf in ['AFC', 'NFC'] %}
+<div class="card">
+  <h3><span class="conf-badge {{ conf|lower }}">{{ conf }}</span> Current Playoff Picture</h3>
+  <p class="muted">If the season ended today &mdash; real standings, updated every simulated week. "If in" is the seed a bubble team would hold next; GB is games back of the real 7-seed.</p>
+  <div class="dash-subhead">In The Hunt</div>
+  <div class="hunt-cards">
+    {% for t in preview.in_the_hunt[conf] %}
+    <div class="hunt-card">
+      <div class="hunt-card-top">
+        <div><div class="hunt-team">{{ t.location }} ({{ t.abbr }})</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
+        <div class="hunt-if-in">If in:<strong>#{{ t.seed_if_made }}</strong></div>
+      </div>
+      <div class="hunt-gb">GB: <strong>{{ t.gb }}</strong></div>
+    </div>
+    {% else %}
+    <p class="muted">No bubble teams to show.</p>
+    {% endfor %}
+  </div>
+  <div class="dash-subhead">Division Standings</div>
+  <div class="division-standings-grid">
+    {% for div, teams in preview.division_standings[conf].items() %}
+    <table>
+      <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
+      <tbody>
+        {% for t in teams %}
+        <tr><td>{{ loop.index }}</td><td>{{ t.location }} ({{ t.abbr }})</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
 
 {% if bracket %}
 <div class="playoff-tabs">
