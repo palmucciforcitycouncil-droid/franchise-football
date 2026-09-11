@@ -2,8 +2,17 @@
 {% from "macros.html" import pct %}
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
+<!-- Headlines (ROADMAP.md Sec2c item 2): replaces the old "Dashboard — Season
+     N..." header box. GDD Sec12/R9's real event-detection + Claude-generated
+     headlines aren't built yet (needs its own scoping session -- an LLM call
+     is a real determinism-policy question this project hasn't settled), so
+     this renders per item 1's coming-soon convention until R9 lands. Keeps
+     the old header's week-status line/nav links, since those are real,
+     useful, non-spec-sounding info, not the kind of filler item 4 asks to
+     strip. -->
 <div class="card">
-  <h2>Dashboard — Season {{ season.season_number + 1 }} &middot; LEAGUE_SEED={{ season.league_seed }}</h2>
+  <h2>Headlines</h2>
+  <p class="muted">Coming soon &mdash; Weekly Headlines (GDD &sect;12, ROADMAP.md R9) needs a real scoping pass (event detection, a Claude API call, an offline fallback, and a determinism-policy decision) before this box shows real content.</p>
   <p class="muted">
     {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
     See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.
@@ -11,84 +20,143 @@
 </div>
 
 <div class="dashboard-grid">
-  <!-- Row 1, Column 1: Weekly Gameplan (docs/figma-export/src/app/App.tsx:99-104's
-       WeeklyGameplanBox -- NOT DASHBOARD_DOCUMENTATION.md's layout, which omits
-       this component from the grid entirely; that stale doc is what M9 mistakenly
-       built from) -->
+  <!-- Row 1, Column 1: Standings (ROADMAP.md Sec2d-B item 9): real source is
+       DivisionStandings.tsx -- AFC/NFC top-level tabs, then East/North/
+       South/West sub-tabs underneath, reusing the .dash-tab pattern via
+       nested [data-tabgroup]s (see base.html's script). Defaults to the
+       user's own conference/division open. -->
   <div class="card">
-    <h3>Weekly Gameplan</h3>
-    <p class="muted">Sets your Head Coach's strategy for this week's opponent (GDD &sect;10.4.1) &mdash; read by the play-calling AI for your team only.</p>
-    <form method="post" action="/gameplan">
-      <div class="row">
-        <div>
-          <label for="offensive_aggressiveness">Off. Aggressiveness
-            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Controls how bold your offense is. Higher = more early-down passes, deeper routes, trick plays, and more 4th-down/2-pt attempts.</span></span>
-          </label>
-          <select name="offensive_aggressiveness" id="offensive_aggressiveness">
-            {% for opt in offensive_aggressiveness_options %}
-            <option value="{{ opt }}" {% if opt == gameplan.offensive_aggressiveness %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="defensive_aggressiveness">Def. Aggressiveness
-            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Higher = tighter coverage and more pressure. Increases sacks/negative plays but risks big explosives.</span></span>
-          </label>
-          <select name="defensive_aggressiveness" id="defensive_aggressiveness">
-            {% for opt in defensive_aggressiveness_options %}
-            <option value="{{ opt }}" {% if opt == gameplan.defensive_aggressiveness %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="coverage">Coverage Scheme
-            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">How you cover receivers. Man challenges routes; Zone guards space and deep shots; Hybrid mixes both.</span></span>
-          </label>
-          <select name="coverage" id="coverage">
-            {% for opt in coverage_options %}
-            <option value="{{ opt }}" {% if opt == gameplan.coverage %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="blitz">Blitz Strategy
-            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">How often you bring extra rushers. Blitz Heavy hunts sacks but opens windows for screens and deep shots.</span></span>
-          </label>
-          <select name="blitz" id="blitz">
-            {% for opt in blitz_options %}
-            <option value="{{ opt }}" {% if opt == gameplan.blitz %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="rz_offense">Red Zone Offense
-            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Your personality inside the 20: Power on the ground, Balanced, Play-Action deception, or Spread to attack space.</span></span>
-          </label>
-          <select name="rz_offense" id="rz_offense">
-            {% for opt in rz_offense_options %}
-            <option value="{{ opt }}" {% if opt == gameplan.rz_offense %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="rz_defense">Red Zone Defense
-            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Defend the red zone. Bend limits big plays; Run-Sellout plugs gaps; Pressure chases sacks/turnovers at higher risk.</span></span>
-          </label>
-          <select name="rz_defense" id="rz_defense">
-            {% for opt in rz_defense_options %}
-            <option value="{{ opt }}" {% if opt == gameplan.rz_defense %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <button type="submit">Save Gameplan</button>
-        </div>
+    <h3>Standings</h3>
+    <div class="dash-tabs-grid cols-2" data-tabgroup="standings-conf">
+      {% for conf in ['AFC', 'NFC'] %}
+      <button type="button" class="dash-tab {% if user_info.conference == conf %}active{% endif %}" data-tab="{{ conf }}">{{ conf }}</button>
+      {% endfor %}
+    </div>
+    {% for conf in ['AFC', 'NFC'] %}
+    {% set default_div = user_info.division if user_info.conference == conf else 'East' %}
+    <div class="dash-panel" data-panel="{{ conf }}" data-tabgroup-panel="standings-conf" {% if user_info.conference != conf %}hidden{% endif %}>
+      <div class="dash-tabs-grid cols-4" data-tabgroup="standings-div-{{ conf }}">
+        {% for division in ['East', 'North', 'South', 'West'] %}
+        <button type="button" class="dash-tab {% if default_div == division %}active{% endif %}" data-tab="{{ division }}">{{ division }}</button>
+        {% endfor %}
       </div>
-    </form>
+      {% for division in ['East', 'North', 'South', 'West'] %}
+      <div class="dash-panel" data-panel="{{ division }}" data-tabgroup-panel="standings-div-{{ conf }}" {% if default_div != division %}hidden{% endif %}>
+        <table>
+          <thead><tr><th>Team</th><th>W-L</th><th>PF</th><th>PA</th><th>Power</th></tr></thead>
+          <tbody>
+            {% for r in all_standings[conf][division] %}
+            <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
+              <td>{{ r.location }} ({{ r.abbr }})</td>
+              <td>{{ r.wins }}-{{ r.losses }}</td>
+              <td>{{ r.points_for }}</td>
+              <td>{{ r.points_against }}</td>
+              <td>{{ r.power_rating | round | int }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
   </div>
 
-  <!-- Row 1, Column 2: Team Schedule (TeamSchedule.tsx's row-list styling,
-       not a plain table) -->
+  <!-- Row 1, Columns 2-3: Box Score (ROADMAP.md Sec2c item 3): a condensed
+       scoreboard summary + a Game Leaders mini-leaderboard ABOVE the
+       existing full box score tables (M9/M10, unchanged). No team logo
+       assets exist anywhere in this project -- reuses the same
+       .team-badge abbreviation-in-a-box convention the persistent header
+       already uses instead of fabricating logos. Play-by-Play is no
+       longer its own dashboard box (item 2) -- reachable only via the
+       link below now. -->
+  <div class="card dashboard-span-2">
+    <h3>Box Score</h3>
+    {% if last_game %}
+    <div class="boxscore-summary">
+      <div class="boxscore-team">
+        <div class="team-badge">{{ last_game.home_abbr }}</div>
+        <span class="boxscore-score {% if last_game.home_score > last_game.away_score %}winner{% endif %}">{{ last_game.home_score }}</span>
+      </div>
+      <div class="boxscore-meta">
+        <span class="muted">Week {{ last_game.week }} &middot; Final</span>
+      </div>
+      <div class="boxscore-team">
+        <span class="boxscore-score {% if last_game.away_score > last_game.home_score %}winner{% endif %}">{{ last_game.away_score }}</span>
+        <div class="team-badge">{{ last_game.away_abbr }}</div>
+      </div>
+    </div>
+
+    <div class="dash-subhead">Game Leaders</div>
+    <div class="boxscore-leaders">
+      <div>
+        <div class="boxscore-leaders-team">{{ last_game.home_abbr }}</div>
+        {% set home_leaders = last_game.user_leaders if last_game.is_home else last_game.opponent_leaders %}
+        {% for cat, label in [("passing", "Passing"), ("rushing", "Rushing"), ("receiving", "Receiving")] %}
+        {% set leader = home_leaders[cat] %}
+        <div class="dash-stat-row"><span>{{ label }}</span><span>{% if leader %}{{ player_link_or_name(leader[0], last_game.home_abbr) }} &mdash; {{ leader[1] }} yds{% else %}N/A{% endif %}</span></div>
+        {% endfor %}
+      </div>
+      <div>
+        <div class="boxscore-leaders-team">{{ last_game.away_abbr }}</div>
+        {% set away_leaders = last_game.opponent_leaders if last_game.is_home else last_game.user_leaders %}
+        {% for cat, label in [("passing", "Passing"), ("rushing", "Rushing"), ("receiving", "Receiving")] %}
+        {% set leader = away_leaders[cat] %}
+        <div class="dash-stat-row"><span>{{ label }}</span><span>{% if leader %}{{ player_link_or_name(leader[0], last_game.away_abbr) }} &mdash; {{ leader[1] }} yds{% else %}N/A{% endif %}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <p><a href="/season/week/{{ last_game.week }}/game/{{ last_game.home_abbr }}/{{ last_game.away_abbr }}">Full box score &amp; play-by-play &rarr;</a></p>
+
+    <div class="dashboard-scroll">
+      {% if last_game.box.passing %}
+      <table class="boxtable">
+        <thead><tr><th>Passing</th><th>C/ATT</th><th>Yds</th><th>TD</th><th>INT</th></tr></thead>
+        <tbody>
+          {% for p in last_game.box.passing %}
+          <tr><td>{{ player_link_or_name(p.name, season.user_team_abbr) }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if last_game.box.rushing %}
+      <table class="boxtable">
+        <thead><tr><th>Rushing</th><th>Car</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for r in last_game.box.rushing %}
+          <tr><td>{{ player_link_or_name(r.name, season.user_team_abbr) }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if last_game.box.receiving %}
+      <table class="boxtable">
+        <thead><tr><th>Receiving</th><th>Rec</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+          {% for r in last_game.box.receiving %}
+          <tr><td>{{ player_link_or_name(r.name, season.user_team_abbr) }}</td><td>{{ r.receptions }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if last_game.defense %}
+      <table class="boxtable">
+        <thead><tr><th>Defense</th><th>Tkl</th><th>Sk</th><th>INT</th></tr></thead>
+        <tbody>
+          {% for d in last_game.defense %}
+          <tr><td>{{ player_link_or_name(d.name, season.user_team_abbr) }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="muted">No games played yet &mdash; simulate a week on the <a href="/season">Season</a> page.</p>
+    {% endif %}
+  </div>
+
+  <!-- Row 2, Column 1: Team Schedule (TeamSchedule.tsx's row-list styling) -->
   <div class="card">
     <h3>Team Schedule</h3>
     <div class="dashboard-scroll">
@@ -115,10 +183,9 @@
     </div>
   </div>
 
-  <!-- Row 1, Column 3: Scouting Panel, rebuilt as the real tabbed view
-       (ScoutingPanel.tsx) instead of the <details> accordion M9 used --
-       Overview/Offense/Defense/Special/Discipline/Stats, driven entirely
-       by app/engine/scouting.py's real per-category data. Weather is
+  <!-- Row 2, Column 2: Scouting Panel, real tabbed view (ScoutingPanel.tsx) --
+       Overview/Offense/Defense/Special/Discipline/Stats, driven entirely by
+       app/engine/scouting.py's real per-category data. Weather is
        deliberately omitted (no weather system exists -- see
        scouting.py's own docstring). -->
   <div class="card">
@@ -249,214 +316,191 @@
     {% endif %}
   </div>
 
-  <!-- Column 1 continued (rows 2-3): Division Standings / League Power
-       Rankings / Top Performers, stacked -- App.tsx:117-122's
-       `lg:row-start-2 lg:row-span-2` column, not three separate grid
-       cells (that's what let M9 accidentally scatter them one-per-row
-       instead of keeping them together in column 1). -->
-  <div class="dashboard-col1-stack">
-    <!-- Standings (ROADMAP.md Sec2d-B item 9): real source is
-         DivisionStandings.tsx -- AFC/NFC top-level tabs, then
-         East/North/South/West sub-tabs underneath, reusing the .dash-tab
-         pattern via nested [data-tabgroup]s (see base.html's script).
-         Defaults to the user's own conference/division open, same as
-         the pre-redesign box only ever showing that one division. -->
-    <div class="card">
-      <h3>Standings</h3>
-      <div class="dash-tabs-grid cols-2" data-tabgroup="standings-conf">
-        {% for conf in ['AFC', 'NFC'] %}
-        <button type="button" class="dash-tab {% if user_info.conference == conf %}active{% endif %}" data-tab="{{ conf }}">{{ conf }}</button>
-        {% endfor %}
-      </div>
-      {% for conf in ['AFC', 'NFC'] %}
-      {% set default_div = user_info.division if user_info.conference == conf else 'East' %}
-      <div class="dash-panel" data-panel="{{ conf }}" data-tabgroup-panel="standings-conf" {% if user_info.conference != conf %}hidden{% endif %}>
-        <div class="dash-tabs-grid cols-4" data-tabgroup="standings-div-{{ conf }}">
-          {% for division in ['East', 'North', 'South', 'West'] %}
-          <button type="button" class="dash-tab {% if default_div == division %}active{% endif %}" data-tab="{{ division }}">{{ division }}</button>
-          {% endfor %}
-        </div>
-        {% for division in ['East', 'North', 'South', 'West'] %}
-        <div class="dash-panel" data-panel="{{ division }}" data-tabgroup-panel="standings-div-{{ conf }}" {% if default_div != division %}hidden{% endif %}>
-          <table>
-            <thead><tr><th>Team</th><th>W-L</th><th>PF</th><th>PA</th><th>Power</th></tr></thead>
-            <tbody>
-              {% for r in all_standings[conf][division] %}
-              <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
-                <td>{{ r.location }} ({{ r.abbr }})</td>
-                <td>{{ r.wins }}-{{ r.losses }}</td>
-                <td>{{ r.points_for }}</td>
-                <td>{{ r.points_against }}</td>
-                <td>{{ r.power_rating | round | int }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% endfor %}
-      </div>
-      {% endfor %}
-    </div>
-
-    <!-- Power Rankings (ROADMAP.md Sec2d-B item 10): real source is
-         LeaguePowerRankings.tsx -- record next to the team name, real
-         PF/PA columns, and a real week-over-week rank delta from the new
-         power_rank_history.py store (None -- "N/A", not a fabricated
-         arrow -- until a second week's been simulated). -->
-    <div class="card">
-      <h3>Power Rankings</h3>
-      <div class="dashboard-scroll">
-        <table>
-          <thead><tr><th>#</th><th>Team</th><th>Record</th><th>PF</th><th>PA</th><th>Power</th><th>Chg</th></tr></thead>
-          <tbody>
-            {% for pr in power_rankings %}
-            <tr class="{% if pr.record.abbr == season.user_team_abbr %}starter{% endif %}">
-              <td>{{ pr.rank }}</td>
-              <td>{{ pr.record.location }} ({{ pr.record.abbr }})</td>
-              <td>{{ pr.record.wins }}-{{ pr.record.losses }}</td>
-              <td>{{ pr.record.points_for }}</td>
-              <td>{{ pr.record.points_against }}</td>
-              <td>{{ pr.record.power_rating | round | int }}</td>
-              <td>
-                {% if pr.delta is none %}
-                <span class="pr-delta-none">N/A</span>
-                {% elif pr.delta > 0 %}
-                <span class="pr-delta-up">&#9650; {{ pr.delta }}</span>
-                {% elif pr.delta < 0 %}
-                <span class="pr-delta-down">&#9660; {{ -pr.delta }}</span>
-                {% else %}
-                <span class="pr-delta-none">&mdash;</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Top Performers (ROADMAP.md Sec2d-B item 11): real source is
-         LeagueTopPerformers.tsx -- a stat-category dropdown (real ids
-         from _stats_page_aggregates(), same data backing the Stats
-         page's Player tab) and an AFC/NFC/All toggle styled like the
-         Standings box's own tabs (Brian's explicit ask), not Figma's own
-         small inline conference dropdown. Both are pure client-side
-         show/hide of already-rendered content -- see base.html's script. -->
-    <div class="card">
-      <h3>Top Performers</h3>
-      <div class="row" style="align-items: flex-end; gap: 0.6rem; margin-bottom: 0.5rem;">
-        <div style="flex: 1;">
-          <label for="tp-category">Category</label>
-          <select id="tp-category" class="tp-category-select">
-            {% for stat_id, label in top_performers_categories %}
-            <option value="{{ stat_id }}">{{ label }}</option>
+  <!-- Row 2, Column 3: Weekly Gameplan (docs/figma-export/src/app/App.tsx:99-104's
+       WeeklyGameplanBox). ROADMAP.md Sec2c item 4: dropped the GDD-citation
+       filler line this box used to have -- form labels' own tooltips
+       already explain each setting. -->
+  <div class="card">
+    <h3>Weekly Gameplan</h3>
+    <form method="post" action="/gameplan">
+      <div class="row">
+        <div>
+          <label for="offensive_aggressiveness">Off. Aggressiveness
+            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Controls how bold your offense is. Higher = more early-down passes, deeper routes, trick plays, and more 4th-down/2-pt attempts.</span></span>
+          </label>
+          <select name="offensive_aggressiveness" id="offensive_aggressiveness">
+            {% for opt in offensive_aggressiveness_options %}
+            <option value="{{ opt }}" {% if opt == gameplan.offensive_aggressiveness %}selected{% endif %}>{{ opt }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="tp-conf-tabs">
-          <button type="button" class="tp-conf-tab active" data-conf="ALL">All</button>
-          <button type="button" class="tp-conf-tab" data-conf="AFC">AFC</button>
-          <button type="button" class="tp-conf-tab" data-conf="NFC">NFC</button>
+        <div>
+          <label for="defensive_aggressiveness">Def. Aggressiveness
+            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Higher = tighter coverage and more pressure. Increases sacks/negative plays but risks big explosives.</span></span>
+          </label>
+          <select name="defensive_aggressiveness" id="defensive_aggressiveness">
+            {% for opt in defensive_aggressiveness_options %}
+            <option value="{{ opt }}" {% if opt == gameplan.defensive_aggressiveness %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="coverage">Coverage Scheme
+            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">How you cover receivers. Man challenges routes; Zone guards space and deep shots; Hybrid mixes both.</span></span>
+          </label>
+          <select name="coverage" id="coverage">
+            {% for opt in coverage_options %}
+            <option value="{{ opt }}" {% if opt == gameplan.coverage %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="blitz">Blitz Strategy
+            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">How often you bring extra rushers. Blitz Heavy hunts sacks but opens windows for screens and deep shots.</span></span>
+          </label>
+          <select name="blitz" id="blitz">
+            {% for opt in blitz_options %}
+            <option value="{{ opt }}" {% if opt == gameplan.blitz %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="rz_offense">Red Zone Offense
+            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Your personality inside the 20: Power on the ground, Balanced, Play-Action deception, or Spread to attack space.</span></span>
+          </label>
+          <select name="rz_offense" id="rz_offense">
+            {% for opt in rz_offense_options %}
+            <option value="{{ opt }}" {% if opt == gameplan.rz_offense %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="rz_defense">Red Zone Defense
+            <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Defend the red zone. Bend limits big plays; Run-Sellout plugs gaps; Pressure chases sacks/turnovers at higher risk.</span></span>
+          </label>
+          <select name="rz_defense" id="rz_defense">
+            {% for opt in rz_defense_options %}
+            <option value="{{ opt }}" {% if opt == gameplan.rz_defense %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <button type="submit">Save Gameplan</button>
         </div>
       </div>
-      <div class="dashboard-scroll">
-        {% for stat_id, label in top_performers_categories %}
-        <div class="tp-panel" data-stat="{{ stat_id }}" {% if not loop.first %}hidden{% endif %}>
-          {% for row in top_performers_by_stat[stat_id] %}
-          <div class="tp-row" data-conf="{{ row.conference }}">
-            <span class="tp-rank">{{ loop.index }}</span>
-            <div class="tp-row-main">
-              <div>{{ player_link_or_name(row.player_name, row.player_team) }}</div>
-              <div class="muted">{{ row.player_team }} &middot; {{ row.player_pos }}</div>
-            </div>
-            <span class="tp-value">{{ row[stat_id] if row[stat_id] is not none else "N/A" }}</span>
-          </div>
-          {% else %}
-          <p class="muted">No data yet this season.</p>
-          {% endfor %}
-        </div>
-        {% endfor %}
-      </div>
-      <p><a href="/stats">See full leaderboards &rarr;</a></p>
-    </div>
+    </form>
   </div>
 
-  <!-- Row 2, Columns 2-3: Box Score -->
-  <div class="card dashboard-span-2">
-    <h3>Box Score{% if last_game %} &mdash; Week {{ last_game.week }} {{ 'vs' if last_game.is_home else '@' }} {{ last_game.opponent_abbr }}{% endif %}</h3>
-    {% if last_game %}
-    <p class="muted">
-      <span class="{% if last_game.won %}winner{% endif %}">{{ season.user_team_abbr }} {{ last_game.user_score }}</span>
-      &ndash; {{ last_game.opp_score }} {{ last_game.opponent_abbr }}
-      &middot; <a href="/season/week/{{ last_game.week }}/game/{{ last_game.home_abbr }}/{{ last_game.away_abbr }}">Full box score &amp; play-by-play &rarr;</a>
-    </p>
+  <!-- Row 3, Column 1: Power Rankings (ROADMAP.md Sec2d-B item 10): real
+       source is LeaguePowerRankings.tsx -- record next to the team name,
+       real PF/PA columns, and a real week-over-week rank delta from the
+       power_rank_history.py store (None -- "N/A", not a fabricated arrow
+       -- until a second week's been simulated). -->
+  <div class="card">
+    <h3>Power Rankings</h3>
     <div class="dashboard-scroll">
-      {% if last_game.box.passing %}
-      <table class="boxtable">
-        <thead><tr><th>Passing</th><th>C/ATT</th><th>Yds</th><th>TD</th><th>INT</th></tr></thead>
+      <table>
+        <thead><tr><th>#</th><th>Team</th><th>Record</th><th>PF</th><th>PA</th><th>Power</th><th>Chg</th></tr></thead>
         <tbody>
-          {% for p in last_game.box.passing %}
-          <tr><td>{{ player_link_or_name(p.name, season.user_team_abbr) }}</td><td>{{ p.completions }}/{{ p.attempts }}</td><td>{{ p.yards }}</td><td>{{ p.touchdowns }}</td><td>{{ p.interceptions }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-      {% if last_game.box.rushing %}
-      <table class="boxtable">
-        <thead><tr><th>Rushing</th><th>Car</th><th>Yds</th><th>TD</th></tr></thead>
-        <tbody>
-          {% for r in last_game.box.rushing %}
-          <tr><td>{{ player_link_or_name(r.name, season.user_team_abbr) }}</td><td>{{ r.carries }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-      {% if last_game.box.receiving %}
-      <table class="boxtable">
-        <thead><tr><th>Receiving</th><th>Rec</th><th>Yds</th><th>TD</th></tr></thead>
-        <tbody>
-          {% for r in last_game.box.receiving %}
-          <tr><td>{{ player_link_or_name(r.name, season.user_team_abbr) }}</td><td>{{ r.receptions }}</td><td>{{ r.yards }}</td><td>{{ r.touchdowns }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-      {% if last_game.defense %}
-      <table class="boxtable">
-        <thead><tr><th>Defense</th><th>Tkl</th><th>Sk</th><th>INT</th></tr></thead>
-        <tbody>
-          {% for d in last_game.defense %}
-          <tr><td>{{ player_link_or_name(d.name, season.user_team_abbr) }}</td><td>{{ d.solo_tackles }}</td><td>{{ d.sacks }}</td><td>{{ d.interceptions }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-    </div>
-    {% else %}
-    <p class="muted">No games played yet &mdash; simulate a week on the <a href="/season">Season</a> page.</p>
-    {% endif %}
-  </div>
-
-  <!-- Row 3, Columns 2-3: Play-by-Play -->
-  <div class="card dashboard-span-2">
-    <h3>Play-by-Play{% if last_game %} &mdash; Week {{ last_game.week }} {{ 'vs' if last_game.is_home else '@' }} {{ last_game.opponent_abbr }}{% endif %}</h3>
-    {% if last_game and last_game.plays %}
-    <div class="dashboard-scroll">
-      <table class="playlog">
-        <thead><tr><th>Down</th><th>Ball on</th><th>Play</th></tr></thead>
-        <tbody>
-          {% for p in last_game.plays %}
-          <tr class="outcome-{{ p.outcome }}">
-            <td class="dd">{% if p.play_type in ('punt', 'field_goal', 'extra_point') %}&mdash;{% else %}{{ p.down }} &amp; {{ p.distance }}{% endif %}</td>
-            <td class="dd">{{ p.field_pos }}</td>
-            <td class="desc">{{ p.desc }}</td>
+          {% for pr in power_rankings %}
+          <tr class="{% if pr.record.abbr == season.user_team_abbr %}starter{% endif %}">
+            <td>{{ pr.rank }}</td>
+            <td>{{ pr.record.location }} ({{ pr.record.abbr }})</td>
+            <td>{{ pr.record.wins }}-{{ pr.record.losses }}</td>
+            <td>{{ pr.record.points_for }}</td>
+            <td>{{ pr.record.points_against }}</td>
+            <td>{{ pr.record.power_rating | round | int }}</td>
+            <td>
+              {% if pr.delta is none %}
+              <span class="pr-delta-none">N/A</span>
+              {% elif pr.delta > 0 %}
+              <span class="pr-delta-up">&#9650; {{ pr.delta }}</span>
+              {% elif pr.delta < 0 %}
+              <span class="pr-delta-down">&#9660; {{ -pr.delta }}</span>
+              {% else %}
+              <span class="pr-delta-none">&mdash;</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Row 3, Column 2: Top Performers (ROADMAP.md Sec2d-B item 11): real
+       source is LeagueTopPerformers.tsx -- a stat-category dropdown (real
+       ids from _stats_page_aggregates(), same data backing the Stats
+       page's Player tab) and an AFC/NFC/All toggle styled like the
+       Standings box's own tabs, not Figma's own small inline dropdown.
+       Both are pure client-side show/hide of already-rendered content --
+       see base.html's script. -->
+  <div class="card">
+    <h3>Top Performers</h3>
+    <div class="row" style="align-items: flex-end; gap: 0.6rem; margin-bottom: 0.5rem;">
+      <div style="flex: 1;">
+        <label for="tp-category">Category</label>
+        <select id="tp-category" class="tp-category-select">
+          {% for stat_id, label in top_performers_categories %}
+          <option value="{{ stat_id }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="tp-conf-tabs">
+        <button type="button" class="tp-conf-tab active" data-conf="ALL">All</button>
+        <button type="button" class="tp-conf-tab" data-conf="AFC">AFC</button>
+        <button type="button" class="tp-conf-tab" data-conf="NFC">NFC</button>
+      </div>
+    </div>
+    <div class="dashboard-scroll">
+      {% for stat_id, label in top_performers_categories %}
+      <div class="tp-panel" data-stat="{{ stat_id }}" {% if not loop.first %}hidden{% endif %}>
+        {% for row in top_performers_by_stat[stat_id] %}
+        <div class="tp-row" data-conf="{{ row.conference }}">
+          <span class="tp-rank">{{ loop.index }}</span>
+          <div class="tp-row-main">
+            <div>{{ player_link_or_name(row.player_name, row.player_team) }}</div>
+            <div class="muted">{{ row.player_team }} &middot; {{ row.player_pos }}</div>
+          </div>
+          <span class="tp-value">{{ row[stat_id] if row[stat_id] is not none else "N/A" }}</span>
+        </div>
+        {% else %}
+        <p class="muted">No data yet this season.</p>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <p><a href="/stats">See full leaderboards &rarr;</a></p>
+  </div>
+
+  <!-- Row 3, Column 3: Awards Race (ROADMAP.md Sec2c item 2) -- real data,
+       reusing app/engine/awards.py's season_awards() exactly as the Stats
+       page's own Awards Race section already does, surfaced here too via
+       the same .dash-tab pattern (one tab per award) rather than the
+       Stats page's four-tables-in-a-row layout, since a dashboard card is
+       narrower. -->
+  <div class="card">
+    <h3>Awards Race</h3>
+    {% if awards_race %}
+    <div class="dash-tabs-grid cols-4">
+      <button type="button" class="dash-tab active" data-tab="mvp">MVP</button>
+      <button type="button" class="dash-tab" data-tab="opoy">OPOY</button>
+      <button type="button" class="dash-tab" data-tab="dpoy">DPOY</button>
+      <button type="button" class="dash-tab" data-tab="roy">ROY</button>
+    </div>
+    <div class="dashboard-scroll">
+      {% for key, candidates in [("mvp", awards_race.mvp), ("opoy", awards_race.opoy), ("dpoy", awards_race.dpoy), ("roy", awards_race.roy)] %}
+      <div class="dash-panel" data-panel="{{ key }}" {% if key != "mvp" %}hidden{% endif %}>
+        {% for c in candidates %}
+        <div class="dash-stat-row"><span>{{ loop.index }}. {{ player_link_or_name(c.name, c.team_abbr) }} ({{ c.team_abbr }})</span><span class="muted">{{ c.stat_line }}</span></div>
+        {% else %}
+        <p class="muted">No candidates yet.</p>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
     {% else %}
-    <p class="muted">No games played yet.</p>
+    <p class="muted">No games played yet this season.</p>
     {% endif %}
   </div>
 </div>

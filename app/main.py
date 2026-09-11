@@ -495,13 +495,29 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
     return rows
 
 
+def _game_leaders(box) -> dict[str, tuple[str, int] | None]:
+    """One (name, yards) leader per real offensive category for a SINGLE
+    game's box score -- ROADMAP.md Sec2c item 3's condensed "Game
+    Leaders" mini-leaderboard, not a season aggregate (that's Top
+    Performers' job). None (not a fabricated 0) when a team recorded
+    nothing in a category, e.g. a team with zero completed passes."""
+    return {
+        "passing": max(((p.name, p.yards) for p in box.passing), key=lambda t: t[1], default=None),
+        "rushing": max(((r.name, r.yards) for r in box.rushing), key=lambda t: t[1], default=None),
+        "receiving": max(((r.name, r.yards) for r in box.receiving), key=lambda t: t[1], default=None),
+    }
+
+
 def _last_played_game_for(season, team_abbr: str) -> dict | None:
     """The most recently completed game involving this team specifically
     (not just the most recent league-wide week, which may have been a
-    bye for this team) -- feeds the Dashboard's Box Score/Play-by-Play
-    widgets (ROADMAP.md M9), reusing the exact same build_box_score/
-    build_defensive_box_score calls result.html already makes for any
-    other game."""
+    bye for this team) -- feeds the Dashboard's Box Score widget
+    (ROADMAP.md M9, redesigned Sec2c item 3), reusing the exact same
+    build_box_score/build_defensive_box_score calls result.html already
+    makes for any other game. Also builds the OPPONENT's box score (M9
+    only ever needed the user's own team's) so the redesigned box's
+    scoreboard summary and Game Leaders mini-leaderboard can show both
+    teams, not just the user's."""
     for week_num in range(season.current_week - 1, 0, -1):
         game = next(
             (g for g in season.schedule[week_num - 1]
@@ -512,17 +528,25 @@ def _last_played_game_for(season, team_abbr: str) -> dict | None:
             continue
         is_home = game.home_abbr == team_abbr
         opponent_abbr = game.away_abbr if is_home else game.home_abbr
+        user_score = game.result.home_score if is_home else game.result.away_score
+        opp_score = game.result.away_score if is_home else game.result.home_score
+        box = build_box_score(game.result.plays, team_abbr)
+        opponent_box = build_box_score(game.result.plays, opponent_abbr)
         return {
             "week": week_num,
             "opponent_abbr": opponent_abbr,
             "is_home": is_home,
             "home_abbr": game.home_abbr,
             "away_abbr": game.away_abbr,
+            "home_score": user_score if is_home else opp_score,
+            "away_score": opp_score if is_home else user_score,
             "won": (game.result.winner == "home") == is_home,
-            "user_score": game.result.home_score if is_home else game.result.away_score,
-            "opp_score": game.result.away_score if is_home else game.result.home_score,
-            "box": build_box_score(game.result.plays, team_abbr),
+            "user_score": user_score,
+            "opp_score": opp_score,
+            "box": box,
             "defense": build_defensive_box_score(game.result.plays, team_abbr),
+            "user_leaders": _game_leaders(box),
+            "opponent_leaders": _game_leaders(opponent_box),
             "plays": game.result.plays,
         }
     return None
@@ -685,6 +709,13 @@ def dashboard_view(request: Request):
         for stat_id, _label in TOP_PERFORMERS_CATEGORIES
     }
 
+    # ROADMAP.md Sec2c item 2: new Row 3 Awards Race box, real data via
+    # awards.py's season_awards() -- same games_played gate the Stats
+    # page's own Awards Race already uses, so an empty/all-None race
+    # isn't shown before any games exist this season.
+    games_played = sum(1 for week in season.schedule for g in week if g.result is not None)
+    awards_race = awards.season_awards(season) if games_played else None
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -705,6 +736,7 @@ def dashboard_view(request: Request):
             "last_game": last_game,
             "top_performers_categories": TOP_PERFORMERS_CATEGORIES,
             "top_performers_by_stat": top_performers_by_stat,
+            "awards_race": awards_race,
         },
     )
 

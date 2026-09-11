@@ -549,3 +549,87 @@ def test_dashboard_top_performers_has_category_dropdown_and_conference_tabs():
     assert "QB Rating" in resp.text and "Passing Yards" in resp.text
     for conf in ("ALL", "AFC", "NFC"):
         assert f'data-conf="{conf}"' in resp.text
+
+
+def test_dashboard_headlines_box_replaces_old_header_with_coming_soon():
+    """ROADMAP.md Sec2c items 1-2: the old "Dashboard — Season N..." header
+    is replaced by a Headlines box, which renders per the coming-soon
+    convention until R9 (GDD Sec12) actually lands -- no fabricated
+    headline content."""
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Headlines" in resp.text
+    assert "Coming soon" in resp.text
+    assert "<h2>Dashboard" not in resp.text
+    # The old header's real week-status line/nav links are preserved.
+    assert "Week 1 of" in resp.text
+    assert 'href="/season"' in resp.text
+
+
+def test_dashboard_gameplan_filler_subtext_removed():
+    """ROADMAP.md Sec2c item 4: strip GDD-citation-style filler captions
+    from dashboard widgets -- Weekly Gameplan's own field tooltips already
+    explain each setting."""
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Weekly Gameplan" in resp.text
+    assert "Sets your Head Coach's strategy" not in resp.text
+
+
+def test_dashboard_play_by_play_box_removed():
+    """ROADMAP.md Sec2c item 2: Play-by-Play is no longer its own
+    dashboard box -- only reachable via the Box Score box's link to the
+    full page."""
+    season_state.set_user_team("KC")
+    season_state.simulate_current_week()
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "<h3>Play-by-Play" not in resp.text
+
+
+def test_dashboard_box_score_moved_to_row_1_with_scoreboard_and_game_leaders():
+    """ROADMAP.md Sec2c items 2-3: Box Score moves to Row 1 (spanning 2 of
+    the 3 columns, alongside Standings) and gains a condensed scoreboard
+    summary + a real per-game "Game Leaders" mini-leaderboard above the
+    existing full box score tables. Real regression test for a bug found
+    live during verification: the away team's Game Leaders column was
+    showing the HOME team's abbreviation twice instead of the away team's."""
+    season_state.set_user_team("KC")
+    season_state.simulate_current_week()
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+
+    from app.services import season_state as ss
+    season = ss.get_season()
+    game = next(g for g in season.schedule[0] if "KC" in (g.home_abbr, g.away_abbr))
+    assert "class=\"boxscore-summary\"" in resp.text
+    assert "Game Leaders" in resp.text
+    assert f'class="boxscore-leaders-team">{game.home_abbr}<' in resp.text
+    assert f'class="boxscore-leaders-team">{game.away_abbr}<' in resp.text
+    assert game.home_abbr != game.away_abbr  # sanity: the two teams really are distinct
+
+    # Box Score's own DOM position: appears before Team Schedule/Scouting/
+    # Weekly Gameplan (Row 2) and Power Rankings/Top Performers/Awards
+    # Race (Row 3), matching the new row-by-row layout.
+    assert resp.text.index("Box Score") < resp.text.index("Team Schedule")
+    assert resp.text.index("Box Score") < resp.text.index("Power Rankings")
+
+
+def test_dashboard_awards_race_box_renders_real_categories():
+    """ROADMAP.md Sec2c item 2's Row 3: a real Awards Race box reusing
+    awards.py's season_awards() (same data the Stats page's own Awards
+    Race section already shows), tabbed MVP/OPOY/DPOY/ROY rather than
+    the Stats page's four-tables-in-a-row layout."""
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Awards Race" in resp.text
+    assert "No games played yet this season." in resp.text  # no games simulated in THIS test yet
+
+    season_state.simulate_current_week()
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    for tab in ("MVP", "OPOY", "DPOY", "ROY"):
+        assert f'data-tab="{tab.lower()}">{tab}' in resp.text

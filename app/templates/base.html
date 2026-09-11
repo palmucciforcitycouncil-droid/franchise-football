@@ -492,18 +492,17 @@
     .record-card ol { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
     .record-card li { margin-bottom: 0.2rem; }
 
-    /* Dashboard page (GDD Sec 10.4.1, ROADMAP.md M10): the real Figma
-       3-column grid, verified against the actual component source
-       (docs/figma-export/src/app/App.tsx:99-133) rather than the stale
-       DASHBOARD_DOCUMENTATION.md M9 mistakenly built from -- that doc
-       omits WeeklyGameplanBox from the grid entirely. Row 1: Weekly
-       Gameplan / Team Schedule / Scouting Panel. Column 1 then
-       continues down (row 2-3 span) with Division Standings, League
-       Power Rankings, and Top Performers stacked. Box Score and
-       Play-by-Play each span the remaining two columns in rows 2-3.
+    /* Dashboard page (GDD Sec 10.4.1). ROADMAP.md Sec2c redesign: Row 1
+       Standings / Box Score (span 2); Row 2 Team Schedule / Scouting
+       Panel / Weekly Gameplan; Row 3 Power Rankings / Top Performers /
+       Awards Race. Cards render in that exact DOM order and the grid's
+       plain 3-equal-column auto-flow places them correctly with no
+       explicit grid-row/grid-column needed beyond .dashboard-span-2 for
+       Box Score -- replaces M10's own .dashboard-col1-stack layout
+       (Standings/Power Rankings/Top Performers stacked in one flex
+       column), which this redesign's row-by-row spec no longer needs.
        align-items: start keeps each card's own height instead of every
-       card in a row stretching to match the tallest (the Scouting Panel
-       card runs much taller than its row-mates). Collapses to one
+       card in a row stretching to match the tallest. Collapses to one
        column below 900px, same breakpoint style as
        .division-standings-grid/.hof-grid's own auto-fit fallback. */
     .dashboard-grid {
@@ -514,10 +513,6 @@
     }
     .dashboard-grid .card { margin-bottom: 0; }
     .dashboard-span-2 { grid-column: span 2; }
-    .dashboard-col1-stack {
-      grid-column: 1; grid-row: 2 / span 2;
-      display: flex; flex-direction: column; gap: 1.5rem;
-    }
     .dashboard-scroll { max-height: 420px; overflow-y: auto; }
 
     /* Scouting Panel opponent header (ROADMAP.md Sec2d item 2): the
@@ -528,8 +523,22 @@
     @media (max-width: 900px) {
       .dashboard-grid { grid-template-columns: 1fr; }
       .dashboard-span-2 { grid-column: span 1; }
-      .dashboard-col1-stack { grid-column: 1; grid-row: auto; }
     }
+
+    /* Box Score condensed scoreboard summary + Game Leaders (ROADMAP.md
+       Sec2c item 3) -- no team logo assets exist anywhere in this
+       project, so the same .team-badge abbreviation-in-a-box convention
+       the persistent header already uses stands in for a crest. */
+    .boxscore-summary {
+      display: flex; align-items: center; justify-content: center;
+      gap: 1.5rem; padding: 1rem 0; margin-bottom: 0.75rem;
+    }
+    .boxscore-team { display: flex; align-items: center; gap: 0.75rem; }
+    .boxscore-score { font-size: 2rem; font-weight: 700; color: var(--muted); min-width: 2.5rem; text-align: center; }
+    .boxscore-score.winner { color: var(--text); }
+    .boxscore-meta { text-align: center; }
+    .boxscore-leaders { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 0.75rem; }
+    .boxscore-leaders-team { color: var(--gold); font-weight: 700; margin-bottom: 0.3rem; }
 
     /* Dashboard Scouting Panel tabs (M10): same vanilla-JS show/hide
        pattern as the Player Card's .pc-tab (see base.html's script
