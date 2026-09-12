@@ -2,9 +2,12 @@
 
 **Status:** Section 5 (remove `clock_management`/`challenge_sense`) is DONE —
 built and folded into `ROADMAP.md` Sec 4c-addendum and `docs/GDD_v3.2.md`
-§8.2.1 on 2026-09-11, Option 1 (full removal). Everything else below (Sections
-4 and 6) is still design only. Written 2026-09-11 during a design session on
-branch `docs/gdd-v3-2`.
+§8.2.1 on 2026-09-11, Option 1 (full removal). **A1 (roster strength) is also
+DONE** — `app/engine/roster_strength.py`, folded into `ROADMAP.md`
+Sec 4c-addendum-2 and `docs/GDD_v3.2.md` §8.2.3 on 2026-09-11. **A2 (the
+position-rank sheet), A3 (the tuning pass), and A4 (prestige itself) are still
+open** — see §4 below, now with A1's open questions resolved and struck
+through. Written 2026-09-11 during a design session on branch `docs/gdd-v3-2`.
 
 **Why this is a new file and not an edit to `HANDOFF.md`/`ROADMAP.md`/`GDD_v3.2.md`:**
 a separate session had uncommitted work in all three at the time. This file is
@@ -130,7 +133,11 @@ league-wide calibration. **Any new coach-impact hook must respect this bound.**
 
 ## 4. Workstream A — roster strength, the sheet, and prestige
 
-### A1. Roster strength function (the foundation — nothing like it exists)
+### A1. Roster strength function [DONE] (the foundation — nothing like it existed)
+
+**Resolved 2026-09-11: `app/engine/roster_strength.py`.** See `ROADMAP.md`
+Sec 4c-addendum-2 for the full accounting. Kept below for the record of what
+was open going in.
 
 There is **no roster-to-team-strength aggregator anywhere in the codebase.**
 `scouting.py` is entirely in-season play-derived and cannot produce a week-0
@@ -139,25 +146,25 @@ position-rank sheet, JSS's `PreseasonPowerRankDelta`, and prestige.
 
 Open decisions:
 
-- **Positional weights.** Settled that QB > all of special teams and that coach
-  is heavy. The actual numbers are open. Suggest deriving a first pass from the
-  sim's own observed sensitivity (see the tuning pass, A3) rather than guessing.
-- **Starter vs depth split.** Starters + depth is settled; the *ratio* is open.
-  Note that with no injury system, depth currently affects nothing in-game, so
-  a depth term is forward-looking by design.
-- **Group aggregation.** How to collapse a position group into one number —
-  weighted by snap share (`rotation.py` already models snap share and is the
-  natural source) vs a simple top-N average.
-- **Coach contribution.** `Coach.overall` exists (`models/coach.py:208`) and
-  staff is fully populated (433 imported coaches). Open: does coach enter as a
-  multiplier on the roster number, or as its own additive component that can
-  carry a weak roster?
-- **Where it's computed and stored.** Needs a defined moment (kickoff of week 1,
-  after depth charts resolve) and a persistence story.
-  `power_rank_history.py` already stores weekly rank snapshots keyed by season —
-  a week-0 entry is the obvious fit, and that module's `DEFAULT_PATH`-redirect
-  convention **must** be followed (see its own docstring: two real
-  data-persistence incidents are documented in `ROADMAP.md` Sec2b).
+- ~~**Positional weights.**~~ Resolved: a documented first-pass placeholder
+  (`POSITION_WEIGHTS`), with only "QB > K+P combined" actually asserted.
+  **Still needs A3's tuning pass before being trusted.**
+- ~~**Starter vs depth split.**~~ Resolved: ~80/20 as a roster-wide average,
+  not a uniform per-group knob (varies by position, matching the live sim's
+  own rotation variance).
+- ~~**Group aggregation.**~~ Resolved: snap-share weighted, reusing
+  `rotation.py`'s real per-position decay curves, plus a new `IRON_MAN_DECAY`
+  for positions the live sim never rotates (QB, OL, S, K, P).
+- ~~**Coach contribution.**~~ Resolved: additive (`COACH_WEIGHT = 0.15` blended
+  onto `roster_score`, not a multiplier).
+- **Where it's computed and stored — still open.** `roster_strength.py` is a
+  pure read function today; it is not yet called from anywhere in the season
+  lifecycle, and nothing persists its output. Deliberately deferred to land
+  together with A2 (the sheet), since a stored week-0 snapshot with no reader
+  would be a half-built feature. `power_rank_history.py`'s `DEFAULT_PATH`-
+  redirect convention **must** be followed whenever this is wired up (see its
+  own docstring: two real data-persistence incidents are documented in
+  `ROADMAP.md` Sec2b).
 
 ### A2. The position-rank sheet
 
@@ -269,7 +276,7 @@ let its presence suggest these ratings were ever wired into *this* engine.
 ## 6. Ordering
 
 1. ~~Confirm the option-1-vs-2 question in §5.~~ Done — Option 1, 2026-09-11.
-2. Build A1 (roster strength) — it unblocks everything else.
+2. ~~Build A1 (roster strength) — it unblocks everything else.~~ Done, 2026-09-11.
 3. A2 (the sheet) and JSS's `PreseasonPowerRankDelta`, which both fall out of A1.
 4. A3 (tuning pass) — required before the sheet can be called finished.
 5. A4 (prestige) — needs its own design round; §4 lists the open questions.

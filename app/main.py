@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
+from app.engine.position_groups import POSITION_TO_GROUP, QUOTA_GROUPS
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import quarter_scores
@@ -78,17 +79,9 @@ _ROSTER_POSITION_MINIMUMS: dict[str, int] = {
 # has no "HB"/"LT"/"LOLB"/etc keys, 6 of 14 pills (RB/G/T/DE/LB/S) never
 # matched anything and silently never rendered -- a real, previously-
 # unnoticed bug, not a stale-doc issue like M9's. This mapping is what
-# was actually missing.
-_QUOTA_GROUP_FOR_POSITION: dict[Position, str] = {
-    Position.QB: "QB", Position.HB: "RB", Position.FB: "RB",
-    Position.WR: "WR", Position.TE: "TE",
-    Position.LT: "T", Position.RT: "T", Position.LG: "G", Position.RG: "G", Position.C: "C",
-    Position.LE: "DE", Position.RE: "DE", Position.DT: "DT",
-    Position.LOLB: "LB", Position.MLB: "LB", Position.ROLB: "LB",
-    Position.CB: "CB", Position.FS: "S", Position.SS: "S",
-    Position.K: "K", Position.P: "P",
-}
-QUOTA_GROUPS = ["QB", "RB", "WR", "TE", "C", "G", "T", "DE", "DT", "LB", "CB", "S", "K", "P"]
+# was actually missing. Now shared with app/engine/roster_strength.py
+# via app/engine/position_groups.py rather than defined here alone.
+_QUOTA_GROUP_FOR_POSITION = POSITION_TO_GROUP
 
 # Free Agents box's OFF/DEF split (offense skill/line groups vs. defensive
 # front/secondary groups). K/P don't cleanly belong to either side of the

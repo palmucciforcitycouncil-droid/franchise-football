@@ -246,6 +246,20 @@ None of the above is a commitment — it's the starting proposal for whoever sco
 
 `_legacy/` still references both under its old `coach_focus.py` design — left alone; it's dead code out of scope, not evidence these were ever wired into this engine.
 
+### 4c-addendum-2. A1 — Roster Strength aggregator built (2026-09-11)
+
+**Status: A1 done. A2 (position-rank sheet), A3 (tuning pass), A4 (prestige) still open** — see `docs/handoff_prestige_and_coach_impact.md`. There was no roster-to-team-strength aggregator anywhere in this codebase before this; `app/engine/scouting.py` is entirely in-season play-derived and `app/engine/rating.py`'s `TeamRatings` is a dead placeholder ([[project_sim_strength_is_player_level]]) — neither can produce a week-0 number.
+
+**The design calls (Brian, this session):**
+- **Group aggregation is snap-share weighted** — `app/engine/roster_strength.py` reuses `app/engine/rotation.py`'s real per-position decay curves (they already encode genuine playing-time share, which is exactly what a strength weight should track) wherever rotation.py models that position, and adds a new `IRON_MAN_DECAY` (steeper than rotation.py's own steepest, `DB_DECAY`) for the positions the live sim never rotates at all: QB, every OL slot, both safety spots, K, P.
+- **Starter/depth split lands at "heavy starters" (~80/20) as a roster-wide average**, not a uniform per-group knob — some groups run more bench-heavy (WR, via `WR_DECAY=0.80`) and some almost pure iron-man (S, via the new `IRON_MAN_DECAY=0.10`), the same real variance the live sim's own rotation already has.
+- **Coach contribution is additive**: `COACH_WEIGHT = 0.15` blends `Coach.overall` as its own term onto `roster_score` rather than scaling it, so a strong coach can lift a weak roster's `team_rating`, not just move it toward zero. 0.15 was chosen so the coach's share of the final number (15%) lands close to QB's own effective share (~17%) — "heavy," comparable to the single most important position weight, not dominant over the rest of the roster.
+- **Positional weights (`POSITION_WEIGHTS`) are an explicitly first-pass placeholder**, not a tuned result. Only one claim is actually settled and asserted in code: QB's weight (3.00) clearly exceeds K+P combined (0.50). Every other weight is this module's own ordering, and **A3's tuning pass (simulate seasons, correlate this rating against final record/Elo, adjust to match observed sensitivity) is required before they should be trusted** — not done in this chunk.
+- **Position groups reuse the Roster page's existing 14-group taxonomy** (QB/RB/WR/TE/C/G/T/DE/DT/LB/CB/S/K/P) rather than inventing a second one — pulled out of `app/main.py` into a new shared `app/engine/position_groups.py` (`main.py` now imports from there; no behavior change, verified by the full suite).
+- **Persistence/storage deliberately NOT done here.** The handoff's own suggestion — a week-0 snapshot in `power_rank_history.py` — has no consumer yet (A2's sheet doesn't exist), so wiring storage now would be a store nothing reads. That lands together with A2.
+
+**Verification:** 11 new tests in `tests/test_roster_strength.py` — pure-function tests for snap-share weighting, multi-position group averaging, and weight renormalization (hand-built `Player` rows, no DB); read-only real-DB tests for the coach blend, the no-coach degrade case, and all 32 real teams computing all 14 groups within 0-99 bounds. Full suite: 323 passed, 1 skipped.
+
 ---
 
 ## 5. How to actually run this efficiently (the token-saving playbook)
