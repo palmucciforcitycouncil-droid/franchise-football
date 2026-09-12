@@ -20,6 +20,7 @@ from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.position_groups import POSITION_TO_GROUP, QUOTA_GROUPS
+from app.engine import roster_strength
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import quarter_scores
@@ -967,6 +968,83 @@ def _power_rankings_with_deltas(season) -> list[dict]:
     return rows
 
 
+# A2 (docs/handoff_prestige_and_coach_impact.md): the FBGM-style
+# position-rank sheet's sortable columns -- same GET-param + full-page-
+# reload convention as ROSTER_SORT_KEYS, not a second mechanism.
+POSITION_RANK_SORT_KEYS = ("team", "conf", "div", "rating", "age") + tuple(QUOTA_GROUPS) + ("coach",)
+
+
+def _rank_by(values: dict[str, float]) -> dict[str, int]:
+    """1 = highest value. Same shape as coach_progression.py's own
+    _rank_map, kept local since that one ranks real statistical
+    categories that FEED coach progression, not a display rank."""
+    ordered = sorted(values.items(), key=lambda kv: kv[1], reverse=True)
+    return {abbr: i for i, (abbr, _) in enumerate(ordered, start=1)}
+
+
+def _position_rank_sheet() -> list[dict]:
+    """A1's app/engine/roster_strength.py has three intended consumers;
+    this is the first of them. Computed live on every page load rather
+    than from a stored week-0 snapshot -- see roster_strength.py's own
+    module docstring: nothing in this engine mutates a Player's
+    overall_rating or a Coach's overall mid-season, so a live read and a
+    frozen week-0 snapshot are numerically IDENTICAL for the entire
+    season today. Revisit once progression/injury/trades can change
+    either value mid-season -- at that point this needs the real
+    week-0-snapshot story A1 deliberately deferred."""
+    strengths = roster_strength.compute_all([t.abbr for t in TEAMS])
+
+    with get_session() as s:
+        all_players = list(s.exec(select(Player)))
+    ages_by_team: dict[str, list[int]] = defaultdict(list)
+    for p in all_players:
+        if p.team_abbr:
+            ages_by_team[p.team_abbr].append(p.age)
+    avg_age = {abbr: sum(ages) / len(ages) for abbr, ages in ages_by_team.items()}
+
+    group_ranks = {
+        group: _rank_by({abbr: r.group_ratings.get(group, 0.0) for abbr, r in strengths.items()})
+        for group in QUOTA_GROUPS
+    }
+    # A vacant head coach (never happens at league seed -- see
+    # coach_store.py's own docstring -- but this degrades rather than
+    # crashing if it ever does) ranks last, not fabricated into the
+    # middle of the pack.
+    coach_rank = _rank_by({
+        abbr: (r.coach_overall if r.coach_overall is not None else -1.0)
+        for abbr, r in strengths.items()
+    })
+
+    rows = []
+    for team in TEAMS:
+        r = strengths[team.abbr]
+        rows.append({
+            "team": team,
+            "rating": r.team_rating,
+            "age": avg_age.get(team.abbr, 0.0),
+            "coach_overall": r.coach_overall,
+            "coach_rank": coach_rank[team.abbr],
+            "group_ranks": {g: group_ranks[g][team.abbr] for g in QUOTA_GROUPS},
+        })
+    return rows
+
+
+def _position_rank_sort_value(row: dict, key: str):
+    if key == "team":
+        return row["team"].location.lower()
+    if key == "conf":
+        return row["team"].conference
+    if key == "div":
+        return row["team"].division
+    if key == "rating":
+        return row["rating"]
+    if key == "age":
+        return row["age"]
+    if key == "coach":
+        return row["coach_rank"]
+    return row["group_ranks"].get(key, 999)
+
+
 # ROADMAP.md Sec2d-B item 11: Dashboard Top Performers category dropdown.
 # Every id is a real field _stats_page_aggregates() already computes (same
 # per-player season rows backing the Stats page's Player tab) -- labels
@@ -1008,7 +1086,7 @@ def _top_performer_leaders(player_rows: list[dict], stat_id: str, top_n: int = 1
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard_view(request: Request):
+def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "asc"):
     """League-at-a-glance landing page, pulling from pieces that already
     exist rather than introducing new state. Doesn't replace `/`, which
     stays the single-game simulator -- the GDD lists Dashboard and
@@ -1054,6 +1132,31 @@ def dashboard_view(request: Request):
     team_schedule = _team_schedule_for(season, user_abbr)
     last_game = _last_played_game_for(season, user_abbr)
 
+    # A2 (docs/handoff_prestige_and_coach_impact.md): the position-rank
+    # sheet, sortable via the same GET-param + full-page-reload pattern
+    # as the Roster page (ROSTER_SORT_KEYS/_roster_sort_value()).
+    effective_pr_sort = pr_sort if pr_sort in POSITION_RANK_SORT_KEYS else None
+    pr_direction = pr_dir if pr_dir in ("asc", "desc") else "asc"
+    position_rank_rows = _position_rank_sheet()
+    if effective_pr_sort:
+        position_rank_rows = sorted(
+            position_rank_rows,
+            key=lambda row: _position_rank_sort_value(row, effective_pr_sort),
+            reverse=(pr_direction == "desc"),
+        )
+    else:
+        position_rank_rows = sorted(position_rank_rows, key=lambda row: -row["rating"])
+
+    def pr_query(overrides: dict) -> str:
+        base = {"pr_sort": pr_sort, "pr_dir": pr_dir}
+        base.update(overrides)
+        return "/dashboard?" + urlencode([(k, v) for k, v in base.items() if v not in (None, "")])
+
+    position_rank_sort_links = {}
+    for cid in POSITION_RANK_SORT_KEYS:
+        next_dir = "desc" if (effective_pr_sort == cid and pr_direction == "asc") else "asc"
+        position_rank_sort_links[cid] = pr_query({"pr_sort": cid, "pr_dir": next_dir})
+
     player_rows, _team_rows = _stats_page_aggregates(season)
     top_performers_by_stat = {
         stat_id: _top_performer_leaders(player_rows, stat_id)
@@ -1087,6 +1190,11 @@ def dashboard_view(request: Request):
             "top_performers_categories": TOP_PERFORMERS_CATEGORIES,
             "top_performers_by_stat": top_performers_by_stat,
             "awards_race": awards_race,
+            "position_rank_rows": position_rank_rows,
+            "position_rank_groups": QUOTA_GROUPS,
+            "position_rank_sort_links": position_rank_sort_links,
+            "pr_sort": effective_pr_sort,
+            "pr_dir": pr_direction,
         },
     )
 

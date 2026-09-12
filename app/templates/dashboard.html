@@ -456,6 +456,46 @@
         </tbody>
       </table>
     </div>
+
+    <!-- A2 (docs/handoff_prestige_and_coach_impact.md): the FBGM-style
+         position-rank sheet -- Team/Conf/Div/Team Rating/Avg Age, then a
+         1-32 rank per position group (app/engine/roster_strength.py's
+         14 groups) plus a Coach rank. Sortable via the same GET-param +
+         full-page-reload convention as the Roster page. Wide by design
+         (19 columns across 32 teams) -- .table-wrap is the same
+         overflow-x:auto convention the Roster/Stats/Staff tables already
+         use for exactly this. -->
+    <h4 style="margin: 14px 0 6px;">Position Ranks</h4>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {% for cid, label in [('team','Team'), ('conf','Conf'), ('div','Div'), ('rating','Rating'), ('age','Age')] %}
+            <th><a href="{{ position_rank_sort_links[cid] }}" class="stats-sort-link {% if pr_sort == cid %}active-sort{% endif %}">{{ label }}{% if pr_sort == cid %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+            {% endfor %}
+            {% for grp in position_rank_groups %}
+            <th><a href="{{ position_rank_sort_links[grp] }}" class="stats-sort-link {% if pr_sort == grp %}active-sort{% endif %}">{{ grp }}{% if pr_sort == grp %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+            {% endfor %}
+            <th><a href="{{ position_rank_sort_links.coach }}" class="stats-sort-link {% if pr_sort == 'coach' %}active-sort{% endif %}">Coach{% if pr_sort == 'coach' %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in position_rank_rows %}
+          <tr class="{% if row.team.abbr == season.user_team_abbr %}starter{% endif %}">
+            <td>{{ team_link(row.team.abbr, row.team.location + ' (' + row.team.abbr + ')') }}</td>
+            <td>{{ row.team.conference }}</td>
+            <td>{{ row.team.division }}</td>
+            <td>{{ row.rating | round | int }}</td>
+            <td>{{ row.age | round(1) }}</td>
+            {% for grp in position_rank_groups %}
+            <td>{{ row.group_ranks[grp] }}</td>
+            {% endfor %}
+            <td>{{ row.coach_rank }}{% if row.coach_overall is none %} (vacant){% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <!-- Row 3, Column 2: Top Performers (ROADMAP.md Sec2d-B item 11): real

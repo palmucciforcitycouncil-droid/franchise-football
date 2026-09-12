@@ -5,9 +5,11 @@ built and folded into `ROADMAP.md` Sec 4c-addendum and `docs/GDD_v3.2.md`
 §8.2.1 on 2026-09-11, Option 1 (full removal). **A1 (roster strength) is also
 DONE** — `app/engine/roster_strength.py`, folded into `ROADMAP.md`
 Sec 4c-addendum-2 and `docs/GDD_v3.2.md` §8.2.3 on 2026-09-11. **A2 (the
-position-rank sheet), A3 (the tuning pass), and A4 (prestige itself) are still
-open** — see §4 below, now with A1's open questions resolved and struck
-through. Written 2026-09-11 during a design session on branch `docs/gdd-v3-2`.
+position-rank sheet) is also DONE** — folded into `ROADMAP.md`
+Sec 4c-addendum-3 on 2026-09-11. **Still open:** wiring `roster_strength`'s
+output into JSS's `PreseasonPowerRankDelta` (needs its own scaling decision,
+not yet made), A3 (the tuning pass), and A4 (prestige itself). Written
+2026-09-11 during a design session on branch `docs/gdd-v3-2`.
 
 **Why this is a new file and not an edit to `HANDOFF.md`/`ROADMAP.md`/`GDD_v3.2.md`:**
 a separate session had uncommitted work in all three at the time. This file is
@@ -166,7 +168,13 @@ Open decisions:
   own docstring: two real data-persistence incidents are documented in
   `ROADMAP.md` Sec2b).
 
-### A2. The position-rank sheet
+### A2. The position-rank sheet [DONE]
+
+**Resolved 2026-09-11.** See `ROADMAP.md` Sec 4c-addendum-3 for the full
+accounting, including a real CSS Grid bug (`min-width: auto` on a grid item
+blocking a descendant's `overflow-x: auto`) caught and fixed in this chunk's
+own verification. Kept below for the record of the original spec, which was
+followed as written with no deviations.
 
 Falls out of A1 — ranking per group instead of summing is not extra work.
 
@@ -178,6 +186,12 @@ Falls out of A1 — ranking per group instead of summing is not extra work.
 - Reuse the existing sort convention. `main.py`'s Roster page already has a
   `ROSTER_SORT_KEYS` / `_roster_sort_value()` GET-param pattern (see
   `ROADMAP.md` R11) — follow it rather than inventing a second mechanism.
+
+**Not covered by A2, left as explicit next work:** wiring this sheet's output
+into JSS's `PreseasonPowerRankDelta` (GDD Sec 8.2.3) — that needs its own
+scaling/normalization decision (how many JSS-scale points a preseason-rank-
+vs-final-rank gap is worth), which A2's own spec never addressed and which
+was not decided in this session.
 
 ### A3. The tuning pass (agreed)
 
@@ -277,7 +291,9 @@ let its presence suggest these ratings were ever wired into *this* engine.
 
 1. ~~Confirm the option-1-vs-2 question in §5.~~ Done — Option 1, 2026-09-11.
 2. ~~Build A1 (roster strength) — it unblocks everything else.~~ Done, 2026-09-11.
-3. A2 (the sheet) and JSS's `PreseasonPowerRankDelta`, which both fall out of A1.
+3. ~~A2 (the sheet)~~ Done, 2026-09-11. JSS's `PreseasonPowerRankDelta` wiring
+   (also flagged as falling out of A1) is **not** done — still needs its own
+   scaling decision.
 4. A3 (tuning pass) — required before the sheet can be called finished.
 5. A4 (prestige) — needs its own design round; §4 lists the open questions.
 6. R3d / R4a consume prestige once it exists.

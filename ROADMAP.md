@@ -260,6 +260,23 @@ None of the above is a commitment — it's the starting proposal for whoever sco
 
 **Verification:** 11 new tests in `tests/test_roster_strength.py` — pure-function tests for snap-share weighting, multi-position group averaging, and weight renormalization (hand-built `Player` rows, no DB); read-only real-DB tests for the coach blend, the no-coach degrade case, and all 32 real teams computing all 14 groups within 0-99 bounds. Full suite: 323 passed, 1 skipped.
 
+### 4c-addendum-3. A2 — the FBGM-style position-rank sheet, built (2026-09-11)
+
+**Status: A2 done.** Resolves A1's own deferred "where computed and stored" question by NOT storing anything: `app/main.py`'s `_position_rank_sheet()` calls `roster_strength.compute_all()` live on every `/dashboard` request. This is not a shortcut that loses anything — nothing in this engine mutates a `Player.overall_rating` or a `Coach.overall` mid-season (progression/injuries/trades don't exist yet), so a live read and a frozen week-0 snapshot are numerically IDENTICAL for the entire season, for every season this engine can currently play. **Revisit once progression, injuries, or trades can change either value mid-season** — at that point this needs the real week-0-snapshot story (`power_rank_history.py`'s `DEFAULT_PATH` convention) A1 deliberately deferred.
+
+**What was built, per the handoff's exact A2 spec:**
+- Columns: Team, Conf, Div, Team Rating, Avg Age, then a 1-32 rank per `QUOTA_GROUPS` position group (best = 1), plus a Coach rank (by `Coach.overall`, vacant HC ranks last rather than being fabricated into the middle of the pack).
+- One rating column only — no Current/Healthy split (still blocked on R1, the injury system, unchanged from A1's own settled decision).
+- Lives inside the Dashboard's existing "Power Rankings" `<div class="card">`, as its own `<h4>Position Ranks</h4>` + table beneath the existing win/loss Power Rankings table (that one is untouched) — literally "in the Power Rankings box," per the handoff.
+- Sortable by every column via the exact `ROSTER_SORT_KEYS`/`_roster_sort_value()` GET-param + full-page-reload convention the handoff named (`POSITION_RANK_SORT_KEYS`/`_position_rank_sort_value()`, `pr_sort`/`pr_dir` query params) — not a second sorting mechanism.
+- Horizontal side-scroll: reuses the existing `.table-wrap { overflow-x: auto }` convention (Roster/Stats/Staff tables' own pattern) rather than inventing new CSS.
+
+**A real bug caught in this chunk's own first live verification:** wrapping the wide table in `.table-wrap` alone did nothing — the surrounding `.dashboard-grid` card grew to the table's full intrinsic width instead of clipping it, dragging the ENTIRE PAGE into horizontal scroll (`body.scrollWidth` 1551 vs. a 1024 viewport, confirmed via the Browser pane). Root cause: a CSS Grid item's default `min-width: auto` refuses to shrink below its widest child's intrinsic width, so `overflow-x: auto` on a descendant never gets the chance to trigger until the grid item itself can shrink. Fixed with one line, `.dashboard-grid .card { min-width: 0; }` — verified the fix restores the card to its normal ~1/3-grid-width share, the table now genuinely scrolls INSIDE it (`wrapClientWidth` 271 vs. `wrapScrollWidth` 927), and re-checked `/playoffs` and `/history` (the other two `.dashboard-grid` pages) for no regression.
+
+**Deliberately NOT done here:** wiring the sheet's `roster_score`/`team_rating` into JSS's `PreseasonPowerRankDelta` (`app/services/coach_records.py`'s `job_security_score()`, GDD Sec 8.2.3) — that term still defaults to 0. Doing it properly needs its own scaling/normalization decision (how many JSS-scale points a given preseason-rank-vs-final-rank gap should be worth, comparable to how `WinPct`/`PlayoffResultScore`/`OwnerPatience` are already scaled) that hasn't been settled, unlike A2's UI work above which had no open design questions left. **Left as the next explicit task**, alongside A3 (the tuning pass) and A4 (prestige itself).
+
+**Verification:** existing `tests/` suite unchanged in count (no new test file — this is UI/route wiring over already-tested `roster_strength.py`); manually verified in the Browser pane against a live server (default sort by Team Rating descending; column-header sort links tested on the QB column, correctly re-ordering and toggling asc/desc with the arrow indicator; horizontal scroll confirmed via `scrollWidth`/`clientWidth` measurements, not just visually). Full suite re-run after both this and the CSS fix: 323 passed, 1 skipped.
+
 ---
 
 ## 5. How to actually run this efficiently (the token-saving playbook)

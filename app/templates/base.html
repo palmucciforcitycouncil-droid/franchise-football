@@ -561,7 +561,12 @@
        .dashboard-scroll's own fixed-max-height behavior for every other
        card that still relies on it (Box Score, Scouting Panel, Power
        Rankings, Top Performers, Awards Race). */
-    .dashboard-grid .card { margin-bottom: 0; display: flex; flex-direction: column; }
+    /* min-width: 0 overrides a grid item's default min-width: auto, which
+       otherwise refuses to shrink a card below its widest child's intrinsic
+       width -- without it, a wide table (Position Ranks' 19 columns) grows
+       the whole grid TRACK instead of triggering .table-wrap's own
+       overflow-x:auto, dragging the entire page into horizontal scroll. */
+    .dashboard-grid .card { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
     .dashboard-span-2 { grid-column: span 2; }
     .dashboard-scroll { max-height: 420px; overflow-y: auto; }
     .dashboard-scroll-flex { flex: 1; min-height: 0; max-height: none; }
