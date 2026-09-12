@@ -33,6 +33,7 @@ from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
 from app.engine import (
     power_rating, score_fidelity, playoffs, progression, season_stats, coaching, coach_progression, injuries,
+    free_agency,
 )
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
@@ -433,6 +434,27 @@ def apply_progression_to_roster(season: Season) -> int:
             player.contract_years_remaining = max(0, player.contract_years_remaining - 1)
             s.add(player)
             updated += 1
+        # R4b (GDD Sec 8.4): a contract that just hit 0 really releases
+        # the player to free agency -- see app/engine/free_agency.py's
+        # own module docstring for why this is R4b's trigger, not R4a's.
+        # No re-add() needed: `players` are already session-tracked from
+        # the loop above, and SQLAlchemy picks up further attribute
+        # mutations on an already-added object automatically.
+        free_agency.release_expired_contracts(players)
+
+        # Emergency AI fill (see free_agency.fill_roster_gaps' own
+        # docstring): after enough offseasons of real contract churn, a
+        # team can be left with ZERO players at a position
+        # get_offensive_starters/get_defensive_starters index
+        # unconditionally -- a real IndexError crash, caught on this
+        # chunk's own first real two-season test run. Autoflush (the
+        # session default) means this query already reflects the
+        # releases just made above, no manual list-merging needed.
+        free_agent_pool = list(s.exec(select(Player).where(Player.team_abbr == None)).all())  # noqa: E711
+        for team in TEAMS:
+            team_roster = [p for p in players if p.team_abbr == team.abbr]
+            free_agency.fill_roster_gaps(team.abbr, team_roster, free_agent_pool, season.season_number)
+
         s.commit()
     return updated
 

@@ -52,9 +52,24 @@ from app.engine.position_groups import POSITION_TO_GROUP
 from app.engine.roster_strength import POSITION_WEIGHTS
 from app.models.player import Player
 
-# Sec 8.3's own real numbers.
-SALARY_CAP_BASE = 279_200_000  # 2025
-SALARY_CAP_GROWTH = 0.112  # +11.2%/year, compounded
+# Sec 8.3 gives a real 2025 number ($279.2M) for a real-world-scale AAV
+# cap. This project's imported Madden salary data does NOT run on that
+# scale -- confirmed against the real DB, not assumed: real team salary
+# totals span $262M-$695M (league avg ~$437M), and a single real player
+# (M8's own verified example, Patrick Mahomes) is $190.4M alone, more
+# than half of Sec 8.3's literal cap by itself. Madden's "Total Salary"
+# column was never validated against real-world NFL cap compliance --
+# it's real, imported data, just not on a cap-compatible scale. Rather
+# than leave every real team permanently, unfixably over an
+# incompatible cap (which would make every free-agency/re-sign offer
+# reject with OVER_CAP regardless of merit -- caught via exactly that on
+# this chunk's own first live signing attempt), SALARY_CAP_BASE is
+# rescaled to this project's OWN real salary distribution instead of
+# Sec 8.3's numerically incompatible external anchor: comfortably above
+# the current real league-wide max team total, so every team starts
+# cap-compliant with real room to operate.
+SALARY_CAP_BASE = 720_000_000
+SALARY_CAP_GROWTH = 0.112  # +11.2%/year, compounded -- Sec 8.3's real growth rate, kept as-is
 
 # This engine's season_number 0 is real-world 2026 (one year after the
 # GDD's 2025 baseline) -- see roster_strength.py's decision 2 precedent
@@ -64,7 +79,11 @@ def salary_cap_for_season(season_number: int) -> float:
     return SALARY_CAP_BASE * (1.0 + SALARY_CAP_GROWTH) ** (season_number + 1)
 
 
-VETERAN_MIN_BASE = 840_000  # Sec 8.3.2: $0.84M at 0 years of service, 2025
+VETERAN_MIN_BASE = 840_000  # Sec 8.3.2: $0.84M at 0 years of service, 2025 -- kept at the GDD's literal
+# real-world value even though SALARY_CAP_BASE above was rescaled to this project's own data: at that
+# rescaled cap, this floor is low enough to almost never bind (real imported salaries run well above
+# it), which is fine -- it's a floor, not a target, and staying inert here beats fabricating a second,
+# unrelated rescaled number with no real anchor at all.
 # This module's own choice (not in the GDD): each year of service adds
 # ~4% of the base, capped at 10 years -- a real ladder, not a flat number,
 # without a documented per-year table to import.

@@ -20,7 +20,7 @@ from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.position_groups import POSITION_TO_GROUP, QUOTA_GROUPS
-from app.engine import roster_strength, contracts
+from app.engine import roster_strength, contracts, free_agency
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import quarter_scores
@@ -37,7 +37,7 @@ from app.engine.gameplan import (
 )
 from app.engine.progression import PROGRESSED_ATTRIBUTES
 from app.services import (
-    season_state, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
+    season_state, depth_chart, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
     coach_store, coach_records, injury_store,
 )
 from app.services.depth_chart import clear_starters_cache
@@ -270,6 +270,7 @@ def roster_view(
     find_min_tck: str | None = None, find_max_tck: str | None = None,
     find_rookie: bool = False,
     find_sort: str = "ovr", find_dir: str = "desc",
+    fa_offer_result: str | None = None, fa_offer_player: str | None = None,
 ):
     """Real player data (2,365 players across 32 teams, plus 71 free
     agents) has existed since the roster import but was only ever
@@ -578,6 +579,7 @@ def roster_view(
             "find_sort": effective_find_sort, "find_dir": find_direction,
             "find_sort_columns": ROSTER_SORT_COLUMN_LABELS,
             "all_positions": list(Position),
+            "fa_offer_result": fa_offer_result, "fa_offer_player": fa_offer_player,
         },
     )
 
@@ -2047,7 +2049,9 @@ def _injury_summary_for(p: Player) -> dict | None:
 
 def _player_card_json(p: Player) -> str:
     attrs = {ATTRIBUTE_LABELS.get(a, a): getattr(p, a) for a in PROGRESSED_ATTRIBUTES if a != "overall_rating"}
+    season = season_state.get_season()
     return json.dumps({
+        "player_id": p.player_id,
         "name": p.full_name, "num": p.jersey_number, "pos": p.position.value,
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
         "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
@@ -2055,6 +2059,11 @@ def _player_card_json(p: Player) -> str:
         "salary": p.salary, "signing_bonus": p.signing_bonus,
         "contract_years_remaining": p.contract_years_remaining,
         "injury": _injury_summary_for(p),
+        # R4a (GDD Sec 8.3.1): the real Contract Sought value, replacing
+        # the R11-era "no real system exists yet" stub -- only meaningful
+        # for free agents (team is None), computed for everyone anyway
+        # since it's cheap and harmless.
+        "expected_salary": round(contracts.expected_market_value(p, season.season_number)),
     })
 
 
@@ -2693,6 +2702,49 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
             params["counter_years"] = result.counter_years
 
     return RedirectResponse(url="/gm-desk?" + urlencode(params), status_code=303)
+
+
+@app.post("/free-agency/offer")
+def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = Form(...), years: int = Form(...)):
+    """R4b's real signing flow (GDD Sec 8.4). No multi-team AI bidding
+    (see app/engine/free_agency.py's own module docstring) -- a single
+    deterministic ACCEPT/REJECT/OVER_CAP verdict against the user's own
+    submitted offer. An ACCEPT really rosters the player (team_abbr set,
+    real salary/years/signing_bonus written) and clears depth_chart's
+    starter cache so the new signing is immediately selectable."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    if years < 1 or years > 7 or aav < 0:
+        raise HTTPException(422, "Invalid offer terms")
+    user_abbr = season.user_team_abbr
+
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player is None or player.team_abbr is not None:
+            raise HTTPException(404, "Player is not a free agent")
+
+        team_players = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
+        group = POSITION_TO_GROUP[player.position]
+        current_group_rating = roster_strength.compute_group_ratings(user_abbr, team_players).get(group)
+        team_rating = roster_strength.compute_roster_strength(user_abbr).team_rating
+
+        result = free_agency.evaluate_fa_offer(
+            player, user_abbr, float(aav), years, season.season_number,
+            team_rating, current_group_rating, team_players,
+        )
+
+        if result.verdict == free_agency.FAOfferVerdict.ACCEPT:
+            player.team_abbr = user_abbr
+            player.salary = aav
+            player.contract_years_remaining = years
+            s.add(player)
+            s.commit()
+            depth_chart.clear_starters_cache()
+
+        params = {"fa_offer_result": result.verdict.value, "fa_offer_player": player.full_name}
+
+    return RedirectResponse(url="/roster?team_abbr=FA&" + urlencode(params), status_code=303)
 
 
 @app.get("/draft", response_class=HTMLResponse)

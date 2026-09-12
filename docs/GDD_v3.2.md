@@ -8350,7 +8350,7 @@ A league of dynamic coaches (Head Coach, OC, DC) who define a team's strategic i
 
 
 
-\*Implemented 2026-09-12 (ROADMAP.md R4a, full account there): real cap math and a real, disclosed-simplified negotiation (\`app/engine/contracts.py\`, \`/gm-desk\`). Sec 8.3.1's tiered-CSV Market Anchor is replaced by a formula reusing \`roster\_strength.POSITION\_WEIGHTS\` (A1/A3's real, tuned number) instead of uncalibratable data this project doesn't have. Sec 8.3.3's Mood Meter (stateful, multi-round patience) is NOT built -- a single deterministic ACCEPT/REJECT/COUNTER verdict per offer instead. No rookie scale (needs the Draft, R5, which needs this chunk first). No signing-bonus cap proration/dead-cap -- cap hit = salary (AAV) only.\*
+\*Implemented 2026-09-12 (ROADMAP.md R4a, full account there): real cap math and a real, disclosed-simplified negotiation (\`app/engine/contracts.py\`, \`/gm-desk\`). Sec 8.3.1's tiered-CSV Market Anchor is replaced by a formula reusing \`roster\_strength.POSITION\_WEIGHTS\` (A1/A3's real, tuned number) instead of uncalibratable data this project doesn't have. Sec 8.3.3's Mood Meter (stateful, multi-round patience) is NOT built -- a single deterministic ACCEPT/REJECT/COUNTER verdict per offer instead. No rookie scale (needs the Draft, R5, which needs this chunk first). No signing-bonus cap proration/dead-cap -- cap hit = salary (AAV) only. \*\*The \\$279.2M cap figure above is NOT what this engine actually uses\*\* -- confirmed against the real imported Madden salary data, that number made every real team permanently over cap (real team totals run \\$262M-\\$695M; a single real player, Mahomes, is \\$190.4M alone -- a different scale than any real-world NFL cap). \`SALARY\_CAP\_BASE\` is rescaled to \\$720M in code, disclosed in \`contracts.py\`'s own module docstring, not silently changed.\*
 
 
 
@@ -8411,6 +8411,10 @@ A player's expected salary is a weighted blend of two anchors:
 
 
 \## 8.4. Free Agency
+
+
+
+\*Implemented 2026-09-12 (ROADMAP.md R4b, full account there): real Offer Score (\`app/engine/free\_agency.py\`'s \`evaluate\_fa\_offer()\`) reusing \`contracts.expected\_market\_value\`, \`roster\_strength.team\_rating\`, and \`coaching.py\`'s real dev multipliers -- three already-real, already-tuned numbers, not invented for this formula. Real cap guardrail (a real \`OVER\_CAP\` verdict). Real auto-release on contract expiry. \*\*No multi-team AI bidding war\*\* -- this section's own "Tick Logic" (other teams competing for the same player, a decaying acceptance threshold over simulated time) needs a substantial system of its own (every AI team's own cap space and willingness to bid); a single deterministic verdict against the user's own submitted offer stands in instead, same shape as Sec 8.3.3's negotiation. Also real: an emergency AI-signing backstop (\`fill\_roster\_gaps()\`) that fills any position a team is left with zero players at after enough contract-expiry churn -- not in this GDD section at all, but needed to keep the sim from crashing once real releases could leave a roster spot empty.\*
 
 
 

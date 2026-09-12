@@ -2,6 +2,17 @@
 {% from "macros.html" import player_link %}
 {% block title %}{% if team %}{{ team.location }} Roster{% else %}Roster{% endif %} — Franchise Football{% endblock %}
 {% block content %}
+{% if fa_offer_result %}
+<div class="card">
+  {% if fa_offer_result == 'ACCEPT' %}
+  <p><strong>{{ fa_offer_player }}</strong> signed with your team.</p>
+  {% elif fa_offer_result == 'OVER_CAP' %}
+  <p><strong>{{ fa_offer_player }}</strong>'s offer would put you over the salary cap.</p>
+  {% else %}
+  <p><strong>{{ fa_offer_player }}</strong> rejected your offer.</p>
+  {% endif %}
+</div>
+{% endif %}
 <div class="card">
   <h2>Roster</h2>
   <p class="muted">Pick a team to browse its full roster. Starters (top row at each position) are highlighted in gold. The {% if view == 'attributes' %}<strong>Attributes</strong>{% else %}<strong>Stats</strong>{% endif %} view is selected.</p>

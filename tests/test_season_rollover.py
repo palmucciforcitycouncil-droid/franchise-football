@@ -165,18 +165,42 @@ def test_apply_progression_to_roster_actually_mutates_the_db():
     with get_session() as s:
         after = {p.player_id: (p.age, p.overall_rating) for p in s.exec(select(Player).where(Player.team_abbr != None)).all()}  # noqa: E711
 
-    assert before.keys() == after.keys()
-    # Every rostered player ages by exactly 1.
-    assert all(after[pid][0] == before[pid][0] + 1 for pid in before)
+    # R4b (GDD Sec 8.4): this rollover can both LOSE rostered players
+    # (a contract hit 0 -> released to free agency,
+    # free_agency.release_expired_contracts()) and GAIN some that
+    # weren't rostered before (an emergency-fill signing pulled a
+    # pre-existing free agent onto a team left short at a required
+    # position, free_agency.fill_roster_gaps() -- see that function's
+    # own docstring). So `after.keys()` is neither a subset nor a
+    # superset of `before.keys()` in general; the progression claims
+    # below are checked only for players who were ALREADY rostered and
+    # STILL are (the intersection) -- a freshly-signed player's age
+    # isn't "+1" over their free-agent age in any meaningful sense here.
+    still_rostered = before.keys() & after.keys()
+    assert still_rostered  # sanity: rollover shouldn't churn the ENTIRE league in one go
+    # Every player still rostered ages by exactly 1.
+    assert all(after[pid][0] == before[pid][0] + 1 for pid in still_rostered)
     # At least some players' overall_rating actually changed (not every
     # single one has to, given noise + peak-window stability, but a
     # uniform no-op across ~2000 players would mean the write silently
     # failed).
-    changed = sum(1 for pid in before if after[pid][1] != before[pid][1])
+    changed = sum(1 for pid in still_rostered if after[pid][1] != before[pid][1])
     assert changed > 0
 
 
 def test_apply_progression_to_roster_skips_free_agents():
+    """Players who were ALREADY free agents before this rollover get no
+    PROGRESSION MATH applied to them (no snap this season to progress
+    against) -- age is checked only for whichever of that pre-existing
+    pool REMAIN free agents after. Some legitimately won't: R4b (GDD
+    Sec 8.4) also runs an emergency-fill pass this same call
+    (app/engine/free_agency.py's fill_roster_gaps()) that can sign a
+    pre-existing free agent onto a team left with zero players at a
+    required position -- a real, intended outcome (the whole point of
+    the pass), not a violation of "progression skips free agents": a
+    newly-signed player's age still isn't touched by progression math,
+    since fill_roster_gaps() runs entirely separately from (and after)
+    the progression loop."""
     from sqlmodel import select
     from app.models.player import Player
     from app.core.db import get_session
@@ -192,7 +216,10 @@ def test_apply_progression_to_roster_skips_free_agents():
     with get_session() as s:
         fa_after = {p.player_id: p.age for p in s.exec(select(Player).where(Player.team_abbr == None)).all()}  # noqa: E711
 
-    assert fa_before == fa_after  # untouched -- didn't play a snap this season
+    for pid, age in fa_before.items():
+        if pid in fa_after:  # still a free agent -- untouched, didn't play a snap this season
+            assert fa_after[pid] == age
+        # else: emergency-signed onto a team this rollover -- real, intended (see docstring above).
 
 
 def test_start_new_season_route_dispatches_correctly():
