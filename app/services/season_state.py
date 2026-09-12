@@ -32,11 +32,11 @@ from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
 from app.engine import (
-    power_rating, score_fidelity, playoffs, progression, season_stats, coaching, coach_progression,
+    power_rating, score_fidelity, playoffs, progression, season_stats, coaching, coach_progression, injuries,
 )
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
-from app.services import gameplan_store, history_store, power_rank_history, coach_store, coach_records
+from app.services import gameplan_store, history_store, power_rank_history, coach_store, coach_records, depth_chart, injury_store
 from app.core.db import get_session
 from app.models.player import Player, Position
 from sqlmodel import select
@@ -145,6 +145,11 @@ def reset_season() -> Season:
         from app.services import save_service
         _season = _build_season(get_league_seed())
         season_stats.clear_current_season_cache()
+        # R1: a brand-new franchise starts with a clean bill of health --
+        # closes out any stale active injuries left over from a prior
+        # simulation run against this same database.
+        injury_store.resolve_all_active()
+        depth_chart.clear_starters_cache()
         save_service.save_season(_season)
         return _season
 
@@ -235,6 +240,17 @@ def simulate_current_week() -> int:
             return season.current_week - 1
 
         week_num = season.current_week
+
+        # R1 (GDD Sec 6.10.4): decrement/taper every active injury BEFORE
+        # this week's games, so a player whose weeks_out reaches 0 this
+        # week is available for THIS week's games. clear_starters_cache()
+        # afterward: get_offensive_starters/get_defensive_starters are
+        # lru_cache'd per team_abbr only, so a team whose availability
+        # just changed (a starter went OUT, or came off RTP) needs a
+        # fresh selection this week, not last week's cached one.
+        injuries.apply_weekly_decay(season.season_number, week_num)
+        depth_chart.clear_starters_cache()
+
         week_games = season.schedule[week_num - 1]
         week_total_points = 0
         week_total_teams = 0
@@ -271,6 +287,17 @@ def simulate_current_week() -> int:
         }
         power_rank_history.record_snapshot(season.season_number, week_num, ranks)
         season_stats.clear_current_season_cache()
+
+        # R1 (GDD Sec 6.10.1): roll new injuries from what just happened
+        # this week, from each player's real accumulated exposure in
+        # their own game's box score -- see injuries.py's module
+        # docstring for why this replaces a live per-play hook inside
+        # drive_sim.py. Runs AFTER games so this week's box scores are
+        # final; clear the starters cache again so next week's selection
+        # (and this week's Player Card/Roster status badges) reflect any
+        # brand-new injuries immediately.
+        injuries.roll_injuries_for_week(season, week_num)
+        depth_chart.clear_starters_cache()
 
         season.current_week += 1
 
@@ -499,6 +526,12 @@ def start_new_season() -> Season:
         # credited with them, and before the new Season object exists so
         # every rank it reads still refers to the season just finished.
         apply_coach_offseason(season)
+        # R1: offseason healing -- see injury_store.resolve_all_active()'s
+        # own docstring for why a trailing RTP taper can still be active
+        # at season end even though weeks_out itself is always capped to
+        # the season boundary.
+        injury_store.resolve_all_active()
+        depth_chart.clear_starters_cache()
 
         next_number = season.season_number + 1
         new_season = _build_season(season.league_seed, season_number=next_number, prior_standings=prior_standings)

@@ -2022,6 +2022,10 @@ ContractUpdate
 
 
 
+\*Implemented 2026-09-12 (ROADMAP.md R1, full account there): real, not a stub. One real, disclosed deviation from this section's own generation model -- see \`app/models/injury.py\`/\`app/engine/injuries.py\`'s module docstrings -- injuries are rolled once per game per player from that player's real box-score exposure (carries/targets/attempts/sacks/tackles/kicks), not a live per-play hook inside drive\_sim.py's already-tuned play-resolution branches. Practice/non-game injuries (Sec 6.10.7) are NOT built -- only in-game exposure generates injuries. Same-game Questionable/Out return logic (Sec 6.10.3) is NOT built -- no snap-by-snap in-game state to hang it on. 11 real injury\_type values collapsed to 8 (ACL/MCL->KNEE, WRIST->HAND, NECK->OTHER). Weekly RTP lifecycle, IR flagging, and depth-chart-level availability (an OUT player is excluded from starter selection, falls back to fielding an available body if literally everyone at a position is hurt at once) are all real and live every simulated week.\*
+
+
+
 \*\*Purpose\*\*  
 
 Track all player injuries that occur during games or practices and record their effects on performance, availability, and roster management.  

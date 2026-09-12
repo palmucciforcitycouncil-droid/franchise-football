@@ -30,6 +30,7 @@ def init_db() -> None:
     # every model module to exist before it's needed.
     from app.models import player  # noqa: F401
     from app.models import coach  # noqa: F401
+    from app.models import injury  # noqa: F401
     SQLModel.metadata.create_all(get_engine())
 
 

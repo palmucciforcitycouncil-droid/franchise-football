@@ -94,14 +94,55 @@ class DefensiveStarters:
 
 
 def _top(players: list[Player], position: Position, n: int, team_abbr: str) -> list[Player]:
+    """R1 (GDD Sec 6.10.5): a player who is currently OUT (an active
+    injury with weeks_out > 0) is excluded from this position's pool, so
+    selection "promotes the next slot" for free via the existing
+    rating-sorted fallback -- no separate promotion logic needed.
+    Backfills with OUT players (rating-sorted, via resolve_order's own
+    fallback) if the healthy pool alone can't fill all `n` slots -- rare
+    with real roster depth, but real (a thin position, e.g. DT needs 2;
+    a bad-luck injury cluster on one team), and this engine has no
+    practice-squad emergency-elevation system to reach for instead. The
+    disclosed simplification is fielding an available body anyway rather
+    than crashing an empty starter slot -- caught via two real
+    IndexErrors on this feature's own first live full-season runs (an
+    all-hurt single-starter position, then an under-filled 2-starter
+    one)."""
+    from app.services import injury_store
+
     pool = [p for p in players if p.position == position]
-    pool = depth_chart_overrides.resolve_order(team_abbr, position.value, pool)
-    return pool[:n]
+    out_ids = injury_store.currently_out_player_ids()
+    healthy = [p for p in pool if p.player_id not in out_ids] if out_ids else pool
+    if len(healthy) < n:
+        healthy_ids = {p.player_id for p in healthy}
+        candidates = healthy + [p for p in pool if p.player_id not in healthy_ids]
+    else:
+        candidates = healthy
+    candidates = depth_chart_overrides.resolve_order(team_abbr, position.value, candidates)
+    return candidates[:n]
 
 
 def _load_roster(team_abbr: str) -> list[Player]:
+    """A player currently in RTP taper (available, but weakened --
+    weeks_out == 0, rtp_penalty > 0 -- R1, GDD Sec 6.10.4) has their
+    attributes temporarily scaled here, per injuries.py's
+    apply_rtp_penalty(). OUT-player exclusion happens in _top() instead
+    of here -- see that function's own docstring for why (a per-position
+    fallback needs to know "is EVERY player at just this slot out," which
+    a whole-roster filter can't express)."""
+    from app.engine import injuries
+    from app.services import injury_store
+
     with get_session() as s:
-        return list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+        roster = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+
+    rtp = injury_store.rtp_penalties()
+    if rtp:
+        roster = [
+            injuries.apply_rtp_penalty(p, rtp[p.player_id]) if p.player_id in rtp else p
+            for p in roster
+        ]
+    return roster
 
 
 @lru_cache(maxsize=64)
@@ -176,3 +217,12 @@ def get_defensive_starters(team_abbr: str) -> DefensiveStarters:
 def clear_starters_cache() -> None:
     get_offensive_starters.cache_clear()
     get_defensive_starters.cache_clear()
+    # R1: starters now depend on injury_store's cache too (_top() reads
+    # it every call), and every existing test fixture that resets DB_PATH
+    # already calls this function -- coupling the two here means those
+    # fixtures correctly clear injury_store's cache too without needing
+    # to know that module exists. Import kept local: depth_chart.py is a
+    # dependency of injury_store's own _load_roster()-adjacent code, so a
+    # module-level import here would risk a circular import.
+    from app.services import injury_store
+    injury_store.clear_cache()

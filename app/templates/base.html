@@ -684,6 +684,15 @@
        LeaguePowerRankings.tsx's own CHG column (green up, red down). */
     .pr-delta-up { color: #4ade80; }
     .pr-delta-down { color: #f87171; }
+    .pc-injury-status { color: #f87171; }  /* R1: same red as pr-delta-down, this app's one "bad news" color */
+    /* R1: compact OUT/Q badge next to any player_link() name, wherever
+       that shared macro renders (Roster, Find Player, Free Agents,
+       Staff, Scouting) -- one change, not one per page. */
+    .injury-badge {
+      display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 3px;
+      font-size: 0.68rem; font-weight: 700; vertical-align: middle;
+      background: rgba(248, 113, 113, 0.18); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.4);
+    }
     .pr-delta-none { color: var(--muted); }
     .dash-stat-row { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 0.3rem 0; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
     .dash-stat-row:last-child { border-bottom: none; }
@@ -994,8 +1003,20 @@
       // row-detail widget on Find Player/Free Agents rows (renderInlineDetail
       // below) can reuse the EXACT same 4 panel builders the full Player
       // Card modal uses, instead of a second, drifting copy of this markup.
+      function injuryRow(card) {
+        // R1 (GDD Sec 3.8/6.10): real injury status, omitted entirely
+        // when healthy -- never a fabricated "Healthy" badge.
+        if (!card.injury) { return ''; }
+        var inj = card.injury;
+        var label = inj.status + (inj.ir ? ' (IR)' : '') +
+          (inj.weeks_out > 0 ? ' -- ' + inj.weeks_out + ' wk' + (inj.weeks_out === 1 ? '' : 's') + ' out' : '');
+        return '<div class="pc-row"><span class="pc-row-label">Injury</span><span class="pc-injury-status">' +
+          inj.severity + ' ' + inj.type + ': ' + label + '</span></div>';
+      }
+
       function overviewPanel(card) {
-        return '<div class="pc-row"><span class="pc-row-label">Age</span><span>' + card.age + ' years old</span></div>' +
+        return injuryRow(card) +
+          '<div class="pc-row"><span class="pc-row-label">Age</span><span>' + card.age + ' years old</span></div>' +
           '<div class="pc-row"><span class="pc-row-label">Potential</span><span>' + card.pot + '</span></div>' +
           bar('Morale', card.morale) + bar('Stamina', card.stamina);
       }

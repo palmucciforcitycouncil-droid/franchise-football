@@ -1,5 +1,6 @@
 """
-Session-wide test isolation for the Season save file (GDD Part 1 Sec 8).
+Session-wide test isolation for the Season save file (GDD Part 1 Sec 8)
+and the Player/Coach/Injury database.
 
 `save_service.DEFAULT_SAVE_PATH` points at the REAL save
 (data/saves/current_season.json) that the live app/dev server actually
@@ -31,18 +32,51 @@ it once is both simpler and cheaper than adding the same try/finally
 redirect to 7+ individual test files.
 
 Also redirects `power_rank_history.DEFAULT_PATH` (ROADMAP.md Sec2d-B item
-10): simulate_current_week() now writes a weekly Power Ranking snapshot
-via that module on every call, using the exact same DEFAULT_PATH-resolved-
-at-call-time convention as save_service -- every one of the 7+ test files
-above that call simulate_current_week()/reset_season() directly would
-otherwise also be silently writing to the real data/saves/power_rank_history.json
-on every run, the identical class of gap this fixture already closes for
-the season save file itself.
+10) the same way, for the same reason.
+
+**Third surface, added for R1 (2026-09-12): `app.core.db.DB_PATH` itself.**
+Before R1 (the injury system), nothing `simulate_current_week()` touched
+during a WEEKLY sim (as opposed to `start_new_season()`'s offseason
+progression pass) ever wrote to the Player/Coach database -- only
+`test_coaching.py`, `test_history_store.py`, and `test_season_rollover.py`
+needed their own per-test DB_PATH isolation, precisely because only they
+called `start_new_season()`. R1 changed that premise: `roll_injuries_for_
+week()`/`apply_weekly_decay()` now write to the real `Injury` table on
+EVERY `simulate_current_week()` call, which `test_playoffs.py`,
+`test_scouting.py`, `test_awards.py`, `test_stat_realism.py`, and
+`test_season.py` all call without ever expecting to need DB isolation --
+a real, live incident (ROADMAP.md Sec 2b's third entry): 546 bogus
+Injury rows leaked into the production `data/franchise_football.db`
+from exactly this gap before this fixture existed.
+
+**A first fix here (session-scoped DB_PATH redirect, tried and reverted
+same day) had a second real bug**: sharing ONE throwaway DB copy for the
+whole session stops any test from touching the REAL file, but doesn't
+stop tests from polluting EACH OTHER -- `resolve_all_active()` only
+soft-deletes injuries (is_active=False), it never rows-deletes, and a
+full-season test that never calls it again after its own last simulated
+week leaves genuinely-still-active injuries sitting in the shared file.
+A LATER test's own `shutil.copy()` of "the current DB_PATH" then inherits
+that pollution -- caught via `test_injuries.py`'s own
+`currently_out_player_ids() == frozenset()` assertion failing only when
+run as part of the full suite, never standalone. **The actual fix**:
+`_golden_db_path` (session-scoped) is copied from the real file ONCE and
+never written to directly by any test; `_isolate_db_path` (function-
+scoped, autouse) re-copies FROM that golden copy to a fresh per-test
+file before every single test function and redirects DB_PATH to it, so
+no test can ever see another test's writes, while still only touching
+the real file with one read at session start. Tests that need their OWN
+further-isolated throwaway (test_coaching.py etc.) still work unchanged
+-- they capture "the current DB_PATH" at their own fixture's setup time
+(now this test's fresh per-function copy) and restore to THAT in their
+own `finally`; nested isolation composes safely.
 """
+import shutil
 from pathlib import Path
 
 import pytest
 
+from app.core import db as db_module
 from app.services import save_service, power_rank_history
 
 
@@ -63,3 +97,53 @@ def _isolate_season_save_path():
         power_rank_history.DEFAULT_PATH = real_power_rank_path
         test_path.unlink(missing_ok=True)
         test_power_rank_path.unlink(missing_ok=True)
+
+
+@pytest.fixture(scope="session")
+def _golden_db_path():
+    """A read-only reference copy of the real DB, made exactly once.
+    Never redirected into `db_module.DB_PATH` directly -- only
+    `_isolate_db_path` below copies FROM this, per test function."""
+    real_db_path = db_module.DB_PATH
+    golden_path = Path("data/_test_golden_franchise.db")
+    golden_path.unlink(missing_ok=True)
+    shutil.copy(real_db_path, golden_path)
+    try:
+        yield golden_path
+    finally:
+        golden_path.unlink(missing_ok=True)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_db_path(_golden_db_path):
+    """Function-scoped (not session-scoped, see module docstring for the
+    real bug that distinction fixes): every single test gets its OWN
+    fresh copy of the golden reference DB, so no test can ever see
+    another test's writes, and the real file is never touched at all."""
+    real_db_path = db_module.DB_PATH
+    per_test_path = Path("data/_test_isolated_franchise.db")
+    per_test_path.unlink(missing_ok=True)
+    shutil.copy(_golden_db_path, per_test_path)
+    db_module.DB_PATH = per_test_path
+    db_module._engine = None
+    _clear_db_backed_caches()
+    try:
+        yield
+    finally:
+        if db_module._engine is not None:
+            db_module._engine.dispose()  # Windows keeps the file locked otherwise
+        db_module.DB_PATH = real_db_path
+        db_module._engine = None
+        per_test_path.unlink(missing_ok=True)
+        _clear_db_backed_caches()
+
+
+def _clear_db_backed_caches() -> None:
+    """Every lru_cache keyed off DB content, cleared on both sides of
+    _isolate_db_path's swap -- otherwise a query answered before this
+    fixture ran (or by whichever test ran immediately before this one)
+    can serve stale data pointed at a file that no longer exists."""
+    from app.services import coach_store, depth_chart, injury_store
+    coach_store.clear_cache()
+    depth_chart.clear_starters_cache()  # also clears injury_store's cache, see that function's own note
+    injury_store.clear_cache()

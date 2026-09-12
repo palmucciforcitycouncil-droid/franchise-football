@@ -38,7 +38,7 @@ from app.engine.gameplan import (
 from app.engine.progression import PROGRESSED_ATTRIBUTES
 from app.services import (
     season_state, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
-    coach_store, coach_records,
+    coach_store, coach_records, injury_store,
 )
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
@@ -2028,6 +2028,23 @@ def _season_by_season_stats_for(p: Player) -> dict | None:
     return lines or None
 
 
+def _injury_summary_for(p: Player) -> dict | None:
+    """R1 (GDD Sec 3.8/6.10): the Player Card's real injury status, None
+    when healthy -- never a fabricated "Healthy" badge for a database
+    that predates this chunk (injury_store degrades to empty gracefully,
+    same contract coach_store already established)."""
+    injury = injury_store.injury_for_player(p.player_id)
+    if injury is None:
+        return None
+    return {
+        "status": "OUT" if injury.is_out else "Questionable (returning)",
+        "type": injury.injury_type.value.title(),
+        "severity": injury.severity.value.title(),
+        "weeks_out": injury.weeks_out,
+        "ir": injury.placed_on_ir,
+    }
+
+
 def _player_card_json(p: Player) -> str:
     attrs = {ATTRIBUTE_LABELS.get(a, a): getattr(p, a) for a in PROGRESSED_ATTRIBUTES if a != "overall_rating"}
     return json.dumps({
@@ -2037,10 +2054,12 @@ def _player_card_json(p: Player) -> str:
         "attrs": attrs, "career": _season_by_season_stats_for(p),
         "salary": p.salary, "signing_bonus": p.signing_bonus,
         "contract_years_remaining": p.contract_years_remaining,
+        "injury": _injury_summary_for(p),
     })
 
 
 templates.env.filters["player_card_json"] = _player_card_json
+templates.env.filters["player_injury_status"] = _injury_summary_for
 
 
 # Stat-line dataclasses (PassingLine, SeasonDefensiveLine, HOFCandidate, ...)
