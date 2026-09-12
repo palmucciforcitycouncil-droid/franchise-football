@@ -75,6 +75,12 @@ class Player(SQLModel, table=True):
     # Contract (Post-MVP -- GDD Part 2 Sec F1.1 -- stored now, unused until then)
     salary: int = 0
     signing_bonus: int = 0
+    # Not real Madden data (no such column exists in the CSV) -- a
+    # deterministically-seeded 1-5 placeholder so the Contract tab's
+    # multi-year grid and the Free Agents box's "SOON" filter have
+    # something real to key off, disclosed as synthetic until R4a
+    # (Contracts/Cap, GDD Sec 8.3) replaces it with a real negotiated term.
+    contract_years_remaining: int = 1
 
     # Physical
     speed: int

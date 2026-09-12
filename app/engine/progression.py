@@ -126,18 +126,33 @@ class ProgressionResult:
     potential_delta: float = 0.0
 
 
-def progress_player(player: Player, touches: int | None, season_number: int, rng: RNG) -> ProgressionResult:
+def progress_player(player: Player, touches: int | None, season_number: int, rng: RNG,
+                    coach_dev_multiplier: float = 1.0) -> ProgressionResult:
     """Pure computation of one player's deltas -- does not mutate
     `player`. Callers (season_rollover.py) apply the result and persist
-    it; keeping this pure makes it directly testable without a DB."""
+    it; keeping this pure makes it directly testable without a DB.
+
+    `coach_dev_multiplier` is the player's team's real coaching staff
+    development rating (GDD Sec 7.7.2.3's player_dev_offense /
+    player_dev_defense, blended across HC + coordinator + position
+    coaches by app/engine/coaching.py, and listed in Sec 8.2.1 as one of
+    a coach's headline dynamic ratings). It scales GROWTH only, never
+    decline: a good staff develops a young player faster, but no
+    coaching makes a 36-year-old stop aging. Defaults to 1.0, which
+    leaves this function's behavior identical to before coaches existed
+    -- including for every caller that has no staff to look up."""
     base = _base_delta(player.position, player.age)
     f_pot = potential_multiplier(player.overall_rating, player.potential)
     f_use = usage_multiplier(touches)
+    # Growth-only, by design: `base` is positive pre-peak and negative
+    # past it, and boosting the negative branch would perversely make a
+    # good development staff age players out FASTER.
+    f_coach = coach_dev_multiplier if base > 0 else 1.0
 
     deltas: dict[str, float] = {}
     for attr in PROGRESSED_ATTRIBUTES:
         noise = rng.gauss(0.0, NOISE_STDDEV)
-        delta = base * f_pot * f_use + noise
+        delta = base * f_pot * f_use * f_coach + noise
         deltas[attr] = max(-ANNUAL_CAP, min(ANNUAL_CAP, delta))
 
     # Dynamic Potential: a smaller nudge in the same direction as the

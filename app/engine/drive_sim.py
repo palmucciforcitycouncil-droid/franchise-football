@@ -28,7 +28,10 @@ from .game_state import PlayEvent
 from .player_ai import MatchupContext, choose_ball_carrier, choose_run_point_of_attack, choose_pass_target, coverage_rating, matchup_adjustment
 from .defensive_ai import DefensiveCall, decide_defensive_call, apply_run_tactic, LEAGUE_AVG_YPC, LEAGUE_AVG_YPA
 from .gameplan import Gameplan, offense_pass_bias, offense_fourth_down_bias, defense_run_tactic_extra_penalty
+from . import coaching
+from .coaching import StaffEffect
 from . import rotation
+from . import special_teams
 from app.models.player import Player
 from app.services.depth_chart import DefensiveStarters
 
@@ -68,6 +71,7 @@ def _defensive_td_probability(return_distance: int) -> float:
 def _pass_probability(
     down: int, distance: int, trailing: bool, is_two_minute: bool, matchup_adjustment: float,
     field_pos: int = 0, gameplan: Gameplan | None = None,
+    staff: StaffEffect | None = None,
 ) -> float:
     """GDD Sec 6.6.1: Layer 1 (situational baseline by down & distance),
     Layer 2 (game-state adjustment), Layer 3 (performance/matchup
@@ -75,7 +79,13 @@ def _pass_probability(
     player_ai.matchup_adjustment(), not a team-level run_bias knob).
 
     `gameplan` is the OFFENSE's Weekly Gameplan (GDD Sec 10.4.1) -- None
-    for every AI team, since only the user's team ever has one set."""
+    for every AI team, since only the user's team ever has one set.
+    `staff` is the OFFENSE's real coaching staff reduced to biases
+    (app/engine/coaching.py, GDD Sec 7.7.2.2's run_pass_tendency /
+    red_zone_offense_bias) -- set for ALL 32 teams, not just the user's,
+    and stacks with the gameplan rather than replacing it: the staff is
+    the team's season-long identity, the gameplan is this week's
+    adjustment on top of it."""
     base = PARAMS["mix"]["pass"]  # 0.56 league-average target
 
     if down == 2:
@@ -96,6 +106,7 @@ def _pass_probability(
 
     base += matchup_adjustment
     base += offense_pass_bias(gameplan, in_red_zone=field_pos >= 80)
+    base += coaching.offense_pass_bias(staff, in_red_zone=field_pos >= 80)
 
     return max(0.1, min(0.92, base))
 
@@ -144,6 +155,7 @@ def _run_tackler(rng: RNG, defense: DefensiveStarters, zone: str, yards: int) ->
 def _resolve_run(
     rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCall,
     field_pos: int = 0, defense_gameplan: Gameplan | None = None,
+    defense_staff: StaffEffect | None = None, down: int = 1, distance: int = 10,
 ) -> Tuple[int, str, str, str, str]:
     """GDD Sec 6.6.2 (run) + Sec 6.6.7: point-of-attack chosen from real
     zone blocking advantages, yardage shaped by the winning zone's
@@ -167,6 +179,11 @@ def _resolve_run(
     run-play fumble is recovered in the box, not by a deep secondary
     player."""
     extra_penalty = defense_run_tactic_extra_penalty(defense_gameplan, in_red_zone=field_pos >= 80)
+    # A defensive staff's own short-yardage aggressiveness (GDD Sec
+    # 7.7.2.2's fourth_down_defense) stacks on top of the gameplan's
+    # red-zone Run-Sellout style -- both commit harder to the predicted
+    # point of attack, just for different reasons.
+    extra_penalty += coaching.defense_run_tactic_extra_penalty(defense_staff, down, distance)
     zones = apply_run_tactic(ctx.zones, defcall.run_tactic, extra_penalty=extra_penalty)
     run_ctx = replace(ctx, zones=zones) if defcall.run_tactic else ctx
     choice = choose_run_point_of_attack(run_ctx, rb, rng)
@@ -320,22 +337,37 @@ def _kicker_adjusted_prob(base_prob: float, kicker: Player | None) -> float:
     return max(0.35, min(0.99, base_prob + (kicker.kick_accuracy - 80) * 0.004))
 
 
-def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool, int]:
+def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool, int, bool]:
+    """Returns (made, attempt_yards, blocked). A block is rolled BEFORE
+    the make/miss roll (tuning.py's PARAMS["special"]["fg_block"], already
+    present but unused before this) -- a blocked kick is never "made"
+    regardless of what the accuracy roll would have said, same real-world
+    causality (GDD Sec 6.8's P(Block) cap)."""
     attempt_yards = (100 - pos) + 17  # line of scrimmage to goal + snap/hold depth
+    if rng.prob(PARAMS["special"]["fg_block"]):
+        return False, attempt_yards, True
     base_prob = PARAMS["special"]["fg_make_prob"][_fg_distance_bucket(attempt_yards)]
-    return rng.prob(_kicker_adjusted_prob(base_prob, kicker)), attempt_yards
+    return rng.prob(_kicker_adjusted_prob(base_prob, kicker)), attempt_yards, False
 
 
 # GDD Sec 6.9 Penalty System -- a real weighted type table + attribution +
 # situational accept/decline, but a deliberate SUBSET of the full catalog:
 # 7 types total (false start, delay of game, illegal formation, offside,
 # offensive holding, defensive pass interference, roughing the passer),
-# not the dozen-plus real penalty types the GDD lists. No
-# Team_Discipline_Modifier/Coach_Modifier: neither a
-# "discipline" player attribute nor a Coach entity exists in the real
-# (Madden-derived) data, so attribution picks from the relevant personnel
-# group rather than being rating-weighted -- the same category of gap as
-# player_ai.py's documented composite-attribute mappings. Also scoped
+# not the dozen-plus real penalty types the GDD lists. A real
+# Coach_Modifier DOES now exist: each side's head coach `discipline`
+# rating (GDD Sec 7.7.2.3, and Sec 7.7.4's "coach discipline modulates
+# team-level penalty rates") scales that side's own penalty
+# probabilities via app/engine/coaching.py's penalty_rate_multiplier --
+# offensive fouls (false start, delay of game, illegal formation,
+# holding) by the OFFENSE's staff, defensive fouls (offside, DPI,
+# roughing) by the DEFENSE's. A league-average staff lands on exactly
+# 1.0, so the calibrated base rates in tuning.py remain the league mean.
+# There is still no per-PLAYER Team_Discipline_Modifier: no "discipline"
+# attribute exists in the real (Madden-derived) player data, so
+# attribution still picks from the relevant personnel group rather than
+# being rating-weighted -- the same category of gap as player_ai.py's
+# documented composite-attribute mappings. Also scoped
 # out entirely: penalties on touchdowns, turnovers, and safeties (real
 # NFL accept/decline gets genuinely complicated there -- e.g. a defense
 # can decline a holding call to let an interception return stand) --
@@ -348,7 +380,10 @@ class PenaltyOutcome:
     pos: int
 
 
-def _check_pre_snap_penalty(rng: RNG, ctx: MatchupContext) -> Tuple[str, str] | None:
+def _check_pre_snap_penalty(
+    rng: RNG, ctx: MatchupContext,
+    offense_penalty_mult: float = 1.0, defense_penalty_mult: float = 1.0,
+) -> Tuple[str, str] | None:
     """False start / delay of game / illegal formation / offside --
     rolled before the play type is even decided, since these happen
     before anyone knows what was coming. Always enforced (no
@@ -356,18 +391,19 @@ def _check_pre_snap_penalty(rng: RNG, ctx: MatchupContext) -> Tuple[str, str] | 
     matching real NFL practice). Returns (description, side) or None."""
     off, defn = ctx.offense, ctx.defense
     p = PARAMS["penalty"]["pre_snap"]
-    if rng.prob(p["false_start"]):
+    if rng.prob(p["false_start"] * offense_penalty_mult):
         return f"False start, {rng.choice(off.offensive_line).full_name}: 5 yards", "offense"
-    if rng.prob(p["delay_of_game"]):
+    if rng.prob(p["delay_of_game"] * offense_penalty_mult):
         return f"Delay of game, {off.qb.full_name}: 5 yards", "offense"
-    if rng.prob(p["illegal_formation"]):
+    if rng.prob(p["illegal_formation"] * offense_penalty_mult):
         return f"Illegal formation, {rng.choice(off.offensive_line).full_name}: 5 yards", "offense"
-    if rng.prob(p["offside"]):
+    if rng.prob(p["offside"] * defense_penalty_mult):
         return f"Offside, {rng.choice(defn.defensive_line).full_name}: 5 yards", "defense"
     return None
 
 
-def _check_offensive_holding(rng: RNG, ctx: MatchupContext, down: int, distance: int, pos: int, real_yards: int) -> PenaltyOutcome | None:
+def _check_offensive_holding(rng: RNG, ctx: MatchupContext, down: int, distance: int, pos: int, real_yards: int,
+                             penalty_mult: float = 1.0) -> PenaltyOutcome | None:
     """Rolled only on run plays. Real accept/decline: the defense (the
     beneficiary -- holding is called against the offense) compares the
     real play's result against enforcing the penalty, and only accepts
@@ -376,7 +412,7 @@ def _check_offensive_holding(rng: RNG, ctx: MatchupContext, down: int, distance:
     stuffed for a bigger loss than the penalty yardage is worse for the
     offense already, so the defense should (and here does) decline and
     let the real result stand."""
-    if not rng.prob(PARAMS["penalty"]["in_play"]["offensive_holding"]):
+    if not rng.prob(PARAMS["penalty"]["in_play"]["offensive_holding"] * penalty_mult):
         return None
     if not _holding_would_be_accepted(distance, real_yards):
         return None  # real result already worse for the offense -- defense declines
@@ -400,7 +436,8 @@ def _holding_would_be_accepted(distance: int, real_yards: int) -> bool:
     return distance_if_accepted > distance_if_declined
 
 
-def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str) -> PenaltyOutcome | None:
+def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str,
+                                       penalty_mult: float = 1.0) -> PenaltyOutcome | None:
     """Rolled only on incomplete passes, attributed to the real covering
     defender from that specific attempt (app/engine/player_ai.py's
     choose_pass_target result, threaded through _resolve_pass) rather
@@ -411,7 +448,8 @@ def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str) -
     foul -- modeling exactly where downfield the pass was broken up is
     more precision than this subset aims for. Capped so it can't itself
     produce a touchdown, matching the "no penalties on scores" scope cut."""
-    if not defender_name or not rng.prob(PARAMS["penalty"]["in_play"]["defensive_pass_interference"]):
+    if not defender_name or not rng.prob(
+            PARAMS["penalty"]["in_play"]["defensive_pass_interference"] * penalty_mult):
         return None
     new_pos = min(99, pos + PARAMS["penalty"]["dpi_yards"])
     return PenaltyOutcome(
@@ -420,7 +458,8 @@ def _check_defensive_pass_interference(rng: RNG, pos: int, defender_name: str) -
     )
 
 
-def _check_roughing_the_passer(rng: RNG, sacker_name: str, pos: int) -> PenaltyOutcome | None:
+def _check_roughing_the_passer(rng: RNG, sacker_name: str, pos: int,
+                               penalty_mult: float = 1.0) -> PenaltyOutcome | None:
     """Rolled only on sacks. Attributed to the SAME real defender who got
     sack credit on this exact play (drive_sim.py's _sack_defender,
     computed once in _resolve_pass and threaded through as
@@ -431,7 +470,7 @@ def _check_roughing_the_passer(rng: RNG, sacker_name: str, pos: int) -> PenaltyO
     same reasoning as DPI: automatic first down + 15 yards from the
     previous spot is always better for the offense than the sack that
     just happened."""
-    if not rng.prob(PARAMS["penalty"]["in_play"]["roughing_the_passer"]):
+    if not rng.prob(PARAMS["penalty"]["in_play"]["roughing_the_passer"] * penalty_mult):
         return None
     who = sacker_name
     yards = PARAMS["penalty"]["roughing_yards"]
@@ -449,16 +488,31 @@ def _ordinal_suffix(n: int) -> str:
 def _decide_fourth_down(
     pos: int, distance: int, trailing: bool, aggression: float, rng: RNG,
     offense_gameplan: Gameplan | None = None,
+    offense_staff: StaffEffect | None = None,
 ) -> str:
     """Simplified stand-in for the GDD's EP-based 4th-down model (Sec
     6.6.4), which needs full P(convert) tables this project doesn't have
     yet. Returns "go", "field_goal", or "punt". `offense_gameplan`'s
     Off. Aggressiveness (GDD Sec 10.4.1) adds to the existing
-    ratings-derived `aggression` term -- None for every AI team."""
-    in_fg_range = pos >= 62  # roughly a <=55-yard attempt
+    ratings-derived `aggression` term -- None for every AI team.
+
+    `offense_staff` is the real coaching staff's own contribution
+    (app/engine/coaching.py): GDD Sec 7.7.2.2's offensive_aggression
+    slider on the go-for-it chance, and the special-teams coordinator's
+    special_teams_focus on how far out this staff will try a field goal.
+    This finally fills the hook simulate_drive()'s own docstring flagged
+    -- `aggression` was described there as "a coaching-tendency proxy
+    until a real Coach entity exists"; the proxy stays as the
+    ratings-derived floor, with the real staff adding to it."""
+    # GDD Sec 7.7.2.2: special_teams_focus "affects ... average FG try
+    # distances". A focused ST staff will try from a few yards further out.
+    fg_range_bonus = coaching.fg_range_bonus(offense_staff)
+    in_fg_range = pos >= 62 - fg_range_bonus  # roughly a <=55-yard attempt
     short_yardage = distance <= 2
 
-    go_chance = P.fourth_down_boost + 0.05 * (aggression - 0.5) + offense_fourth_down_bias(offense_gameplan)
+    go_chance = (P.fourth_down_boost + 0.05 * (aggression - 0.5)
+                 + offense_fourth_down_bias(offense_gameplan)
+                 + coaching.offense_fourth_down_bias(offense_staff))
     if trailing:
         go_chance += 0.15
     if short_yardage:
@@ -473,23 +527,33 @@ def _decide_fourth_down(
     return "punt"
 
 
-def _punt_result(rng: RNG, pos: int) -> Tuple[int, int]:
+def _punt_result(rng: RNG, pos: int) -> Tuple[int, int, bool]:
     """Returns (the receiving team's new field position (0..100 from
     their own perspective), the net punt yards that actually produced
-    that field-position change). "Net", not gross -- this engine has no
-    return-game simulation (a separate, pre-existing disclosed gap, see
-    scouting.py's own field_goal_accuracy/return-average notes), so
-    there's no tracked return yardage to net a gross kick distance
-    against; the net figure returned here is computed AFTER the
+    that field-position change, whether it was blocked). "Net", not
+    gross -- this engine has no OPEN-FIELD return-game simulation (a
+    separate, pre-existing disclosed gap, see scouting.py's own
+    field_goal_accuracy/return-average notes: a real returner/return-
+    yardage figure isn't tracked for a normal punt the way
+    special_teams.py now tracks one for kickoffs, since a punt's
+    "net yards" already folds any return effect into one number rather
+    than two); the net figure returned here is computed AFTER the
     field-position clamp below, so it always matches the real,
     already-applied field-position swing exactly (app/engine/box_score.
-    py's Punting line, ROADMAP.md M2, reads it back out the same way)."""
+    py's Punting line, ROADMAP.md M2, reads it back out the same way).
+    A blocked punt (tuning.py's punt_block, GDD Sec 6.8) is modeled as
+    the receiving team taking over right around the line of scrimmage --
+    not simulating the block-recovery race itself, same "disclose the
+    simplification" approach as everywhere else in this file."""
+    if rng.prob(PARAMS["special"]["punt_block"]):
+        new_pos = max(2, min(98, 100 - pos))
+        return new_pos, 0, True
     net = P.punt_net_mu + rng.gauss(0, P.punt_net_sigma)
     receiving_spot_from_kicking_pov = pos + net  # how far up the (kicking team's) field the ball ends up
     new_pos = 100 - receiving_spot_from_kicking_pov
     new_pos = max(2, min(40, int(round(new_pos))))
     net_yards = (100 - new_pos) - pos
-    return new_pos, net_yards
+    return new_pos, net_yards, False
 
 
 def simulate_drive(
@@ -505,6 +569,8 @@ def simulate_drive(
     off_ypa: float = LEAGUE_AVG_YPA,
     offense_gameplan: Gameplan | None = None,
     defense_gameplan: Gameplan | None = None,
+    offense_staff: StaffEffect | None = None,
+    defense_staff: StaffEffect | None = None,
 ) -> Tuple[int, str, int, int, int, int, List[PlayEvent]]:
     """
     Simulates one drive down-by-down using real starters (ctx). Returns:
@@ -529,6 +595,16 @@ def simulate_drive(
     defense_gameplan (GDD Sec 10.4.1's Weekly Gameplan) are None for
     every AI team -- only the user's team ever has one set
     (season_state.py's simulate_current_week looks it up).
+
+    offense_staff/defense_staff (app/engine/coaching.py's StaffEffect,
+    from the real Coach entity -- GDD Sec 7.7.2) are set for ALL 32
+    teams, unlike the gameplans, and are what give each AI team its own
+    play-calling identity instead of every team calling from the same
+    league-average baseline. They stack with the gameplan where both
+    exist (the user's team), and are None only in tests and in a
+    database with no coaches imported -- in which case every coaching
+    bias is exactly zero and this function behaves precisely as it did
+    before coaches existed.
     """
     down = 1
     distance = 10
@@ -540,6 +616,11 @@ def simulate_drive(
 
     aggression = offense_ratings.aggression + (0.15 if fourth_down_ok else 0.0)
     matchup_adj = matchup_adjustment(ctx)
+    # Head-coach discipline -> that side's own penalty rate (GDD Sec
+    # 7.7.4). Resolved once per drive, not per play: a staff's
+    # discipline doesn't change mid-drive.
+    off_penalty_mult = coaching.penalty_rate_multiplier(offense_staff)
+    def_penalty_mult = coaching.penalty_rate_multiplier(defense_staff)
     qb = ctx.offense.qb
     kicker = ctx.offense.k
 
@@ -547,26 +628,28 @@ def simulate_drive(
         total_plays += 1
 
         if down == 4:
-            decision = _decide_fourth_down(pos, distance, trailing, aggression, rng, offense_gameplan=offense_gameplan)
+            decision = _decide_fourth_down(pos, distance, trailing, aggression, rng,
+                                            offense_gameplan=offense_gameplan, offense_staff=offense_staff)
             if decision == "punt":
-                next_pos, punt_yards = _punt_result(rng, pos)
-                play_events.append(PlayEvent(down, distance, pos, "punt", punt_yards, "Punt", "punt"))
-                return 0, "Punt", next_pos, total_plays, total_yards, turnovers, play_events
+                next_pos, punt_yards, punt_blocked = _punt_result(rng, pos)
+                punt_desc, punt_outcome = ("Punt is BLOCKED!", "blocked") if punt_blocked else ("Punt", "punt")
+                play_events.append(PlayEvent(down, distance, pos, "punt", punt_yards, punt_desc, punt_outcome))
+                return 0, punt_desc if punt_blocked else "Punt", next_pos, total_plays, total_yards, turnovers, play_events
             if decision == "field_goal":
-                made, attempt_yards = _attempt_field_goal(rng, pos, kicker)
+                made, attempt_yards, blocked = _attempt_field_goal(rng, pos, kicker)
                 if made:
                     play_events.append(PlayEvent(down, distance, pos, "field_goal", 0,
                                                   f"{attempt_yards}-yard field goal is GOOD", "field_goal"))
                     return 3, "FG", 25, total_plays, total_yards, turnovers, play_events
-                play_events.append(PlayEvent(down, distance, pos, "field_goal", 0,
-                                              f"{attempt_yards}-yard field goal is NO GOOD", "turnover"))
+                desc = f"{attempt_yards}-yard field goal is BLOCKED!" if blocked else f"{attempt_yards}-yard field goal is NO GOOD"
+                play_events.append(PlayEvent(down, distance, pos, "field_goal", 0, desc, "blocked" if blocked else "turnover"))
                 return 0, "Missed FG", max(2, 100 - pos), total_plays, total_yards, turnovers, play_events
             # else "go" -- fall through to a normal play below
 
         # Pre-snap penalty check (GDD Sec 6.9, see PenaltyOutcome section
         # above for what's modeled and what's cut). Independent of play
         # type -- rolled before is_pass is even decided.
-        pre_snap = _check_pre_snap_penalty(rng, ctx)
+        pre_snap = _check_pre_snap_penalty(rng, ctx, off_penalty_mult, def_penalty_mult)
         if pre_snap is not None:
             pre_down, pre_distance, pre_pos = down, distance, pos
             desc, side = pre_snap
@@ -592,12 +675,12 @@ def simulate_drive(
         # unlike the per-drive MatchupContext.
         defcall = decide_defensive_call(
             ctx, down, distance, pos, trailing, is_two_minute, off_ypc, off_ypa, rng,
-            gameplan=defense_gameplan,
+            gameplan=defense_gameplan, staff=defense_staff,
         )
 
         pass_prob = _pass_probability(
             down, distance, trailing, is_two_minute, matchup_adj,
-            field_pos=pos, gameplan=offense_gameplan,
+            field_pos=pos, gameplan=offense_gameplan, staff=offense_staff,
         )
         is_pass = rng.prob(pass_prob)
 
@@ -612,6 +695,7 @@ def simulate_drive(
             rb = choose_ball_carrier(ctx.offense, rng)
             yards, outcome, who, defender_name, fumble_recovered_by = _resolve_run(
                 rng, ctx, rb, defcall, field_pos=pos, defense_gameplan=defense_gameplan,
+                defense_staff=defense_staff, down=play_down, distance=play_distance,
             )
             play_type = "run"
             receiver_name = ""
@@ -677,11 +761,11 @@ def simulate_drive(
         if raw_pos < 100:
             penalty = None
             if not is_pass:
-                penalty = _check_offensive_holding(rng, ctx, down, distance, pos, yards)
+                penalty = _check_offensive_holding(rng, ctx, down, distance, pos, yards, off_penalty_mult)
             elif outcome == "incomplete":
-                penalty = _check_defensive_pass_interference(rng, pos, defender_name)
+                penalty = _check_defensive_pass_interference(rng, pos, defender_name, def_penalty_mult)
             elif outcome == "sack":
-                penalty = _check_roughing_the_passer(rng, defender_name, pos)
+                penalty = _check_roughing_the_passer(rng, defender_name, pos, def_penalty_mult)
             if penalty is not None:
                 play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, penalty.desc, "penalty", defensive_call=defcall.description, receiver_name=receiver_name, defender_name=defender_name, carrier_name=carrier_name))
                 down, distance, pos = penalty.down, penalty.distance, penalty.pos
@@ -690,11 +774,22 @@ def simulate_drive(
         pos = min(100, raw_pos)
 
         if pos >= 100:
-            made_pat = rng.prob(_kicker_adjusted_prob(P.pat_make, kicker))
-            pts = 7 if made_pat else 6
             verb = "pass to" if is_pass else "run by"
             desc = f"{qb.full_name if is_pass else ''} {verb} {who} for {yards} yards, TOUCHDOWN".strip()
             play_events.append(PlayEvent(play_down, play_distance, play_start_pos, play_type, yards, desc, "touchdown", defensive_call=defcall.description, receiver_name=receiver_name, carrier_name=carrier_name))
+
+            # PAT vs. 2-point (GDD Sec 6.8, app/engine/special_teams.py) --
+            # decided fresh after every offensive TD, not just a fixed PAT.
+            if special_teams.decide_pat_or_two(
+                    trailing, is_two_minute, aggression, rng,
+                    two_point_bias=coaching.offense_two_point_bias(offense_staff)) == "two_point":
+                made_two = special_teams.two_point_attempt(rng)
+                pts = 8 if made_two else 6
+                two_desc = "Two-point conversion is GOOD" if made_two else "Two-point conversion FAILED"
+                play_events.append(PlayEvent(play_down, play_distance, play_start_pos, "two_point", 0, two_desc,
+                                              "gain" if made_two else "turnover"))
+                return pts, "TD", 25, total_plays, total_yards, turnovers, play_events
+
             # A real, separately-attributable extra point attempt (GDD's
             # own Truth Set, ROADMAP.md M2) -- "field_goal"/"turnover" as
             # the outcome reuses the same made/missed-kick convention
@@ -702,10 +797,17 @@ def simulate_drive(
             # a third outcome string for what's functionally the same
             # thing (see _kicker_adjusted_prob's own docstring: a PAT is
             # a ~33-yard field goal). box_score.py's Kicking line reads
-            # this by play_type, not outcome text.
-            xp_desc = "Extra point is GOOD" if made_pat else "Extra point is NO GOOD"
-            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, "extra_point", 0, xp_desc,
-                                          "field_goal" if made_pat else "turnover"))
+            # this by play_type, not outcome text. Also block-checked
+            # (tuning.py's fg_block, same real cause as an FG block).
+            xp_blocked = rng.prob(PARAMS["special"]["fg_block"])
+            made_pat = False if xp_blocked else rng.prob(_kicker_adjusted_prob(P.pat_make, kicker))
+            pts = 7 if made_pat else 6
+            if xp_blocked:
+                xp_desc, xp_outcome = "Extra point is BLOCKED!", "blocked"
+            else:
+                xp_desc = "Extra point is GOOD" if made_pat else "Extra point is NO GOOD"
+                xp_outcome = "field_goal" if made_pat else "turnover"
+            play_events.append(PlayEvent(play_down, play_distance, play_start_pos, "extra_point", 0, xp_desc, xp_outcome))
             return pts, "TD", 25, total_plays, total_yards, turnovers, play_events
 
         gained_first_down = yards >= distance
@@ -736,5 +838,5 @@ def simulate_drive(
 
     # Safety valve: ran out of play budget mid-drive (shouldn't happen in
     # practice) -- treat it as a punt from the current spot.
-    next_pos, _ = _punt_result(rng, pos)
+    next_pos, _, _ = _punt_result(rng, pos)
     return 0, "Punt (drive length limit)", next_pos, total_plays, total_yards, turnovers, play_events

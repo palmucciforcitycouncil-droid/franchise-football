@@ -31,6 +31,7 @@ from sqlmodel import delete
 from app.core.db import init_db, get_session
 from app.models.player import Player, Position
 from app.data.team_name_map import NICKNAME_TO_ABBR
+from app.engine.rng import RNG, stable_seed
 
 
 def _int(row: dict, key: str, default: int = 0) -> int:
@@ -96,6 +97,10 @@ def build_player(row: dict, team_abbr: str | None, used_ids: set[str]) -> Player
         # to this real data, ROADMAP.md M8; see test_imported_players_have_real_salaries).
         salary=_int(row, " Total Salary "),
         signing_bonus=_int(row, " Signing Bonus "),
+        # Synthetic (no such CSV column) -- deterministically seeded so a
+        # re-import reproduces the same value per player_id, matching the
+        # module's determinism convention elsewhere (see rng.stable_seed).
+        contract_years_remaining=RNG.with_seed(stable_seed(player_id, "contract_years_remaining")).r().randint(1, 5),
         speed=_int(row, "Speed"),
         acceleration=_int(row, "Acceleration"),
         strength=_int(row, "Strength"),

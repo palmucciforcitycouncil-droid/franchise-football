@@ -31,12 +31,14 @@ from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
-from app.engine import power_rating, score_fidelity, playoffs, progression, season_stats
+from app.engine import (
+    power_rating, score_fidelity, playoffs, progression, season_stats, coaching, coach_progression,
+)
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
-from app.services import gameplan_store, history_store, power_rank_history
+from app.services import gameplan_store, history_store, power_rank_history, coach_store, coach_records
 from app.core.db import get_session
-from app.models.player import Player
+from app.models.player import Player, Position
 from sqlmodel import select
 
 
@@ -166,7 +168,9 @@ def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_p
     """The per-game simulation core shared by simulate_current_week
     (regular season) and simulate_playoff_round (postseason): real
     starters/ratings, the Score Fidelity System's EP-anchoring
-    multiplier, the Weekly Gameplan lookup, and the resulting
+    multiplier, the Weekly Gameplan lookup, the real coaching-staff
+    lookup (app/engine/coaching.py -- for BOTH teams, unlike the
+    gameplan, which only the user's team ever has), and the resulting
     points/Power Rating updates. Deliberately does NOT touch
     TeamRecord.wins/losses -- those are a regular-season-only concept;
     playoff wins/losses live in the bracket itself
@@ -195,7 +199,15 @@ def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_p
     home_gameplan = gameplan_store.get_gameplan(home_abbr) if home_abbr == season.user_team_abbr else None
     away_gameplan = gameplan_store.get_gameplan(away_abbr) if away_abbr == season.user_team_abbr else None
 
-    result = simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan)
+    # GDD Sec 7.7.2: every team's real staff, not just the user's --
+    # this is what makes an AI team's play-calling reflect its actual
+    # coordinators instead of the league-average baseline. Falls back to
+    # a fully neutral effect when no coaches are imported.
+    home_staff = coaching.staff_effect_for(home_abbr)
+    away_staff = coaching.staff_effect_for(away_abbr)
+
+    result = simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan,
+                            home_staff=home_staff, away_staff=away_staff)
 
     home_rec.points_for += result.home_score
     home_rec.points_against += result.away_score
@@ -308,12 +320,32 @@ def simulate_playoff_round() -> str:
                 (season.season_number, "playoffs", round_name, matchup.home_abbr, matchup.away_abbr),
             )
 
+        # GDD Sec 7.9.2: conference-title and Super Bowl credit is
+        # awarded to each winning (and, for the SB, losing) staff by the
+        # role each coach held. Safe to call on every round -- it no-ops
+        # for WC/DIV, and Sec 7.9.2's idempotency requirement means a
+        # replayed round credits nothing a second time.
+        coach_records.credit_championship_round(season, round_name)
+
         if round_name != "SB":
             bracket.rounds.append(playoffs.build_next_round(bracket))
 
         from app.services import save_service
         save_service.save_season(season)
         return round_name
+
+
+# Which side of the ball a player develops under, for choosing between a
+# staff's offensive and defensive development ratings. K/P sit on the
+# offensive side by default -- neither coordinator really develops a
+# specialist (that's the ST coach's job, and GDD Sec 7.7.2.3 defines no
+# development rating for special teams at all), and both multipliers are
+# bounded to the same narrow band regardless.
+DEFENSIVE_POSITIONS = {
+    Position.LE, Position.RE, Position.DT,
+    Position.LOLB, Position.MLB, Position.ROLB,
+    Position.CB, Position.FS, Position.SS,
+}
 
 
 def apply_progression_to_roster(season: Season) -> int:
@@ -332,7 +364,16 @@ def apply_progression_to_roster(season: Season) -> int:
     defensive_box_score.py already folds a sack/TFL into its own
     solo-tackle count; adding them again would double-count the same
     play. OL/K/P still get progression.py's documented neutral default
-    -- no real per-play usage stat exists for them in this engine."""
+    -- no real per-play usage stat exists for them in this engine.
+
+    Each player's own team's coaching staff also scales their GROWTH
+    (never their decline) via app/engine/coaching.py's
+    dev_multiplier_offense/dev_multiplier_defense, built from the real
+    player_dev_offense/player_dev_defense ratings of the head coach, the
+    relevant coordinator, and the position-coach pool (GDD Sec
+    7.7.2.3/8.2.1). A league-average staff -- and a database with no
+    coaches imported at all -- multiplies by exactly 1.0, so this
+    changes nothing for a franchise without a real staff."""
     passing, rushing, receiving = season_stats.aggregate_season_stats(season)
     touches: dict[tuple[str, str], int] = {}
     for key, line in passing.items():
@@ -350,11 +391,61 @@ def apply_progression_to_roster(season: Season) -> int:
         for player in players:
             key = (player.team_abbr, player.full_name)
             rng = RNG.with_seed(stable_seed(season.league_seed, season.season_number, player.player_id, "progression"))
-            result = progression.progress_player(player, touches.get(key), season.season_number, rng)
+            effect = coaching.staff_effect_for(player.team_abbr)
+            dev_mult = (effect.dev_multiplier_defense if player.position in DEFENSIVE_POSITIONS
+                        else effect.dev_multiplier_offense)
+            result = progression.progress_player(player, touches.get(key), season.season_number, rng,
+                                                  coach_dev_multiplier=dev_mult)
             progression.apply_progression(player, result)
             s.add(player)
             updated += 1
         s.commit()
+    return updated
+
+
+def apply_coach_offseason(season: Season) -> int:
+    """GDD Sec 8.2.2/8.2.3: the coaching-staff half of the offseason.
+
+    Records the just-completed season into every employed coach's
+    career record (Sec 7.9.1's rollups + Sec 7.7.2.4's lifecycle
+    counters, including a freshly computed Job Security Score), then
+    ages every coach one year, progresses/regresses their dynamic
+    ratings against their team's real end-of-season league ranks, and
+    rolls Sec 8.2.3's age-based retirement. Returns the number of
+    coaches updated.
+
+    Vacancies left by a retirement are deliberately NOT auto-filled --
+    see app/engine/coach_progression.py's docstring for why (the hiring
+    market needs the same negotiation machinery R4a builds for player
+    contracts). The Staff page renders a vacant seat as vacant.
+
+    A database with no coaches returns 0 and changes nothing, so a
+    franchise that predates the coach import rolls over exactly as it
+    did before."""
+    from app.models.coach import Coach as CoachModel
+    from sqlalchemy.exc import OperationalError
+
+    coach_records.record_season_results(season)
+    ranks = coach_progression.compute_team_ranks(season)
+
+    updated = 0
+    try:
+        with get_session() as s:
+            coaches = s.exec(select(CoachModel).where(CoachModel.retired == False)).all()  # noqa: E712
+            for coach in coaches:
+                team_ranks = ranks.get(coach.team_abbr or "", coach_progression.TeamRanks())
+                result = coach_progression.progress_coach(
+                    coach, team_ranks, season.season_number, season.league_seed,
+                )
+                coach_progression.apply_coach_progression(coach, result)
+                s.add(coach)
+                updated += 1
+            s.commit()
+    except OperationalError:
+        return 0
+
+    coach_store.clear_cache()
+    coaching.clear_cache()
     return updated
 
 
@@ -373,6 +464,10 @@ def start_new_season() -> Season:
       season-0-only bootstrap order.
     - Every real rostered player ages and develops for real
       (apply_progression_to_roster), mutating the actual DB rows.
+    - Every employed coach has this season written into their career
+      record, ages a year, progresses/regresses against their team's
+      real league ranks, and rolls Sec 8.2.3's retirement check
+      (apply_coach_offseason) -- also real DB writes.
     - The user's chosen team (Sec 10.1) carries forward -- a new season
       isn't a new franchise.
     - The Score Fidelity System's weekly-feedback multiplier (Sec 6.2.4)
@@ -399,6 +494,11 @@ def start_new_season() -> Season:
         history_store.clear_career_stats_cache()
         season_stats.clear_current_season_cache()
         apply_progression_to_roster(season)
+        # GDD Sec 8.2.2/8.2.3 -- runs AFTER the player pass so the
+        # coaching staff that earned this season's results is the one
+        # credited with them, and before the new Season object exists so
+        # every rank it reads still refers to the season just finished.
+        apply_coach_offseason(season)
 
         next_number = season.season_number + 1
         new_season = _build_season(season.league_seed, season_number=next_number, prior_standings=prior_standings)

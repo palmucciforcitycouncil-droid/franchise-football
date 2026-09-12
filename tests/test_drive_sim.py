@@ -48,8 +48,17 @@ def test_game_is_deterministic():
 
 
 def test_play_log_down_never_exceeds_four():
+    """Kickoffs/onside kicks, and the PAT/2-point try following a kickoff-
+    return touchdown (app/engine/special_teams.py/game_sim.py), happen
+    BETWEEN downs, not on one -- down=0 there is a real, deliberate "not
+    applicable" marker (down is never legitimately 0 for an actual snap;
+    simulate_drive's down counter only ever starts at 1 and increments),
+    not the down-tracking bug this test was written to catch (see this
+    file's own module docstring)."""
     result = _play_game(2025)
     for p in result.plays:
+        if p.down == 0:
+            continue
         assert 1 <= p.down <= 4, f"illegal down {p.down} in play: {p.desc}"
 
 

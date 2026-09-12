@@ -20,10 +20,10 @@ class PlayEvent:
     down: int
     distance: int
     field_pos: int          # 0..100, offense's distance traveled toward the end zone
-    play_type: str          # "run" | "pass" | "penalty" | "punt" | "field_goal" | "extra_point" | "kneel"
+    play_type: str          # "run" | "pass" | "penalty" | "punt" | "field_goal" | "extra_point" | "kickoff" | "onside_kick" | "two_point" | "kneel"
     yards: int
     desc: str
-    outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "defensive_touchdown" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs"
+    outcome: str             # "gain" | "first_down" | "incomplete" | "sack" | "turnover" | "defensive_touchdown" | "penalty" | "touchdown" | "field_goal" | "punt" | "turnover_on_downs" | "touchback" | "return" | "return_td" | "blocked" | "recovered"
     offense_abbr: str = ""
     defensive_call: str = ""  # e.g. "Blitz (J. Smith)" -- empty for non-scrimmage plays (penalty/punt/FG)
     drive_number: int = 0     # 1-based, set by game_sim.py -- matches this drive's position in GameResult.events
@@ -55,6 +55,11 @@ class PlayEvent:
                                     # it, independent of defender_name (the defender who FORCED it); the two
                                     # can be the same player or different, matching real Forced Fumble vs.
                                     # Fumble Recovery being separate GDD stat categories (Sec 6.7.2).
+    returner_name: str = ""   # kickoff/punt return credit (app/engine/special_teams.py) -- the RECEIVING
+                               # team's returner, empty on a touchback/blocked kick/no-return play. This
+                               # PlayEvent's own offense_abbr is stamped as the RECEIVING team (game_sim.py
+                               # prepends it to that team's next drive, same as every other PlayEvent), so
+                               # box_score.py's per-team filter naturally credits the return to the right side.
 
 @dataclass
 class GameResult:
@@ -63,3 +68,29 @@ class GameResult:
     winner: TeamSide
     events: List[DriveEvent]
     plays: List[PlayEvent] = field(default_factory=list)
+
+
+def quarter_scores(events: List[DriveEvent]) -> List[tuple]:
+    """Splits the game's drives into 4 buckets and returns each quarter's
+    (home_points, away_points) scored within it, derived from the
+    cumulative running score already stored on each DriveEvent.
+
+    This engine has no real clock (see drive_sim.py's module docstring),
+    so "quarters" here just means the drive list cut into 4 roughly-equal
+    slices in play order -- any leftover drives (drives_total isn't
+    always divisible by 4) go to the earliest quarters first."""
+    n = len(events)
+    base, rem = divmod(n, 4)
+    sizes = [base + (1 if i < rem else 0) for i in range(4)]
+    quarters = []
+    prev_h = prev_a = 0
+    idx = 0
+    for size in sizes:
+        if size == 0:
+            quarters.append((0, 0))
+            continue
+        e = events[idx + size - 1]
+        quarters.append((e.home_score - prev_h, e.away_score - prev_a))
+        prev_h, prev_a = e.home_score, e.away_score
+        idx += size
+    return quarters

@@ -52,6 +52,18 @@ these choices are this module's own, not GDD-literal:
   sacks/INTs; fumble_recoveries is tracked and shown but excluded from
   the score itself (more a product of luck/opportunity than of
   individual defensive dominance).
+- COTY (Coach of the Year) is the one award here with a real GDD
+  formula (Sec 7.4.6): CS_COTY = 0.35*RankNorm(Wins) +
+  0.25*RankNorm(Wins-ExpectedWins) + 0.15*RankNorm(Improvement_yoy) +
+  0.10*RankNorm(S) + 0.10*RankNorm(-InjuryLostWAR) +
+  0.05*PlayoffByeBonus. Five of its six terms are computed for real
+  here (see coach_of_the_year() for how each one is sourced). The sixth,
+  InjuryLostWAR, has no source at all -- no injury system exists in this
+  engine (ROADMAP.md R1) -- so its 0.10 weight is REDISTRIBUTED across
+  the five real terms in proportion rather than silently scored as
+  zero for every coach, which would have made the award land on a
+  slightly-wrong-but-plausible-looking total. Disclosed here and in
+  that function's docstring, not hidden.
 - ROY now draws from BOTH the offensive AND defensive candidate pools
   (previously offense-only, since DPOY's interception-only basis was
   judged too thin to fairly weigh a rookie defender against a rookie
@@ -63,12 +75,13 @@ these choices are this module's own, not GDD-literal:
   offensive skill player, not just place behind one by construction.
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlmodel import select
 
 from app.core.db import get_session
 from app.models.player import Player
+from app.models.coach import CoachRole
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 
 
@@ -86,6 +99,183 @@ class AwardCandidate:
     position: str  # "QB" | "RB" | "WR/TE" | "DEF"
     stat_line: str  # human-readable summary, e.g. "3,240 pass yds, 28 TD, 6 INT"
     score: float
+
+
+@dataclass
+class CoachAwardCandidate:
+    """COTY's own candidate shape -- a coach, not a player, so it can't
+    reuse AwardCandidate (no position, and the "stat line" is a record
+    plus a playoff result rather than yardage)."""
+    coach_id: str
+    name: str
+    team_abbr: str
+    record: str            # e.g. "13-4"
+    stat_line: str         # e.g. "13-4, +3.1 wins over expected, +5 vs. last season"
+    score: float
+
+
+def _pythagorean_expected_wins(points_for: int, points_against: int, games: int) -> float:
+    """The standard Pythagorean expectation (exponent 2.37, the
+    commonly used NFL value), which is what "ExpectedWins" in Sec
+    7.4.6's formula has to mean in an engine with no per-play win
+    probability model. Real inputs: this team's own points for/against,
+    already tracked on TeamRecord."""
+    if games <= 0 or points_for + points_against <= 0:
+        return 0.0
+    exp = 2.37
+    pf, pa = float(points_for), float(points_against)
+    return games * (pf ** exp) / (pf ** exp + pa ** exp)
+
+
+def _rank_norm(values: dict[str, float], reverse: bool = True) -> dict[str, float]:
+    """Sec 7.4.6's RankNorm: a team's rank within the league mapped onto
+    [0, 1], best = 1.0. Ties share the better rank's value."""
+    if not values:
+        return {}
+    ordered = sorted(values.items(), key=lambda kv: kv[1], reverse=reverse)
+    n = len(ordered)
+    out: dict[str, float] = {}
+    prev_value = None
+    prev_norm = 1.0
+    for i, (key, value) in enumerate(ordered):
+        norm = 1.0 if n == 1 else 1.0 - i / (n - 1)
+        if prev_value is not None and value == prev_value:
+            norm = prev_norm
+        out[key] = norm
+        prev_value, prev_norm = value, norm
+    return out
+
+
+def _strength_of_schedule(season) -> dict[str, float]:
+    """Sec 7.4.4's S: opponent strength. Computed for real from the
+    schedule -- each team's opponents' combined win percentage, the
+    standard SoS definition. Sec 7.4.4 also folds "unit ranks faced"
+    into its 0.85-1.15 index; that half is omitted (disclosed), since
+    weighting by faced-unit rank needs a per-unit rating this engine
+    doesn't compute."""
+    opponents: dict[str, list[str]] = {a: [] for a in season.records}
+    for week in season.schedule:
+        for game in week:
+            if game.result is None:
+                continue
+            opponents[game.home_abbr].append(game.away_abbr)
+            opponents[game.away_abbr].append(game.home_abbr)
+    out: dict[str, float] = {}
+    for abbr, opps in opponents.items():
+        if not opps:
+            continue
+        out[abbr] = sum(season.records[o].win_pct for o in opps) / len(opps)
+    return out
+
+
+def _prior_season_wins(season) -> dict[str, int]:
+    """Sec 7.4.6's Improvement_yoy input: last season's real win total
+    per team, read from the archived League History (which is where
+    every completed season's final standings already live). Returns an
+    empty dict in a franchise's first season -- there is genuinely
+    nothing to improve on yet, and coach_of_the_year() drops the
+    improvement term entirely rather than scoring everyone at zero."""
+    from app.services import history_store
+    try:
+        history = history_store.get_history()
+    except Exception:
+        return {}
+    prior = [rec for rec in history if rec.season_number == season.season_number - 1]
+    if not prior:
+        return {}
+    return {t.abbr: t.wins for t in prior[0].team_results}
+
+
+def coach_of_the_year(season, top_n: int = 5) -> list[CoachAwardCandidate]:
+    """GDD Sec 7.4.6's COTY, with every term this engine can source for
+    real, and the one it cannot (InjuryLostWAR) removed with its weight
+    redistributed proportionally across the rest rather than scored as a
+    constant zero.
+
+    Term by term:
+      0.35 RankNorm(Wins)               -- real, TeamRecord.wins
+      0.25 RankNorm(Wins-ExpectedWins)  -- real, Pythagorean expectation
+                                           from the team's own PF/PA
+      0.15 RankNorm(Improvement_yoy)    -- real, vs. last season's
+                                           archived win total; DROPPED
+                                           (weight redistributed) in a
+                                           franchise's first season,
+                                           when there is no prior season
+      0.10 RankNorm(S)                  -- real, opponents' combined win%
+      0.10 RankNorm(-InjuryLostWAR)     -- NOT COMPUTABLE, no injury
+                                           system exists (ROADMAP R1)
+      0.05 PlayoffByeBonus              -- real, the conference's #1 seed
+
+    Candidates are head coaches only. Sec 7.4.2 lists COTY as a single
+    award and every real-world equivalent goes to the head coach; the
+    coordinators' own recognition in this project is Sec 7.9's
+    championship credit, which they already receive by role."""
+    from app.services import coach_store
+    from app.engine import playoffs as playoffs_engine
+
+    heads = [c for c in coach_store.all_coaches()
+             if c.team_abbr and not c.retired and CoachRole(c.role) is CoachRole.HC]
+    if not heads:
+        return []
+
+    played = {a: r for a, r in season.records.items() if r.games_played > 0}
+    if not played:
+        return []
+
+    wins = {a: float(r.wins) for a, r in played.items()}
+    over_expected = {
+        a: r.wins - _pythagorean_expected_wins(r.points_for, r.points_against, r.games_played)
+        for a, r in played.items()
+    }
+    sos = _strength_of_schedule(season)
+    prior_wins = _prior_season_wins(season)
+    improvement = {a: r.wins - prior_wins[a] for a, r in played.items() if a in prior_wins}
+
+    terms: list[tuple[float, dict[str, float]]] = [
+        (0.35, _rank_norm(wins)),
+        (0.25, _rank_norm(over_expected)),
+        (0.10, _rank_norm(sos)),
+    ]
+    if improvement:
+        terms.append((0.15, _rank_norm(improvement)))
+
+    # Renormalize whatever terms are actually real so the weights sum to
+    # 0.95 (leaving Sec 7.4.6's own 0.05 for the bye bonus) instead of
+    # letting a dropped term silently deflate every coach's score.
+    weight_total = sum(w for w, _ in terms)
+    scale = 0.95 / weight_total if weight_total else 0.0
+
+    top_seeds = set()
+    for conference in ("AFC", "NFC"):
+        seeds = playoffs_engine.seed_conference(season, conference)
+        if seeds:
+            top_seeds.add(seeds[0])  # the #1 seed is the one with a bye
+
+    candidates: list[CoachAwardCandidate] = []
+    for coach in heads:
+        abbr = coach.team_abbr
+        if abbr not in played:
+            continue
+        score = sum(weight * scale * ranked.get(abbr, 0.0) for weight, ranked in terms)
+        if abbr in top_seeds:
+            score += 0.05
+        record = played[abbr]
+        bits = [f"{record.wins}-{record.losses}"]
+        bits.append(f"{over_expected[abbr]:+.1f} wins vs. expected")
+        if abbr in improvement:
+            bits.append(f"{improvement[abbr]:+d} vs. last season")
+        if abbr in top_seeds:
+            bits.append("#1 seed")
+        candidates.append(CoachAwardCandidate(
+            coach_id=coach.coach_id,
+            name=coach.full_name,
+            team_abbr=abbr,
+            record=f"{record.wins}-{record.losses}",
+            stat_line=", ".join(bits),
+            score=score,
+        ))
+
+    return sorted(candidates, key=lambda c: (-c.score, c.name))[:top_n]
 
 
 def _rookie_keys(season) -> set[tuple[str, str]]:
@@ -254,6 +444,10 @@ class AwardsRace:
     opoy: list[AwardCandidate]
     dpoy: list[AwardCandidate]
     roy: list[AwardCandidate]
+    # Empty list when the database has no coaches (a franchise that
+    # predates the coach import) -- every consumer treats an empty
+    # award the same way it already treats an empty MVP race in week 0.
+    coty: list[CoachAwardCandidate] = field(default_factory=list)
 
 
 def season_awards(season, top_n: int = 5) -> AwardsRace:
@@ -262,4 +456,5 @@ def season_awards(season, top_n: int = 5) -> AwardsRace:
         opoy=offensive_player_of_the_year(season, top_n),
         dpoy=defensive_player_of_the_year(season, top_n),
         roy=rookie_of_the_year(season, top_n),
+        coty=coach_of_the_year(season, top_n),
     )

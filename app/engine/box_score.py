@@ -167,12 +167,29 @@ class PuntingLine:
 
 
 @dataclass
+class ReturnLine:
+    """Kickoff-return credit (app/engine/special_teams.py) -- a separate
+    line from Kicking/Punting since a return belongs to a different
+    player than the kicker/punter, same "never credit the wrong player"
+    discipline as Rushing/Receiving above. Punt returns aren't included:
+    drive_sim.py's punt model is still net-yards-only (no tracked gross
+    kick distance to net a real return against), the same disclosed gap
+    scouting.py's own field_goal_accuracy/return-average notes describe."""
+    name: str
+    returns: int = 0
+    yards: int = 0
+    touchdowns: int = 0
+    long: int = 0
+
+
+@dataclass
 class TeamBoxScore:
     passing: List[PassingLine] = field(default_factory=list)   # length 0 or 1, see module docstring
     rushing: List[RushingLine] = field(default_factory=list)   # one per real ball carrier -- see build_box_score
     receiving: List[ReceivingLine] = field(default_factory=list)
     kicking: List[KickingLine] = field(default_factory=list)   # length 0 or 1 today, see module docstring
     punting: List[PuntingLine] = field(default_factory=list)   # length 0 or 1 today, see module docstring
+    returns: List[ReturnLine] = field(default_factory=list)    # kickoff returns only, see ReturnLine's own docstring
 
 
 def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
@@ -190,6 +207,7 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     receiving_by_name: dict[str, ReceivingLine] = {}
     kicking_by_name: dict[str, KickingLine] = {}
     punting_by_name: dict[str, PuntingLine] = {}
+    returns_by_name: dict[str, ReturnLine] = {}
 
     def rushing_line(name: str) -> RushingLine:
         return rushing_by_name.setdefault(name, RushingLine(name=name))
@@ -202,6 +220,9 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
 
     def punting_line(name: str) -> PuntingLine:
         return punting_by_name.setdefault(name, PuntingLine(name=name))
+
+    def return_line(name: str) -> ReturnLine:
+        return returns_by_name.setdefault(name, ReturnLine(name=name))
 
     for p in plays:
         if p.offense_abbr != abbr:
@@ -224,6 +245,15 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
             kl.xp_attempted += 1
             if p.outcome == "field_goal":
                 kl.xp_made += 1
+
+        elif p.play_type == "kickoff":
+            if p.outcome in ("return", "return_td") and p.returner_name:
+                rl = return_line(p.returner_name)
+                rl.returns += 1
+                rl.yards += p.yards
+                rl.long = max(rl.long, p.yards)
+                if p.outcome == "return_td":
+                    rl.touchdowns += 1
 
         elif p.play_type == "punt":
             pl = punting_line(starters.p.full_name)
@@ -277,10 +307,12 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     rushing = sorted(rushing_by_name.values(), key=lambda r: -r.carries)
     kicking = sorted(kicking_by_name.values(), key=lambda k: k.name)
     punting = sorted(punting_by_name.values(), key=lambda p: p.name)
+    returns = sorted(returns_by_name.values(), key=lambda r: -r.yards)
     return TeamBoxScore(
         passing=[passing] if (passing.attempts or passing.sacks) else [],
         rushing=rushing,
         receiving=receiving,
         kicking=kicking,
         punting=punting,
+        returns=returns,
     )
