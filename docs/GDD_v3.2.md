@@ -8438,6 +8438,10 @@ A multi-team open market where players evaluate offers based on a weighted score
 
 
 
+\*Implemented 2026-09-12 (ROADMAP.md R4c, full account there): real Surplus Value (\`app/engine/trades.py\`'s \`player\_trade\_value()\` -- NPV of on-field value minus real salary over the real remaining contract, reusing R4a's \`expected\_market\_value\`), real AI Tolerance Band acceptance (this section's own \`-10\%\` example), and a real week-8 trade-deadline gate. \*\*No draft picks\*\* -- this engine has no Draft (R5), so every trade is player(s)-for-player(s) only, same root-cause scope cut as R4a's missing rookie scale. Real Propose Trade panel on \`/gm-desk\`.\*
+
+
+
 A system for two-sided trade proposals involving players and draft picks.
 
 

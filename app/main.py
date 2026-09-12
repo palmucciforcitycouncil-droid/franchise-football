@@ -20,7 +20,7 @@ from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.position_groups import POSITION_TO_GROUP, QUOTA_GROUPS
-from app.engine import roster_strength, contracts, free_agency
+from app.engine import roster_strength, contracts, free_agency, trades
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import quarter_scores
@@ -2629,12 +2629,13 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
 
 @app.get("/gm-desk", response_class=HTMLResponse)
 def gm_desk_view(request: Request, offer_result: str | None = None, offer_player: str | None = None,
-                  counter_aav: str | None = None, counter_years: str | None = None):
-    """GDD Sec 10.4.4 / R4a (GDD Sec 8.3): real Cap Summary and Re-sign
-    flow, real expiring-contract list. Trade-block browsing/offers and
-    draft-eligible prospects still need Trades (R4c) and the Draft (R5),
-    which this chunk doesn't build -- disclosed via the summary text at
-    the bottom of the page rather than silently omitted."""
+                  counter_aav: str | None = None, counter_years: str | None = None,
+                  team_b: str | None = None, trade_result: str | None = None):
+    """GDD Sec 10.4.4 / R4a (GDD Sec 8.3) / R4c (GDD Sec 8.5): real Cap
+    Summary, Re-sign flow, and a real Propose Trade panel (player(s)-
+    for-player(s) only -- no draft picks, see app/engine/trades.py's
+    module docstring for why). Draft-eligible prospects still need the
+    Draft (R5), disclosed via the summary text at the bottom of the page."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         return RedirectResponse(url="/team-select", status_code=303)
@@ -2659,12 +2660,25 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
             "counter_years": int(counter_years) if counter_years else None,
         }
 
+    trade_partner_roster = None
+    if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
+        with get_session() as s:
+            trade_partner_roster = sorted(
+                s.exec(select(Player).where(Player.team_abbr == team_b)).all(),
+                key=lambda p: -p.overall_rating,
+            )
+
     return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
         "season": season, "user_info": TEAMS_BY_ABBR[user_abbr],
         "cap": cap, "cap_space": cap_space, "cap_used": cap - cap_space,
         "top_cap_hits": top_cap_hits, "expiring": expiring,
         "offer_feedback": offer_feedback,
+        "roster": sorted(roster, key=lambda p: -p.overall_rating),
+        "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
+        "team_b": team_b, "trade_partner_roster": trade_partner_roster,
+        "trade_window_open": trades.is_trade_window_open(season.current_week),
+        "trade_result": trade_result,
     })
 
 
@@ -2745,6 +2759,49 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
         params = {"fa_offer_result": result.verdict.value, "fa_offer_player": player.full_name}
 
     return RedirectResponse(url="/roster?team_abbr=FA&" + urlencode(params), status_code=303)
+
+
+@app.post("/gm-desk/trade")
+def gm_desk_trade(request: Request, team_b: str = Form(...),
+                   give: list[str] = Form(default=[]), get: list[str] = Form(default=[])):
+    """R4c's real trade flow (GDD Sec 8.5): player(s)-for-player(s) only
+    (no draft picks -- see app/engine/trades.py's module docstring),
+    evaluated from the AI team's own side via a real Surplus Value
+    formula. An ACCEPT really swaps team_abbr for every player on both
+    sides in the DB and clears depth_chart's starter cache."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    user_abbr = season.user_team_abbr
+    if team_b not in TEAMS_BY_ABBR or team_b == user_abbr:
+        raise HTTPException(422, "Invalid trade partner")
+    if not trades.is_trade_window_open(season.current_week):
+        raise HTTPException(422, f"Trade window is closed (deadline: week {trades.TRADE_DEADLINE_WEEK})")
+    if not give or not get:
+        raise HTTPException(422, "A trade needs at least one player on each side")
+
+    with get_session() as s:
+        give_players = [s.get(Player, pid) for pid in give]
+        get_players = [s.get(Player, pid) for pid in get]
+        if any(p is None or p.team_abbr != user_abbr for p in give_players):
+            raise HTTPException(404, "One of your offered players wasn't found on your roster")
+        if any(p is None or p.team_abbr != team_b for p in get_players):
+            raise HTTPException(404, "One of the requested players wasn't found on that roster")
+
+        # Evaluated from the AI (team_b) side: they SEND get_players, RECEIVE give_players.
+        result = trades.evaluate_trade(get_players, give_players, season.season_number)
+
+        if result.accepted:
+            trades.execute_trade(user_abbr, give_players, team_b, get_players)
+            for p in give_players + get_players:
+                s.add(p)
+            s.commit()
+            depth_chart.clear_starters_cache()
+
+    return RedirectResponse(
+        url="/gm-desk?" + urlencode({"team_b": team_b, "trade_result": "ACCEPT" if result.accepted else "REJECT"}),
+        status_code=303,
+    )
 
 
 @app.get("/draft", response_class=HTMLResponse)
