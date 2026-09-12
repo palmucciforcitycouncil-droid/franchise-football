@@ -6,10 +6,19 @@ built and folded into `ROADMAP.md` Sec 4c-addendum and `docs/GDD_v3.2.md`
 DONE** — `app/engine/roster_strength.py`, folded into `ROADMAP.md`
 Sec 4c-addendum-2 and `docs/GDD_v3.2.md` §8.2.3 on 2026-09-11. **A2 (the
 position-rank sheet) is also DONE** — folded into `ROADMAP.md`
-Sec 4c-addendum-3 on 2026-09-11. **Still open:** wiring `roster_strength`'s
-output into JSS's `PreseasonPowerRankDelta` (needs its own scaling decision,
-not yet made), A3 (the tuning pass), and A4 (prestige itself). Written
-2026-09-11 during a design session on branch `docs/gdd-v3-2`.
+Sec 4c-addendum-3 on 2026-09-11.
+
+**Brian's call, 2026-09-12: leave Job Security Score / coach hiring-firing
+alone.** He's not sure JSS/lifecycle firing is something he wants in the game
+at all. Wiring `roster_strength`'s output into JSS's `PreseasonPowerRankDelta`
+is **explicitly NOT planned work** — don't pick it up without asking again,
+and don't treat its earlier "left as next explicit task" framing (still
+visible below in A2's own section) as still standing. **A3 (the tuning pass)
+is also DONE** — folded into `ROADMAP.md` Sec 4c-addendum-4, weights applied
+to `app/engine/roster_strength.py`. Still open: A4 (prestige itself), and a
+deeper A3 follow-up (6 of 14 groups were directly tested; a full pass is a
+real future refinement, not a blocker). Written 2026-09-11/12 during a
+design session on branch `docs/gdd-v3-2`.
 
 **Why this is a new file and not an edit to `HANDOFF.md`/`ROADMAP.md`/`GDD_v3.2.md`:**
 a separate session had uncommitted work in all three at the time. This file is
@@ -292,8 +301,9 @@ let its presence suggest these ratings were ever wired into *this* engine.
 1. ~~Confirm the option-1-vs-2 question in §5.~~ Done — Option 1, 2026-09-11.
 2. ~~Build A1 (roster strength) — it unblocks everything else.~~ Done, 2026-09-11.
 3. ~~A2 (the sheet)~~ Done, 2026-09-11. JSS's `PreseasonPowerRankDelta` wiring
-   (also flagged as falling out of A1) is **not** done — still needs its own
-   scaling decision.
-4. A3 (tuning pass) — required before the sheet can be called finished.
+   is explicitly OFF THE TABLE per Brian, 2026-09-12 — not a TODO.
+4. ~~A3 (tuning pass)~~ Done, 2026-09-12 — see `ROADMAP.md` Sec 4c-addendum-4.
+   6 of 14 groups directly tested; a deeper follow-up remains available.
 5. A4 (prestige) — needs its own design round; §4 lists the open questions.
-6. R3d / R4a consume prestige once it exists.
+6. R3d / R4a consume prestige once it exists (R3d itself is also uncertain
+   now, given the JSS note above — R3d IS the hiring/firing market).

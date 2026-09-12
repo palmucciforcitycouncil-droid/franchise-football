@@ -50,14 +50,34 @@ rating reads the exact same source of truth the sim already reads.
    "heavy," per the settled decision, without letting one number
    outweigh the other ~40 real rostered players combined.
 
-4. **Positional weights (`POSITION_WEIGHTS`) are a first-pass claim, not
-   a tuned result.** They encode only the two things actually settled:
-   QB clearly outweighs the entire (K+P) special-teams group, and no
-   other group is close to QB's weight. Everything else is this module's
-   own placeholder ordering. **A3 (the tuning pass -- simulate seasons,
-   correlate this rating against final record/Elo, adjust to match
-   observed sensitivity) is required before these numbers should be
-   trusted, and is explicitly not done here.**
+4. **Positional weights (`POSITION_WEIGHTS`) were tuned by A3, 2026-09-12**
+   (`scripts/tune_roster_strength_weights.py`) -- not hand-guessed
+   anymore, but still a first real pass, not a final calibration. Method
+   (matches the handoff's own A3 instructions): 14 seeds correlating the
+   fixed preseason `team_rating`/`roster_score` against real simulated
+   seasons' final win_pct/power_rating (pooled n=448; team_rating vs
+   win_pct r=+0.43, vs power_rating r=+0.49 -- a real, moderate, honest
+   signal, not a fabricated near-1.0), plus 3-seed swap-sensitivity
+   trials on 6 representative groups (QB/T/WR/DE/LB/K), each swapping a
+   mid-pack baseline team's REAL roster at one group for the league's
+   actual best team's real players at that group and measuring the
+   shift in final power_rating (steadier than win_pct over one 18-game
+   season). Findings: **T (offensive tackle) measured essentially tied
+   with QB** at the top -- both far above the rest, consistent with
+   `Player`'s own module docstring calling out a real, direct "LT & LG
+   vs. opponent RDE & RDT" zone-blocking matchup formula, i.e. this
+   isn't noise, it's the sim's actual matchup math. WR and DE measured
+   statistically indistinguishable from each other. LB measured well
+   below its old weight. K measured at/below zero (consistent with "low
+   importance," not evidence to push it lower still off 3 noisy seeds).
+   **G/C were bumped by inference, not direct measurement** -- they sit
+   in the same blocking-matchup family as T (`Player`'s own docstring
+   again: interior linemen share that formula) -- flagged separately
+   from the directly-tested groups for exactly that reason.
+   **RB/TE/DT/CB/S/P were not tested and are UNCHANGED placeholders.**
+   A full A3 pass covering all 14 groups, and more seeds per group for
+   tighter confidence, remains a real further-refinement opportunity --
+   see `ROADMAP.md`'s A3 entry for the full run output and caveats.
 
 **Not done here, deliberately:** persistence/storage (the handoff's own
 open question -- "a week-0 entry [in power_rank_history.py] is the
@@ -111,24 +131,25 @@ _DECAY_MAX_DEPTH: dict[Position, tuple[float, int]] = {
     Position.P: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
 }
 
-# First-pass positional weights -- see module docstring decision 4.
-# Only "QB clearly outweighs all of K+P combined" is a settled claim;
-# everything else here is a placeholder ordering pending A3.
+# A3-tuned (2026-09-12) -- see module docstring decision 4 for the full
+# method and results. QB/T/WR/DE/LB/K were directly measured; G/C were
+# bumped by inference from T's result (same blocking-matchup family);
+# RB/TE/DT/CB/S/P are untested first-pass placeholders, unchanged.
 POSITION_WEIGHTS: dict[str, float] = {
-    "QB": 3.00,
-    "RB": 1.00,
-    "WR": 1.50,
-    "TE": 0.75,
-    "C": 0.50,
-    "G": 0.75,
-    "T": 1.00,
-    "DE": 1.25,
-    "DT": 1.00,
-    "LB": 1.25,
-    "CB": 1.25,
-    "S": 1.00,
-    "K": 0.25,
-    "P": 0.25,
+    "QB": 3.00,   # measured: tied for highest
+    "RB": 1.00,   # untested placeholder
+    "WR": 1.50,   # measured: matches its old weight well
+    "TE": 0.75,   # untested placeholder
+    "C": 0.75,    # inferred from T (was 0.50) -- interior OL, same blocking-matchup family
+    "G": 1.25,    # inferred from T (was 0.75) -- same formula pairs G with T directly
+    "T": 3.00,    # measured: essentially tied with QB (was 1.00) -- the single biggest correction
+    "DE": 1.50,   # measured: statistically indistinguishable from WR (was 1.25)
+    "DT": 1.00,   # untested placeholder
+    "LB": 0.75,   # measured: well below its old weight (was 1.25)
+    "CB": 1.25,   # untested placeholder
+    "S": 1.00,    # untested placeholder
+    "K": 0.25,    # measured: at/below zero -- consistent with a low weight, unchanged
+    "P": 0.25,    # untested placeholder, paired with K
 }
 assert set(POSITION_WEIGHTS) == set(QUOTA_GROUPS)
 assert POSITION_WEIGHTS["QB"] > POSITION_WEIGHTS["K"] + POSITION_WEIGHTS["P"]
