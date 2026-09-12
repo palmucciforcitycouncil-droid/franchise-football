@@ -65,7 +65,8 @@ from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from app.engine.awards import AwardCandidate, AwardsRace, season_awards
+from app.engine.awards import AwardCandidate, CoachAwardCandidate, AwardsRace, season_awards
+from app.engine.playoffs import final_division_standings
 from app.engine.season_stats import (
     SeasonPassingLine, SeasonRushingLine, SeasonReceivingLine, SeasonDefensiveLine,
     aggregate_season_stats, aggregate_season_defensive_stats,
@@ -83,6 +84,15 @@ class TeamSeasonResult:
     points_for: int
     points_against: int
     power_rating: float
+    # Added 2026-09-11 for the Team History box (ROADMAP.md, History/HOF
+    # merge): this team's real final rank (1st..4th) within its own
+    # division that season, via playoffs.final_division_standings() --
+    # the SAME tie-break chain division-winner seeding uses, not a naive
+    # W-L sort. 0 for archives written before this field existed (real
+    # NFL-history imports included -- see scripts/import_nfl_history.py,
+    # which has no real bracket data to derive this from); the template
+    # treats 0 as "unknown", not "4th".
+    division_rank: int = 0
 
 
 @dataclass
@@ -97,6 +107,19 @@ class SeasonRecord:
     rushing_leaders: list[SeasonRushingLine]
     receiving_leaders: list[SeasonReceivingLine]
     defensive_leaders: list[SeasonDefensiveLine]
+    # Added 2026-09-11 for the History/HOF merge (ROADMAP.md): real data
+    # this project already had (season.playoffs.rounds' CONF/SB matchups,
+    # live at archive_season() time) but never archived -- closes the
+    # "runner-up/final score not archived" gap hof.html's Super Bowl
+    # History table used to disclose. All None for archives written
+    # before this field existed, or for a season with no playoffs object
+    # (e.g. an incomplete-season smoke-test archive) -- NOT fabricated.
+    afc_champion_abbr: str | None = None
+    nfc_champion_abbr: str | None = None
+    super_bowl_home_abbr: str | None = None
+    super_bowl_away_abbr: str | None = None
+    super_bowl_home_score: int | None = None
+    super_bowl_away_score: int | None = None
 
 
 def _load(path: Path | None) -> list[dict]:
@@ -122,18 +145,28 @@ def _record_to_dict(record: SeasonRecord) -> dict:
             "opoy": [asdict(c) for c in record.awards.opoy],
             "dpoy": [asdict(c) for c in record.awards.dpoy],
             "roy": [asdict(c) for c in record.awards.roy],
+            # Coach of the Year (GDD Sec 7.4.6) -- archived from the
+            # season this coach actually won it in, since a coach's
+            # ratings and team change afterward and the award shouldn't.
+            "coty": [asdict(c) for c in record.awards.coty],
         },
         "passing_leaders": [asdict(p) for p in record.passing_leaders],
         "rushing_leaders": [asdict(r) for r in record.rushing_leaders],
         "receiving_leaders": [asdict(r) for r in record.receiving_leaders],
         "defensive_leaders": [asdict(d) for d in record.defensive_leaders],
+        "afc_champion_abbr": record.afc_champion_abbr,
+        "nfc_champion_abbr": record.nfc_champion_abbr,
+        "super_bowl_home_abbr": record.super_bowl_home_abbr,
+        "super_bowl_away_abbr": record.super_bowl_away_abbr,
+        "super_bowl_home_score": record.super_bowl_home_score,
+        "super_bowl_away_score": record.super_bowl_away_score,
     }
 
 
 def _record_from_dict(d: dict) -> SeasonRecord:
     return SeasonRecord(
         season_number=d["season_number"],
-        team_results=[TeamSeasonResult(**t) for t in d["team_results"]],
+        team_results=[TeamSeasonResult(**{"division_rank": 0, **t}) for t in d["team_results"]],
         champion_abbr=d.get("champion_abbr"),
         afc_seeds=d.get("afc_seeds"),
         nfc_seeds=d.get("nfc_seeds"),
@@ -142,6 +175,9 @@ def _record_from_dict(d: dict) -> SeasonRecord:
             opoy=[AwardCandidate(**c) for c in d["awards"]["opoy"]],
             dpoy=[AwardCandidate(**c) for c in d["awards"]["dpoy"]],
             roy=[AwardCandidate(**c) for c in d["awards"]["roy"]],
+            # .get(), not [] -- every season archived before COTY
+            # existed has no "coty" key at all, and must keep loading.
+            coty=[CoachAwardCandidate(**c) for c in d["awards"].get("coty", [])],
         ),
         passing_leaders=[SeasonPassingLine(**p) for p in d["passing_leaders"]],
         rushing_leaders=[SeasonRushingLine(**r) for r in d["rushing_leaders"]],
@@ -149,6 +185,12 @@ def _record_from_dict(d: dict) -> SeasonRecord:
         # .get() with a [] default: a season archived before this field existed
         # shouldn't fail to load, just have no defensive leaders recorded.
         defensive_leaders=[SeasonDefensiveLine(**d_) for d_ in d.get("defensive_leaders", [])],
+        afc_champion_abbr=d.get("afc_champion_abbr"),
+        nfc_champion_abbr=d.get("nfc_champion_abbr"),
+        super_bowl_home_abbr=d.get("super_bowl_home_abbr"),
+        super_bowl_away_abbr=d.get("super_bowl_away_abbr"),
+        super_bowl_home_score=d.get("super_bowl_home_score"),
+        super_bowl_away_score=d.get("super_bowl_away_score"),
     )
 
 
@@ -158,16 +200,52 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
     BEFORE replacing it with a fresh one) into a permanent SeasonRecord,
     appended to the history file. Safe to call on an incomplete season
     too (e.g. for a smoke test) -- champion_abbr/seeds are just None."""
+    # Real per-team division rank (1st..4th), same tie-break chain
+    # division-winner seeding already uses -- not a naive W-L sort.
+    # Guarded the same way champion_abbr/seeds below are: only real
+    # when a completed `season.playoffs` bracket exists.
+    division_rank_by_abbr: dict[str, int] = {}
+    if season.playoffs:
+        for ranked_abbrs in final_division_standings(season).values():
+            for i, abbr in enumerate(ranked_abbrs, start=1):
+                division_rank_by_abbr[abbr] = i
+
     team_results = [
         TeamSeasonResult(
             abbr=r.abbr, location=r.location, wins=r.wins, losses=r.losses,
             points_for=r.points_for, points_against=r.points_against, power_rating=r.power_rating,
+            division_rank=division_rank_by_abbr.get(r.abbr, 0),
         )
         for r in season.records.values()
     ]
     champion_abbr = season.playoffs.champion_abbr if season.playoffs else None
     afc_seeds = season.playoffs.afc_seeds if season.playoffs else None
     nfc_seeds = season.playoffs.nfc_seeds if season.playoffs else None
+
+    # Real AFC/NFC conference champions + the real Super Bowl matchup
+    # (both teams + final score) -- both already live on
+    # season.playoffs.rounds at archive time, just never read before
+    # this. Closes the "runner-up/final score not archived" disclosed
+    # gap hof.html's old Super Bowl History table carried. Still no
+    # quarter-by-quarter (this engine has no clock/quarter model
+    # anywhere, same disclosed gap as the Dashboard's Box Score box) and
+    # no Super Bowl MVP or winning-coach data (no per-game MVP stat and
+    # no Coach entity exist anywhere in this engine yet -- see
+    # ROADMAP.md's R3/R9 notes) -- neither is fabricated here.
+    afc_champion_abbr = nfc_champion_abbr = None
+    sb_home_abbr = sb_away_abbr = None
+    sb_home_score = sb_away_score = None
+    if season.playoffs and season.playoffs.is_complete:
+        all_matchups = [m for round_ in season.playoffs.rounds for m in round_]
+        afc_conf = next((m for m in all_matchups if m.round_name == "CONF" and m.conference == "AFC"), None)
+        nfc_conf = next((m for m in all_matchups if m.round_name == "CONF" and m.conference == "NFC"), None)
+        afc_champion_abbr = afc_conf.winner_abbr if afc_conf else None
+        nfc_champion_abbr = nfc_conf.winner_abbr if nfc_conf else None
+        sb = next((m for m in all_matchups if m.round_name == "SB"), None)
+        if sb is not None:
+            sb_home_abbr, sb_away_abbr = sb.home_abbr, sb.away_abbr
+            if sb.result is not None:
+                sb_home_score, sb_away_score = sb.result.home_score, sb.result.away_score
 
     passing, rushing, receiving = aggregate_season_stats(season)
     defense = aggregate_season_defensive_stats(season)
@@ -183,6 +261,12 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
         rushing_leaders=sorted(rushing.values(), key=lambda l: -l.yards),
         receiving_leaders=sorted(receiving.values(), key=lambda l: -l.yards),
         defensive_leaders=sorted(defense.values(), key=lambda l: -l.solo_tackles),
+        afc_champion_abbr=afc_champion_abbr,
+        nfc_champion_abbr=nfc_champion_abbr,
+        super_bowl_home_abbr=sb_home_abbr,
+        super_bowl_away_abbr=sb_away_abbr,
+        super_bowl_home_score=sb_home_score,
+        super_bowl_away_score=sb_away_score,
     )
 
     records = _load(path)

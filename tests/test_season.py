@@ -3,6 +3,7 @@ from pathlib import Path
 
 os.environ.setdefault("LEAGUE_SEED", "2025")
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -394,6 +395,58 @@ def test_roster_and_depth_chart_default_to_user_team():
     assert "Kansas City" in depth_resp.text
 
 
+def test_find_player_results_are_sortable_by_column():
+    """R11 (GDD Sec 11, "Roster - Find Player & Free Agents"): Find
+    Player's results reuse ROSTER_SORT_KEYS, the same GET-param sort
+    convention the main Roster table already uses -- confirms a real
+    re-order actually happens (not just an accepted-but-ignored param)."""
+    import re
+
+    season_state.set_user_team("KC")
+    # find_min_ovr=0 is a real, always-true filter (every OVR is >= 0) --
+    # activates find_active and matches the whole league without needing
+    # a specific name to search for.
+    default_resp = client.get("/roster?find_min_ovr=0")
+    assert default_resp.status_code == 200
+    find_section = default_resp.text[default_resp.text.index('id="find-player-box"'):]
+    default_ovrs = [int(x) for x in re.findall(r"OVR (\d+)", find_section)]
+    assert len(default_ovrs) > 1
+    assert default_ovrs == sorted(default_ovrs, reverse=True)  # unset find_sort still defaults to OVR desc
+
+    asc_resp = client.get("/roster?find_min_ovr=0&find_sort=age&find_dir=asc")
+    assert asc_resp.status_code == 200
+    asc_section = asc_resp.text[asc_resp.text.index('id="find-player-box"'):]
+    asc_ages = [int(x) for x in re.findall(r"Age (\d+)", asc_section)]
+    assert len(asc_ages) > 1
+    assert asc_ages == sorted(asc_ages)
+    assert asc_ages != default_ovrs  # sanity: a real, different ordering was exercised
+
+    # "dep" needs each result's OWN team's depth chart (_depth_slot_across_teams),
+    # not just the currently-browsed team's -- confirm it doesn't error across
+    # a result set spanning many different teams.
+    dep_resp = client.get("/roster?find_min_ovr=0&find_sort=dep&find_dir=asc")
+    assert dep_resp.status_code == 200
+
+
+def test_find_player_and_free_agents_rows_have_inline_detail_widget():
+    """R11: both boxes grow a shared tabbed detail view (Overview/Ratings/
+    Stats/Contract, reusing the Player Card's own tab markup) instead of
+    only the full modal; Free Agents rows additionally get a 5th
+    "Contract Sought" tab (a Global MVP "Coming Soon" shell, GDD Sec
+    9.2.8) that Find Player rows correctly do NOT get."""
+    season_state.set_user_team("KC")
+    resp = client.get("/roster?find_min_ovr=0")
+    assert resp.status_code == 200
+    fa_section = resp.text[resp.text.index('id="free-agents-box"'):resp.text.index('id="find-player-box"')]
+    find_section = resp.text[resp.text.index('id="find-player-box"'):]
+
+    assert 'data-row-toggle' in fa_section
+    assert 'class="row-detail-panel" data-show-contract-sought="1"' in fa_section
+
+    assert 'data-row-toggle' in find_section
+    assert 'data-show-contract-sought' not in find_section
+
+
 def test_dashboard_renders_weekly_gameplan_form_with_defaults():
     from app.engine.gameplan import Gameplan
 
@@ -461,15 +514,63 @@ def test_gameplan_post_requires_a_chosen_team():
     assert resp.status_code == 404
 
 
-def test_staff_gm_desk_and_draft_render_coming_soon():
-    """GDD Sec 10.3's MVP navigation behavior: these three nav items
-    exist and render a real Coming Soon message, not a 404 -- they
-    didn't exist as routes at all before this."""
-    for path, title in [("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft")]:
+def test_gm_desk_and_draft_render_coming_soon():
+    """GDD Sec 10.3's MVP navigation behavior: these nav items exist and
+    render a real Coming Soon message, not a 404.
+
+    /staff used to be in this list and no longer is -- it became a real
+    page when the Coaching Staff module landed (ROADMAP.md R3/Sec 4c),
+    so asserting it still says "Coming soon" would now be asserting a
+    regression. Its own real coverage is test_staff_page_is_real below
+    and the whole of tests/test_coaching.py. GM Desk and Draft are still
+    genuine stubs (they need R4's contracts/cap/trades and R5's draft)."""
+    for path, title in [("/gm-desk", "GM Desk"), ("/draft", "Draft")]:
         resp = client.get(path)
         assert resp.status_code == 200
         assert title in resp.text
         assert "Coming soon" in resp.text
+
+
+def test_staff_page_is_real_not_a_stub():
+    """ROADMAP.md R3: /staff renders the real coaching staff -- the head
+    coach by name, the Trait Effects panel showing the actual sim biases
+    that staff produces, and a clickable Coach Card blob. Skips cleanly
+    on a database with no coaches imported, which is the one case the
+    page legitimately still shows a coming-soon message for."""
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported into this database")
+
+    season_state.set_user_team("KC")
+    resp = client.get("/staff")
+    assert resp.status_code == 200
+    assert "Coming soon" not in resp.text
+    assert "Coaching Staff" in resp.text
+    assert "Trait Effects" in resp.text
+    assert "data-coach-card=" in resp.text
+
+    head_coach = coach_store.head_coach("KC")
+    assert head_coach is not None
+    assert head_coach.full_name in resp.text
+    # The generated-vs-real disclosure must be on the page, not just in
+    # a docstring -- it's the whole reason the generated ratings are
+    # acceptable to show at all.
+    assert "deterministically generated" in resp.text
+
+
+def test_scouting_panel_shows_a_real_head_coach_not_the_placeholder():
+    """ROADMAP.md Sec2d item 3 shipped a literal "Coach Name" placeholder
+    because no Coach entity existed. R3 replaced it with the real one --
+    this asserts the placeholder string is genuinely gone."""
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported into this database")
+
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Coach Name" not in resp.text
+    assert "Head Coach" in resp.text
 
 
 def test_simulate_current_week_records_a_power_rank_snapshot():
@@ -518,11 +619,19 @@ def test_dashboard_power_rankings_show_a_real_delta_after_two_simulated_weeks():
     assert "Power Rankings" in resp.text
 
 
-def test_dashboard_standings_box_has_afc_nfc_and_division_tabs():
-    """ROADMAP.md Sec2d-B item 9: real source is a Figma screenshot with
-    AFC/NFC top-level tabs and East/North/South/West division sub-tabs
-    underneath -- confirms all 8 real groups actually render (not just
-    the user's own division, which is all the pre-existing box showed)."""
+def test_dashboard_standings_box_has_afc_nfc_tabs_and_all_divisions_stacked():
+    """ROADMAP.md Sec2d-B item 9 originally had AFC/NFC top-level tabs with
+    a SECOND East/North/South/West tab row underneath; the Sec2c follow-up
+    round (2026-09-10) removed that second tab layer as mostly dead space
+    (only one division's table visible at a time in a card already sized
+    for the whole conference) in favor of all four divisions stacked under
+    their own sub-header inside each conference panel -- confirms all 8
+    real groups still render (not just the user's own division), just via
+    `.standings-division-header`s now instead of a second tab row. Updated
+    2026-09-11: the original assertion (`data-tab="{division}"`) checked
+    for the removed tab row and had gone stale against that redesign,
+    flagged but left unfixed by two other concurrent sessions' own work
+    this same day -- fixed here while finalizing everything together."""
     season_state.set_user_team("KC")  # AFC West
     resp = client.get("/dashboard")
     assert resp.status_code == 200
@@ -530,7 +639,7 @@ def test_dashboard_standings_box_has_afc_nfc_and_division_tabs():
     for conf in ("AFC", "NFC"):
         assert f'data-tab="{conf}"' in resp.text
     for division in ("East", "North", "South", "West"):
-        assert f'data-tab="{division}"' in resp.text
+        assert f'class="standings-division-header">{division}<' in resp.text
     # Kansas City (AFC West) should appear in the standings data somewhere.
     assert "Kansas City (KC)" in resp.text
 

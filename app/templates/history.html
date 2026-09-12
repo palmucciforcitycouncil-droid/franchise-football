@@ -1,49 +1,248 @@
 {% extends "base.html" %}
-{% block title %}League History — Franchise Football{% endblock %}
+{% block title %}History — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>League History</h2>
-  <p class="muted">Every completed season, archived permanently once "Start Next Season" is pressed on the <a href="/playoffs">Playoffs</a> page. Career-cumulative totals and real <a href="/hof">Hall of Fame</a> induction are built from this same archive.</p>
+  <h2>History</h2>
+  <p class="muted">League History and Hall of Fame, together (merged 2026-09-11 -- previously two separate pages). League History tracks every completed season, archived permanently once "Start Next Season" is pressed on the <a href="/playoffs">Playoffs</a> page; Hall of Fame's career-cumulative totals and real induction are built from that same archive.</p>
 </div>
 
-{% if not records %}
-<div class="card"><p class="muted">No seasons completed yet.</p></div>
-{% else %}
-{% for rec in records %}
-<div class="card">
-  <h3>Season {{ rec.season_number + 1 }}{% if rec.champion_abbr %} &mdash; Champion: {{ rec.champion_abbr }}{% endif %}</h3>
+<div class="dash-tabs-grid cols-2" data-tabgroup="history-main" style="margin-bottom: 1rem;">
+  <button type="button" class="dash-tab {% if active_tab != 'hof' %}active{% endif %}" data-tab="league">League History</button>
+  <button type="button" class="dash-tab {% if active_tab == 'hof' %}active{% endif %}" data-tab="hof">Hall of Fame</button>
+</div>
 
-  {% if rec.afc_seeds %}
-  <p class="muted">AFC #1 seed: {{ rec.afc_seeds[0] }} &middot; NFC #1 seed: {{ rec.nfc_seeds[0] }}</p>
-  {% endif %}
+<div class="dash-panel" data-panel="league" data-tabgroup-panel="history-main" {% if active_tab == 'hof' %}hidden{% endif %}>
+  <div class="dashboard-grid">
+    <!-- Column 1: Team History (Brian's explicit ask, 2026-09-11) -- the
+         user's own franchise's real season-by-season record. No
+         attendance/profit (explicitly out of scope, this engine has no
+         financial/attendance model for either anyway) and no Coach of
+         the Year line (no Coach entity exists yet, ROADMAP.md R3). -->
+    <div class="card">
+      <h3>Team History</h3>
+      {% if not user_team_abbr %}
+      <p class="muted">No team selected yet.</p>
+      {% elif not team_history %}
+      <p class="muted">No completed seasons yet for {{ user_team_abbr }}.</p>
+      {% else %}
+      <p class="muted" style="font-size: 0.82rem;">{{ user_team_abbr }}'s real season-by-season record. No Coach of the Year line yet &mdash; no Coach entity exists in this engine (Post-MVP). Power Rank isn't tracked for the real imported 2002-2025 seasons &mdash; no real historical Power Rating exists to import, see <code>scripts/import_nfl_history.py</code>.</p>
+      <div class="dashboard-scroll">
+        {% for row in team_history %}
+        <div class="team-history-row">
+          <div class="team-history-top">
+            <strong>Season {{ row.season_number + 1 }}</strong>
+            <span class="muted">{{ row.wins }}-{{ row.losses }}</span>
+          </div>
+          <div class="team-history-finish{% if 'Champion' in row.finish %} gold{% endif %}">{{ row.finish }}</div>
+          <div class="muted" style="font-size: 0.78rem;">Power Rank: {% if row.power_rank %}#{{ row.power_rank }} of 32{% else %}not tracked for this season{% endif %}</div>
+          {% if row.awards_won %}
+          <div class="team-history-awards">{{ row.awards_won|join(' &middot; ')|safe }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
 
-  <div class="row" style="align-items: flex-start; margin-top: 0.75rem;">
-    {% for label, candidates in [("MVP", rec.awards.mvp), ("OPOY", rec.awards.opoy), ("DPOY", rec.awards.dpoy), ("ROY", rec.awards.roy)] %}
-    <table style="width: auto; min-width: 200px;">
-      <thead><tr><th colspan="2">{{ label }}</th></tr></thead>
-      <tbody>
-        {% if candidates %}
-        <tr><td>{{ player_link_or_name(candidates[0].name, candidates[0].team_abbr) }} ({{ candidates[0].team_abbr }})</td><td class="muted">{{ candidates[0].stat_line }}</td></tr>
-        {% else %}
-        <tr><td colspan="2" class="muted">&mdash;</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-    {% endfor %}
+    <!-- Columns 2-3: League History -- per-season detail (unchanged core
+         content: awards, stat leaders), now with a real Super Bowl
+         summary (AFC/NFC champion + the actual final score) added to
+         each season that has one -- see history_store.archive_season()'s
+         2026-09-11 additions. Quarter-by-quarter and Super Bowl MVP/
+         winning-coach detail stay disclosed, not fabricated: this engine
+         has no clock/quarter model anywhere (same gap the Dashboard's
+         Box Score box already discloses) and no Coach entity yet. -->
+    <div class="card dashboard-span-2">
+      <h3>League History</h3>
+      {% if not records %}
+      <p class="muted">No seasons completed yet.</p>
+      {% else %}
+
+      <h4 style="margin-top: 0;">Super Bowl History</h4>
+      <p class="muted" style="font-size: 0.82rem;">Every Super Bowl in league history, most recent first, with the real final score. Super Bowl MVP and the winning coaching staff (HC/OC/DC/ST/AC) aren't tracked yet &mdash; no per-game MVP stat and no Coach entity exist anywhere in this engine (Post-MVP, see ROADMAP.md).</p>
+      <table class="boxtable" style="margin-bottom: 1.5rem;">
+        <thead><tr><th>Season</th><th>Result</th><th>AFC Champion</th><th>NFC Champion</th></tr></thead>
+        <tbody>
+          {% for rec in sb_history %}
+          <tr>
+            <td>{{ rec.season_number + 1 }}</td>
+            <td>
+              {% if rec.super_bowl_home_abbr %}
+              <span class="{% if rec.champion_abbr == rec.super_bowl_home_abbr %}winner{% endif %}">{{ rec.super_bowl_home_abbr }}{% if rec.super_bowl_home_score is not none %} {{ rec.super_bowl_home_score }}{% endif %}</span>
+              <span class="muted">&ndash;</span>
+              <span class="{% if rec.champion_abbr == rec.super_bowl_away_abbr %}winner{% endif %}">{% if rec.super_bowl_away_score is not none %}{{ rec.super_bowl_away_score }} {% endif %}{{ rec.super_bowl_away_abbr }}</span>
+              {% else %}
+              <span class="winner">{{ rec.champion_abbr }}</span> <span class="muted">champion</span>
+              {% endif %}
+            </td>
+            <td>{{ rec.afc_champion_abbr or "—" }}</td>
+            <td>{{ rec.nfc_champion_abbr or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="dashboard-scroll">
+        {% for rec in records %}
+        <div class="league-history-season">
+          <h4>Season {{ rec.season_number + 1 }}{% if rec.champion_abbr %} &mdash; Champion: {{ rec.champion_abbr }}{% endif %}</h4>
+
+          {% if rec.afc_seeds %}
+          <p class="muted">AFC #1 seed: {{ rec.afc_seeds[0] }} &middot; NFC #1 seed: {{ rec.nfc_seeds[0] }}</p>
+          {% endif %}
+
+          <div class="row" style="align-items: flex-start; margin-top: 0.75rem;">
+            {% for label, candidates in [("MVP", rec.awards.mvp), ("OPOY", rec.awards.opoy), ("DPOY", rec.awards.dpoy), ("ROY", rec.awards.roy)] %}
+            <table style="width: auto; min-width: 200px;">
+              <thead><tr><th colspan="2">{{ label }}</th></tr></thead>
+              <tbody>
+                {% if candidates %}
+                <tr><td>{{ player_link_or_name(candidates[0].name, candidates[0].team_abbr) }} ({{ candidates[0].team_abbr }})</td><td class="muted">{{ candidates[0].stat_line }}</td></tr>
+                {% else %}
+                <tr><td colspan="2" class="muted">&mdash;</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+            {% endfor %}
+          </div>
+
+          <table class="boxtable" style="margin-top: 1rem;">
+            <thead><tr><th>Passing Leader</th><th>Rushing Leader</th><th>Receiving Leader</th><th>Tackles Leader</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>{% if rec.passing_leaders %}{{ player_link_or_name(rec.passing_leaders[0].name, rec.passing_leaders[0].team_abbr) }} ({{ rec.passing_leaders[0].team_abbr }}) &mdash; {{ rec.passing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+                <td>{% if rec.rushing_leaders %}{{ player_link_or_name(rec.rushing_leaders[0].name, rec.rushing_leaders[0].team_abbr) }} ({{ rec.rushing_leaders[0].team_abbr }}) &mdash; {{ rec.rushing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+                <td>{% if rec.receiving_leaders %}{{ player_link_or_name(rec.receiving_leaders[0].name, rec.receiving_leaders[0].team_abbr) }} ({{ rec.receiving_leaders[0].team_abbr }}) &mdash; {{ rec.receiving_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
+                <td>{% if rec.defensive_leaders %}{{ player_link_or_name(rec.defensive_leaders[0].name, rec.defensive_leaders[0].team_abbr) }} ({{ rec.defensive_leaders[0].team_abbr }}) &mdash; {{ rec.defensive_leaders[0].solo_tackles }} tkl{% else %}&mdash;{% endif %}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="dash-panel" data-panel="hof" data-tabgroup-panel="history-main" {% if active_tab != 'hof' %}hidden{% endif %}>
+  <div class="card">
+    <div class="hof-header"><h2 style="margin: 0;">🏆 Hall of Fame</h2></div>
+    <p class="muted">Honoring the greatest players in league history. Real induction over the full career-cumulative archive built from every completed season above &mdash; a player qualifies at QB, RB, WR/TE, or DEF once they've accrued at least 2 archived seasons of production and a composite score (career production, weighted by MVP/OPOY/DPOY/ROY awards actually won) clears the bar, not a fixed top-N. GDD-underspecified induction criteria; see history_store.py's own docstring for the exact formula. No Coach entity exists in the engine yet (Post-MVP), so this Hall is player-only for now.</p>
   </div>
 
-  <table class="boxtable" style="margin-top: 1rem;">
-    <thead><tr><th>Passing Leader</th><th>Rushing Leader</th><th>Receiving Leader</th><th>Tackles Leader</th></tr></thead>
-    <tbody>
-      <tr>
-        <td>{% if rec.passing_leaders %}{{ player_link_or_name(rec.passing_leaders[0].name, rec.passing_leaders[0].team_abbr) }} ({{ rec.passing_leaders[0].team_abbr }}) &mdash; {{ rec.passing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
-        <td>{% if rec.rushing_leaders %}{{ player_link_or_name(rec.rushing_leaders[0].name, rec.rushing_leaders[0].team_abbr) }} ({{ rec.rushing_leaders[0].team_abbr }}) &mdash; {{ rec.rushing_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
-        <td>{% if rec.receiving_leaders %}{{ player_link_or_name(rec.receiving_leaders[0].name, rec.receiving_leaders[0].team_abbr) }} ({{ rec.receiving_leaders[0].team_abbr }}) &mdash; {{ rec.receiving_leaders[0].yards }} yds{% else %}&mdash;{% endif %}</td>
-        <td>{% if rec.defensive_leaders %}{{ player_link_or_name(rec.defensive_leaders[0].name, rec.defensive_leaders[0].team_abbr) }} ({{ rec.defensive_leaders[0].team_abbr }}) &mdash; {{ rec.defensive_leaders[0].solo_tackles }} tkl{% else %}&mdash;{% endif %}</td>
-      </tr>
-    </tbody>
-  </table>
+  {% if not members and not eligible %}
+  <div class="card"><p class="muted">No one has been inducted yet, and no one's close &mdash; play out more seasons so real careers can accumulate.</p></div>
+  {% endif %}
+
+  {% if new_inductees %}
+  <div class="card" style="border-color: var(--gold);">
+    <h3 style="color: var(--gold);">⭐ Class of Season {{ current_season_label }} Inductees</h3>
+    <div class="hof-grid inductees">
+      {% for c in new_inductees %}
+      <div class="hof-inductee-card">
+        <div class="hof-name">{{ player_link_or_name(c.name, c.team_abbr) }}</div>
+        <div class="hof-meta">{{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</div>
+        {% if c.award_wins %}<div class="muted" style="font-size: 0.82rem; margin-bottom: 0.4rem;">{{ c.award_wins }} MVP/OPOY/DPOY/ROY award{{ "s" if c.award_wins != 1 else "" }} won</div>{% endif %}
+        <table class="boxtable hof-stat-table">
+          <tbody>
+            {% for label, value in c.stats %}
+            <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if eligible %}
+  <div class="card">
+    <h3>Eligible Candidates</h3>
+    <p class="muted">Real players who've cleared the minimum-seasons bar but haven't reached the induction threshold yet. This engine has no voting system, so the bar shown is each candidate's own primary stat as a percentage of that category's current pool leader &mdash; a real, simplified "how close" proxy, not the exact Hall of Fame composite score.</p>
+    {% for c in eligible %}
+    <div class="hof-eligible-row">
+      <div class="hof-eligible-main">
+        <div>{{ player_link_or_name(c.name, c.team_abbr) }} <span class="muted">&middot; {{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</span>{% if c.progress_pct >= 75 %} <span class="hof-strong-candidate">Strong Candidate</span>{% endif %}</div>
+        <div class="muted" style="font-size: 0.82rem;">{{ c.stat_line }}</div>
+      </div>
+      <div>
+        <div class="hof-progress-track"><div class="hof-progress-fill" style="width: {{ c.progress_pct }}%;"></div></div>
+        <div class="muted" style="font-size: 0.75rem; text-align: right;">{{ c.progress_pct }}%</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Hall of Fame Members</h3>
+    <form method="get" action="/history" class="row" style="margin-bottom: 1rem;">
+      <input type="hidden" name="tab" value="hof">
+      <div>
+        <label for="f-q">Search</label>
+        <input type="text" id="f-q" name="q" value="{{ q }}" placeholder="Name or team...">
+      </div>
+      <div>
+        <label for="f-pos">Position</label>
+        <select name="pos" id="f-pos">
+          <option value="all" {% if pos_filter == 'all' %}selected{% endif %}>All Positions</option>
+          {% for p in positions %}
+          <option value="{{ p }}" {% if pos_filter == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div><button type="submit">Filter</button></div>
+    </form>
+
+    {% if members %}
+    <p class="muted">Showing {{ members|length }} of {{ total_members }} member{{ "s" if total_members != 1 else "" }}. Induction year isn't tracked yet -- see history_store.py's HOFCandidate docstring for why.</p>
+    <div class="hof-grid members">
+      {% for c in members %}
+      <div class="hof-member-card">
+        <div class="hof-name">{{ player_link_or_name(c.name, c.team_abbr) }}</div>
+        <div class="hof-meta">{{ c.position }} &middot; {{ c.team_abbr }} &middot; {{ years_active.get(c.team_abbr ~ "|" ~ c.name, c.seasons ~ " seasons") }}</div>
+        {% if c.award_wins %}<div class="muted" style="font-size: 0.82rem; margin-bottom: 0.4rem;">{{ c.award_wins }} award{{ "s" if c.award_wins != 1 else "" }} won</div>{% endif %}
+        <table class="boxtable hof-stat-table">
+          <tbody>
+            {% for label, value in c.stats %}
+            <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="hof-score">HOF Score: {{ "%.2f"|format(c.score) }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No Hall of Fame members match those filters.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>League Record Book</h3>
+    {% if record_book %}
+    <p class="muted">Top 10 all-time leaders per category, from the same real career archive the Hall of Fame is built on. Kicking (field goals) isn't tracked at the career level yet &mdash; see <a href="/stats">Stats</a> for real per-game kicking box scores.</p>
+    <div class="record-book-grid">
+      {% for cat in record_book %}
+      <div class="record-card">
+        <h4>{{ cat.label }}</h4>
+        {% if cat.leaders %}
+        <ol>
+          {% for name, team_abbr, value in cat.leaders %}
+          <li>{{ player_link_or_name(name, team_abbr) }} ({{ team_abbr }}) &mdash; {{ "{:,}".format(value) }}</li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted" style="font-size: 0.85rem;">No qualifying seasons yet.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No completed seasons yet.</p>
+    {% endif %}
+  </div>
 </div>
-{% endfor %}
-{% endif %}
 {% endblock %}

@@ -40,7 +40,7 @@
 {% if champ %}
 <div class="champ-card {{ conf_class }}">
   <div class="champ-seed">#{{ champ.seed }}</div>
-  <div class="champ-name">{{ champ.abbr }}</div>
+  <div class="champ-name">{{ team_link(champ.abbr) }}</div>
 </div>
 {% else %}
 <div class="champ-card tbd">TBD</div>
@@ -53,6 +53,50 @@
 {% else %}
 {% for _ in range(count) %}<div class="matchup-card compact"><p class="matchup-tbd" style="margin: 0;">TBD</p></div>{% endfor %}
 {% endif %}
+{% endmacro %}
+
+{% macro full_tree(afc_rounds, nfc_rounds, afc_champion=None, nfc_champion=None, sb_matchup=None, is_complete=False, champion_abbr=None) %}
+<div class="full-tree-grid">
+  <div>
+    <div class="tree-col-label"><span class="conf-badge afc">AFC</span> Wild Card</div>
+    {{ tree_matchups(afc_rounds.get('WC', []), 3) }}
+  </div>
+  <div style="padding-top: 2.5rem;">
+    <div class="tree-col-label">Divisional</div>
+    {{ tree_matchups(afc_rounds.get('DIV', []), 2) }}
+  </div>
+  <div style="padding-top: 6.5rem;">
+    <div class="tree-col-label">Conference</div>
+    {{ tree_matchups(afc_rounds.get('CONF', []), 1) }}
+  </div>
+  <div style="padding-top: 7.5rem;">
+    <div class="tree-col-label" style="color: #dc2626;">AFC Champ</div>
+    {{ champ_card(afc_champion, 'afc') }}
+  </div>
+  <div style="padding-top: 5rem;">
+    <div class="sb-card" style="padding: 0.75rem;">
+      <h4 style="margin: 0 0 0.5rem; text-align: center;">Super Bowl</h4>
+      {% if sb_matchup %}{{ matchup_card(sb_matchup, compact=True) }}{% else %}<p class="matchup-tbd">TBD</p>{% endif %}
+      {% if is_complete %}<div class="sb-champions-banner">&#127942; {{ champion_abbr }}</div>{% endif %}
+    </div>
+  </div>
+  <div style="padding-top: 7.5rem;">
+    <div class="tree-col-label" style="color: #1e40af;">NFC Champ</div>
+    {{ champ_card(nfc_champion, 'nfc') }}
+  </div>
+  <div style="padding-top: 6.5rem;">
+    <div class="tree-col-label">Conference</div>
+    {{ tree_matchups(nfc_rounds.get('CONF', []), 1) }}
+  </div>
+  <div style="padding-top: 2.5rem;">
+    <div class="tree-col-label">Divisional</div>
+    {{ tree_matchups(nfc_rounds.get('DIV', []), 2) }}
+  </div>
+  <div>
+    <div class="tree-col-label"><span class="conf-badge nfc">NFC</span> Wild Card</div>
+    {{ tree_matchups(nfc_rounds.get('WC', []), 3) }}
+  </div>
+</div>
 {% endmacro %}
 
 <div class="card">
@@ -75,6 +119,22 @@
 </div>
 
 {% if preview %}
+<!-- 2026-09-11 follow-up: Brian flagged the in-season preview didn't
+     read as a bracket at all -- just hunt cards and standings. This
+     projected tree reuses the exact same full_tree macro/full-tree-grid
+     CSS as the real post-season Full Bracket tab (Figma source:
+     FullPlayoffTree.tsx, which always renders a 9-column tree with TBD
+     placeholders for whatever isn't decided yet) -- the Wild Card round
+     is a real projection (build_wild_card_round() against the CURRENT,
+     still-changing standings, the exact same pure function that builds
+     the real Week-18+ round), while Divisional/Conference/Champ/Super
+     Bowl stay genuinely TBD since those rounds depend on Wild Card
+     results that don't exist yet. -->
+<div class="card">
+  <h3>Projected Bracket <span class="muted" style="font-weight: 400; font-size: 0.85rem;">&mdash; if the season ended today</span></h3>
+  {{ full_tree(projected_afc_rounds, projected_nfc_rounds) }}
+</div>
+
 <!-- ROADMAP.md Sec2c follow-up: a real in-season "current playoff
      picture" (real seeds/hunt/standings via seed_conference(), not the
      final bracket) -- same In The Hunt / Division Standings components
@@ -89,7 +149,7 @@
     {% for t in preview.in_the_hunt[conf] %}
     <div class="hunt-card">
       <div class="hunt-card-top">
-        <div><div class="hunt-team">{{ t.location }} ({{ t.abbr }})</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
+        <div><div class="hunt-team">{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
         <div class="hunt-if-in">If in:<strong>#{{ t.seed_if_made }}</strong></div>
       </div>
       <div class="hunt-gb">GB: <strong>{{ t.gb }}</strong></div>
@@ -105,7 +165,7 @@
       <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
       <tbody>
         {% for t in teams %}
-        <tr><td>{{ loop.index }}</td><td>{{ t.location }} ({{ t.abbr }})</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
+        <tr><td>{{ loop.index }}</td><td>{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -130,47 +190,7 @@
      centered Super Bowl card, mirroring the source's own layout without
      its SVG connector lines (see base.html's .full-tree-grid comment). -->
 <div class="card">
-  <div class="full-tree-grid">
-    <div>
-      <div class="tree-col-label"><span class="conf-badge afc">AFC</span> Wild Card</div>
-      {{ tree_matchups(afc_rounds.get('WC', []), 3) }}
-    </div>
-    <div style="padding-top: 2.5rem;">
-      <div class="tree-col-label">Divisional</div>
-      {{ tree_matchups(afc_rounds.get('DIV', []), 2) }}
-    </div>
-    <div style="padding-top: 6.5rem;">
-      <div class="tree-col-label">Conference</div>
-      {{ tree_matchups(afc_rounds.get('CONF', []), 1) }}
-    </div>
-    <div style="padding-top: 7.5rem;">
-      <div class="tree-col-label" style="color: #dc2626;">AFC Champ</div>
-      {{ champ_card(afc_champion, 'afc') }}
-    </div>
-    <div style="padding-top: 5rem;">
-      <div class="sb-card" style="padding: 0.75rem;">
-        <h4 style="margin: 0 0 0.5rem; text-align: center;">Super Bowl</h4>
-        {% if sb_matchup %}{{ matchup_card(sb_matchup, compact=True) }}{% else %}<p class="matchup-tbd">TBD</p>{% endif %}
-        {% if bracket.is_complete %}<div class="sb-champions-banner">&#127942; {{ bracket.champion_abbr }}</div>{% endif %}
-      </div>
-    </div>
-    <div style="padding-top: 7.5rem;">
-      <div class="tree-col-label" style="color: #1e40af;">NFC Champ</div>
-      {{ champ_card(nfc_champion, 'nfc') }}
-    </div>
-    <div style="padding-top: 6.5rem;">
-      <div class="tree-col-label">Conference</div>
-      {{ tree_matchups(nfc_rounds.get('CONF', []), 1) }}
-    </div>
-    <div style="padding-top: 2.5rem;">
-      <div class="tree-col-label">Divisional</div>
-      {{ tree_matchups(nfc_rounds.get('DIV', []), 2) }}
-    </div>
-    <div>
-      <div class="tree-col-label"><span class="conf-badge nfc">NFC</span> Wild Card</div>
-      {{ tree_matchups(nfc_rounds.get('WC', []), 3) }}
-    </div>
-  </div>
+  {{ full_tree(afc_rounds, nfc_rounds, afc_champion, nfc_champion, sb_matchup, bracket.is_complete, bracket.champion_abbr) }}
 </div>
 {% endif %}
 
@@ -208,7 +228,7 @@
     {% for t in in_the_hunt[conf] %}
     <div class="hunt-card">
       <div class="hunt-card-top">
-        <div><div class="hunt-team">{{ t.location }} ({{ t.abbr }})</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
+        <div><div class="hunt-team">{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
         <div class="hunt-if-in">If in:<strong>#{{ t.seed_if_made }}</strong></div>
       </div>
       <div class="hunt-gb">GB: <strong>{{ t.gb }}</strong></div>
@@ -227,7 +247,7 @@
       <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
       <tbody>
         {% for t in teams %}
-        <tr><td>{{ loop.index }}</td><td>{{ t.location }} ({{ t.abbr }})</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
+        <tr><td>{{ loop.index }}</td><td>{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -276,7 +296,7 @@
   {% for team_abbr in [sb_matchup.home_abbr, sb_matchup.away_abbr] %}
   {% set s = sb_scouting[team_abbr] %}
   <div class="card">
-    <h3><span class="conf-badge {{ 'afc' if team_abbr in bracket.afc_seeds else 'nfc' }}">{{ 'AFC' if team_abbr in bracket.afc_seeds else 'NFC' }}</span> {{ teams_by_abbr[team_abbr].location }} ({{ team_abbr }})</h3>
+    <h3><span class="conf-badge {{ 'afc' if team_abbr in bracket.afc_seeds else 'nfc' }}">{{ 'AFC' if team_abbr in bracket.afc_seeds else 'NFC' }}</span> {{ team_link(team_abbr, teams_by_abbr[team_abbr].location + ' (' + team_abbr + ')') }}</h3>
     <p class="muted">Record: {{ s.summary.wins }}-{{ s.summary.losses }}{% if s.summary.streak != "-" %} &middot; {{ s.summary.streak }}{% endif %}</p>
 
     <div class="dash-tabs-grid">

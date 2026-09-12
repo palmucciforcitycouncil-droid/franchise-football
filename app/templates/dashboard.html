@@ -20,11 +20,15 @@
 </div>
 
 <div class="dashboard-grid">
-  <!-- Row 1, Column 1: Standings (ROADMAP.md Sec2d-B item 9): real source is
-       DivisionStandings.tsx -- AFC/NFC top-level tabs, then East/North/
-       South/West sub-tabs underneath, reusing the .dash-tab pattern via
-       nested [data-tabgroup]s (see base.html's script). Defaults to the
-       user's own conference/division open. -->
+  <!-- Row 1, Column 1: Standings (ROADMAP.md Sec2d-B item 9): AFC/NFC is
+       the only tab level now -- all four divisions render stacked
+       underneath, each under its own sub-header, instead of behind a
+       second East/North/South/West tab row (that layer was mostly dead
+       space: only one 5-row division table visible at a time in a card
+       sized for the whole conference). all_standings[conf] is already
+       ordered by main.py's _all_division_standings() with the user's
+       own division first, so no per-division "is this the user's" check
+       is needed here for ordering -- just render in dict order. -->
   <div class="card">
     <h3>Standings</h3>
     <div class="dash-tabs-grid cols-2" data-tabgroup="standings-conf">
@@ -33,30 +37,23 @@
       {% endfor %}
     </div>
     {% for conf in ['AFC', 'NFC'] %}
-    {% set default_div = user_info.division if user_info.conference == conf else 'East' %}
     <div class="dash-panel" data-panel="{{ conf }}" data-tabgroup-panel="standings-conf" {% if user_info.conference != conf %}hidden{% endif %}>
-      <div class="dash-tabs-grid cols-4" data-tabgroup="standings-div-{{ conf }}">
-        {% for division in ['East', 'North', 'South', 'West'] %}
-        <button type="button" class="dash-tab {% if default_div == division %}active{% endif %}" data-tab="{{ division }}">{{ division }}</button>
-        {% endfor %}
-      </div>
-      {% for division in ['East', 'North', 'South', 'West'] %}
-      <div class="dash-panel" data-panel="{{ division }}" data-tabgroup-panel="standings-div-{{ conf }}" {% if default_div != division %}hidden{% endif %}>
-        <table>
-          <thead><tr><th>Team</th><th>W-L</th><th>PF</th><th>PA</th><th>Power</th></tr></thead>
-          <tbody>
-            {% for r in all_standings[conf][division] %}
-            <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
-              <td>{{ r.location }} ({{ r.abbr }})</td>
-              <td>{{ r.wins }}-{{ r.losses }}</td>
-              <td>{{ r.points_for }}</td>
-              <td>{{ r.points_against }}</td>
-              <td>{{ r.power_rating | round | int }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      {% for division, records in all_standings[conf].items() %}
+      <h4 class="standings-division-header">{{ division }}</h4>
+      <table>
+        <thead><tr><th>Team</th><th>W-L</th><th>PF</th><th>PA</th><th>Power</th></tr></thead>
+        <tbody>
+          {% for r in records %}
+          <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
+            <td>{{ team_link(r.abbr, r.location + ' (' + r.abbr + ')') }}</td>
+            <td>{{ r.wins }}-{{ r.losses }}</td>
+            <td>{{ r.points_for }}</td>
+            <td>{{ r.points_against }}</td>
+            <td>{{ r.power_rating | round | int }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
       {% endfor %}
     </div>
     {% endfor %}
@@ -86,6 +83,22 @@
         <div class="team-badge">{{ last_game.away_abbr }}</div>
       </div>
     </div>
+
+    <table class="boxtable linescore">
+      <thead><tr><th></th><th>1</th><th>2</th><th>3</th><th>4</th><th>Final</th></tr></thead>
+      <tbody>
+        <tr class="{% if last_game.away_score > last_game.home_score %}winner{% endif %}">
+          <td>{{ last_game.away_abbr }}</td>
+          {% for q_home, q_away in last_game.quarters %}<td>{{ q_away }}</td>{% endfor %}
+          <td><strong>{{ last_game.away_score }}</strong></td>
+        </tr>
+        <tr class="{% if last_game.home_score > last_game.away_score %}winner{% endif %}">
+          <td>{{ last_game.home_abbr }}</td>
+          {% for q_home, q_away in last_game.quarters %}<td>{{ q_home }}</td>{% endfor %}
+          <td><strong>{{ last_game.home_score }}</strong></td>
+        </tr>
+      </tbody>
+    </table>
 
     <div class="dash-subhead">Game Leaders</div>
     <div class="boxscore-leaders">
@@ -169,24 +182,24 @@
   <!-- Row 2, Column 1: Team Schedule (TeamSchedule.tsx's row-list styling) -->
   <div class="card">
     <h3>Team Schedule</h3>
-    <div class="dashboard-scroll">
+    <div class="dashboard-scroll dashboard-scroll-flex">
       {% for g in team_schedule %}
-      <div class="schedule-row {% if g.week == season.current_week %}current-week{% endif %}">
+      <div class="schedule-row {% if g.week == season.current_week %}current-week{% endif %} {% if g.result %}{{ 'tie' if g.result.tied else ('win' if g.result.won else 'loss') }}{% endif %}">
         <div>
           <div>
             <strong>Wk {{ g.week }}</strong>
-            <span class="schedule-meta">{{ 'vs' if g.is_home else '@' }} {{ g.opponent_abbr }}</span>
+            <span class="schedule-meta">{{ 'vs' if g.is_home else '@' }} {{ team_link(g.opponent_abbr) }}</span>
           </div>
           {% if g.result %}
           <div class="schedule-score">
             <span class="{% if g.result.won %}win{% endif %}">{{ season.user_team_abbr }} {{ g.result.user_score }}</span>
             <span class="schedule-meta">&ndash;</span>
-            <span class="{% if not g.result.won %}win{% endif %}">{{ g.result.opp_score }} {{ g.opponent_abbr }}</span>
+            <span class="{% if not g.result.won and not g.result.tied %}win{% endif %}">{{ g.result.opp_score }} {{ g.opponent_abbr }}</span>
           </div>
           {% endif %}
         </div>
         {% if g.result %}
-        <span class="schedule-badge {% if g.result.won %}win{% else %}loss{% endif %}">{{ 'W' if g.result.won else 'L' }}</span>
+        <span class="schedule-badge {{ 'tie' if g.result.tied else ('win' if g.result.won else 'loss') }}">{{ 'T' if g.result.tied else ('W' if g.result.won else 'L') }}</span>
         {% endif %}
       </div>
       {% endfor %}
@@ -201,7 +214,7 @@
   <div class="card">
     <h3>Scouting &mdash; Next Opponent</h3>
     {% if scouting %}
-    <div class="scouting-opponent">{{ scouting.is_home_game and "vs" or "@" }} {{ scouting.opponent_team.location }} ({{ scouting.opponent_team.abbr }})</div>
+    <div class="scouting-opponent">{{ scouting.is_home_game and "vs" or "@" }} {{ team_link(scouting.opponent_team.abbr, scouting.opponent_team.location + ' (' + scouting.opponent_team.abbr + ')') }}</div>
     <p class="muted">
       Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
       {%- if scouting.summary.streak != "-" %} &middot; {{ scouting.summary.streak }}{% endif %}
@@ -239,7 +252,14 @@
         {% endif %}
 
         <div class="dash-subhead">Coaching Staff</div>
-        <div class="dash-stat-row"><span>Head Coach</span><span>{{ scouting.coach.name }}</span></div>
+        {# Clickable once a real Coach entity backs this (ROADMAP.md R3);
+           still plain text for a database with no coaches imported, where
+           _placeholder_coach() supplies no card to open. #}
+        <div class="dash-stat-row"><span>Head Coach</span><span>
+          {%- if scouting.coach.card -%}
+          <span class="coach-name-link coach-link" data-coach-card='{{ scouting.coach.card }}'>{{ scouting.coach.name }}</span>
+          {%- else -%}{{ scouting.coach.name }}{%- endif -%}
+        </span></div>
       </div>
 
       <div class="dash-panel" data-panel="offense" hidden>
@@ -415,7 +435,7 @@
           {% for pr in power_rankings %}
           <tr class="{% if pr.record.abbr == season.user_team_abbr %}starter{% endif %}">
             <td>{{ pr.rank }}</td>
-            <td>{{ pr.record.location }} ({{ pr.record.abbr }})</td>
+            <td>{{ team_link(pr.record.abbr, pr.record.location + ' (' + pr.record.abbr + ')') }}</td>
             <td>{{ pr.record.wins }}-{{ pr.record.losses }}</td>
             <td>{{ pr.record.points_for }}</td>
             <td>{{ pr.record.points_against }}</td>
@@ -492,11 +512,16 @@
   <div class="card">
     <h3>Awards Race</h3>
     {% if awards_race %}
-    <div class="dash-tabs-grid cols-4">
+    {# COTY (GDD Sec 7.4.6) joined this box with the real Coach entity
+       (ROADMAP.md R3). Its candidates are coaches, not players, so the
+       panel below branches on the tab key rather than reusing
+       player_link_or_name() for a name that has no player behind it. #}
+    <div class="dash-tabs-grid cols-5">
       <button type="button" class="dash-tab active" data-tab="mvp">MVP</button>
       <button type="button" class="dash-tab" data-tab="opoy">OPOY</button>
       <button type="button" class="dash-tab" data-tab="dpoy">DPOY</button>
       <button type="button" class="dash-tab" data-tab="roy">ROY</button>
+      <button type="button" class="dash-tab" data-tab="coty">COTY</button>
     </div>
     <div class="dashboard-scroll">
       {% for key, candidates in [("mvp", awards_race.mvp), ("opoy", awards_race.opoy), ("dpoy", awards_race.dpoy), ("roy", awards_race.roy)] %}
@@ -508,6 +533,13 @@
         {% endfor %}
       </div>
       {% endfor %}
+      <div class="dash-panel" data-panel="coty" hidden>
+        {% for c in awards_race.coty %}
+        <div class="dash-stat-row"><span>{{ loop.index }}. {{ c.name }} ({{ c.team_abbr }})</span><span class="muted">{{ c.stat_line }}</span></div>
+        {% else %}
+        <p class="muted">No coaching staff imported into this database yet &mdash; see the <a href="/staff">Staff</a> page.</p>
+        {% endfor %}
+      </div>
     </div>
     {% else %}
     <p class="muted">Check back after Week 4 &mdash; too few games played so far to rank candidates meaningfully.</p>

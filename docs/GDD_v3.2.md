@@ -5930,7 +5930,7 @@ Convert PVS to award CS with modest context multipliers. RankNorm(x) maps ranks 
 
 &nbsp;   CS\_OROY/DROY = 0.92·RankNorm(PVS\_side) + 0.08·(A−1)
 
-\- \*\*COTY\*\*  
+\- \*\*COTY\*\* -- \*implemented 2026-09-11. Five of the six terms are computed for real: Wins (TeamRecord), Wins-ExpectedWins (Pythagorean expectation, exponent 2.37, from the team's own PF/PA), Improvement\_yoy (vs. the archived prior season; dropped entirely in a franchise's first season rather than scored as zero for everyone), S (opponents' combined win%), and PlayoffByeBonus (the real \#1 seed). \*\*InjuryLostWAR has no source at all\*\* -- no injury system exists -- so its 0.10 weight is \*\*redistributed proportionally across the five real terms\*\*, not silently scored as a constant zero, which would have produced a slightly-wrong-but-plausible-looking total. Candidates are head coaches only; coordinators' recognition is 7.9's championship credit by role.\*  
 
 &nbsp;   CS\_COTY = 0.35·RankNorm(Wins) + 0.25·RankNorm(Wins−ExpectedWins) + 0.15·RankNorm(Improvement\_yoy) + 0.10·RankNorm(S) + 0.10·RankNorm(−InjuryLostWAR) + 0.05·PlayoffByeBonus
 
@@ -7838,9 +7838,13 @@ The real seed (see 3.6.1) lists far more titles per team than the 5-value role e
 
 Decided 2026-09-11: ST shares OC/DC's HOF-weight tier in 7.9.5/3.10 (its own tier, but weighted the same as OC/DC, not a lighter one) -- see 7.9.5.
 
+\- \*\*One person = one row\*\* (added 2026-09-11 when the importer was built). The real seed lists \*\*17 people twice on their own staff\*\* at one salary: 14 hold a broad "Passing Game Coordinator" line alongside their real position-group line (e.g. HOU's Jerrod Johnson is both Passing Game Coordinator and Quarterbacks Coach), and 3 are coordinators who also carry their old position-coach title (KC's Matt Nagy is OC \*and\* Quarterbacks Coach; DET's Kelvin Sheppard and LAR's Chris Shula are DC \*and\* Linebackers Coach). These are one employee, not two, so they collapse to a single coach row: the \*\*senior role wins\*\* (HC \> OC/DC/ST \> AC), and between two AC listings the \*\*more specific position group wins\*\* ("Quarterbacks" over the umbrella "Passing Game"). Both halves are the same principle the dual-title rule above already states: keep the primary functional job, drop the secondary tag. Natural key is therefore (first\_name, last\_name, team) -- 3.6.3 prefers a birthdate, which the seed does not carry. Result: 450 seed lines -\> \*\*433 coaches\*\*, 32 each of HC/OC/DC/ST plus 305 assistants.
+
 
 
 \*\*7.7.2.2 Strategic Tendencies (0-100 sliders)\*\*
+
+\*Implementation note (2026-09-11): the real seed supplies only name, title and salary, so every slider below and every rating in 7.7.2.3 is \*\*deterministically generated\*\* from \`app.engine.rng.stable\_seed\` keyed on (LEAGUE\_SEED, coach\_id) -- reproducible per 1.3, never hand-authored. A real \`is\_generated\_profile\` column carries that distinction into the data model, and the Coach Card discloses it on screen. The one generated value with a real anchor is \*\*reputation\*\*: the coach's \`salary\_aav\` percentile \*within their own role tier\* (HC pool vs. OC/DC/ST pool vs. AC pool), mapped onto 40-99 -- real compensation genuinely encodes relative standing. The 7.7.2.3 quality ratings are drawn centered on that reputation; the 7.7.2.2 tendency sliders are style rather than quality and are drawn symmetrically about a league-average 50, independent of it.\*
 
 
 
@@ -8034,7 +8038,7 @@ Credit coaches for conference championships and Super Bowls \*\*by the role they
 
 
 
-\*\*StaffAssignment (role history for snapshot at kickoff)\*\*
+\*\*StaffAssignment (role history for snapshot at kickoff)\*\* -- \*not built as of 2026-09-11, deliberately: nothing in the engine can change a coach's role mid-season (there is no hiring/firing/promotion flow yet), so the current \`Coach.role\` \*is\* the role held at kickoff and a second table tracking a history that cannot vary would be dead weight. This also makes 7.9.3's "mid-season role change" and "Interim HC" edge cases unreachable today. Whichever chunk builds 8.2.3's hiring market is the one that needs this table.\*
 
 
 
@@ -8306,6 +8310,8 @@ A league of dynamic coaches (Head Coach, OC, DC) who define a team's strategic i
 
 \- \*\*Algorithm:\*\* For each dynamic rating R, the change is calculated as: ΔR = (PerfScore\_R × Volatility × PositionalModifier).
 
+\*Implemented 2026-09-11, with one deliberate restriction: only the ratings that have a \*\*real team statistical rank\*\* behind them move. \`discipline\` (penalties/game), \`player\_dev\_offense\` (points for), \`player\_dev\_defense\` (points against), \`motivation\_chemistry\` (win%), \`red\_zone\_offense\` (red-zone TD%) and \`red\_zone\_defense\` (points allowed, as the disclosed stand-in -- the scouting module's red-zone computation is offense-side only) all progress. \`clock\_management\` and \`challenge\_sense\` do \*\*not\*\*: this engine has no clock model and no challenge system, so there is no category to rank them against, and drifting them on an invented signal would be worse than leaving them alone. PerfScore uses this section's own worked example verbatim, including its 16.5 midpoint; Volatility and PositionalModifier are given no values anywhere in this document, so those two constants are the implementation's documented choice (HC 1.0, OC/DC 0.8, ST 0.5, AC 0.4 -- a head coach owns the whole program's result, an assistant the least).\*
+
 \- \*\*Performance Score Example:\*\* The discipline rating changes based on the team's league rank in Penalties Per Game: PerfScore = (16.5 - Rank) \\\* 0.2.
 
 
@@ -8313,6 +8319,8 @@ A league of dynamic coaches (Head Coach, OC, DC) who define a team's strategic i
 \*\*8.2.3. Coach Lifecycle Management (Hiring, Firing, Retirement)\*\*
 
 
+
+\*Implementation status (2026-09-11): \*\*Job Security Score is computed and stored every offseason\*\* (real formula below; BlowoutLosses% and PreseasonPowerRankDelta default to 0 -- there is no preseason Power Rating snapshot to diff against, a disclosed omission rather than a fabricated value), and \*\*age-based retirement is live\*\* exactly as written below, opening real vacancies that the Staff page renders as vacant. The \*\*hiring market is NOT built\*\*: the multi-round offer system and Coach\_Offer\_Score need the same negotiation machinery R4a builds for player contracts, so a vacant seat stays visibly vacant rather than being auto-filled with an invented coach. Firing on a JSS threshold is likewise deferred -- firing a coach with nobody to hire would just empty the league.\*
 
 \- \*\*Firing Logic (Job Security Score):\*\*
 

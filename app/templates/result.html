@@ -7,6 +7,21 @@
     <span class="vs">at</span>
     <span class="{% if result.winner == 'home' %}winner{% endif %}">{{ home.name }} {{ result.home_score }}</span>
   </div>
+  <table class="boxtable linescore">
+    <thead><tr><th></th><th>1</th><th>2</th><th>3</th><th>4</th><th>Final</th></tr></thead>
+    <tbody>
+      <tr class="{% if result.winner == 'away' %}winner{% endif %}">
+        <td>{{ away.abbr }}</td>
+        {% for q_home, q_away in quarters %}<td>{{ q_away }}</td>{% endfor %}
+        <td><strong>{{ result.away_score }}</strong></td>
+      </tr>
+      <tr class="{% if result.winner == 'home' %}winner{% endif %}">
+        <td>{{ home.abbr }}</td>
+        {% for q_home, q_away in quarters %}<td>{{ q_home }}</td>{% endfor %}
+        <td><strong>{{ result.home_score }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
   <p class="muted">LEAGUE_SEED={{ league_seed }} &middot; game_seed={{ game_seed }} &middot; deterministic: replaying these two teams with this seed always produces this result.</p>
 </div>
 
@@ -81,6 +96,16 @@
     <tbody>
       {% for p in box.punting %}
       <tr><td>{{ player_link_or_name(p.name, team.abbr) }}</td><td>{{ p.punts }}</td><td>{{ "%.1f"|format(p.net_avg) }}</td><td>{{ p.inside_20 }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if box.returns %}
+  <table class="boxtable">
+    <thead><tr><th>Kick Returns</th><th>Ret</th><th>Yds</th><th>Long</th><th>TD</th></tr></thead>
+    <tbody>
+      {% for r in box.returns %}
+      <tr><td>{{ player_link_or_name(r.name, team.abbr) }}</td><td>{{ r.returns }}</td><td>{{ r.yards }}</td><td>{{ r.long }}</td><td>{{ r.touchdowns }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

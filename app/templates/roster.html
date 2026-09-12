@@ -53,10 +53,10 @@
   </div>
   {% endif %}
 
-  <details class="roster-filter-panel">
+  <details class="roster-filter-panel" id="roster-filter-panel" {% if generated_query %}open{% endif %}>
     <summary>🔍 Filter Roster{% if generated_query %} (active){% endif %}</summary>
     <div class="roster-filter-body">
-      <form method="get" action="/roster">
+      <form method="get" action="/roster" data-preserve-scroll="roster-filter-panel">
         <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
         <input type="hidden" name="view" value="{{ view }}">
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">{% endif %}
@@ -201,31 +201,60 @@
      ROADMAP.md §2b's GM Desk audit note). Top Free Agents and Find
      Player both use real league data. -->
 <div class="roster-quick-boxes">
-  <div class="card">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-      <h3 style="margin: 0;">Top Free Agents</h3>
-      <div class="fa-pager">
-        <a href="?team_abbr={{ team.abbr }}&view={{ view }}&fa_pos={{ fa_prev_pos }}">&lsaquo;</a>
-        <strong>{{ fa_pos }}</strong>
-        <a href="?team_abbr={{ team.abbr }}&view={{ view }}&fa_pos={{ fa_next_pos }}">&rsaquo;</a>
+  <div class="card" id="free-agents-box">
+    <h3 style="margin: 0 0 0.75rem;">{% if fa_status == 'SOON' %}Soon-to-be Free Agents{% else %}Top Free Agents{% endif %}</h3>
+    <form method="get" action="/roster" data-preserve-scroll="free-agents-box">
+      <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <div class="row" style="margin-bottom: 0.75rem;">
+        <div>
+          <label for="fa_pos">Position</label>
+          <select name="fa_pos" id="fa_pos" onchange="this.form.submit()">
+            {% for pos in fa_pos_options %}
+            <option value="{{ pos }}" {% if fa_pos == pos %}selected{% endif %}>{{ pos }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="fa_status">Show</label>
+          <select name="fa_status" id="fa_status" onchange="this.form.submit()">
+            <option value="ALL" {% if fa_status == 'ALL' %}selected{% endif %}>All Free Agents</option>
+            <option value="OFF" {% if fa_status == 'OFF' %}selected{% endif %}>Offense</option>
+            <option value="DEF" {% if fa_status == 'DEF' %}selected{% endif %}>Defense</option>
+            <option value="SOON" {% if fa_status == 'SOON' %}selected{% endif %}>Soon to be FA (rostered, &le;1 yr left)</option>
+          </select>
+        </div>
+        <noscript><div><button type="submit">Apply</button></div></noscript>
       </div>
-    </div>
-    <p class="muted" style="font-size: 0.78rem; margin-top: -0.5rem;">OVR 75+, top 5 by rating.</p>
+    </form>
     {% if top_free_agents %}
-    {% for p in top_free_agents %}
-    <div class="fa-row" data-card='{{ p | player_card_json }}' style="cursor: pointer;">
-      <div class="fa-row-top"><span>#{{ loop.index }} {{ player_link(p) }}</span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
-      <div class="fa-row-bottom"><span>{{ p.position.value }} &middot; Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
+    <div class="dashboard-scroll">
+      {% for p in top_free_agents %}
+      <div class="fa-row" data-card='{{ p | player_card_json }}'>
+        <div class="fa-row-top"><span>#{{ loop.index }} {{ player_link(p) }}</span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
+        <div class="fa-row-bottom"><span>{{ p.position.value }} &middot; {% if fa_status == 'SOON' %}{{ p.team_abbr }} &middot; {% endif %}Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
+        {% if fa_status == 'SOON' %}
+        <div class="fa-row-bottom"><span class="muted">{{ fa_stat_line.get(p.player_id, '') or 'No stats yet this season' }}</span></div>
+        {% endif %}
+        <!-- R11 (GDD Sec 11): shared tabbed detail view (Overview/Ratings/
+             Stats/Contract, reusing the Player Card's own tab markup/JS)
+             so a row can be inspected in place, not only via the full
+             modal. Free Agents rows get a 5th "Sought" tab (Contract
+             Sought), a Global MVP "Coming Soon" shell (Sec9.2.8) until a
+             real expected-salary/negotiation system exists (R4a). -->
+        <button type="button" class="row-detail-toggle" data-row-toggle>Details &#9660;</button>
+        <div class="row-detail-panel" data-show-contract-sought="1" hidden></div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
     {% else %}
-    <p class="muted">No free agents at OVR 75+ for {{ fa_pos }}.</p>
+    <p class="muted">{% if fa_status == 'SOON' %}No rostered players at {{ fa_pos }} are within a year of free agency.{% else %}No free agents at {{ fa_pos }}.{% endif %}</p>
     {% endif %}
   </div>
 
-  <div class="card">
+  <div class="card" id="find-player-box">
     <h3>Find Player</h3>
-    <form method="get" action="/roster">
+    <form method="get" action="/roster" data-preserve-scroll="find-player-box">
       <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
       <input type="hidden" name="view" value="{{ view }}">
       <div class="row" style="margin-bottom: 0.5rem;">
@@ -253,48 +282,101 @@
             {% endfor %}
           </select>
         </div>
+      </div>
+      <!-- R11 (GDD Sec 11): Find Player results become sortable by any
+           ROSTER_SORT_KEYS column, same GET-param convention as the main
+           Roster table's own sort links -- reused here as a compact
+           dropdown (rather than per-column header links) since this box
+           is narrow and shows card-style rows, not a table. -->
+      <div class="row" style="margin-bottom: 0.5rem;">
+        <div>
+          <label for="find_sort">Sort by</label>
+          <select name="find_sort" id="find_sort" onchange="this.form.submit()">
+            {% for cid, label in find_sort_columns %}
+            <option value="{{ cid }}" {% if find_sort == cid %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="find_dir">Order</label>
+          <select name="find_dir" id="find_dir" onchange="this.form.submit()">
+            <option value="desc" {% if find_dir == 'desc' %}selected{% endif %}>High to Low</option>
+            <option value="asc" {% if find_dir == 'asc' %}selected{% endif %}>Low to High</option>
+          </select>
+        </div>
+      </div>
+      <details class="roster-filter-panel">
+        <summary>Attribute Filters{% if find_min_ovr is not none or find_max_ovr is not none or find_min_spd is not none or find_max_spd is not none or find_min_cth is not none or find_max_cth is not none or find_min_tck is not none or find_max_tck is not none or find_rookie %} (active){% endif %}</summary>
+        <div class="roster-filter-body">
+          <div class="filter-range-grid">
+            <div>
+              <label>Overall (OVR)</label>
+              <div class="range-inputs">
+                <input type="number" name="find_min_ovr" placeholder="Min" min="0" max="99" value="{{ find_min_ovr if find_min_ovr is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="find_max_ovr" placeholder="Max" min="0" max="99" value="{{ find_max_ovr if find_max_ovr is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <label>Speed (SPD)</label>
+              <div class="range-inputs">
+                <input type="number" name="find_min_spd" placeholder="Min" min="0" max="99" value="{{ find_min_spd if find_min_spd is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="find_max_spd" placeholder="Max" min="0" max="99" value="{{ find_max_spd if find_max_spd is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <label>Catching (CTH)</label>
+              <div class="range-inputs">
+                <input type="number" name="find_min_cth" placeholder="Min" min="0" max="99" value="{{ find_min_cth if find_min_cth is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="find_max_cth" placeholder="Max" min="0" max="99" value="{{ find_max_cth if find_max_cth is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <label>Tackling (TCK)</label>
+              <div class="range-inputs">
+                <input type="number" name="find_min_tck" placeholder="Min" min="0" max="99" value="{{ find_min_tck if find_min_tck is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="find_max_tck" placeholder="Max" min="0" max="99" value="{{ find_max_tck if find_max_tck is not none else '' }}">
+              </div>
+            </div>
+          </div>
+          <div class="filter-checkbox-grid" style="margin-bottom: 0.75rem;">
+            <label class="filter-checkbox"><input type="checkbox" name="find_rookie" value="1" {% if find_rookie %}checked{% endif %}> Rookie (age &le; 23)</label>
+          </div>
+        </div>
+      </details>
+      <div class="row" style="margin-top: 0.5rem;">
         <div><button type="submit">Search</button></div>
       </div>
     </form>
     {% if find_results %}
     <div class="dashboard-scroll">
       {% for p in find_results %}
-      <div class="find-row" data-card='{{ p | player_card_json }}' style="cursor: pointer;">
+      <div class="find-row" data-card='{{ p | player_card_json }}'>
         <div class="find-row-top"><span>{{ player_link(p) }} <span class="muted">#{{ p.jersey_number }}</span></span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
         <div class="find-row-bottom"><span>{{ p.position.value }} &middot; {{ p.team_abbr or 'FA' }} &middot; Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
+        <!-- R11: same shared inline tabbed detail view as the Free Agents
+             box (no Contract Sought tab here -- that's specific to the
+             Free Agents box per the GDD, not to whether a given result
+             happens to currently be a free agent). -->
+        <button type="button" class="row-detail-toggle" data-row-toggle>Details &#9660;</button>
+        <div class="row-detail-panel" hidden></div>
       </div>
       {% endfor %}
     </div>
-    {% elif find_q or find_pos != 'all' or find_team != 'all' %}
+    {% elif find_active %}
     <p class="muted">No players matched.</p>
     {% endif %}
   </div>
 </div>
 
-<!-- Embedded Depth Chart Widget (M4 requirement) -->
+<!-- Depth Chart widget (Sec13: replaces the old read-only embed + the
+     standalone /depth-chart page -- full move/auto-fill functionality
+     lives here now, shared via include so it's defined in one place). -->
 {% if depth_chart_groups and team.abbr != 'FA' %}
-<div class="card">
-  <h3>Depth Chart</h3>
-  <p class="muted">The gold rows are current starters (wired into the Drive Engine). Manage depth chart on the <a href="/depth-chart?team_abbr={{ team.abbr }}">Depth Chart</a> page.</p>
-  {% for group in depth_chart_groups %}
-  <div style="margin-bottom: 1.5rem;">
-    <h4>{{ group.position }}</h4>
-    <table style="font-size: 0.875rem;">
-      <thead><tr><th></th><th>Name</th><th>Age</th><th>OVR</th></tr></thead>
-      <tbody>
-        {% for p in group.players %}
-        <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}">
-          <td>{{ loop.index }}</td>
-          <td>{{ player_link(p) }}</td>
-          <td>{{ p.age }}</td>
-          <td>{{ p.overall_rating }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endfor %}
-</div>
+{% include "_depth_chart_widget.html" %}
 {% endif %}
 
 {% endif %}

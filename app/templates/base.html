@@ -189,12 +189,21 @@
       font: inherit; text-align: left;
     }
     .player-link:hover { text-decoration: underline; }
-    dialog#player-card-modal {
+    /* Team Card (Sec3): same trigger styling as .player-link, distinct
+       class so the two never collide in the click-delegation handler. */
+    .team-link {
+      background: none; border: none; padding: 0; margin: 0;
+      color: var(--gold); text-decoration: none; cursor: pointer;
+      font: inherit; text-align: left;
+    }
+    .team-link:hover { text-decoration: underline; }
+    dialog#player-card-modal, dialog#team-card-modal, dialog#coach-card-modal {
       background: var(--panel); color: var(--text);
       border: 1px solid var(--border); border-radius: 10px;
       padding: 0; width: 820px; max-width: 95vw; max-height: 85vh;
     }
-    dialog#player-card-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog#player-card-modal::backdrop, dialog#team-card-modal::backdrop,
+    dialog#coach-card-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
     .pc-header {
       display: flex; align-items: flex-start; justify-content: space-between;
       gap: 1rem; padding: 1.25rem 1.5rem 1rem; border-bottom: 1px solid var(--border);
@@ -210,17 +219,21 @@
     .pc-badge-pos { background: var(--border); color: var(--text); }
     .pc-badge-ovr { background: rgba(212, 175, 55, 0.18); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.35); }
     .pc-badge-team { background: var(--border); color: var(--muted); }
-    #pc-close {
+    #pc-close, #tc-close {
       background: none; border: none; color: var(--muted); font-size: 1.4rem;
       cursor: pointer; line-height: 1; padding: 0.2rem;
     }
-    #pc-close:hover { color: var(--text); }
+    #pc-close:hover, #tc-close:hover { color: var(--text); }
     .pc-tabs { display: flex; gap: 0.25rem; padding: 0.75rem 1.5rem 0; border-bottom: 1px solid var(--border); }
     .pc-tab {
       background: none; border: none; color: var(--muted); cursor: pointer;
       padding: 0.5rem 0.9rem; font-size: 0.9rem; border-radius: 6px 6px 0 0;
     }
-    .pc-tab.active { background: var(--border); color: var(--text); }
+    .pc-tab.active, .tc-tab.active, .cc-tab.active { background: var(--border); color: var(--text); }
+    .tc-tab {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      padding: 0.5rem 0.9rem; font-size: 0.9rem; border-radius: 6px 6px 0 0;
+    }
     .pc-body { padding: 1.25rem 1.5rem 1.5rem; overflow-y: auto; max-height: calc(85vh - 130px); }
     .pc-panel[hidden] { display: none; }
     .pc-row {
@@ -235,6 +248,19 @@
     .pc-bar-top span:first-child { color: var(--muted); }
     .pc-bar-track { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
     .pc-bar-fill { background: var(--gold); height: 100%; }
+    /* Contract tab's 20-year grid: side-scrollable rather than wrapping so
+       Year 1..Year 20 always line up with the salary row directly below
+       them, same "wrap in overflow-x:auto" convention as .roster-table-wrap. */
+    .pc-contract-grid-wrap { overflow-x: auto; background: var(--bg); border-radius: 8px; margin-bottom: 0.6rem; }
+    .pc-contract-grid-row { display: flex; }
+    .pc-contract-grid-row + .pc-contract-grid-row { border-top: 1px solid var(--border); }
+    .pc-contract-year {
+      flex: 0 0 84px; text-align: center; padding: 0.6rem 0.4rem;
+      font-size: 0.82rem; border-right: 1px solid var(--border);
+    }
+    .pc-contract-grid-row:first-child .pc-contract-year { color: var(--muted); font-weight: 600; }
+    .pc-contract-year.pc-contract-year-active { color: var(--text); }
+    .pc-contract-year.pc-contract-year-empty { color: var(--muted); }
     .pc-stat-heading {
       color: var(--gold); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
       margin: 1rem 0 0.5rem;
@@ -420,15 +446,28 @@
 
     .roster-quick-boxes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; }
     @media (max-width: 700px) { .roster-quick-boxes { grid-template-columns: 1fr; } }
-    .fa-pager { display: flex; align-items: center; gap: 0.5rem; }
-    .fa-pager a { color: var(--muted); text-decoration: none; padding: 0.1rem 0.4rem; }
-    .fa-pager a:hover { color: var(--text); }
     .fa-row, .find-row {
       background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
       padding: 0.5rem 0.7rem; margin-bottom: 0.5rem; font-size: 0.85rem;
     }
     .fa-row-top, .find-row-top { display: flex; justify-content: space-between; margin-bottom: 0.2rem; }
     .fa-row-bottom, .find-row-bottom { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.78rem; }
+
+    /* R11 (GDD Sec 11): inline row-detail tabs on Free Agents/Find Player
+       rows -- reuses .pc-tab/.pc-panel's existing look (same classes,
+       populated via the same overviewPanel/ratingsPanel/statsPanel/
+       contractPanel functions the full Player Card modal uses) but scaled
+       down for a narrow quick-access box instead of the full modal. */
+    .row-detail-toggle {
+      background: none; border: none; color: var(--muted); font-size: 0.72rem;
+      cursor: pointer; padding: 0.3rem 0 0; margin: 0;
+    }
+    .row-detail-toggle:hover { color: var(--text); }
+    .row-detail-panel { margin-top: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+    .row-detail-panel .pc-tabs { padding: 0; gap: 0.15rem; border-bottom: 1px solid var(--border); }
+    .row-detail-panel .pc-tab { padding: 0.3rem 0.55rem; font-size: 0.72rem; }
+    .row-detail-panel .pc-body { padding: 0.5rem 0 0; max-height: 240px; overflow-y: auto; }
+    .row-detail-panel .pc-row { font-size: 0.78rem; }
 
     /* Weekly Gameplan tooltips (real source: CoachGameplanSection.tsx's
        per-setting HelpCircle + Tooltip -- real copy carried over as-is,
@@ -516,9 +555,16 @@
       grid-template-columns: repeat(3, 1fr);
       gap: 1.5rem;
     }
-    .dashboard-grid .card { margin-bottom: 0; }
+    /* .card becomes a flex column only inside the dashboard grid, so a card
+       can opt one internal scroll region into filling the stretched height
+       via .dashboard-scroll-flex below (Team Schedule) without changing
+       .dashboard-scroll's own fixed-max-height behavior for every other
+       card that still relies on it (Box Score, Scouting Panel, Power
+       Rankings, Top Performers, Awards Race). */
+    .dashboard-grid .card { margin-bottom: 0; display: flex; flex-direction: column; }
     .dashboard-span-2 { grid-column: span 2; }
     .dashboard-scroll { max-height: 420px; overflow-y: auto; }
+    .dashboard-scroll-flex { flex: 1; min-height: 0; max-height: none; }
 
     /* Scouting Panel opponent header (ROADMAP.md Sec2d item 2): the
        "@ SEA" line is the thing the user most needs to spot at a
@@ -568,6 +614,7 @@
     .dash-tabs-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
     .dash-tabs-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
     .dash-tabs-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .dash-tabs-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
     .dash-tab, .tp-conf-tab {
       background: var(--bg); border: 1px solid var(--border); color: var(--muted);
       border-radius: 6px; padding: 0.4rem 0.3rem; font-size: 0.78rem; cursor: pointer; text-align: center;
@@ -575,6 +622,45 @@
     }
     .dash-tab.active, .tp-conf-tab.active { background: var(--border); color: var(--text); font-weight: 600; }
     .dash-panel[hidden] { display: none; }
+    /* All 4 divisions now stack under one AFC/NFC tab (ROADMAP.md
+       Sec2d-B item 9 revision) instead of hiding behind their own
+       East/North/South/West sub-tab -- this is the sub-header above
+       each division's table. */
+    .standings-division-header { margin: 0.75rem 0 0.35rem; color: var(--gold); font-size: 0.85rem; }
+    .standings-division-header:first-child { margin-top: 0; }
+
+    /* Team-select grid: reuses the header's .team-badge convention (no
+       team logo assets exist anywhere in this project) inside a card-grid
+       button, same auto-fill sizing precedent as .hof-grid/.record-book-grid.
+       No Figma source exists for this screen, so this follows the app's
+       own established patterns rather than translating a design file. */
+    .team-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0.6rem; }
+    .team-pick-card {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.6rem 0.75rem; width: 100%;
+      color: var(--text); font-weight: 500; text-align: left;
+    }
+    .team-pick-card:hover { border-color: var(--gold); background: rgba(212, 175, 55, 0.08); filter: none; }
+    .team-pick-card.selected { border-color: var(--gold); background: rgba(212, 175, 55, 0.15); }
+    .team-pick-card .team-badge { border-color: var(--border); font-size: 0.78rem; }
+    .team-pick-card:hover .team-badge, .team-pick-card.selected .team-badge { border-color: var(--gold); }
+    .team-pick-name { font-size: 0.88rem; line-height: 1.25; }
+
+    /* History/HOF merge (2026-09-11): Team History box rows + League
+       History per-season blocks. Reuses .dashboard-grid/.dashboard-span-2/
+       .dashboard-scroll (already generic, not Dashboard-page-specific)
+       for the column layout, same precedent as the Scouting Panel's
+       .dash-tab reuse. */
+    .team-history-row { padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+    .team-history-row:last-child { border-bottom: none; }
+    .team-history-top { display: flex; justify-content: space-between; align-items: baseline; }
+    .team-history-finish { font-size: 0.85rem; margin-top: 0.1rem; }
+    .team-history-finish.gold { color: var(--gold); font-weight: 600; }
+    .team-history-awards { font-size: 0.78rem; color: var(--gold); margin-top: 0.15rem; }
+    .league-history-season { padding: 0.85rem 0; border-bottom: 1px solid var(--border); }
+    .league-history-season:last-child { border-bottom: none; }
+    .league-history-season h4 { margin: 0 0 0.25rem; }
 
     /* Top Performers box (ROADMAP.md Sec2d-B item 11): tp-conf-tab reuses
        .dash-tab's look (shared rule above) but is handled by its own JS
@@ -606,8 +692,16 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 0.55rem 0.4rem; border-radius: 6px; gap: 0.75rem;
     }
-    .schedule-row:hover { background: rgba(45, 74, 111, 0.3); }
     .schedule-row.current-week { background: rgba(212, 175, 55, 0.08); }
+    /* Brian's explicit ask (2026-09-11): the whole row reads win/loss/tie
+       at a glance, not just the small badge -- green/red/grey background
+       tints using the same palette the badge below already established.
+       :hover declared last so it still wins on mouseover instead of the
+       tint flattening the row's interactive look. */
+    .schedule-row.win { background: rgba(34, 197, 94, 0.10); }
+    .schedule-row.loss { background: rgba(239, 68, 68, 0.10); }
+    .schedule-row.tie { background: rgba(148, 163, 184, 0.12); }
+    .schedule-row:hover { background: rgba(45, 74, 111, 0.3); }
     .schedule-meta { color: var(--muted); font-size: 0.85rem; }
     .schedule-score .win { font-weight: 700; }
     .schedule-badge {
@@ -616,6 +710,42 @@
     }
     .schedule-badge.win { background: rgba(34, 197, 94, 0.18); color: #4ade80; }
     .schedule-badge.loss { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+    .schedule-badge.tie { background: rgba(148, 163, 184, 0.22); color: var(--muted); }
+
+    /* Staff page (GDD Sec 9.2.5, Figma StaffPage.tsx/HeadCoachBox.tsx).
+       Deliberately built out of the same .card / .pc-row / .dash-tab
+       primitives every other page already uses -- the source's own
+       layout is a 3-column HC+Scouting row over a 4-column coordinator
+       row, which is a plain CSS grid here rather than Tailwind spans. */
+    .staff-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .staff-grid .staff-span-2 { grid-column: span 2; }
+    @media (max-width: 1100px) { .staff-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) {
+      .staff-grid { grid-template-columns: 1fr; }
+      .staff-grid .staff-span-2 { grid-column: span 1; }
+    }
+    .coach-role { color: var(--accent); font-size: 0.85rem; margin: 0 0 8px; }
+    .coach-name-link { cursor: pointer; text-decoration: none; color: var(--text); font-weight: 600; }
+    .coach-name-link:hover { color: var(--accent); }
+    .coach-vacant { color: var(--muted); font-style: italic; }
+    .coach-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
+    .coach-ovr {
+      display: inline-block; min-width: 34px; text-align: center; padding: 1px 6px;
+      border-radius: 4px; font-weight: 600; background: var(--border); color: var(--text);
+    }
+    /* Reputation meter -- the source renders a filled bar; this reuses
+       the Player Card's own .pc-bar-* track rather than a second bar
+       implementation, so both cards stay visually identical. */
+    .coach-tag {
+      display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem;
+      background: var(--border); color: var(--muted); margin-right: 6px;
+    }
+    .coach-generated-note { color: var(--muted); font-size: 0.78rem; margin-top: 10px; line-height: 1.45; }
+    .staff-search-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+    /* Same overflow-x wrapper convention .roster-table-wrap/.stats-table-wrap
+       already use, so a wide staff table scrolls inside its own card
+       instead of scrolling the page body. */
+    .table-wrap { overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -625,7 +755,7 @@
     <div class="header-team">
       <div class="team-badge">{{ hc.user_team.abbr }}</div>
       <div>
-        <div class="team-name">{{ hc.user_team.location }} ({{ hc.user_team.abbr }})</div>
+        <div class="team-name">{{ team_link(hc.user_team.abbr, hc.user_team.location + ' (' + hc.user_team.abbr + ')') }}</div>
         <div class="team-meta">
           Record: {{ hc.user_record.wins }}-{{ hc.user_record.losses }}
           &middot; {{ hc.user_team.conference }} {{ hc.user_team.division }}
@@ -649,8 +779,8 @@
   </div>
   {% set nav_links = [
     ("/dashboard", "Dashboard"), ("/roster", "Roster"),
-    ("/depth-chart", "Depth Chart"), ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
-    ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/history", "History"), ("/hof", "HOF"),
+    ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
+    ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/history", "History"),
   ] %}
   <nav class="subnav">
     {% for href, label in nav_links %}
@@ -687,6 +817,71 @@
       <div id="pc-panel-ratings" class="pc-panel" hidden></div>
       <div id="pc-panel-stats" class="pc-panel" hidden></div>
       <div id="pc-panel-contract" class="pc-panel" hidden></div>
+    </div>
+  </dialog>
+
+  <!-- Team Card (Sec3): forks the Player Card dialog's exact skeleton
+       (header + tabs + swapped panels, populated client-side from a
+       server-rendered data-team-card JSON blob) rather than a new pattern. -->
+  <dialog id="team-card-modal">
+    <div class="pc-header">
+      <div class="pc-header-main">
+        <div class="pc-avatar" id="tc-abbr"></div>
+        <div>
+          <h3 id="tc-name"></h3>
+          <div class="pc-badges"><span class="pc-badge-team" id="tc-record"></span></div>
+        </div>
+      </div>
+      <button type="button" id="tc-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pc-tabs">
+      <button type="button" class="tc-tab active" data-tab="record">Record</button>
+      <button type="button" class="tc-tab" data-tab="schedule">Schedule</button>
+      <button type="button" class="tc-tab" data-tab="leaders">Leaders</button>
+      <button type="button" class="tc-tab" data-tab="roster">Roster</button>
+    </div>
+    <div class="pc-body">
+      <div id="tc-panel-record" class="pc-panel"></div>
+      <div id="tc-panel-schedule" class="pc-panel" hidden></div>
+      <div id="tc-panel-leaders" class="pc-panel" hidden></div>
+      <div id="tc-panel-roster" class="pc-panel" hidden></div>
+    </div>
+  </dialog>
+
+  <!-- Coach Card (GDD Sec 7.5 "Player & Coach Cards", Figma
+       CoachCardModal.tsx): Overview / Ratings / Career tabs. Forks the
+       Team Card's skeleton, which itself forked the Player Card's --
+       one dialog pattern across all three, not three patterns.
+       The source's 3rd tab is "Contract"; this one is "Career" instead,
+       because a coach's contract here is a real salary plus a
+       disclosed-synthetic year count (same state Player contracts were
+       in before R4a), whereas the Sec 7.9 career championship record IS
+       fully real and has nowhere else to surface. Contract detail is
+       shown inside the Career tab rather than given a tab of its own. -->
+  <dialog id="coach-card-modal">
+    <div class="pc-header">
+      <div class="pc-header-main">
+        <div class="pc-avatar" id="cc-initials"></div>
+        <div>
+          <h3 id="cc-name"></h3>
+          <div class="pc-badges">
+            <span class="pc-badge-pos" id="cc-role"></span>
+            <span class="pc-badge-ovr" id="cc-ovr"></span>
+            <span class="pc-badge-team" id="cc-team"></span>
+          </div>
+        </div>
+      </div>
+      <button type="button" id="cc-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pc-tabs">
+      <button type="button" class="cc-tab active" data-tab="overview">Overview</button>
+      <button type="button" class="cc-tab" data-tab="ratings">Ratings</button>
+      <button type="button" class="cc-tab" data-tab="career">Career</button>
+    </div>
+    <div class="pc-body">
+      <div id="cc-panel-overview" class="pc-panel"></div>
+      <div id="cc-panel-ratings" class="pc-panel" hidden></div>
+      <div id="cc-panel-career" class="pc-panel" hidden></div>
     </div>
   </dialog>
 
@@ -736,19 +931,30 @@
 
       // M8: Player.salary/signing_bonus are real, already-imported Madden
       // data (see player.py's own docstring) that simply had no UI consumer
-      // until now -- shown as-is, not synthetic. Contract length/years
-      // remaining/cap space genuinely aren't modeled anywhere yet (no
-      // Contracts & Cap system exists -- Post-MVP, GDD Part 2 Sec F1.1), so
-      // that part stays a disclosed gap rather than a fabricated number.
+      // until now -- shown as-is, not synthetic. contract_years_remaining is
+      // NOT real Madden data (no such CSV column) -- a disclosed, seeded 1-5
+      // placeholder (player.py's own docstring) so the grid below has
+      // something to key off until R4a (Contracts & Cap, Post-MVP, GDD Sec
+      // 8.3) replaces it with a real negotiated term/cap system.
       function money(n) {
         if (n === null || n === undefined) { return '--'; }
         return '$' + Number(n).toLocaleString('en-US');
       }
 
       function contractPanel(card) {
-        return '<div class="pc-row"><span class="pc-row-label">Salary</span><span>' + money(card.salary) + '</span></div>' +
-          '<div class="pc-row"><span class="pc-row-label">Signing Bonus</span><span>' + money(card.signing_bonus) + '</span></div>' +
-          '<p class="muted">Contract length, years remaining, and cap space aren\'t modeled yet -- Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md\'s Known Gaps).</p>';
+        var years = card.contract_years_remaining || 0;
+        var yearHeaders = '';
+        var yearSalaries = '';
+        for (var i = 1; i <= 20; i++) {
+          var active = i <= years;
+          yearHeaders += '<div class="pc-contract-year">Yr ' + i + '</div>';
+          yearSalaries += '<div class="pc-contract-year ' + (active ? 'pc-contract-year-active' : 'pc-contract-year-empty') + '">' +
+            (active ? money(card.salary) : '—') + '</div>';
+        }
+        return '<div class="pc-row"><span class="pc-row-label">Signing Bonus</span><span>' + money(card.signing_bonus) + '</span></div>' +
+          '<div class="pc-contract-grid-wrap"><div class="pc-contract-grid-row">' + yearHeaders + '</div>' +
+          '<div class="pc-contract-grid-row">' + yearSalaries + '</div></div>' +
+          '<p class="muted">Years remaining is a placeholder estimate (' + years + ' of 20 shown, same salary repeated flat) -- real contract length, escalators, and cap space aren\'t modeled yet. Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md\'s Known Gaps).</p>';
       }
 
       function statCell(v) {
@@ -777,6 +983,28 @@
         return html || NO_CAREER_STATS_HTML;
       }
 
+      // R11 (GDD Sec 11): overviewPanel/ratingsPanel factored out of
+      // openCard as pure functions returning HTML strings, same shape as
+      // statsPanel/contractPanel already were -- so the new inline
+      // row-detail widget on Find Player/Free Agents rows (renderInlineDetail
+      // below) can reuse the EXACT same 4 panel builders the full Player
+      // Card modal uses, instead of a second, drifting copy of this markup.
+      function overviewPanel(card) {
+        return '<div class="pc-row"><span class="pc-row-label">Age</span><span>' + card.age + ' years old</span></div>' +
+          '<div class="pc-row"><span class="pc-row-label">Potential</span><span>' + card.pot + '</span></div>' +
+          bar('Morale', card.morale) + bar('Stamina', card.stamina);
+      }
+
+      function ratingsPanel(card) {
+        var rows = '';
+        for (var key in card.attrs) {
+          if (Object.prototype.hasOwnProperty.call(card.attrs, key)) {
+            rows += bar(key, card.attrs[key]);
+          }
+        }
+        return rows;
+      }
+
       function openCard(card) {
         numEl.textContent = card.num || '--';
         nameEl.textContent = card.name;
@@ -784,19 +1012,8 @@
         ovrEl.textContent = card.ovr + ' OVR';
         teamEl.textContent = card.team;
 
-        overviewEl.innerHTML =
-          '<div class="pc-row"><span class="pc-row-label">Age</span><span>' + card.age + ' years old</span></div>' +
-          '<div class="pc-row"><span class="pc-row-label">Potential</span><span>' + card.pot + '</span></div>' +
-          bar('Morale', card.morale) + bar('Stamina', card.stamina);
-
-        var rows = '';
-        for (var key in card.attrs) {
-          if (Object.prototype.hasOwnProperty.call(card.attrs, key)) {
-            rows += bar(key, card.attrs[key]);
-          }
-        }
-        ratingsEl.innerHTML = rows;
-
+        overviewEl.innerHTML = overviewPanel(card);
+        ratingsEl.innerHTML = ratingsPanel(card);
         statsEl.innerHTML = statsPanel(card.career);
         contractEl.innerHTML = contractPanel(card);
 
@@ -806,6 +1023,200 @@
         overviewEl.hidden = false;
 
         modal.showModal();
+      }
+
+      // R11: shared inline tabbed detail view for Find Player/Free Agents
+      // rows (GDD Sec 11) -- same 4 panel builders as the full Player Card
+      // modal above, rendered into a per-row container instead of the
+      // singleton dialog so more than one row can be expanded at once.
+      // Free Agents rows also get a 5th "Sought" tab (Contract Sought),
+      // a Global MVP "Coming Soon" shell (GDD Sec 9.2.8) -- no real
+      // expected-salary/negotiation system exists yet (R4a, Contracts).
+      var CONTRACT_SOUGHT_HTML =
+        '<h4 style="margin: 0 0 0.4rem;">Contract Sought</h4>' +
+        '<p class="muted">Expected salary/term isn\'t modeled yet -- no free-agent negotiation system exists in this engine. Available in R2 once Contracts &amp; Cap (R4a) is real.</p>' +
+        '<button type="button" disabled>Available in R2</button>';
+
+      function renderInlineDetail(card, panel) {
+        var showSought = panel.dataset.showContractSought === '1';
+        var tabsHtml =
+          '<button type="button" class="pc-tab active" data-inline-tab="overview">Overview</button>' +
+          '<button type="button" class="pc-tab" data-inline-tab="ratings">Ratings</button>' +
+          '<button type="button" class="pc-tab" data-inline-tab="stats">Stats</button>' +
+          '<button type="button" class="pc-tab" data-inline-tab="contract">Contract</button>';
+        if (showSought) {
+          tabsHtml += '<button type="button" class="pc-tab" data-inline-tab="sought">Sought</button>';
+        }
+        var panelsHtml =
+          '<div class="pc-panel" data-inline-panel="overview">' + overviewPanel(card) + '</div>' +
+          '<div class="pc-panel" data-inline-panel="ratings" hidden>' + ratingsPanel(card) + '</div>' +
+          '<div class="pc-panel" data-inline-panel="stats" hidden>' + statsPanel(card.career) + '</div>' +
+          '<div class="pc-panel" data-inline-panel="contract" hidden>' + contractPanel(card) + '</div>';
+        if (showSought) {
+          panelsHtml += '<div class="pc-panel" data-inline-panel="sought" hidden>' + CONTRACT_SOUGHT_HTML + '</div>';
+        }
+        panel.innerHTML = '<div class="pc-tabs">' + tabsHtml + '</div><div class="pc-body">' + panelsHtml + '</div>';
+      }
+
+      // Team Card (Sec3): forks openCard()'s exact shape -- populate each
+      // panel's innerHTML from the JSON blob, reset to the default tab,
+      // show the dialog. Team leaders/coach/roster are read-only info (no
+      // Contract Negotiation/Release/Fire actions -- those need systems
+      // that don't exist yet, same disclosed-gap approach as everywhere
+      // else in this project).
+      // Coach Card (GDD Sec 7.5 / 7.9.4). Every value rendered here is
+      // server-computed in main.py's _coach_card_json() -- including the
+      // "Generated" disclosure line, which is driven by the real
+      // Coach.is_generated_profile column rather than hardcoded in the
+      // template, so it stops appearing on its own if a future chunk
+      // ever imports real tendency data.
+      var coachModal = document.getElementById('coach-card-modal');
+      var ccInitialsEl = document.getElementById('cc-initials');
+      var ccNameEl = document.getElementById('cc-name');
+      var ccRoleEl = document.getElementById('cc-role');
+      var ccOvrEl = document.getElementById('cc-ovr');
+      var ccTeamEl = document.getElementById('cc-team');
+      var ccOverviewEl = document.getElementById('cc-panel-overview');
+      var ccRatingsEl = document.getElementById('cc-panel-ratings');
+      var ccCareerEl = document.getElementById('cc-panel-career');
+
+      function ccRow(label, value) {
+        return '<div class="pc-row"><span class="pc-row-label">' + label + '</span><span>' + value + '</span></div>';
+      }
+
+      function openCoachCard(card) {
+        ccInitialsEl.textContent = card.initials;
+        ccNameEl.textContent = card.name;
+        ccRoleEl.textContent = card.title;
+        ccOvrEl.textContent = card.overall + ' OVR';
+        ccTeamEl.textContent = card.team_abbr || 'Free Agent';
+
+        var overview = ccRow('Age', card.age) +
+          ccRow('Experience', card.experience_years + ' yrs') +
+          ccRow('Reputation', card.reputation) +
+          ccRow('Role', card.title) +
+          (card.specialty ? ccRow('Specialty', card.specialty) : '') +
+          ccRow('Offensive Scheme', card.offensive_profile) +
+          ccRow('Defensive Scheme', card.defensive_profile) +
+          ccRow('Job Security', card.job_security);
+        overview += '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>Reputation</span><span>' +
+          card.reputation + '/99</span></div><div class="pc-bar-track"><div class="pc-bar-fill" style="width:' +
+          Math.max(0, Math.min(100, card.reputation)) + '%"></div></div></div>';
+        if (card.generated_note) {
+          overview += '<p class="coach-generated-note">' + card.generated_note + '</p>';
+        }
+        ccOverviewEl.innerHTML = overview;
+
+        var ratings = '';
+        for (var g = 0; g < card.rating_groups.length; g++) {
+          var group = card.rating_groups[g];
+          ratings += '<div class="pc-stat-heading">' + group.heading + '</div>';
+          for (var r = 0; r < group.rows.length; r++) {
+            ratings += bar(group.rows[r][0], group.rows[r][1]);
+          }
+        }
+        ccRatingsEl.innerHTML = ratings;
+
+        var career = ccRow('Record', card.career_record) +
+          ccRow('Seasons', card.seasons_coached) +
+          ccRow('Playoff Round Wins', card.playoff_wins) +
+          ccRow('Conference Titles', card.conference_titles) +
+          ccRow('Super Bowl Wins', card.super_bowl_wins) +
+          ccRow('Coach of the Year', card.coach_awards) +
+          ccRow('Salary', card.salary) +
+          ccRow('Contract', card.contract_years + ' yr(s) remaining');
+        if (card.titles_by_role && card.titles_by_role.length) {
+          career += '<div class="pc-stat-heading">Titles by Role Held</div>';
+          for (var t = 0; t < card.titles_by_role.length; t++) {
+            career += ccRow(card.titles_by_role[t][0], card.titles_by_role[t][1]);
+          }
+        }
+        if (card.season_history && card.season_history.length) {
+          career += '<div class="pc-stat-heading">Season History</div>';
+          for (var h = 0; h < card.season_history.length; h++) {
+            var row = card.season_history[h];
+            career += ccRow('Season ' + row.season + ' — ' + row.team + ' (' + row.role + ')', row.summary);
+          }
+        } else {
+          career += '<p class="muted">No completed seasons on record yet.</p>';
+        }
+        if (card.contract_note) {
+          career += '<p class="coach-generated-note">' + card.contract_note + '</p>';
+        }
+        ccCareerEl.innerHTML = career;
+
+        document.querySelectorAll('.cc-tab').forEach(function (b) { b.classList.remove('active'); });
+        document.querySelector('.cc-tab[data-tab="overview"]').classList.add('active');
+        document.querySelectorAll('#coach-card-modal .pc-panel').forEach(function (p) { p.hidden = true; });
+        ccOverviewEl.hidden = false;
+        coachModal.showModal();
+      }
+
+      var teamModal = document.getElementById('team-card-modal');
+      var tcAbbrEl = document.getElementById('tc-abbr');
+      var tcNameEl = document.getElementById('tc-name');
+      var tcRecordEl = document.getElementById('tc-record');
+      var tcRecordPanel = document.getElementById('tc-panel-record');
+      var tcSchedulePanel = document.getElementById('tc-panel-schedule');
+      var tcLeadersPanel = document.getElementById('tc-panel-leaders');
+      var tcRosterPanel = document.getElementById('tc-panel-roster');
+
+      function openTeamCard(card) {
+        tcAbbrEl.textContent = card.abbr;
+        tcNameEl.textContent = card.name;
+        var rec = card.record;
+        tcRecordEl.textContent = rec ? (rec.wins + '-' + rec.losses) : '0-0';
+
+        tcRecordPanel.innerHTML = rec
+          ? '<div class="pc-row"><span class="pc-row-label">Record</span><span>' + rec.wins + '-' + rec.losses + '</span></div>' +
+            '<div class="pc-row"><span class="pc-row-label">Points For</span><span>' + rec.pf + '</span></div>' +
+            '<div class="pc-row"><span class="pc-row-label">Points Against</span><span>' + rec.pa + '</span></div>' +
+            '<div class="pc-row"><span class="pc-row-label">Point Diff</span><span>' + (rec.pf - rec.pa >= 0 ? '+' : '') + (rec.pf - rec.pa) + '</span></div>' +
+            '<div class="pc-row"><span class="pc-row-label">Power Rating</span><span>' + rec.power + '</span></div>' +
+            '<div class="pc-row"><span class="pc-row-label">Head Coach</span><span>' + (card.coach ? card.coach.name : '--') + '</span></div>'
+          : '<p class="muted">No record yet this season.</p>';
+
+        if (card.schedule && card.schedule.length) {
+          var rows = '';
+          for (var i = 0; i < card.schedule.length; i++) {
+            var g = card.schedule[i];
+            var vsAt = g.is_home ? 'vs' : '@';
+            var resultText = g.result ? (g.result.won ? 'W' : 'L') + ' ' + g.result.user_score + '-' + g.result.opp_score : '--';
+            rows += '<div class="pc-row"><span class="pc-row-label">Wk ' + g.week + ' ' + vsAt + ' ' + g.opponent_name + '</span><span>' + resultText + '</span></div>';
+          }
+          tcSchedulePanel.innerHTML = rows;
+        } else {
+          tcSchedulePanel.innerHTML = '<p class="muted">No schedule generated yet.</p>';
+        }
+
+        if (card.leaders && card.leaders.length) {
+          var lrows = '';
+          for (var j = 0; j < card.leaders.length; j++) {
+            var l = card.leaders[j];
+            lrows += '<div class="pc-row"><span class="pc-row-label">' + l.label + '</span><span>' + l.name + ' (' + l.pos + ') — ' + l.value + '</span></div>';
+          }
+          tcLeadersPanel.innerHTML = lrows;
+        } else {
+          tcLeadersPanel.innerHTML = '<p class="muted">No stats yet this season.</p>';
+        }
+
+        if (card.roster && card.roster.length) {
+          var rrows = '';
+          for (var k = 0; k < card.roster.length; k++) {
+            var p = card.roster[k];
+            rrows += '<div class="pc-row"><span class="pc-row-label">' + p.name + ' (' + p.pos + ')</span><span>' + p.ovr + ' OVR</span></div>';
+          }
+          tcRosterPanel.innerHTML = rrows;
+        } else {
+          tcRosterPanel.innerHTML = '<p class="muted">No roster on file.</p>';
+        }
+
+        document.querySelectorAll('.tc-tab').forEach(function (b) { b.classList.remove('active'); });
+        document.querySelector('.tc-tab[data-tab="record"]').classList.add('active');
+        document.querySelectorAll('#team-card-modal .pc-panel').forEach(function (p) { p.hidden = true; });
+        tcRecordPanel.hidden = false;
+
+        teamModal.showModal();
       }
 
       // M13: Stats page column-chooser search (StatColumnChooser.tsx's live
@@ -864,6 +1275,38 @@
           }
           return;
         }
+
+        // R11: Find Player/Free Agents row "Details" toggle -- expands a
+        // per-row inline tabbed detail view (renderInlineDetail above),
+        // built once on first expand from the SAME data-card JSON blob
+        // .player-link already carries, then just hidden/shown after that.
+        var rowToggle = e.target.closest('[data-row-toggle]');
+        if (rowToggle) {
+          var rowEl = rowToggle.closest('[data-card]');
+          var rowPanel = rowEl.querySelector('.row-detail-panel');
+          var wasHidden = rowPanel.hidden;
+          rowPanel.hidden = !wasHidden;
+          rowToggle.innerHTML = 'Details ' + (wasHidden ? '&#9650;' : '&#9660;');
+          if (wasHidden && !rowPanel.dataset.built) {
+            try {
+              renderInlineDetail(JSON.parse(rowEl.dataset.card), rowPanel);
+              rowPanel.dataset.built = '1';
+            } catch (err) {
+              console.error('Failed to parse player card data', err);
+            }
+          }
+          return;
+        }
+        var inlineTabBtn = e.target.closest('[data-inline-tab]');
+        if (inlineTabBtn) {
+          var inlineContainer = inlineTabBtn.closest('.row-detail-panel');
+          inlineContainer.querySelectorAll('[data-inline-tab]').forEach(function (b) { b.classList.remove('active'); });
+          inlineTabBtn.classList.add('active');
+          inlineContainer.querySelectorAll('[data-inline-panel]').forEach(function (p) { p.hidden = true; });
+          inlineContainer.querySelector('[data-inline-panel="' + inlineTabBtn.dataset.inlineTab + '"]').hidden = false;
+          return;
+        }
+
         if (e.target.id === 'pc-close' || e.target === modal) {
           modal.close();
           return;
@@ -874,6 +1317,56 @@
           tabBtn.classList.add('active');
           document.querySelectorAll('.pc-panel').forEach(function (p) { p.hidden = true; });
           document.getElementById('pc-panel-' + tabBtn.dataset.tab).hidden = false;
+          return;
+        }
+
+        // Team Card (Sec3): same data-attribute-JSON-blob trigger pattern
+        // as .player-link, kept a distinct class/attribute so the two
+        // never collide inside the same delegated handler.
+        var teamTrigger = e.target.closest('.team-link');
+        if (teamTrigger) {
+          try {
+            openTeamCard(JSON.parse(teamTrigger.dataset.teamCard));
+          } catch (err) {
+            console.error('Failed to parse team card data', err);
+          }
+          return;
+        }
+        if (e.target.id === 'tc-close' || e.target === teamModal) {
+          teamModal.close();
+          return;
+        }
+        var tcTabBtn = e.target.closest('.tc-tab');
+        if (tcTabBtn && teamModal.open) {
+          document.querySelectorAll('.tc-tab').forEach(function (b) { b.classList.remove('active'); });
+          tcTabBtn.classList.add('active');
+          document.querySelectorAll('#team-card-modal .pc-panel').forEach(function (p) { p.hidden = true; });
+          document.getElementById('tc-panel-' + tcTabBtn.dataset.tab).hidden = false;
+          return;
+        }
+
+        // Coach Card: same data-attribute-JSON-blob trigger pattern as
+        // .player-link and .team-link, with its own class so the three
+        // never collide inside this one delegated handler.
+        var coachTrigger = e.target.closest('.coach-link');
+        if (coachTrigger) {
+          try {
+            openCoachCard(JSON.parse(coachTrigger.dataset.coachCard));
+          } catch (err) {
+            console.error('Failed to parse coach card data', err);
+          }
+          return;
+        }
+        if (e.target.id === 'cc-close' || e.target === coachModal) {
+          coachModal.close();
+          return;
+        }
+        var ccTabBtn = e.target.closest('.cc-tab');
+        if (ccTabBtn && coachModal.open) {
+          document.querySelectorAll('.cc-tab').forEach(function (b) { b.classList.remove('active'); });
+          ccTabBtn.classList.add('active');
+          document.querySelectorAll('#coach-card-modal .pc-panel').forEach(function (p) { p.hidden = true; });
+          document.getElementById('cc-panel-' + ccTabBtn.dataset.tab).hidden = false;
           return;
         }
 
@@ -936,6 +1429,26 @@
           var btn = form.querySelector('button[type="submit"]');
           if (btn) { btn.disabled = true; }
         });
+      });
+
+      // Scroll-position-preserving reload: this app's forms/pagers are all
+      // plain GET-param (or POST-redirect) full-page reloads, which by
+      // default reset scroll to the top of the new document -- annoying for
+      // a box like Find Player or Top Free Agents that lives well down the
+      // page. Any form/link carrying data-preserve-scroll="<id>" stashes
+      // that id in sessionStorage right before navigating away; the next
+      // page, if it has an element with that id, scrolls it into view once
+      // and clears the key immediately so a later, unrelated navigation
+      // never reuses a stale anchor.
+      var scrollAnchor = sessionStorage.getItem('ffg-scroll-anchor');
+      if (scrollAnchor) {
+        sessionStorage.removeItem('ffg-scroll-anchor');
+        var anchorEl = document.getElementById(scrollAnchor);
+        if (anchorEl) { anchorEl.scrollIntoView(); }
+      }
+      document.querySelectorAll('[data-preserve-scroll]').forEach(function (el) {
+        var save = function () { sessionStorage.setItem('ffg-scroll-anchor', el.dataset.preserveScroll); };
+        el.addEventListener(el.tagName === 'FORM' ? 'submit' : 'click', save);
       });
     })();
   </script>

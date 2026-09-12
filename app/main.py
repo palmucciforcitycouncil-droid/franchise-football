@@ -21,22 +21,27 @@ from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
+from app.engine.game_state import quarter_scores
 from app.engine.box_score import build_box_score
 from app.engine.defensive_box_score import build_defensive_box_score
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 from app.engine import season_stats
 from app.engine import score_fidelity, awards
-from app.engine.playoffs import bubble_teams, final_division_standings, seed_conference
+from app.engine.playoffs import bubble_teams, build_wild_card_round, final_division_standings, seed_conference
 from app.engine.scouting import find_next_opponent, build_scouting_report
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
     COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
 )
 from app.engine.progression import PROGRESSED_ATTRIBUTES
-from app.services import season_state, depth_chart_overrides, gameplan_store, history_store, power_rank_history
+from app.services import (
+    season_state, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
+    coach_store, coach_records,
+)
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
+from app.models.coach import Coach, CoachRole, ROLE_TITLES
 from sqlmodel import select
 
 app = FastAPI(title="Franchise Football")
@@ -85,6 +90,14 @@ _QUOTA_GROUP_FOR_POSITION: dict[Position, str] = {
 }
 QUOTA_GROUPS = ["QB", "RB", "WR", "TE", "C", "G", "T", "DE", "DT", "LB", "CB", "S", "K", "P"]
 
+# Free Agents box's OFF/DEF split (offense skill/line groups vs. defensive
+# front/secondary groups). K/P don't cleanly belong to either side of the
+# ball -- grouped under OFF here rather than inventing a third bucket the
+# UI doesn't offer, same "don't add a filter option nothing asked for"
+# discipline as everywhere else on this page.
+FA_OFFENSE_GROUPS = {"QB", "RB", "WR", "TE", "C", "G", "T", "K", "P"}
+FA_DEFENSE_GROUPS = {"DE", "DT", "LB", "CB", "S"}
+
 # The real Figma source uses a SECOND, coarser 10-group breakdown for the
 # Filter panel's position checkboxes and the Top Free Agents pager
 # (FilterPanel.tsx's own `positions` list collapses OL/DL/ST further than
@@ -108,6 +121,32 @@ ROSTER_SORT_KEYS = (
     "num", "name", "pos", "age", "ovr", "pot", "spd", "str", "agi",
     "tpw", "tac", "cth", "tck", "awr", "sta", "inj", "mor", "ctr", "yrs", "dep",
 )
+
+# Same id/label pairs as roster.html's own inline main-table header list,
+# centralized here (R11, GDD Sec 11) so the new Find Player "Sort by"
+# dropdown can reuse ROSTER_SORT_KEYS' labels without a second hand-typed
+# copy -- the main table's own header stays as its existing inline list
+# (not worth the risk of touching already-working, already-tested markup
+# just to DRY up one string list).
+ROSTER_SORT_COLUMN_LABELS = (
+    ("num", "#"), ("name", "Player"), ("pos", "Pos"), ("age", "Age"), ("ovr", "OVR"), ("pot", "POT"),
+    ("spd", "SPD"), ("str", "STR"), ("agi", "AGI"), ("tpw", "TPW"), ("tac", "TAC"), ("cth", "CTH"),
+    ("tck", "TCK"), ("awr", "AWR"), ("sta", "STA"), ("inj", "INJ"), ("mor", "MOR"), ("ctr", "Contract"),
+    ("yrs", "Yrs"), ("dep", "Depth"),
+)
+
+
+def _int_or_none(raw: str | None) -> int | None:
+    """Blank <input type="number"> fields submit as "" (a real, empty
+    query-param value), not an omitted param -- FastAPI's `int | None`
+    coercion rejects that outright, so range-filter params come in as
+    plain strings and get converted here instead."""
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _roster_avg_throw_accuracy(p: Player) -> int:
@@ -137,20 +176,106 @@ def _roster_sort_value(p: Player, key: str, depth_slot: dict[str, str]):
     }.get(key, p.overall_rating)
 
 
+def _depth_chart_groups_for_team(team_abbr: str, players_on_team: list[Player]) -> list[dict]:
+    """Same per-position resolved-order grouping `roster_view`/
+    `depth_chart_view` already build for the DEP column and the embedded
+    depth-chart widget, factored out so R11's cross-team Find Player
+    "dep" sort (below) can call it for whichever OTHER teams a search
+    result happens to belong to, without duplicating this logic a third
+    time."""
+    by_position = defaultdict(list)
+    for p in players_on_team:
+        by_position[p.position].append(p)
+    return [
+        {
+            "position": pos.value,
+            "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players_at_pos),
+            "starter_count": STARTER_COUNTS.get(pos, 1),
+        }
+        for pos, players_at_pos in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
+    ]
+
+
+def _slot_labels_from_groups(groups: list[dict]) -> dict[str, str]:
+    """{player_id: "QB1"/"QB2"/...} from an already-resolved depth-chart
+    groups list (`_depth_chart_groups_for_team`'s return value)."""
+    labels: dict[str, str] = {}
+    for group in groups:
+        for i, p in enumerate(group["players"], start=1):
+            labels[p.player_id] = f"{group['position']}{i}"
+    return labels
+
+
+def _depth_slot_across_teams(team_abbrs: set[str]) -> dict[str, str]:
+    """R11 (GDD Sec 11): Find Player's results can span every team in the
+    league, unlike the main Roster table's single-team DEP column -- this
+    computes the real depth-slot label for each team a result actually
+    belongs to (each team's OWN full roster, not just the matched search
+    results, since depth rank is relative to the whole position group),
+    merged into one dict. Only called when "dep" is the actual chosen
+    sort column (see roster_view below) -- most searches never need this
+    extra per-team DB round-trip."""
+    labels: dict[str, str] = {}
+    with get_session() as s:
+        for abbr in team_abbrs:
+            team_players = list(s.exec(select(Player).where(Player.team_abbr == abbr)))
+            labels.update(_slot_labels_from_groups(_depth_chart_groups_for_team(abbr, team_players)))
+    return labels
+
+
+def _fa_stat_line_summary(row: dict) -> str:
+    """Condensed current-season stat line for the Free Agents box's SOON
+    rows (rostered players actually playing games) -- same "only show
+    nonzero TD" shorthand convention as `_format_leader_stat_line`, but
+    built from `_stats_page_aggregates()`'s season-aggregate row shape
+    (a plain dict) rather than a per-game box-score dataclass, and picks
+    its stat block by position group instead of a fixed category."""
+    pos = row["player_pos"]
+    if pos == "QB" and row["pass_att"]:
+        parts = [f"{row['pass_cmp']}-{row['pass_att']}", f"{row['pass_yds']} Yds"]
+        if row["pass_td"]:
+            parts.append(f"{row['pass_td']} TD")
+        return ", ".join(parts)
+    if pos in ("HB", "FB") and row["rush_att"]:
+        parts = [f"{row['rush_att']} Car", f"{row['rush_yds']} Yds"]
+        if row["rush_td"]:
+            parts.append(f"{row['rush_td']} TD")
+        return ", ".join(parts)
+    if pos in ("WR", "TE") and row["targets"]:
+        parts = [f"{row['receptions']} Rec", f"{row['rec_yds']} Yds"]
+        if row["rec_td"]:
+            parts.append(f"{row['rec_td']} TD")
+        return ", ".join(parts)
+    if row["solo_tackles"] or row["sacks"] or row["def_int"]:
+        parts = [f"{row['solo_tackles']} Tkl"]
+        if row["sacks"]:
+            parts.append(f"{row['sacks']} Sck")
+        if row["def_int"]:
+            parts.append(f"{row['def_int']} Int")
+        return ", ".join(parts)
+    return ""
+
+
 @app.get("/roster", response_class=HTMLResponse)
 def roster_view(
     request: Request,
     team_abbr: str | None = None,
     view: str = "attributes",
     position: list[str] = Query(default=[]),
-    min_ovr: int | None = None, max_ovr: int | None = None,
-    min_spd: int | None = None, max_spd: int | None = None,
-    min_cth: int | None = None, max_cth: int | None = None,
-    min_tck: int | None = None, max_tck: int | None = None,
+    min_ovr: str | None = None, max_ovr: str | None = None,
+    min_spd: str | None = None, max_spd: str | None = None,
+    min_cth: str | None = None, max_cth: str | None = None,
+    min_tck: str | None = None, max_tck: str | None = None,
     rookie: bool = False,
     sort: str | None = None, dir: str = "asc",
-    fa_pos: str = "All",
+    fa_pos: str = "All", fa_status: str = "ALL",
     find_q: str = "", find_pos: str = "all", find_team: str = "all",
+    find_min_ovr: str | None = None, find_max_ovr: str | None = None,
+    find_min_spd: str | None = None, find_max_spd: str | None = None,
+    find_min_cth: str | None = None, find_max_cth: str | None = None,
+    find_min_tck: str | None = None, find_max_tck: str | None = None,
+    find_rookie: bool = False,
+    find_sort: str = "ovr", find_dir: str = "desc",
 ):
     """Real player data (2,365 players across 32 teams, plus 71 free
     agents) has existed since the roster import but was only ever
@@ -179,6 +304,18 @@ def roster_view(
     quick-access boxes with real underlying data (Top Free Agents, Find
     Player -- Trade Block is skipped, no trade system exists, see the
     GM Desk audit note in ROADMAP.md §2b)."""
+    # Range-filter inputs render as plain <input type="number"> with no
+    # value; a blank one submits as "" (not omitted), which FastAPI can't
+    # coerce to `int | None` -- parse as str and treat "" as unset here.
+    min_ovr = _int_or_none(min_ovr); max_ovr = _int_or_none(max_ovr)
+    min_spd = _int_or_none(min_spd); max_spd = _int_or_none(max_spd)
+    min_cth = _int_or_none(min_cth); max_cth = _int_or_none(max_cth)
+    min_tck = _int_or_none(min_tck); max_tck = _int_or_none(max_tck)
+    find_min_ovr = _int_or_none(find_min_ovr); find_max_ovr = _int_or_none(find_max_ovr)
+    find_min_spd = _int_or_none(find_min_spd); find_max_spd = _int_or_none(find_max_spd)
+    find_min_cth = _int_or_none(find_min_cth); find_max_cth = _int_or_none(find_max_cth)
+    find_min_tck = _int_or_none(find_min_tck); find_max_tck = _int_or_none(find_max_tck)
+
     if view not in ("attributes", "stats"):
         view = "attributes"
     if team_abbr is None:
@@ -218,25 +355,12 @@ def roster_view(
     }
 
     # Depth chart groups (reusing depth_chart_view's logic)
-    by_position = defaultdict(list)
-    for p in players:
-        by_position[p.position].append(p)
-    depth_chart_groups = [
-        {
-            "position": pos.value,
-            "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players_at_pos),
-            "starter_count": STARTER_COUNTS.get(pos, 1),
-        }
-        for pos, players_at_pos in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
-    ] if team_abbr != "FA" else []
+    depth_chart_groups = _depth_chart_groups_for_team(team_abbr, players) if team_abbr != "FA" else []
 
     # Depth slot label per player ("QB1", "QB2", ...) -- RosterTable.tsx's
     # DEP column, real (each group's already-resolved starter order),
     # not fabricated. Empty for free agents (no depth chart concept).
-    depth_slot: dict[str, str] = {}
-    for group in depth_chart_groups:
-        for i, p in enumerate(group["players"], start=1):
-            depth_slot[p.player_id] = f"{group['position']}{i}"
+    depth_slot: dict[str, str] = _slot_labels_from_groups(depth_chart_groups)
 
     # Real Filter panel (FilterPanel.tsx): position groups (QUOTA_GROUPS --
     # see that constant's own comment for why this reuses the quota
@@ -331,27 +455,60 @@ def roster_view(
         # Filter to this team only
         stats_data = {(r["player_name"], r["player_pos"]): r for r in player_rows if r["player_team"] == team_abbr}
 
-    # Top Free Agents (TopFreeAgentsBox.tsx): real free agents, OVR >= 75,
-    # top 5 for the currently-paged position group. Position-paged via a
-    # GET param (fa_pos) rather than JS prev/next state, same pattern as
-    # everything else on this page.
+    # Top Free Agents (TopFreeAgentsBox.tsx). fa_status:
+    #   ALL/OFF/DEF -- real free agents (no OVR floor or top-N cap anymore,
+    #     per Brian's ask -- the box scrolls instead), stat line always
+    #     blank (a free agent hasn't played a game this season, by
+    #     definition -- there's nothing to show).
+    #   SOON -- NOT free agents at all: rostered players league-wide whose
+    #     contract_years_remaining <= 1, i.e. who a GM should worry about
+    #     re-signing. This is the only reading of "soon to be a free agent"
+    #     that isn't degenerate on a box that already only lists free
+    #     agents (see ROADMAP.md R11's own note on this). These players
+    #     ARE playing, so their real current-season stat line is shown.
     if fa_pos not in QUOTA_GROUPS and fa_pos != "All":
         fa_pos = "All"
+    if fa_status not in ("ALL", "OFF", "DEF", "SOON"):
+        fa_status = "ALL"
     with get_session() as s:
-        all_free_agents = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
+        if fa_status == "SOON":
+            fa_rows = list(s.exec(select(Player).where(Player.team_abbr != None, Player.contract_years_remaining <= 1)))  # noqa: E711
+        else:
+            fa_rows = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
     if fa_pos != "All":
-        all_free_agents = [p for p in all_free_agents if _QUOTA_GROUP_FOR_POSITION[p.position] == fa_pos]
-    top_free_agents = sorted((p for p in all_free_agents if p.overall_rating >= 75), key=lambda p: -p.overall_rating)[:5]
+        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] == fa_pos]
+    if fa_status == "OFF":
+        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] in FA_OFFENSE_GROUPS]
+    elif fa_status == "DEF":
+        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] in FA_DEFENSE_GROUPS]
+    top_free_agents = sorted(fa_rows, key=lambda p: -p.overall_rating)
+    fa_stat_line: dict[str, str] = {}
+    if fa_status == "SOON" and top_free_agents:
+        season = season_state.get_season()
+        player_rows, _ = _stats_page_aggregates(season)
+        stats_by_key = {(r["player_name"], r["player_pos"]): r for r in player_rows}
+        for p in top_free_agents:
+            row = stats_by_key.get((p.full_name, p.position.value))
+            if row:
+                fa_stat_line[p.player_id] = _fa_stat_line_summary(row)
     fa_pos_options = ["All"] + QUOTA_GROUPS
-    fa_prev_pos = fa_pos_options[fa_pos_options.index(fa_pos) - 1]
-    fa_next_pos = fa_pos_options[(fa_pos_options.index(fa_pos) + 1) % len(fa_pos_options)]
 
     # Find Player (FindPlayerBox.tsx): real league-wide name/position/team
     # search -- unlike Figma's own mock version, results reuse this
     # project's existing Player Card modal (player_link()) instead of a
-    # second, separate detail dialog.
+    # second, separate detail dialog. Attribute-range/Rookie filters mirror
+    # the Roster page's own Filter panel exactly (same fields, same
+    # semantics) via distinct find_* param names so the two forms living on
+    # the same /roster URL never clobber each other's query params.
     find_results = []
-    if find_q or find_pos != "all" or find_team != "all":
+    find_active = bool(
+        find_q or find_pos != "all" or find_team != "all" or find_rookie
+        or find_min_ovr is not None or find_max_ovr is not None
+        or find_min_spd is not None or find_max_spd is not None
+        or find_min_cth is not None or find_max_cth is not None
+        or find_min_tck is not None or find_max_tck is not None
+    )
+    if find_active:
         with get_session() as s:
             find_results = list(s.exec(select(Player)))
         if find_q:
@@ -361,8 +518,44 @@ def roster_view(
             find_results = [p for p in find_results if p.position.value == find_pos]
         if find_team != "all":
             find_results = [p for p in find_results if p.team_abbr == find_team]
-        find_results.sort(key=lambda p: -p.overall_rating)
+        if find_min_ovr is not None:
+            find_results = [p for p in find_results if p.overall_rating >= find_min_ovr]
+        if find_max_ovr is not None:
+            find_results = [p for p in find_results if p.overall_rating <= find_max_ovr]
+        if find_min_spd is not None:
+            find_results = [p for p in find_results if p.speed >= find_min_spd]
+        if find_max_spd is not None:
+            find_results = [p for p in find_results if p.speed <= find_max_spd]
+        if find_min_cth is not None:
+            find_results = [p for p in find_results if p.catching >= find_min_cth]
+        if find_max_cth is not None:
+            find_results = [p for p in find_results if p.catching <= find_max_cth]
+        if find_min_tck is not None:
+            find_results = [p for p in find_results if p.tackle >= find_min_tck]
+        if find_max_tck is not None:
+            find_results = [p for p in find_results if p.tackle <= find_max_tck]
+        if find_rookie:
+            find_results = [p for p in find_results if p.age <= 23]
+
+        # R11 (GDD Sec 11, "Roster - Find Player & Free Agents"): sortable
+        # by any ROSTER_SORT_KEYS column, same GET-param + full-page-reload
+        # convention as the main Roster table's own sort links -- not a
+        # second, client-side mechanism. "dep" needs each result's OWN
+        # team's depth chart (not the currently-browsed team's), computed
+        # lazily via _depth_slot_across_teams only when actually asked for.
+        effective_find_sort = find_sort if find_sort in ROSTER_SORT_KEYS else "ovr"
+        find_direction = find_dir if find_dir in ("asc", "desc") else "desc"
+        find_depth_slot: dict[str, str] = {}
+        if effective_find_sort == "dep":
+            find_depth_slot = _depth_slot_across_teams({p.team_abbr for p in find_results if p.team_abbr})
+        find_results.sort(
+            key=lambda p: _roster_sort_value(p, effective_find_sort, find_depth_slot),
+            reverse=(find_direction == "desc"),
+        )
         find_results = find_results[:25]
+    else:
+        effective_find_sort = find_sort if find_sort in ROSTER_SORT_KEYS else "ovr"
+        find_direction = find_dir if find_dir in ("asc", "desc") else "desc"
 
     team = FREE_AGENTS_TEAM if team_abbr == "FA" else TEAMS_BY_ABBR[team_abbr]
     return templates.TemplateResponse(
@@ -380,8 +573,16 @@ def roster_view(
             "min_cth": min_cth, "max_cth": max_cth, "min_tck": min_tck, "max_tck": max_tck,
             "rookie": rookie, "generated_query": generated_query, "clear_filters_link": clear_filters_link,
             "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
-            "top_free_agents": top_free_agents, "fa_pos": fa_pos, "fa_prev_pos": fa_prev_pos, "fa_next_pos": fa_next_pos,
+            "top_free_agents": top_free_agents, "fa_pos": fa_pos, "fa_status": fa_status,
+            "fa_pos_options": fa_pos_options, "fa_stat_line": fa_stat_line,
             "find_q": find_q, "find_pos": find_pos, "find_team": find_team, "find_results": find_results,
+            "find_active": find_active,
+            "find_min_ovr": find_min_ovr, "find_max_ovr": find_max_ovr,
+            "find_min_spd": find_min_spd, "find_max_spd": find_max_spd,
+            "find_min_cth": find_min_cth, "find_max_cth": find_max_cth,
+            "find_min_tck": find_min_tck, "find_max_tck": find_max_tck, "find_rookie": find_rookie,
+            "find_sort": effective_find_sort, "find_dir": find_direction,
+            "find_sort_columns": ROSTER_SORT_COLUMN_LABELS,
             "all_positions": list(Position),
         },
     )
@@ -396,37 +597,18 @@ def _roster_by_position(team_abbr: str) -> dict[Position, list[Player]]:
     return by_position
 
 
-@app.get("/depth-chart", response_class=HTMLResponse)
-def depth_chart_view(request: Request, team_abbr: str | None = None):
-    """The real depth chart (app/services/depth_chart_overrides.py) --
-    lets the user actually set who starts at each position, replacing
-    the highest-overall_rating stand-in depth_chart.py used alone. Each
-    position group is ordered via resolve_order (override, falling back
-    to rating) so this page shows exactly what the engine will use."""
+@app.get("/depth-chart")
+def depth_chart_view(team_abbr: str | None = None):
+    """Sec13: the standalone Depth Chart page is retired -- its full
+    functionality (per-position tables, move buttons, auto-fill) now
+    lives in the Roster page's own embedded widget (see
+    `_depth_chart_widget.html`, included from roster.html) rather than a
+    separate screen. This route stays only so an old bookmark/link to
+    /depth-chart redirects instead of 404ing."""
     if team_abbr is None:
-        # GDD Sec 10.1: default screen state resolves to the user's team
-        # without a picker interaction, once one has been chosen.
         team_abbr = season_state.get_season().user_team_abbr
-    if team_abbr is None:
-        return templates.TemplateResponse(request, "depth_chart.html", {"teams": TEAMS, "team": None, "groups": None})
-    if team_abbr not in TEAMS_BY_ABBR:
-        raise HTTPException(404, "No such team")
-
-    by_position = _roster_by_position(team_abbr)
-    groups = [
-        {
-            "position": pos.value,
-            "players": depth_chart_overrides.resolve_order(team_abbr, pos.value, players),
-            "starter_count": STARTER_COUNTS.get(pos, 1),
-        }
-        for pos, players in sorted(by_position.items(), key=lambda kv: list(Position).index(kv[0]))
-    ]
-
-    return templates.TemplateResponse(
-        request,
-        "depth_chart.html",
-        {"teams": TEAMS, "team": TEAMS_BY_ABBR[team_abbr], "groups": groups},
-    )
+    url = f"/roster?team_abbr={team_abbr}" if team_abbr else "/roster"
+    return RedirectResponse(url=url, status_code=303)
 
 
 @app.post("/depth-chart/{team_abbr}/{position_value}/move")
@@ -443,7 +625,7 @@ def depth_chart_move(team_abbr: str, position_value: str, player_id: str = Form(
     depth_chart_overrides.move_player(team_abbr, position_value, current_order, player_id, direction)
     clear_starters_cache()  # the override just changed -- don't serve a stale cached starter
 
-    return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
 
 
 @app.post("/depth-chart/{team_abbr}/auto-fill")
@@ -451,7 +633,9 @@ def depth_chart_auto_fill(team_abbr: str, respect_fatigue: bool = Form(False), l
     """M15 correction (real source: AutoFillModal.tsx) -- see
     depth_chart_overrides.auto_fill()'s own docstring for exactly which
     2 of the source's 4 toggles are offered and why the other 2 aren't
-    (both need data this engine's Player model doesn't have)."""
+    (both need data this engine's Player model doesn't have). `respect_fatigue`
+    is still the real form field name/behavior -- Sec11 only renamed its
+    user-facing label to "Consider Stamina", not this param."""
     if team_abbr not in TEAMS_BY_ABBR:
         raise HTTPException(404, "No such team")
 
@@ -459,7 +643,7 @@ def depth_chart_auto_fill(team_abbr: str, respect_fatigue: bool = Form(False), l
     depth_chart_overrides.auto_fill(team_abbr, by_position, STARTER_COUNTS, respect_fatigue=respect_fatigue, lock_starters=lock_starters)
     clear_starters_cache()
 
-    return RedirectResponse(url=f"/depth-chart?team_abbr={team_abbr}", status_code=303)
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
 
 
 def _defensive_stat_leaders(season, top_n: int = 15):
@@ -489,8 +673,14 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
         if game.result is not None:
             user_score = game.result.home_score if is_home else game.result.away_score
             opp_score = game.result.away_score if is_home else game.result.home_score
-            won = (game.result.winner == "home") == is_home
-            result = {"won": won, "user_score": user_score, "opp_score": opp_score}
+            # Compared by literal score, not game.result.winner: that field
+            # always resolves an equal score to "home" (game_sim.py's
+            # `"home" if h >= a else "away"`, a tie-break convention for
+            # standings, not a real tie state), so trusting it here would
+            # mis-color a genuinely tied score green/red instead of grey.
+            won = user_score > opp_score
+            tied = user_score == opp_score
+            result = {"won": won, "tied": tied, "user_score": user_score, "opp_score": opp_score}
         rows.append({"week": week_num, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
     return rows
 
@@ -573,6 +763,7 @@ def _last_played_game_for(season, team_abbr: str) -> dict | None:
             "user_leaders": _game_leaders(box),
             "opponent_leaders": _game_leaders(opponent_box),
             "plays": game.result.plays,
+            "quarters": quarter_scores(game.result.events),
         }
     return None
 
@@ -590,9 +781,136 @@ def _notable_players_for(team_abbr: str, min_ovr: int = 85) -> list[dict]:
     return [{"name": p.full_name, "position": p.position.value, "ovr": p.overall_rating} for p in notable]
 
 
+def _money(amount: int) -> str:
+    return "${:,}".format(amount)
+
+
+def _coach_card_json(coach: Coach) -> str:
+    """The Coach Card modal's data blob (GDD Sec 7.5 "Player & Coach
+    Cards", Sec 7.9.4's Career Summary / Season History), rendered into
+    a data-coach-card attribute exactly the way _player_card_json and
+    the Team Card's blob already are.
+
+    Every number here is real in one of two senses, and the card says
+    which: the name/title/team/salary come straight from the real 2026
+    staff seed, while the ratings and tendencies are deterministically
+    generated (Coach.is_generated_profile) and carry an on-card
+    disclosure saying so -- see app/models/coach.py's module docstring."""
+    role = CoachRole(coach.role)
+    history_rows = []
+    for row in coach_records.season_history(coach.coach_id):
+        bits = [f"{row.wins}-{row.losses}"]
+        if row.conference_title != "NONE":
+            bits.append(f"{row.conference_title} champion")
+        if row.super_bowl_result == "WIN":
+            bits.append("Super Bowl win")
+        elif row.super_bowl_result == "LOSS":
+            bits.append("Super Bowl loss")
+        elif row.made_playoffs:
+            bits.append("made playoffs")
+        history_rows.append({
+            "season": row.season, "team": row.team_abbr or "--",
+            "role": row.role.value, "summary": ", ".join(bits),
+        })
+
+    titles_by_role = []
+    for r, label in (("hc", "HC"), ("oc", "OC"), ("dc", "DC"), ("st", "ST"), ("ac", "AC")):
+        afc = getattr(coach, f"{r}_afc_championships")
+        nfc = getattr(coach, f"{r}_nfc_championships")
+        sb = getattr(coach, f"{r}_super_bowl_wins")
+        if afc or nfc or sb:
+            titles_by_role.append([label, f"{afc} AFC, {nfc} NFC, {sb} SB"])
+
+    generated_note = (
+        "Ratings and tendencies are deterministically generated from this league's "
+        "seed, not real data -- the real 2026 staff seed supplies only name, title "
+        "and salary. Reputation is the one generated value with a real anchor: this "
+        "coach's salary percentile within their own role tier."
+    ) if coach.is_generated_profile else ""
+
+    return json.dumps({
+        "coach_id": coach.coach_id,
+        "name": coach.full_name,
+        "initials": (coach.first_name[:1] + coach.last_name[:1]).upper(),
+        "title": coach.title,
+        "role": role.value,
+        "specialty": coach.specialty,
+        "team_abbr": coach.team_abbr,
+        "age": coach.age,
+        "experience_years": coach.experience_years,
+        "reputation": coach.reputation,
+        "overall": coach.overall,
+        "offensive_profile": coach.offensive_profile,
+        "defensive_profile": coach.defensive_profile,
+        "job_security": f"{coach.job_security_score:.0f}",
+        "salary": _money(coach.salary_aav),
+        "contract_years": coach.contract_years,
+        "career_record": f"{coach.career_wins}-{coach.career_losses}",
+        "seasons_coached": coach.seasons_coached,
+        "playoff_wins": coach.playoff_wins,
+        "conference_titles": coach.conference_titles,
+        "super_bowl_wins": coach.super_bowl_wins,
+        "coach_awards": coach.coach_awards,
+        "titles_by_role": titles_by_role,
+        "season_history": history_rows,
+        "rating_groups": [
+            {"heading": "Performance & Management (Sec 7.7.2.3)", "rows": [
+                ["Player Dev (Off)", coach.player_dev_offense],
+                ["Player Dev (Def)", coach.player_dev_defense],
+                ["Discipline", coach.discipline],
+                ["Motivation / Chemistry", coach.motivation_chemistry],
+                ["Clock Management", coach.clock_management],
+                ["Challenge Sense", coach.challenge_sense],
+                ["Red Zone Offense", coach.red_zone_offense],
+                ["Red Zone Defense", coach.red_zone_defense],
+            ]},
+            {"heading": "Strategic Tendencies (Sec 7.7.2.2)", "rows": [
+                ["Pass Tendency", coach.run_pass_tendency],
+                ["Offensive Aggression", coach.offensive_aggression],
+                ["Pace", coach.pace],
+                ["Red Zone Pass Lean", coach.red_zone_offense_bias],
+                ["Two-Point Tendency", coach.two_point_tendency],
+                ["Blitz Rate", coach.blitz_rate],
+                ["Coverage Mix (zone-heavy)", coach.coverage_mix],
+                ["Short-Yardage D Aggression", coach.fourth_down_defense],
+                ["Red Zone D Lean", coach.red_zone_defense_bias],
+                ["Special Teams Focus", coach.special_teams_focus],
+            ]},
+        ],
+        "contract_note": (
+            "Salary is real (2026 staff seed). Contract length is a disclosed "
+            "placeholder until R4a builds real negotiated terms -- the same state "
+            "player contracts are in."
+        ),
+        "generated_note": generated_note,
+    })
+
+
+def _head_coach_summary(team_abbr: str) -> dict | None:
+    """The Scouting Panel's Head Coach row (ROADMAP.md Sec2d item 3),
+    now backed by the real Coach entity rather than the
+    "Coach Name"/None placeholder this function replaced. Returns None
+    when the database has no coaches at all, which is what the template
+    branches on to fall back to its pre-coach text."""
+    coach = coach_store.head_coach(team_abbr)
+    if coach is None:
+        return None
+    return {
+        "name": coach.full_name,
+        "record": f"{coach.career_wins}-{coach.career_losses}" if coach.seasons_coached else None,
+        "overall": coach.overall,
+        "card": _coach_card_json(coach),
+    }
+
+
 def _placeholder_coach() -> dict:
-    """ROADMAP.md Sec2d item 3: no Coach entity exists anywhere in this
-    engine yet (ROADMAP.md R3, Coaching Staff -- Post-MVP). Brian's
+    """Pre-Coach-entity fallback, kept for the one case it still covers:
+    a database that predates scripts/import_coaches.py and therefore has
+    no Coach rows at all. Every caller checks coach_store.has_coaches()
+    (or _head_coach_summary()'s None return) first and prefers the real
+    coach; this is the honest "we have nothing" answer, not a default.
+
+    ROADMAP.md Sec2d item 3's original note: Brian's
     explicit decision was a disclosed placeholder now rather than either
     fabricating a real-looking name/record or silently omitting the
     section: the front end renders the literal name "Coach Name" (not a
@@ -602,23 +920,37 @@ def _placeholder_coach() -> dict:
     return {"name": "Coach Name", "record": None}
 
 
-def _all_division_standings(season) -> dict[str, dict[str, list]]:
+def _all_division_standings(season, user_conference: str | None = None, user_division: str | None = None) -> dict[str, dict[str, list]]:
     """Every conference's every division, sorted the same way the
     Dashboard's original (user-division-only) Standings box already
     sorted (win_pct desc, point_diff desc, location as a stable
-    tiebreak) -- ROADMAP.md Sec2d-B item 9's AFC/NFC + division sub-tab
-    redesign needs all 8 real groups, not just the user's own. Reuses
-    _grouped_teams() (already real, already used by /playoffs) instead
-    of re-deriving conference/division membership."""
+    tiebreak) -- ROADMAP.md Sec2d-B item 9's AFC/NFC-tab-only redesign
+    needs all 8 real groups, not just the user's own, stacked together
+    under one conference tab. Reuses _grouped_teams() (already real,
+    already used by /playoffs) instead of re-deriving conference/
+    division membership.
+
+    user_conference/user_division (when given) put the user's own
+    division first in its conference's dict -- since dict iteration
+    order is what the Standings box now renders top-to-bottom (no more
+    East/North/South/West sub-tabs), this is what keeps the user's own
+    division pinned to the top instead of wherever it falls
+    alphabetically."""
     grouped: dict[str, dict[str, list]] = {}
     for conf, divisions in _grouped_teams().items():
-        grouped[conf] = {
+        division_standings = {
             division: sorted(
                 (season.records[t.abbr] for t in teams),
                 key=lambda r: (-r.win_pct, -r.point_diff, r.location),
             )
             for division, teams in divisions.items()
         }
+        if conf == user_conference and user_division in division_standings:
+            division_standings = {
+                user_division: division_standings.pop(user_division),
+                **division_standings,
+            }
+        grouped[conf] = division_standings
     return grouped
 
 
@@ -721,9 +1053,12 @@ def dashboard_view(request: Request):
         scouting["opponent_team"] = TEAMS_BY_ABBR[opponent_abbr]
         scouting["is_home_game"] = team_is_home
         scouting["notable_players"] = _notable_players_for(opponent_abbr)
-        scouting["coach"] = _placeholder_coach()
+        # ROADMAP.md R3: the real Coach entity, replacing Sec2d item 3's
+        # disclosed "Coach Name" placeholder. Falls back to that
+        # placeholder only if this database has no coaches at all.
+        scouting["coach"] = _head_coach_summary(opponent_abbr) or _placeholder_coach()
 
-    all_standings = _all_division_standings(season)
+    all_standings = _all_division_standings(season, user_info.conference, user_info.division)
     power_rankings = _power_rankings_with_deltas(season)
     team_schedule = _team_schedule_for(season, user_abbr)
     last_game = _last_played_game_for(season, user_abbr)
@@ -965,7 +1300,35 @@ DIVISIONS = ["East", "North", "South", "West"]
 STANDINGS_BASED_FEATURES_MIN_WEEK = 5
 
 
+_STATS_PAGE_AGGREGATES_CACHE: dict[tuple, tuple[list[dict], list[dict]]] = {}
+
+
+def _clear_stats_page_aggregates_cache() -> None:
+    _STATS_PAGE_AGGREGATES_CACHE.clear()
+
+
 def _stats_page_aggregates(season) -> tuple[list[dict], list[dict]]:
+    """Same lru_cache-plus-explicit-clear precedent as
+    season_stats.cached_current_season_aggregates (which this function's
+    OWN body still doesn't use -- it rebuilds every game's box score a
+    second time for kicking/punting/games-played/team-offense-defense
+    totals, a genuinely separate pass). Needed once the Team Card (Sec3)
+    started calling this once per team on pages with many team_link()s
+    (Standings/Power Rankings render 32 rows) -- uncached, that reproduced
+    the exact class of bug ROADMAP.md's Sec2d-B item 11 fix already
+    covers for the player-card chain (measured 12s+ dashboard loads before
+    this cache; see season_stats.cached_current_season_aggregates's own
+    docstring for the original incident). Cleared from the same 3
+    season_state.py call sites that already clear season_stats's own
+    cache (simulate_current_week/reset_season/start_new_season)."""
+    key = (season.league_seed, season.season_number, season.current_week)
+    if key not in _STATS_PAGE_AGGREGATES_CACHE:
+        _STATS_PAGE_AGGREGATES_CACHE.clear()
+        _STATS_PAGE_AGGREGATES_CACHE[key] = _stats_page_aggregates_uncached(season)
+    return _STATS_PAGE_AGGREGATES_CACHE[key]
+
+
+def _stats_page_aggregates_uncached(season) -> tuple[list[dict], list[dict]]:
     """Builds the real per-player and per-team rows the Stats page's
     Player/Team tabs display. Reuses the same aggregate_season_stats /
     aggregate_season_defensive_stats helpers the old fixed leaderboards
@@ -1216,7 +1579,18 @@ def stats_view(
         "q": q, "sort": sort,
     }
 
-    if games_played == 0 or tab == "coach":
+    if tab == "coach":
+        # M13 left this tab as "Coming Soon" because no Coach entity
+        # existed. It does now (ROADMAP.md R3), so this is a real
+        # leaderboard of every head coach -- sortable on the same
+        # GET-param + full-reload convention the Player/Team tabs use.
+        ctx["dir"] = dir if dir in ("asc", "desc") else "desc"
+        ctx["coach_rows"] = _coach_stat_rows(season, sort or "win_pct", ctx["dir"], q)
+        ctx["coach_sort_columns"] = COACH_STAT_COLUMNS
+        ctx["has_coaches"] = coach_store.has_coaches()
+        return templates.TemplateResponse(request, "stats.html", ctx)
+
+    if games_played == 0:
         ctx["dir"] = dir if dir in ("asc", "desc") else "desc"
         return templates.TemplateResponse(request, "stats.html", ctx)
 
@@ -1366,6 +1740,7 @@ def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr:
             "home": home,
             "away": away,
             "result": result,
+            "quarters": quarter_scores(result.events),
             "league_seed": season.league_seed,
             "game_seed": game_seed,
             "home_box": home_box,
@@ -1562,6 +1937,7 @@ def _player_card_json(p: Player) -> str:
         "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
         "attrs": attrs, "career": _season_by_season_stats_for(p),
         "salary": p.salary, "signing_bonus": p.signing_bonus,
+        "contract_years_remaining": p.contract_years_remaining,
     })
 
 
@@ -1574,7 +1950,7 @@ templates.env.filters["player_card_json"] = _player_card_json
 # to find at all. This looks one up by (name, team_abbr) and falls back to
 # plain escaped text when there's no live match, rather than fabricating a
 # card. Brian's own instruction was "every player name... (except maybe
-# HOF)" -- HOF is skipped entirely (see hof.html) since its whole point is
+# HOF)" -- HOF is skipped entirely (see history.html's Hall of Fame tab) since its whole point is
 # retired/historical players, most with no live row; this handles the
 # other pages (dashboard/stats/history leaders, box scores) where the
 # named player is usually still on a live roster but isn't guaranteed to be.
@@ -1593,6 +1969,69 @@ templates.env.globals["player_link_or_name"] = _player_link_or_name
 templates.env.globals["format_leader_stat_line"] = _format_leader_stat_line
 
 
+# Team Card (Sec3): forks the Player Card's exact pattern (a JSON blob
+# embedded server-side in a data-* attribute, opened client-side by a
+# dedicated dialog -- no network fetch) rather than inventing a new UI
+# mechanism. Team leaders reuse the same per-player season rows the
+# dashboard's Top Performers box already computes (_stats_page_aggregates),
+# filtered to this team and ranked one stat at a time via the existing
+# _top_performer_leaders() helper -- a straight reuse, not new aggregation.
+# "Coaches" reuses the same disclosed _placeholder_coach() the Scouting
+# Panel already shows (no real Coach entity exists yet, ROADMAP.md R3).
+TEAM_CARD_LEADER_CATEGORIES = [
+    ("pass_yds", "Passing Yards"), ("rush_yds", "Rushing Yards"),
+    ("rec_yds", "Receiving Yards"), ("sacks", "Sacks"), ("solo_tackles", "Tackles"),
+]
+
+
+def _team_card_json(team_abbr: str) -> str:
+    team = TEAMS_BY_ABBR.get(team_abbr)
+    if team is None:
+        return json.dumps({"abbr": team_abbr, "name": team_abbr, "record": None, "schedule": [], "leaders": [], "coach": None, "roster": []})
+
+    season = season_state.get_season()
+    record = season.records.get(team_abbr)
+    schedule = []
+    for row in _team_schedule_for(season, team_abbr):
+        opp = TEAMS_BY_ABBR.get(row["opponent_abbr"])
+        schedule.append({**row, "opponent_name": opp.location if opp else row["opponent_abbr"]})
+
+    player_rows, _ = _stats_page_aggregates(season)
+    team_rows = [r for r in player_rows if r["player_team"] == team_abbr]
+    leaders = []
+    for stat_id, label in TEAM_CARD_LEADER_CATEGORIES:
+        top = _top_performer_leaders(team_rows, stat_id, top_n=1)
+        if top and top[0].get(stat_id):
+            leaders.append({"label": label, "name": top[0]["player_name"], "pos": top[0]["player_pos"], "value": top[0][stat_id]})
+
+    with get_session() as s:
+        roster_players = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+    roster_players.sort(key=lambda p: -p.overall_rating)
+
+    return json.dumps({
+        "abbr": team_abbr, "name": team.location,
+        "record": {
+            "wins": record.wins, "losses": record.losses,
+            "pf": record.points_for, "pa": record.points_against,
+            "power": round(record.power_rating),
+        } if record else None,
+        "schedule": schedule,
+        "leaders": leaders,
+        "coach": _head_coach_summary(team_abbr) or _placeholder_coach(),
+        "roster": [{"name": p.full_name, "pos": p.position.value, "ovr": p.overall_rating} for p in roster_players],
+    })
+
+
+def _team_link(abbr: str | None, label: str | None = None) -> Markup:
+    if not abbr or abbr not in TEAMS_BY_ABBR:
+        return escape(label or abbr or "")
+    card_json = escape(_team_card_json(abbr))
+    return Markup(f"<button type=\"button\" class=\"team-link\" data-team-card='{card_json}'>{escape(label or abbr)}</button>")
+
+
+templates.env.globals["team_link"] = _team_link
+
+
 def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
     grouped: dict[str, dict[str, list[TeamInfo]]] = {}
     for t in TEAMS:
@@ -1601,17 +2040,6 @@ def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
 
 
 ROUND_LABELS = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Conference Championship", "SB": "Super Bowl"}
-
-
-@app.get("/history", response_class=HTMLResponse)
-def history_view(request: Request):
-    """League History: every season archived by season_state.start_new_season()
-    right before it's replaced -- final standings/champion/awards/stat
-    leaders, permanently. Most recent season first. Career-cumulative
-    totals and Hall of Fame induction are built from this same archive
-    -- see /hof and history_store.py's own docstring."""
-    records = list(reversed(history_store.get_history()))
-    return templates.TemplateResponse(request, "history.html", {"records": records})
 
 
 def _hof_new_inductee_keys(full_history: list, full_inductee_keys: set[tuple[str, str]]) -> set[tuple[str, str]]:
@@ -1727,20 +2155,112 @@ def _hof_record_book(path: Path | None = None) -> list[dict]:
     ]
 
 
-@app.get("/hof", response_class=HTMLResponse)
-def hof_view(request: Request, pos: str = "all", q: str = ""):
-    """Hall of Fame: real induction over the real career-cumulative
-    archive (history_store.career_stats()/hall_of_fame()) -- see that
-    module's docstring for the disclosed, GDD-underspecified induction
-    formula. GDD Sec 10.4.8 redesign (ROADMAP.md M5): adds a real
-    "Class of [Season N] Inductees" highlight, a real "Eligible
-    Candidates" list, filterable/searchable Hall of Fame Members (GET-
-    query-param + full-page-reload, same pattern /stats's M3 already
-    established -- no htmx/framework here), a real League Record Book,
-    and a real Super Bowl History table -- see each helper above for
-    its own disclosed scope. Empty/near-empty until a league has played
-    enough seasons for any career to clear the bar."""
+def _team_finish(rec: "history_store.SeasonRecord", team_abbr: str) -> str:
+    """The one-line "how did this team's season end" label for the Team
+    History box (ROADMAP.md, History/HOF merge, 2026-09-11), in Brian's
+    explicit priority order: Super Bowl Champion beats Conference
+    Champion beats Division Winner beats plain division placement. Real
+    data throughout -- champion_abbr/afc_champion_abbr/nfc_champion_abbr
+    and division_rank are all computed once, live, at archive_season()
+    time (see history_store.py), not re-derived or guessed here."""
+    if rec.champion_abbr == team_abbr:
+        return "Super Bowl Champion"
+    if rec.afc_champion_abbr == team_abbr:
+        return "AFC Conference Champion"
+    if rec.nfc_champion_abbr == team_abbr:
+        return "NFC Conference Champion"
+    tr = next((t for t in rec.team_results if t.abbr == team_abbr), None)
+    if tr is None or tr.division_rank == 0:
+        return "—"
+    if tr.division_rank == 1:
+        return "Division Winner"
+    return f"{_ordinal(tr.division_rank)} in {TEAMS_BY_ABBR[team_abbr].division}"
+
+
+def _team_history_for(team_abbr: str, full_history: list) -> list[dict]:
+    """Team History box (ROADMAP.md, History/HOF merge, 2026-09-11):
+    the user's own franchise's real season-by-season record -- year,
+    end-of-season power rank (among all 32 teams, the same power_rating
+    every other page already ranks by), finish (_team_finish() above),
+    real W-L record, and any real MVP/OPOY/DPOY/ROY awards this team's
+    own players actually won that season (index 0 of each category's
+    archived list is the season's winner, same convention history.html/
+    hof.html already use). Deliberately no Coach of the Year line -- no
+    Coach entity exists anywhere in this engine yet (ROADMAP.md R3 is
+    docs-only so far). Deliberately no attendance/profit column -- this
+    engine has no financial/attendance model for either, and Brian
+    explicitly asked for them to be left out even if they had existed.
+    Most-recent-season-first, matching every other list on this page.
+
+    Power rank is None (rendered as "—", not a misleading number) for any
+    season where every team shares the same power_rating -- real for the
+    24 real-NFL-history seasons scripts/import_nfl_history.py seeded:
+    that script's own docstring discloses it has no real historical
+    Power Rating to import, so every team there sits at the same 1500.0
+    baseline. Ranking a flat tie would produce a real-looking but
+    meaningless placement (a 14-3 Super Bowl champion "ranked 32nd of
+    32" purely from stable-sort tie order) -- caught live while
+    verifying this box, not a hypothetical."""
+    rows = []
+    for rec in reversed(full_history):
+        tr = next((t for t in rec.team_results if t.abbr == team_abbr), None)
+        if tr is None:
+            continue
+        has_real_spread = len({t.power_rating for t in rec.team_results}) > 1
+        power_rank = None
+        if has_real_spread:
+            ranked = sorted(rec.team_results, key=lambda t: -t.power_rating)
+            power_rank = next((i + 1 for i, t in enumerate(ranked) if t.abbr == team_abbr), None)
+        awards_won = [
+            label for label, candidates in [
+                ("MVP", rec.awards.mvp), ("OPOY", rec.awards.opoy),
+                ("DPOY", rec.awards.dpoy), ("ROY", rec.awards.roy),
+            ]
+            if candidates and candidates[0].team_abbr == team_abbr
+        ]
+        rows.append({
+            "season_number": rec.season_number,
+            "power_rank": power_rank,
+            "finish": _team_finish(rec, team_abbr),
+            "wins": tr.wins,
+            "losses": tr.losses,
+            "awards_won": awards_won,
+        })
+    return rows
+
+
+@app.get("/history", response_class=HTMLResponse)
+def history_view(request: Request, tab: str = "league", pos: str = "all", q: str = ""):
+    """League History + Hall of Fame, combined into one page with two
+    top-level tabs (Brian's explicit ask, 2026-09-11) -- previously two
+    separate pages/routes (this route, and /hof below, now a redirect
+    here for any old links). `tab` picks which one opens by default
+    ("league" or "hof"); `pos`/`q` are the Hall of Fame Members filter,
+    unchanged from the old /hof route's own query params.
+
+    League History tab: a new Team History box (the user's own
+    franchise's real season-by-season record -- see _team_history_for())
+    alongside the pre-existing per-season League History cards (champion,
+    seeds, awards, stat leaders), now enhanced with the real Super Bowl
+    matchup + final score and real AFC/NFC conference champions (see
+    history_store.archive_season()'s 2026-09-11 additions -- closes the
+    "runner-up/final score not archived" gap the old Super Bowl History
+    table used to disclose). Still genuinely unavailable and disclosed
+    rather than faked: quarter-by-quarter scoring (no clock/quarter
+    model anywhere in this engine, same gap the Dashboard's Box Score
+    box already discloses) and Super Bowl MVP / winning-coach detail by
+    role (no per-game MVP stat, no Coach entity -- see ROADMAP.md's
+    R3/R9 notes).
+
+    Hall of Fame tab: unchanged from the old /hof route -- real
+    induction, Class of Season N Inductees, Eligible Candidates,
+    filterable Members, League Record Book. See history_store.py's own
+    docstring for the disclosed, GDD-underspecified induction formula."""
+    season = season_state.get_season()
     full_history = history_store.get_history()
+    records = list(reversed(full_history))
+    team_history = _team_history_for(season.user_team_abbr, full_history) if season.user_team_abbr else []
+
     inductees = history_store.hall_of_fame()
     inductee_keys = {(c.team_abbr, c.name) for c in inductees}
     new_keys = _hof_new_inductee_keys(full_history, inductee_keys)
@@ -1760,7 +2280,11 @@ def hof_view(request: Request, pos: str = "all", q: str = ""):
     sb_history = [rec for rec in reversed(full_history) if rec.champion_abbr]
     current_season_label = (full_history[-1].season_number + 1) if full_history else None
 
-    return templates.TemplateResponse(request, "hof.html", {
+    return templates.TemplateResponse(request, "history.html", {
+        "records": records,
+        "team_history": team_history,
+        "user_team_abbr": season.user_team_abbr,
+        "active_tab": tab,
         "new_inductees": new_inductees,
         "members": members,
         "total_members": len(inductees),
@@ -1775,18 +2299,203 @@ def hof_view(request: Request, pos: str = "all", q: str = ""):
     })
 
 
+@app.get("/hof")
+def hof_view_redirect(pos: str = "all", q: str = ""):
+    """The old standalone Hall of Fame page merged into /history as a
+    tab (Brian's explicit ask, 2026-09-11). Kept as a redirect rather
+    than removed, so any old bookmarks/links -- including this app's
+    own former hof.html self-links -- keep working."""
+    params = {"tab": "hof"}
+    if pos != "all":
+        params["pos"] = pos
+    if q:
+        params["q"] = q
+    return RedirectResponse(url=f"/history?{urlencode(params)}", status_code=307)
+
+
+# GDD Sec 9.2.5 (Staff - Coaching Roster & Modifiers) / Figma
+# StaffPage.tsx + HeadCoachBox.tsx + CoachCardModal.tsx. Built from the
+# real .tsx component sources, not the page's own stale doc blurb --
+# ROADMAP.md Sec2b's standing lesson.
+#
+# What's real and built: every coach on the staff (the real 2026 seed),
+# their role/specialty/salary, an Overall and Reputation dial, the
+# scheme tags, a Coach Card with the full Sec 7.7.2.2/7.7.2.3 rating
+# breakdown and the Sec 7.9 career championship record, a real
+# league-wide Find Coaches search, vacant-seat rendering, and a real
+# "Trait Effects" panel showing the ACTUAL sim biases this staff
+# produces (app/engine/coaching.py's StaffEffect) rather than the
+# source's hardcoded demo matrix.
+#
+# Deliberately NOT built, each disclosed on the page rather than faked:
+# - Hire / Fire / Re-sign / Negotiate buttons. GDD Sec 8.2.3's hiring
+#   market needs the same offer/negotiation machinery R4a builds for
+#   player contracts; a button that silently swapped one generated coach
+#   for another would be worse than no button.
+# - The source's per-coach "Focus Area" dropdown. It has no consumer
+#   anywhere in this engine -- nothing reads a focus area -- so it would
+#   be a control that visibly does nothing.
+# - "Background" / "Attitude" / "Style" (source fields). No real source
+#   and no sim consumer; the real scheme-profile tags cover the same
+#   ground with something the engine actually reads.
+STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST]
+
+
+def _staff_effect_rows(effect) -> list[tuple[str, str, str]]:
+    """GDD Sec 9.2.5.1's "Trait Effects Matrix", built from the REAL
+    biases this staff feeds into the sim (app/engine/coaching.py), so
+    the panel shows what the staff is actually doing this season rather
+    than a static description of what a coach could theoretically do.
+    Each row is (label, value, which engine system consumes it)."""
+    def pct(x):
+        return f"{x * 100:+.1f}%"
+
+    return [
+        ("Pass/run mix", pct(effect.pass_bias), "Play-calling (Sec 6.6.1)"),
+        ("Red-zone pass lean", pct(effect.rz_pass_bias), "Play-calling, inside the 20"),
+        ("4th-down aggression", pct(effect.fourth_down_bias), "4th-down decision (Sec 6.6.4)"),
+        ("Two-point tendency", pct(effect.two_point_bias), "PAT vs. 2-pt (Sec 6.8)"),
+        ("Blitz rate", pct(effect.blitz_bias), "Defensive call (Sec 6.6.3)"),
+        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "Coverage call (league default 40%)"),
+        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "Penalty system (Sec 7.7.4)"),
+        ("FG attempt range", f"{effect.fg_range_bonus:+.1f} yds", "Field-goal decision"),
+        ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "Offseason progression (Sec 7.6)"),
+        ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "Offseason progression (Sec 7.6)"),
+    ]
+
+
+# Stats page Coach tab (GDD Sec 7.6's Coach stat catalog / Figma
+# StatsPage.tsx's third tab). Every column is real: the season W-L comes
+# from the live Season records, the career totals from the coach's own
+# accumulated Sec 7.9 record, and the ratings from the Coach row itself.
+# Deliberately NOT included: any per-game coaching stat (challenges,
+# timeouts, clock decisions) -- this engine has no clock or challenge
+# model at all, so there is nothing real to count.
+COACH_STAT_COLUMNS = [
+    ("coach", "Coach", False),
+    ("team", "Team", False),
+    ("role", "Role", False),
+    ("record", "Season", True),
+    ("win_pct", "Win%", True),
+    ("career", "Career", True),
+    ("seasons", "Sea", True),
+    ("titles", "Conf", True),
+    ("rings", "SB", True),
+    ("overall", "OVR", True),
+    ("reputation", "Rep", True),
+    ("jss", "Job Sec", True),
+]
+
+
+def _coach_stat_rows(season, sort: str, direction: str, query: str = "") -> list[dict]:
+    """One row per head coach, with this season's real record alongside
+    their accumulated career record. Head coaches only, for the same
+    reason coach_of_the_year() uses only head coaches: a team's W-L is
+    the head coach's result, and attributing the same 13-4 to all 14
+    staff members would make the leaderboard meaningless."""
+    rows = []
+    q = query.strip().lower()
+    for coach in coach_store.all_coaches():
+        if coach.retired or not coach.team_abbr or CoachRole(coach.role) is not CoachRole.HC:
+            continue
+        if q and q not in coach.full_name.lower() and q != coach.team_abbr.lower():
+            continue
+        record = season.records.get(coach.team_abbr)
+        wins = record.wins if record else 0
+        losses = record.losses if record else 0
+        rows.append({
+            "coach": coach.full_name,
+            "card": _coach_card_json(coach),
+            "team": coach.team_abbr,
+            "role": ROLE_TITLES[CoachRole(coach.role)],
+            "record": f"{wins}-{losses}",
+            "win_pct": round(record.win_pct, 3) if record else 0.0,
+            "career": f"{coach.career_wins}-{coach.career_losses}",
+            "career_wins": coach.career_wins,
+            "seasons": coach.seasons_coached,
+            "titles": coach.conference_titles,
+            "rings": coach.super_bowl_wins,
+            "overall": coach.overall,
+            "reputation": coach.reputation,
+            "jss": round(coach.job_security_score, 1),
+        })
+
+    sort_keys = {
+        "record": lambda r: r["win_pct"], "win_pct": lambda r: r["win_pct"],
+        "career": lambda r: r["career_wins"], "seasons": lambda r: r["seasons"],
+        "titles": lambda r: r["titles"], "rings": lambda r: r["rings"],
+        "overall": lambda r: r["overall"], "reputation": lambda r: r["reputation"],
+        "jss": lambda r: r["jss"],
+    }
+    key = sort_keys.get(sort, sort_keys["win_pct"])
+    rows.sort(key=lambda r: (key(r), r["coach"]), reverse=(direction != "asc"))
+    return rows
+
+
 @app.get("/staff", response_class=HTMLResponse)
-def staff_view(request: Request):
-    """GDD Sec 10.4.3: Post-MVP. Nav item exists per Sec 10.3's stated
-    MVP navigation behavior ("Staff, GM Desk, and Draft remain in the
-    navigation bar but render a 'Coming Soon' message until Part 2
-    ships") -- this route/page didn't exist at all before now."""
-    return templates.TemplateResponse(request, "coming_soon.html", {
-        "title": "Staff",
-        "gdd_section": "GDD §10.4.3",
-        "summary": "Your coaching staff (Head Coach, Offensive/Defensive Coordinators, Assistant Coaches) with "
-                    "ratings, focus areas, and hire/fire/re-sign contract flows, plus a searchable Find Coaches "
-                    "list of free agents and coaches on other teams. Needs the Coaching Staff system (Part 2) first.",
+def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
+    """Real Staff page. `team` lets any team's staff be viewed (the
+    Scouting Panel's Head Coach link and Find Coaches results both point
+    here); it defaults to the user's own team, same convention /roster
+    already uses."""
+    from app.engine import coaching
+
+    season = season_state.get_season()
+    if not coach_store.has_coaches():
+        # A database that predates scripts/import_coaches.py -- say so
+        # honestly and say how to fix it, rather than rendering 32 empty
+        # boxes or pretending the page doesn't exist.
+        return templates.TemplateResponse(request, "coming_soon.html", {
+            "title": "Staff",
+            "season": season,
+            "summary": "No coaching staff has been imported into this database yet. Run "
+                        "`scripts/import_coaches.py` to seed all 32 teams' real staffs from "
+                        "data/raw/coaches/, then reload this page.",
+        })
+
+    team_abbr = team or season.user_team_abbr or TEAMS[0].abbr
+    staff = coach_store.staff_for(team_abbr)
+    by_role = {}
+    for coach in staff:
+        by_role.setdefault(CoachRole(coach.role), []).append(coach)
+
+    positions = []
+    for r in STAFF_ROLE_ORDER:
+        holder = by_role.get(r, [None])[0]
+        positions.append({
+            "role": r.value,
+            "title": ROLE_TITLES[r],
+            "coach": holder,
+            "card": _coach_card_json(holder) if holder else None,
+        })
+    assistant_rows = [
+        {"coach": c, "card": _coach_card_json(c)} for c in by_role.get(CoachRole.AC, [])
+    ]
+
+    effect = coaching.staff_effect_for(team_abbr)
+    search_results = []
+    if q or role:
+        search_results = [
+            {"coach": c, "card": _coach_card_json(c)}
+            for c in coach_store.search(q, role=role, limit=40)
+        ]
+
+    return templates.TemplateResponse(request, "staff.html", {
+        "season": season,
+        "team_abbr": team_abbr,
+        "team": TEAMS_BY_ABBR[team_abbr],
+        "teams": TEAMS,
+        "positions": positions,
+        "assistants": assistant_rows,
+        "staff_size": len(staff),
+        "payroll": _money(sum(c.salary_aav for c in staff)),
+        "effect_rows": _staff_effect_rows(effect),
+        "search_results": search_results,
+        "q": q,
+        "role": role,
+        "role_options": [(r.value, ROLE_TITLES[r]) for r in
+                          (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC)],
+        "free_agent_count": len(coach_store.free_agents()),
     })
 
 
@@ -1914,20 +2623,38 @@ def playoffs_view(request: Request, view: str = "full"):
     computation, not dependent on a real, already-built bracket), same
     real data the post-season view uses, just not yet final. Weeks 1-4
     show a "check back after Week 4" message instead (see
-    STANDINGS_BASED_FEATURES_MIN_WEEK's own docstring for why)."""
+    STANDINGS_BASED_FEATURES_MIN_WEEK's own docstring for why).
+
+    Brian flagged (2026-09-11) that this preview didn't read as a
+    bracket at all -- just hunt cards and standings tables, unlike
+    Figma's FullPlayoffTree.tsx which always renders a 9-column tree
+    (with TBD placeholders for anything not decided yet). Added a real
+    projected Wild Card round via `build_wild_card_round()` -- the exact
+    same pure function (seeds from `seed_conference()`, no mutation of
+    `season`) that builds the REAL Week-18+ Wild Card round, just called
+    a few weeks early against the current in-progress standings. DIV/
+    CONF/Champ/SB stay genuinely TBD (those rounds' matchups depend on
+    WC results that don't exist yet), rendered with the Full Bracket
+    tab's own `full_tree` macro so this is the same visual component,
+    not a second implementation."""
     if view not in PLAYOFF_VIEWS:
         view = "full"
     season = season_state.get_season()
     if not season.is_complete:
         preview = None
+        projected_afc_rounds = projected_nfc_rounds = None
         if season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK:
             afc_seeds = seed_conference(season, "AFC")
             nfc_seeds = seed_conference(season, "NFC")
             in_the_hunt, division_standings = _conference_hunt_and_standings(season, afc_seeds, nfc_seeds)
             preview = {"in_the_hunt": in_the_hunt, "division_standings": division_standings}
+            projected_bracket = build_wild_card_round(season)
+            projected_afc_rounds = _rounds_by_conference(projected_bracket, "AFC")
+            projected_nfc_rounds = _rounds_by_conference(projected_bracket, "NFC")
         return templates.TemplateResponse(request, "playoffs.html", {
             "season": season, "bracket": None, "round_labels": ROUND_LABELS, "view": view,
             "preview": preview,
+            "projected_afc_rounds": projected_afc_rounds, "projected_nfc_rounds": projected_nfc_rounds,
         })
     if season.playoffs is None:
         season_state.simulate_playoff_round()  # builds the Wild Card round on first visit
@@ -2019,6 +2746,7 @@ def playoffs_game_view(request: Request, round_name: str, home_abbr: str, away_a
             "home": home,
             "away": away,
             "result": result,
+            "quarters": quarter_scores(result.events),
             "league_seed": season.league_seed,
             "game_seed": game_seed,
             "home_box": home_box,
@@ -2038,10 +2766,12 @@ def team_select_view(request: Request):
     a brand-new league has no history yet (see Sec 10.1's note that this
     step deliberately does exactly one job)."""
     season = season_state.get_season()
+    current = season.user_team_abbr
+    current_conf = TEAMS_BY_ABBR[current].conference if current else "AFC"
     return templates.TemplateResponse(
         request,
         "team_select.html",
-        {"grouped": _grouped_teams(), "current": season.user_team_abbr},
+        {"grouped": _grouped_teams(), "current": current, "current_conf": current_conf},
     )
 
 
@@ -2131,6 +2861,7 @@ def simulate(request: Request, home_abbr: str = Form(...), away_abbr: str = Form
             "home": home,
             "away": away,
             "result": result,
+            "quarters": quarter_scores(result.events),
             "league_seed": league_seed,
             "game_seed": game_seed,
             "home_box": home_box,
