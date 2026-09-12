@@ -124,8 +124,6 @@ class Coach(SQLModel, table=True):
     player_dev_defense: int = 50
     discipline: int = 50
     motivation_chemistry: int = 50
-    clock_management: int = 50
-    challenge_sense: int = 50
     red_zone_offense: int = 50
     red_zone_defense: int = 50
 
@@ -204,17 +202,19 @@ class Coach(SQLModel, table=True):
     @property
     def overall(self) -> int:
         """A single 0-99 composite for list sorting and the Staff page's
-        Overall Rating dial. Deliberately a plain average of the eight
+        Overall Rating dial. Deliberately a plain average of the six
         Sec 7.7.2.3 performance ratings blended with reputation -- there
         is no GDD formula for a coach OVR (unlike a player's, Sec 7.1),
         so this is this module's own documented choice, not a GDD value.
         Reputation carries half the weight because it's the only piece
-        anchored to real data."""
+        anchored to real data. (`clock_management`/`challenge_sense` were
+        dropped from this average 2026-09-11 -- no clock model and no
+        challenge system exist anywhere in this engine, so neither rating
+        ever had a signal to move on; see ROADMAP.md Sec 4c.)"""
         perf = (
             self.player_dev_offense + self.player_dev_defense + self.discipline
-            + self.motivation_chemistry + self.clock_management + self.challenge_sense
-            + self.red_zone_offense + self.red_zone_defense
-        ) / 8.0
+            + self.motivation_chemistry + self.red_zone_offense + self.red_zone_defense
+        ) / 6.0
         return int(round(0.5 * perf + 0.5 * self.reputation))
 
 

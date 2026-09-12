@@ -859,8 +859,6 @@ def _coach_card_json(coach: Coach) -> str:
                 ["Player Dev (Def)", coach.player_dev_defense],
                 ["Discipline", coach.discipline],
                 ["Motivation / Chemistry", coach.motivation_chemistry],
-                ["Clock Management", coach.clock_management],
-                ["Challenge Sense", coach.challenge_sense],
                 ["Red Zone Offense", coach.red_zone_offense],
                 ["Red Zone Defense", coach.red_zone_defense],
             ]},

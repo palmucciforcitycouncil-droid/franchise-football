@@ -8298,7 +8298,7 @@ A league of dynamic coaches (Head Coach, OC, DC) who define a team's strategic i
 
 \- \*\*Static Strategic Tendencies (do not change):\*\* run\_pass\_tendency, offensive\_aggression, pace, blitz\_rate, coverage\_mix, fourth\_down\_tendency, etc.
 
-\- \*\*Dynamic Performance Ratings (evolve yearly):\*\* player\_dev\_offense, player\_dev\_defense, discipline, motivation\_chemistry, clock\_management, challenge\_sense, red\_zone\_offense, red\_zone\_defense.
+\- \*\*Dynamic Performance Ratings (evolve yearly):\*\* player\_dev\_offense, player\_dev\_defense, discipline, motivation\_chemistry, red\_zone\_offense, red\_zone\_defense. (`clock\_management` and `challenge\_sense` were removed 2026-09-11 -- no clock model and no coach's challenge system exist anywhere in this engine, so neither rating ever had a signal to move on. See ROADMAP.md Sec 4c.)
 
 
 

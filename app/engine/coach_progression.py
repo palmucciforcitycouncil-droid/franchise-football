@@ -19,16 +19,21 @@ Only the ratings with a real team-statistical rank behind them move.
 Sec 8.2.2 says ratings "progress or regress based on the team's
 statistical rank in relevant categories" -- where this engine has no
 such category, the rating is left ALONE rather than drifted on an
-invented signal:
+invented signal. All six performance ratings Coach still carries have a
+real category behind them:
 
-  moved (real rank exists)          | not moved (no real signal)
-  ----------------------------------+---------------------------------
-  discipline (penalties/game)       | clock_management (no clock model
-  player_dev_offense (points for)   |   exists anywhere in this engine
-  player_dev_defense (points ag.)   |   -- score_fidelity.py's own
-  motivation_chemistry (win pct)    |   docstring documents this gap)
-  red_zone_offense (RZ TD%)         | challenge_sense (no coach's
-  red_zone_defense (opp RZ TD%)     |   challenge system exists)
+  discipline             -> penalties/game
+  player_dev_offense     -> points for
+  player_dev_defense     -> points against
+  motivation_chemistry   -> win pct
+  red_zone_offense       -> RZ TD%
+  red_zone_defense       -> opp RZ TD%
+
+(`clock_management` and `challenge_sense` used to sit here as
+permanently-excluded no-signal ratings -- no clock model and no coach's
+challenge system exist anywhere in this engine. Rather than progress
+ratings with no signal to move on, they were removed from `Coach`
+entirely on 2026-09-11; see ROADMAP.md Sec 4c.)
 
 **Sec 8.2.3, retirement.** "Coaches aged 65 or older have a
 deterministic, age-based probability of retiring each offseason.

@@ -299,9 +299,6 @@ def test_a_rating_with_no_real_league_rank_is_left_alone_not_drifted():
     result = coach_progression.progress_coach(
         _coach(CoachRole.HC), coach_progression.TeamRanks(), season_number=1, league_seed=1)
     assert result.rating_deltas == {}
-    # clock_management/challenge_sense have no source at all, ever.
-    assert "clock_management" not in coach_progression.RATING_SOURCES
-    assert "challenge_sense" not in coach_progression.RATING_SOURCES
 
 
 def test_a_head_coach_moves_more_than_an_assistant_on_the_same_result():

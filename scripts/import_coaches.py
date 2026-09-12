@@ -268,7 +268,7 @@ def _generate_profile(coach: Coach, league_seed: int) -> None:
         setattr(coach, attr, _draw(rng, 50, 20, 5, 95))
 
     for attr in ("player_dev_offense", "player_dev_defense", "discipline", "motivation_chemistry",
-                 "clock_management", "challenge_sense", "red_zone_offense", "red_zone_defense"):
+                 "red_zone_offense", "red_zone_defense"):
         setattr(coach, attr, _draw(rng, coach.reputation, 8, 20, 99))
 
     coach.offensive_profile = rng.choice(OFFENSIVE_PROFILES) if role in _OFFENSIVE_ROLES else "Balanced"
@@ -425,8 +425,8 @@ def main() -> None:
                          "red_zone_offense_bias", "two_point_tendency", "blitz_rate",
                          "coverage_mix", "fourth_down_defense", "red_zone_defense_bias",
                          "special_teams_focus", "player_dev_offense", "player_dev_defense",
-                         "discipline", "motivation_chemistry", "clock_management",
-                         "challenge_sense", "red_zone_offense", "red_zone_defense"):
+                         "discipline", "motivation_chemistry",
+                         "red_zone_offense", "red_zone_defense"):
                 setattr(prior, attr, getattr(coach, attr))
             session.add(prior)
             updated += 1
