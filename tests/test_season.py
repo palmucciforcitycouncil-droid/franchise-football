@@ -514,21 +514,32 @@ def test_gameplan_post_requires_a_chosen_team():
     assert resp.status_code == 404
 
 
-def test_gm_desk_and_draft_render_coming_soon():
-    """GDD Sec 10.3's MVP navigation behavior: these nav items exist and
-    render a real Coming Soon message, not a 404.
+def test_draft_renders_coming_soon():
+    """GDD Sec 10.3's MVP navigation behavior: this nav item exists and
+    renders a real Coming Soon message, not a 404.
 
-    /staff used to be in this list and no longer is -- it became a real
-    page when the Coaching Staff module landed (ROADMAP.md R3/Sec 4c),
-    so asserting it still says "Coming soon" would now be asserting a
-    regression. Its own real coverage is test_staff_page_is_real below
-    and the whole of tests/test_coaching.py. GM Desk and Draft are still
-    genuine stubs (they need R4's contracts/cap/trades and R5's draft)."""
-    for path, title in [("/gm-desk", "GM Desk"), ("/draft", "Draft")]:
-        resp = client.get(path)
-        assert resp.status_code == 200
-        assert title in resp.text
-        assert "Coming soon" in resp.text
+    /staff and /gm-desk used to be in this list and no longer are -- both
+    became real pages (ROADMAP.md R3/Sec 4c for Staff, R4a/Sec 8.3 for
+    GM Desk's Cap Summary + Re-sign flow), so asserting either still says
+    "Coming soon" would now be asserting a regression. Their own real
+    coverage is test_staff_page_is_real_not_a_stub and
+    test_gm_desk_is_real_not_a_stub below (plus the whole of
+    tests/test_coaching.py and tests/test_contracts.py). Draft is still a
+    genuine stub (it needs R5)."""
+    resp = client.get("/draft")
+    assert resp.status_code == 200
+    assert "Draft" in resp.text
+    assert "Coming soon" in resp.text
+
+
+def test_gm_desk_is_real_not_a_stub():
+    """ROADMAP.md R4a: /gm-desk renders a real Cap Summary (a real dollar
+    figure for cap space, not a placeholder) once a team is chosen."""
+    season_state.set_user_team("KC")
+    resp = client.get("/gm-desk")
+    assert resp.status_code == 200
+    assert "Coming soon" not in resp.text
+    assert "Cap Space" in resp.text
 
 
 def test_staff_page_is_real_not_a_stub():

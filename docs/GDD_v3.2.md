@@ -8350,6 +8350,10 @@ A league of dynamic coaches (Head Coach, OC, DC) who define a team's strategic i
 
 
 
+\*Implemented 2026-09-12 (ROADMAP.md R4a, full account there): real cap math and a real, disclosed-simplified negotiation (\`app/engine/contracts.py\`, \`/gm-desk\`). Sec 8.3.1's tiered-CSV Market Anchor is replaced by a formula reusing \`roster\_strength.POSITION\_WEIGHTS\` (A1/A3's real, tuned number) instead of uncalibratable data this project doesn't have. Sec 8.3.3's Mood Meter (stateful, multi-round patience) is NOT built -- a single deterministic ACCEPT/REJECT/COUNTER verdict per offer instead. No rookie scale (needs the Draft, R5, which needs this chunk first). No signing-bonus cap proration/dead-cap -- cap hit = salary (AAV) only.\*
+
+
+
 The complete financial framework for player and coach compensation.
 
 

@@ -20,7 +20,7 @@ from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.position_groups import POSITION_TO_GROUP, QUOTA_GROUPS
-from app.engine import roster_strength
+from app.engine import roster_strength, contracts
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import quarter_scores
@@ -2060,6 +2060,7 @@ def _player_card_json(p: Player) -> str:
 
 templates.env.filters["player_card_json"] = _player_card_json
 templates.env.filters["player_injury_status"] = _injury_summary_for
+templates.env.filters["money"] = _money
 
 
 # Stat-line dataclasses (PassingLine, SeasonDefensiveLine, HOFCandidate, ...)
@@ -2618,16 +2619,80 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
 
 
 @app.get("/gm-desk", response_class=HTMLResponse)
-def gm_desk_view(request: Request):
-    """GDD Sec 10.4.4: Post-MVP. Consolidates the old Free Agents and
-    Trading Block screens into one hub."""
-    return templates.TemplateResponse(request, "coming_soon.html", {
+def gm_desk_view(request: Request, offer_result: str | None = None, offer_player: str | None = None,
+                  counter_aav: str | None = None, counter_years: str | None = None):
+    """GDD Sec 10.4.4 / R4a (GDD Sec 8.3): real Cap Summary and Re-sign
+    flow, real expiring-contract list. Trade-block browsing/offers and
+    draft-eligible prospects still need Trades (R4c) and the Draft (R5),
+    which this chunk doesn't build -- disclosed via the summary text at
+    the bottom of the page rather than silently omitted."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        return RedirectResponse(url="/team-select", status_code=303)
+    user_abbr = season.user_team_abbr
+
+    with get_session() as s:
+        roster = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
+
+    cap = round(contracts.salary_cap_for_season(season.season_number))
+    cap_space = round(contracts.team_cap_space(roster, season.season_number))
+    top_cap_hits = sorted(roster, key=lambda p: -p.salary)[:10]
+    expiring = sorted(
+        (p for p in roster if p.contract_years_remaining <= 1),
+        key=lambda p: (p.contract_years_remaining, -p.overall_rating),
+    )
+
+    offer_feedback = None
+    if offer_result and offer_player:
+        offer_feedback = {
+            "player_name": offer_player, "verdict": offer_result,
+            "counter_aav": int(counter_aav) if counter_aav else None,
+            "counter_years": int(counter_years) if counter_years else None,
+        }
+
+    return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
-        "gdd_section": "GDD §10.4.4",
-        "summary": "Salary cap summary, trade-block browsing and offers, your own expiring contracts, top "
-                    "draft-eligible prospects, and league-wide player search. Needs Contracts/Cap and Trades "
-                    "(both Part 2) first.",
+        "season": season, "user_info": TEAMS_BY_ABBR[user_abbr],
+        "cap": cap, "cap_space": cap_space, "cap_used": cap - cap_space,
+        "top_cap_hits": top_cap_hits, "expiring": expiring,
+        "offer_feedback": offer_feedback,
     })
+
+
+@app.post("/gm-desk/offer")
+def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(...), years: int = Form(...)):
+    """R4a's real negotiation flow (GDD Sec 8.3.3): a single deterministic
+    ACCEPT/REJECT/COUNTER verdict per submitted offer -- see
+    app/engine/contracts.py's module docstring for why this skips Sec
+    8.3.3's stateful Mood Meter. An ACCEPT really updates the player's
+    real salary/contract_years_remaining in the DB; REJECT/COUNTER
+    change nothing."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    if years < 1 or years > 7 or aav < 0:
+        raise HTTPException(422, "Invalid offer terms")
+
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player is None or player.team_abbr != season.user_team_abbr:
+            raise HTTPException(404, "Player not found on your roster")
+
+        team_rating = roster_strength.compute_roster_strength(season.user_team_abbr).team_rating
+        result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating)
+
+        if result.verdict == contracts.OfferVerdict.ACCEPT:
+            player.salary = aav
+            player.contract_years_remaining = years
+            s.add(player)
+            s.commit()
+
+        params = {"offer_result": result.verdict.value, "offer_player": player.full_name}
+        if result.verdict == contracts.OfferVerdict.COUNTER:
+            params["counter_aav"] = result.counter_aav
+            params["counter_years"] = result.counter_years
+
+    return RedirectResponse(url="/gm-desk?" + urlencode(params), status_code=303)
 
 
 @app.get("/draft", response_class=HTMLResponse)

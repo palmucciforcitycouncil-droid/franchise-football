@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}GM Desk — Franchise Football{% endblock %}
+{% block content %}
+{% from "macros.html" import player_link %}
+
+<div class="card">
+  <h2>GM Desk — {{ user_info.location }} ({{ user_info.abbr }})</h2>
+  <p class="muted">Season {{ season.season_number + 1 }} salary cap</p>
+  <div class="row" style="gap: 2rem; flex-wrap: wrap;">
+    <div><span class="pc-row-label">Cap</span><div style="font-size: 1.4rem;">{{ cap | money }}</div></div>
+    <div><span class="pc-row-label">Committed</span><div style="font-size: 1.4rem;">{{ cap_used | money }}</div></div>
+    <div><span class="pc-row-label">Cap Space</span><div style="font-size: 1.4rem;" class="{% if cap_space < 0 %}pc-injury-status{% endif %}">{{ cap_space | money }}</div></div>
+  </div>
+</div>
+
+{% if offer_feedback %}
+<div class="card">
+  {% if offer_feedback.verdict == 'ACCEPT' %}
+  <p><strong>{{ offer_feedback.player_name }}</strong> accepted your offer.</p>
+  {% elif offer_feedback.verdict == 'COUNTER' %}
+  <p><strong>{{ offer_feedback.player_name }}</strong> countered: {{ offer_feedback.counter_aav | money }}/yr for {{ offer_feedback.counter_years }} years.</p>
+  {% else %}
+  <p><strong>{{ offer_feedback.player_name }}</strong> rejected your offer.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Expiring Contracts ({{ expiring | length }})</h3>
+  {% if expiring %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs Left</th><th>Offer AAV</th><th>Offer Yrs</th><th></th></tr></thead>
+      <tbody>
+        {% for p in expiring %}
+        {% set form_id = 'offer-form-' + p.player_id %}
+        <tr>
+          <td>{{ player_link(p) }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.age }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.salary | money }}</td>
+          <td>{{ p.contract_years_remaining }}</td>
+          <td>
+            <form id="{{ form_id }}" method="post" action="/gm-desk/offer">
+              <input type="hidden" name="player_id" value="{{ p.player_id }}">
+              <input type="number" name="aav" value="{{ p.salary }}" min="0" step="10000" style="width: 110px;">
+            </form>
+          </td>
+          <td><input type="number" name="years" form="{{ form_id }}" value="2" min="1" max="7" style="width: 55px;"></td>
+          <td><button type="submit" form="{{ form_id }}">Offer</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No one on your roster is entering the final year of their deal.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Top Cap Hits</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Player</th><th>Pos</th><th>Salary</th><th>Yrs Left</th></tr></thead>
+      <tbody>
+        {% for p in top_cap_hits %}
+        <tr>
+          <td>{{ player_link(p) }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.salary | money }}</td>
+          <td>{{ p.contract_years_remaining }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <p class="muted">Trade-block browsing/offers (R4c) and draft-eligible prospects (R5) aren't built yet — this page is the real Cap Summary and Re-sign flow only.</p>
+</div>
+{% endblock %}

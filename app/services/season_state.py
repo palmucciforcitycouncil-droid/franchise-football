@@ -424,6 +424,13 @@ def apply_progression_to_roster(season: Season) -> int:
             result = progression.progress_player(player, touches.get(key), season.season_number, rng,
                                                   coach_dev_multiplier=dev_mult)
             progression.apply_progression(player, result)
+            # R4a (GDD Sec 8.3): contract_years_remaining is now a real,
+            # decrementing term rather than the M8-era static 1-5
+            # placeholder -- see app/engine/contracts.py's module
+            # docstring. Floored at 0 (an expired deal) rather than going
+            # negative; R4b (Free Agency) is the chunk that acts on a
+            # player reaching 0, not this one.
+            player.contract_years_remaining = max(0, player.contract_years_remaining - 1)
             s.add(player)
             updated += 1
         s.commit()
