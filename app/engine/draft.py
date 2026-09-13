@@ -1,0 +1,505 @@
+"""
+R5: Draft System (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md). Real, deterministic
+per-LEAGUE_SEED annual rookie class generation + a greedy need-aware draft
+simulation, feeding real Player rows into the existing roster DB -- not a
+separate "Prospect" table.
+
+Real, disclosed scope decisions made building this (ROADMAP.md Sec4f has
+the full account):
+
+- **No new DB tables.** The spec's Prospect/DraftPick/DraftOrder/DraftBoard
+  entities would each need a real schema migration against the live
+  Player DB -- this project has hit REAL data-loss incidents from exactly
+  that category of change multiple times already (see ROADMAP.md Sec2b's
+  incident history, and tonight's own "data/franchise_football.db.bak-
+  pre*" backups). Instead: a drafted OR undrafted prospect becomes a real
+  `Player` row directly (using the table's existing columns, no new
+  ones), and draft RESULTS (order, picks, round/team/player) persist as
+  JSON via app/services/draft_store.py, the same pattern power_rank_
+  history.py/award_race_history.py/headlines_history.py already use.
+- **Runs automatically every season**, inside season_state.start_new_
+  season() (not a one-time league-init event the spec's own Sec9.1
+  describes as the "current implementation") -- a draft that only ever
+  happens once produces a league that never gets meaningfully fresh
+  rookies again, which undercuts the whole point of building this. The
+  underlying generate+simulate logic is identical either way; this is a
+  strictly more useful hook for the same amount of code.
+- **No live/interactive draft event or pre-draft Draft Board.** The spec's
+  own vision (Sec 5, Sec 6) has prospects browsable and board-able BEFORE
+  the draft resolves, with the user's board influencing their own picks.
+  Building that needs a whole pending/uncommitted "class exists, draft
+  hasn't run yet" state machine. Given real time constraints, this
+  implementation runs generation + simulation as one atomic step (closer
+  to the spec's own Sec 9.1 "current implementation" framing) and the
+  `/draft` page is a real, read-only REVIEW of what happened, not an
+  interactive scouting tool. A genuinely disclosed cut from the spec's
+  fuller vision, not a hidden one -- see the page's own on-screen note.
+- **Attribute generation is a simplified position-profile formula**, not
+  the spec's fuller per-attribute-variance table for every one of the
+  Player model's ~50 real attributes. Each position has a small set of
+  "key attributes" (the ones overall_rating is actually derived from,
+  same spirit as the spec's own WR/QB worked examples) generated from a
+  seeded per-prospect `base_talent` plus a position-specific bias;
+  everything else defaults to a duller `base_talent - 15` value with
+  modest noise -- real variance, position-flavored, just not hand-tuned
+  per attribute per position.
+- **Rookie-scale AAV uses the spec's own Sec 8.1 real-dollar anchor
+  points** (pick 1 = $13.64M, etc.), scaled by this project's REAL
+  SALARY_CAP_BASE ($720M, contracts.py) rather than Sec 8.1's literal
+  $302M divisor -- that divisor is the real-world 2026 NFL cap figure,
+  numerically incompatible with this project's own rescaled cap for the
+  exact reason contracts.py's own SALARY_CAP_BASE comment documents
+  (Sec 8.3's real dollar anchor is incompatible with this project's
+  Madden-derived player-salary scale). Individual real-dollar salary
+  figures elsewhere in this project (e.g. M8's real Mahomes contract)
+  stay on the real scale -- it's only ever the CAP CEILING that gets
+  rescaled -- so anchoring rookie growth to SALARY_CAP_BASE keeps this
+  internally consistent with every other contract calculation.
+- **Undrafted-pool cleanup is Tier-1-only** (hard delete at
+  years_remaining == 0), not the spec's fuller two-tier percentile
+  pruning (Sec 9.2's "delete bottom 25%/10%"). A real, simpler rule in
+  the same spirit -- expired UDFAs leave, everyone else stays -- without
+  needing a percentile-ranking pass across the whole pool every offseason.
+- **Position groups collapse to this engine's real granular Position
+  enum** (spec's "OL"/"DL"/"LB"/"S" groups map onto 5/3/3/2 real Madden-
+  style positions respectively; "RB" maps onto HB only -- fullbacks
+  aren't drafted, a disclosed simplification, not an oversight).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from app.engine.rng import RNG, stable_seed
+from app.models.player import Player, Position
+
+# ---------------------------------------------------------------------------
+# Position groups + quota bands (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md Sec14)
+# ---------------------------------------------------------------------------
+
+GROUP_POSITIONS: dict[str, list[Position]] = {
+    "QB": [Position.QB],
+    "RB": [Position.HB],
+    "WR": [Position.WR],
+    "TE": [Position.TE],
+    "OL": [Position.LT, Position.LG, Position.C, Position.RG, Position.RT],
+    "DL": [Position.LE, Position.RE, Position.DT],
+    "LB": [Position.LOLB, Position.MLB, Position.ROLB],
+    "CB": [Position.CB],
+    "S": [Position.FS, Position.SS],
+    "K": [Position.K],
+    "P": [Position.P],
+}
+
+GROUP_BANDS: dict[str, tuple[int, int]] = {
+    "QB": (7, 9), "RB": (24, 28), "WR": (33, 37), "TE": (16, 20),
+    "OL": (40, 44), "DL": (30, 34), "LB": (24, 28), "CB": (22, 26),
+    "S": (14, 18), "K": (1, 2), "P": (1, 2),
+}
+
+ROUNDS = 7
+
+# attr_name -> (overall_rating weight, bias added to base_talent)
+_OL_PROFILE = {"pass_block": (0.30, 5), "run_block": (0.30, 5), "strength": (0.20, 8), "awareness": (0.20, -5)}
+_DL_PROFILE = {"block_shedding": (0.25, 5), "pursuit": (0.20, 0), "strength": (0.20, 8), "power_moves": (0.20, 5), "tackle": (0.15, 0)}
+_LB_PROFILE = {"tackle": (0.25, 5), "pursuit": (0.20, 5), "play_recognition": (0.20, 0), "hit_power": (0.15, 5), "speed": (0.10, 0), "zone_coverage": (0.10, -5)}
+_DB_PROFILE = {"man_coverage": (0.20, 0), "zone_coverage": (0.25, 5), "speed": (0.20, 3), "hit_power": (0.15, 0), "play_recognition": (0.20, 5)}
+
+POSITION_PROFILES: dict[Position, dict[str, tuple[float, int]]] = {
+    Position.QB: {
+        "throw_power": (0.15, 5), "throw_accuracy_short": (0.15, 5), "throw_accuracy_mid": (0.15, 3),
+        "throw_accuracy_deep": (0.15, 0), "awareness": (0.20, 0), "throw_under_pressure": (0.10, -5),
+        "agility": (0.10, -10),
+    },
+    Position.HB: {
+        "speed": (0.25, 8), "agility": (0.20, 8), "carrying": (0.15, 5), "break_tackle": (0.15, 0),
+        "ball_carrier_vision": (0.15, 3), "strength": (0.10, -5),
+    },
+    Position.WR: {
+        "speed": (0.30, 8), "agility": (0.25, 5), "catching": (0.30, 8), "strength": (0.15, -8),
+    },
+    Position.TE: {
+        "catching": (0.30, 3), "run_block": (0.25, 0), "strength": (0.20, 5), "speed": (0.15, -5),
+        "medium_route_running": (0.10, 0),
+    },
+    Position.LT: _OL_PROFILE, Position.LG: _OL_PROFILE, Position.C: _OL_PROFILE,
+    Position.RG: _OL_PROFILE, Position.RT: _OL_PROFILE,
+    Position.LE: _DL_PROFILE, Position.RE: _DL_PROFILE, Position.DT: _DL_PROFILE,
+    Position.LOLB: _LB_PROFILE, Position.MLB: _LB_PROFILE, Position.ROLB: _LB_PROFILE,
+    Position.CB: {
+        "man_coverage": (0.25, 5), "zone_coverage": (0.20, 3), "speed": (0.25, 8), "press": (0.15, 0),
+        "agility": (0.15, 5),
+    },
+    Position.FS: _DB_PROFILE, Position.SS: _DB_PROFILE,
+    Position.K: {"kick_power": (0.45, 10), "kick_accuracy": (0.45, 10), "awareness": (0.10, 0)},
+    Position.P: {"kick_power": (0.5, 5), "kick_accuracy": (0.4, 10), "awareness": (0.1, 0)},
+}
+
+ALL_ATTR_FIELDS = [
+    "speed", "acceleration", "strength", "agility", "jumping", "stamina", "toughness", "durability",
+    "throw_power", "throw_accuracy_short", "throw_accuracy_mid", "throw_accuracy_deep", "play_action",
+    "throw_on_the_run", "throw_under_pressure", "break_sack",
+    "catching", "spectacular_catch", "catch_in_traffic", "short_route_running", "medium_route_running",
+    "deep_route_running", "release",
+    "carrying", "trucking", "change_of_direction", "ball_carrier_vision", "stiff_arm", "spin_move",
+    "juke_move", "break_tackle",
+    "run_block", "pass_block", "run_block_power", "run_block_finesse", "pass_block_power",
+    "pass_block_finesse", "lead_block", "impact_blocking",
+    "tackle", "hit_power", "block_shedding", "pursuit", "play_recognition", "man_coverage", "zone_coverage",
+    "press", "power_moves", "finesse_moves",
+    "kick_power", "kick_accuracy", "kick_return",
+    "awareness",
+]
+
+QB_STRENGTH_BASE_TALENT = {"weak": 55.0, "strong": 65.0, "elite": 75.0}
+
+_FIRST_NAMES = [
+    "James", "Michael", "Chris", "Marcus", "Devon", "Tyler", "Jordan", "Xavier", "Malik", "Isaiah",
+    "Dominique", "Trevon", "Jaylen", "Antoine", "Cameron", "Darius", "Elijah", "Jamal", "Kendall", "Andre",
+    "Bryce", "Caleb", "Damon", "Emmanuel", "Frankie", "Gerald", "Harrison", "Ivan", "Jaden", "Keon",
+    "Lamar", "Mason", "Nasir", "Omari", "Preston", "Quentin", "Rashad", "Sean", "Terrance", "Vincent",
+]
+_LAST_NAMES = [
+    "Johnson", "Williams", "Brown", "Jones", "Davis", "Miller", "Wilson", "Moore", "Taylor", "Anderson",
+    "Thomas", "Jackson", "White", "Harris", "Martin", "Thompson", "Robinson", "Clark", "Rodriguez", "Lewis",
+    "Walker", "Hall", "Allen", "Young", "King", "Wright", "Scott", "Green", "Baker", "Adams",
+    "Nelson", "Carter", "Mitchell", "Perez", "Roberts", "Turner", "Phillips", "Campbell", "Parker", "Evans",
+]
+_COLLEGES = [
+    "Alabama", "Georgia", "Ohio State", "Clemson", "LSU", "Oklahoma", "Michigan", "Texas", "Florida", "USC",
+    "Penn State", "Notre Dame", "Oregon", "Wisconsin", "Miami", "Auburn", "Florida State", "Texas A&M",
+    "Tennessee", "Iowa", "Utah", "Baylor", "Washington", "UCLA", "Ole Miss", "Kentucky", "Missouri",
+    "North Carolina", "Virginia Tech", "Michigan State", "Stanford", "Arizona State", "TCU", "Louisville",
+    "West Virginia", "Nebraska", "Kansas State", "Oklahoma State", "Mississippi State", "South Carolina",
+]
+
+_HEIGHT_WEIGHT_BY_GROUP = {  # (min_in, max_in), (min_lb, max_lb) -- deterministic ranges, not real scouting data
+    "QB": ((72, 77), (205, 235)), "RB": ((68, 73), (190, 225)), "WR": ((70, 76), (175, 215)),
+    "TE": ((75, 79), (240, 260)), "OL": ((75, 80), (295, 330)), "DL": ((74, 79), (265, 320)),
+    "LB": ((72, 76), (225, 250)), "CB": ((69, 74), (175, 200)), "S": ((70, 74), (190, 215)),
+    "K": ((70, 74), (185, 210)), "P": ((72, 76), (195, 220)),
+}
+
+
+def _clamp(v: float) -> int:
+    return max(20, min(99, round(v)))
+
+
+@dataclass
+class ProspectDraft:
+    """A pure, DB-free representation of one generated prospect -- kept
+    separate from Player so generation/simulation can be unit-tested
+    (and re-tested for determinism) without a database at all. Only
+    turned into a real Player row by apply_draft_to_db()."""
+    index: int
+    first_name: str
+    last_name: str
+    position: Position
+    college: str
+    age: int
+    height_inches: int
+    weight_lbs: int
+    overall_rating: int
+    potential: int
+    attrs: dict[str, int]
+    draft_grade: str
+    group: str = ""
+
+
+@dataclass
+class DraftPickResult:
+    round: int
+    overall_pick: int
+    team_abbr: str
+    prospect_index: int
+
+
+@dataclass
+class DraftResult:
+    order: list[str]
+    picks: list[DraftPickResult]
+    undrafted_indexes: list[int] = field(default_factory=list)
+
+
+def _qb_class_strength(league_seed: int, season_number: int) -> str:
+    roll = stable_seed(league_seed, "draft", season_number, "class_strength") % 100
+    if roll < 25:
+        return "weak"
+    if roll < 75:
+        return "strong"
+    return "elite"
+
+
+def _group_for(position: Position) -> str:
+    for group, positions in GROUP_POSITIONS.items():
+        if position in positions:
+            return group
+    return "OL"  # unreachable given GROUP_POSITIONS covers every Position member
+
+
+def _draft_grade(overall: int) -> str:
+    if overall >= 85:
+        return "A"
+    if overall >= 70:
+        return "B"
+    if overall >= 55:
+        return "C"
+    return "D"
+
+
+def _generate_one_prospect(index: int, position: Position, league_seed: int, season_number: int, qb_strength: str) -> ProspectDraft:
+    seed = stable_seed(league_seed, "draft", season_number, index)
+    rng = RNG.with_seed(seed)
+
+    mean = QB_STRENGTH_BASE_TALENT[qb_strength] if position == Position.QB else 60.0
+    base_talent = max(30.0, min(90.0, rng.gauss(mean, 12)))
+
+    profile = POSITION_PROFILES.get(position, {})
+    attrs: dict[str, int] = {}
+    for name in ALL_ATTR_FIELDS:
+        if name in profile:
+            _, bias = profile[name]
+            attrs[name] = _clamp(base_talent + bias + rng.gauss(0, 10))
+        else:
+            attrs[name] = _clamp(base_talent - 15 + rng.gauss(0, 10))
+
+    if profile:
+        total_w = sum(w for w, _ in profile.values())
+        overall = _clamp(sum(attrs[name] * w for name, (w, _) in profile.items()) / total_w)
+    else:
+        overall = _clamp(sum(attrs.values()) / len(attrs))
+
+    potential = _clamp(overall + rng.uniform(0, 20))
+    group = _group_for(position)
+    (h_min, h_max), (w_min, w_max) = _HEIGHT_WEIGHT_BY_GROUP[group]
+    height = rng.r().randint(h_min, h_max)
+    weight = rng.r().randint(w_min, w_max)
+    age = rng.r().randint(21, 23)
+    first = rng.choice(_FIRST_NAMES)
+    last = rng.choice(_LAST_NAMES)
+    college = rng.choice(_COLLEGES)
+
+    return ProspectDraft(
+        index=index, first_name=first, last_name=last, position=position, college=college,
+        age=age, height_inches=height, weight_lbs=weight, overall_rating=overall, potential=potential,
+        attrs=attrs, draft_grade=_draft_grade(overall), group=group,
+    )
+
+
+def generate_draft_class(league_seed: int, season_number: int) -> list[ProspectDraft]:
+    """Deterministic: the same (league_seed, season_number) always produces
+    the same class (GDD Sec 1.3). Class size is whatever the independent
+    per-group band draws sum to (no forced total -- the spec's own
+    235-265 target is a natural byproduct of the real per-group bands,
+    not separately enforced)."""
+    qb_strength = _qb_class_strength(league_seed, season_number)
+    prospects: list[ProspectDraft] = []
+    index = 0
+    for group, positions in GROUP_POSITIONS.items():
+        lo, hi = GROUP_BANDS[group]
+        count_seed = stable_seed(league_seed, "draft", season_number, "count", group)
+        count = lo + count_seed % (hi - lo + 1)
+        for i in range(count):
+            position = positions[i % len(positions)]
+            prospects.append(_generate_one_prospect(index, position, league_seed, season_number, qb_strength))
+            index += 1
+    return prospects
+
+
+def _strength_of_schedule(season, team_abbr: str) -> float:
+    """Average win% of every opponent team_abbr actually played this
+    season -- the standard real SOS formula, computed directly from
+    already-real season.records/schedule, not a modeled stat."""
+    opponents = []
+    for week in season.schedule:
+        for game in week:
+            if game.result is None:
+                continue
+            if game.home_abbr == team_abbr:
+                opponents.append(game.away_abbr)
+            elif game.away_abbr == team_abbr:
+                opponents.append(game.home_abbr)
+    if not opponents:
+        return 0.0
+    return sum(season.records[o].win_pct for o in opponents) / len(opponents)
+
+
+def compute_draft_order(season, league_seed: int, season_number: int) -> list[str]:
+    """Worst-to-best (Sec 3.1): win% ascending, then SOS ascending (a
+    weaker schedule means the team's record overstates them, so they
+    pick earlier -- the real, standard tiebreak direction), then a
+    seeded coin flip for anything still tied."""
+    abbrs = list(season.records.keys())
+    sos = {a: _strength_of_schedule(season, a) for a in abbrs}
+
+    def sort_key(a: str):
+        tie = stable_seed(league_seed, season_number, "draft_tiebreak", a)
+        return (season.records[a].win_pct, sos[a], tie)
+
+    return sorted(abbrs, key=sort_key)
+
+
+def _all_teams_group_counts() -> dict[str, dict[str, int]]:
+    """Real live roster counts per team per position group, for every
+    team in ONE query -- not a fabricated priority list, but also not a
+    per-pick DB round-trip: simulate_draft() calls this exactly ONCE and
+    updates the in-memory counts itself as picks are made (a 224-pick,
+    7-round draft doing 224 individual roster-count queries measured as
+    the real, disclosed reason this needed a two-line fix during this
+    chunk's own live verification -- same class of perf issue as the
+    Dashboard's real 46s+ load, ROADMAP.md Sec2d-B's own precedent).
+    Deliberately simpler than roster_strength.py's own quota-minimums
+    table (tuned for the Roster page's "below quota" badges
+    specifically); this just needs a real relative ranking for the
+    greedy draft AI, not an absolute quota check."""
+    from app.core.db import get_session
+    from sqlmodel import select
+
+    counts: dict[str, dict[str, int]] = {}
+    with get_session() as s:
+        for p in s.exec(select(Player).where(Player.team_abbr.is_not(None))):
+            team_counts = counts.setdefault(p.team_abbr, {group: 0 for group in GROUP_POSITIONS})
+            team_counts[_group_for(p.position)] += 1
+    return counts
+
+
+def _needs_from_counts(counts: dict[str, int]) -> list[str]:
+    return sorted(GROUP_POSITIONS, key=lambda g: counts.get(g, 0))
+
+
+def simulate_draft(prospects: list[ProspectDraft], order: list[str], rounds: int = ROUNDS) -> DraftResult:
+    """Greedy, deterministic, need-aware: on the clock, a team drafts the
+    best-overall-rating prospect remaining at one of its 3 scarcest
+    position groups (using a real live roster count, fetched once up
+    front and updated in memory as this function's own picks land --
+    see _all_teams_group_counts()'s docstring for why), falling back to
+    best-overall-remaining if none of its needs have anyone left. The
+    only DB access is that one up-front query; everything else here is
+    a pure computation over `prospects`/`order`, so determinism is
+    exhaustively unit-testable without needing to mock the database."""
+    remaining = {p.index: p for p in prospects}
+    counts = _all_teams_group_counts()
+    picks: list[DraftPickResult] = []
+    overall_pick = 1
+    for rnd in range(1, rounds + 1):
+        for team_abbr in order:
+            if not remaining:
+                break
+            team_counts = counts.setdefault(team_abbr, {group: 0 for group in GROUP_POSITIONS})
+            needs = _needs_from_counts(team_counts)[:3]
+            candidates = [p for p in remaining.values() if p.group in needs]
+            pool = candidates or list(remaining.values())
+            best = max(pool, key=lambda p: (p.overall_rating, -p.index))
+            picks.append(DraftPickResult(round=rnd, overall_pick=overall_pick, team_abbr=team_abbr, prospect_index=best.index))
+            del remaining[best.index]
+            team_counts[best.group] += 1
+            overall_pick += 1
+    return DraftResult(order=order, picks=picks, undrafted_indexes=list(remaining.keys()))
+
+
+# ---------------------------------------------------------------------------
+# Rookie-scale AAV (Sec 8.1, real-dollar anchors, scaled by THIS project's
+# real SALARY_CAP_BASE -- see module docstring for why $302M isn't used)
+# ---------------------------------------------------------------------------
+
+_ROOKIE_SCALE_ANCHORS = [  # (overall_pick_upper_bound, base_aav)
+    (1, 13_640_000), (2, 13_030_000), (10, 7_400_000), (32, 6_930_000),
+    (64, 3_230_000), (100, 1_450_000), (10_000, 1_150_000),
+]
+LEAGUE_MINIMUM_BASE = 885_000
+
+
+def rookie_scale_aav(overall_pick: int, season_number: int) -> int:
+    from app.engine.contracts import salary_cap_for_season, SALARY_CAP_BASE
+
+    base = _ROOKIE_SCALE_ANCHORS[-1][1]
+    prev_pick, prev_aav = 0, _ROOKIE_SCALE_ANCHORS[0][1]
+    for upper, aav in _ROOKIE_SCALE_ANCHORS:
+        if overall_pick <= upper:
+            if upper == prev_pick:
+                base = aav
+            else:
+                frac = (overall_pick - prev_pick) / (upper - prev_pick)
+                base = prev_aav + frac * (aav - prev_aav)
+            break
+        prev_pick, prev_aav = upper, aav
+    growth = salary_cap_for_season(season_number) / SALARY_CAP_BASE
+    return round(base * growth)
+
+
+def _player_id_for(league_seed: int, season_number: int, prospect_index: int) -> str:
+    """Deterministic, not a random UUID (GDD Sec 1.3) -- collision-safe in
+    practice via the seeded numeric suffix, same spirit as injuries.py's
+    own deterministic injury_id."""
+    tag = stable_seed(league_seed, season_number, prospect_index) % 1_000_000
+    return f"draft_{season_number}_{prospect_index:04d}_{tag:06d}"
+
+
+def _prospect_to_player(p: ProspectDraft, league_seed: int, season_number: int, team_abbr: str | None,
+                         salary: int, contract_years_remaining: int) -> Player:
+    kwargs = dict(p.attrs)
+    return Player(
+        player_id=_player_id_for(league_seed, season_number, p.index),
+        first_name=p.first_name, last_name=p.last_name, position=p.position, team_abbr=team_abbr,
+        jersey_number=0, age=p.age, height_inches=p.height_inches, weight_lbs=p.weight_lbs,
+        college=p.college, years_pro=0, overall_rating=p.overall_rating, potential=p.potential,
+        morale=75, salary=salary, signing_bonus=0, guaranteed_money=0,
+        contract_years_remaining=contract_years_remaining,
+        **kwargs,
+    )
+
+
+def apply_draft_to_db(prospects: list[ProspectDraft], result: DraftResult, league_seed: int, season_number: int) -> dict:
+    """The one impure step: drafted prospects become real Player rows on
+    their new team with a real rookie-scale contract (4-year, Sec 8.1);
+    undrafted prospects become real Player rows too, as genuine free
+    agents (team_abbr=None) -- reusing the EXISTING free-agency
+    infrastructure (Roster page browsing, Sign routes, contract
+    negotiation) instead of a second, parallel "UndraftedRookie" system,
+    tracked for the real 3-year expiration window via
+    app.services.undrafted_pool (Tier-1-only cleanup, see module
+    docstring). Returns a summary dict for the caller to log/store."""
+    from app.core.db import get_session
+    from app.services import undrafted_pool, draft_store
+
+    by_index = {p.index: p for p in prospects}
+    drafted_player_ids: list[str] = []
+    picks_for_store = []
+    with get_session() as s:
+        for pick in result.picks:
+            prospect = by_index[pick.prospect_index]
+            salary = rookie_scale_aav(pick.overall_pick, season_number)
+            player = _prospect_to_player(prospect, league_seed, season_number, pick.team_abbr, salary, contract_years_remaining=4)
+            s.add(player)
+            drafted_player_ids.append(player.player_id)
+            picks_for_store.append({
+                "round": pick.round, "overall_pick": pick.overall_pick, "team_abbr": pick.team_abbr,
+                "player_id": player.player_id, "name": player.full_name, "position": prospect.position.value,
+                "college": prospect.college, "overall_rating": prospect.overall_rating,
+            })
+
+        undrafted_player_ids: list[str] = []
+        for index in result.undrafted_indexes:
+            prospect = by_index[index]
+            player = _prospect_to_player(
+                prospect, league_seed, season_number, None,
+                salary=LEAGUE_MINIMUM_BASE, contract_years_remaining=1,
+            )
+            s.add(player)
+            undrafted_player_ids.append(player.player_id)
+        s.commit()
+
+    undrafted_pool.add_undrafted(undrafted_player_ids)
+    draft_store.record_draft(season_number, result.order, picks_for_store, len(undrafted_player_ids))
+    return {"drafted": len(drafted_player_ids), "undrafted": len(undrafted_player_ids)}
+
+
+def run_draft_for_season(season, season_number: int) -> dict:
+    """Orchestrates the whole real pipeline for one season's draft --
+    generate the class, compute the real order, simulate every pick
+    need-aware, write real Player rows. Called from season_state.
+    start_new_season() (see that function's own call site comment for
+    exactly where in the offseason calendar this runs)."""
+    prospects = generate_draft_class(season.league_seed, season_number)
+    order = compute_draft_order(season, season.league_seed, season_number)
+    result = simulate_draft(prospects, order)
+    return apply_draft_to_db(prospects, result, season.league_seed, season_number)

@@ -77,7 +77,7 @@ from pathlib import Path
 import pytest
 
 from app.core import db as db_module
-from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history
+from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool
 
 # Captured once, at collection time, before any fixture below ever
 # reassigns `db_module.DB_PATH` -- the one stable reference point
@@ -103,18 +103,48 @@ def _isolate_season_save_path():
     # written once per simulated week by season_state.simulate_current_
     # week(), never the real save the live server reads.
     real_award_race_path = award_race_history.DEFAULT_PATH
+    # R9 (Weekly Headlines): same session-scoped throwaway-path treatment
+    # as power_rank_history/award_race_history above -- written once per
+    # simulated week by season_state.simulate_current_week().
+    real_headlines_path = headlines_history.DEFAULT_PATH
+    # R5 (Draft): same session-scoped throwaway-path treatment as every
+    # other store above -- draft_store.py's real results and undrafted_
+    # pool.py's real 3-year expiration clock, both written once per
+    # simulated offseason by season_state.start_new_season().
+    real_draft_path = draft_store.DEFAULT_PATH
+    real_undrafted_path = undrafted_pool.DEFAULT_PATH
+    # Multi-save games (save_manager.py): defense in depth -- no existing
+    # test creates/loads/deletes a save (see that module's own docstring
+    # for why its registry-existence check already makes it a no-op in
+    # a real CI/fresh-checkout environment regardless), but redirecting
+    # its registry + save-bundle root here too means a test that someday
+    # does touch it still can't come near the real data/saves/registry.json
+    # or data/saves/games/ a real dev machine might have.
+    real_registry_path = save_manager.REGISTRY_PATH
+    real_saves_root = save_manager.SAVES_ROOT
     test_path = Path("data/saves/_test_isolated_current_season.json")
     test_power_rank_path = Path("data/saves/_test_isolated_power_rank_history.json")
     test_owner_pressure_path = Path("data/saves/_test_isolated_owner_pressure.json")
     test_team_expectations_path = Path("data/saves/_test_isolated_team_expectations.json")
     test_award_race_path = Path("data/saves/_test_isolated_award_race_history.json")
-    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path):
+    test_headlines_path = Path("data/saves/_test_isolated_headlines_history.json")
+    test_draft_path = Path("data/saves/_test_isolated_draft_history.json")
+    test_undrafted_path = Path("data/saves/_test_isolated_undrafted_pool.json")
+    test_registry_path = Path("data/saves/_test_isolated_registry.json")
+    test_saves_root = Path("data/saves/_test_isolated_games")
+    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path):
         p.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
+    shutil.rmtree(test_saves_root, ignore_errors=True)
     save_service.DEFAULT_SAVE_PATH = test_path
     power_rank_history.DEFAULT_PATH = test_power_rank_path
     owner_pressure_store.DEFAULT_PATH = test_owner_pressure_path
     team_expectations.DEFAULT_PATH = test_team_expectations_path
     award_race_history.DEFAULT_PATH = test_award_race_path
+    headlines_history.DEFAULT_PATH = test_headlines_path
+    draft_store.DEFAULT_PATH = test_draft_path
+    undrafted_pool.DEFAULT_PATH = test_undrafted_path
+    save_manager.REGISTRY_PATH = test_registry_path
+    save_manager.SAVES_ROOT = test_saves_root
     owner_pressure_store.clear_cache()
     team_expectations.clear_cache()
     try:
@@ -125,21 +155,56 @@ def _isolate_season_save_path():
         owner_pressure_store.DEFAULT_PATH = real_owner_pressure_path
         team_expectations.DEFAULT_PATH = real_team_expectations_path
         award_race_history.DEFAULT_PATH = real_award_race_path
+        headlines_history.DEFAULT_PATH = real_headlines_path
+        draft_store.DEFAULT_PATH = real_draft_path
+        undrafted_pool.DEFAULT_PATH = real_undrafted_path
+        save_manager.REGISTRY_PATH = real_registry_path
+        save_manager.SAVES_ROOT = real_saves_root
         owner_pressure_store.clear_cache()
         team_expectations.clear_cache()
-        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path):
+        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path):
             p.unlink(missing_ok=True)
+        shutil.rmtree(test_saves_root, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
 def _golden_db_path():
     """A read-only reference copy of the real DB, made exactly once.
-    Never redirected into `db_module.DB_PATH` directly -- only
-    `_isolate_db_path` below copies FROM this, per test function."""
+    Never redirected into `db_module.DB_PATH` directly (except briefly,
+    below, to scrub it) -- only `_isolate_db_path` below copies FROM
+    this, per test function.
+
+    Real incident (2026-09-12, R2b session): a real, currently-playing
+    franchise can have real ACTIVE injuries in `data/franchise_football.
+    db` at the exact moment a test run starts -- test_injuries.py's
+    `test_decay_tapers_rtp_penalty_and_eventually_auto_closes` asserts
+    `currently_out_player_ids() == frozenset()` after resolving the ONE
+    synthetic injury it created, which fails the instant the golden copy
+    (taken from that live, in-progress save) already carries OTHER real
+    active injuries -- nothing to do with that test's own logic, or
+    whatever the current test session actually changed. Scrubbed here,
+    once, via the exact same `resolve_all_active()` a real season
+    rollover already uses (`season_state.reset_season()`/
+    `start_new_season()`), so every test's own copy starts from a
+    genuinely clean bill of health regardless of the live franchise's
+    real state when the suite happens to run."""
     real_db_path = db_module.DB_PATH
     golden_path = Path("data/_test_golden_franchise.db")
     golden_path.unlink(missing_ok=True)
     shutil.copy(real_db_path, golden_path)
+
+    from app.services import injury_store
+    db_module.DB_PATH = golden_path
+    db_module._engine = None
+    try:
+        injury_store.resolve_all_active()
+    finally:
+        if db_module._engine is not None:
+            db_module._engine.dispose()
+        db_module.DB_PATH = real_db_path
+        db_module._engine = None
+        injury_store.clear_cache()
+
     try:
         yield golden_path
     finally:

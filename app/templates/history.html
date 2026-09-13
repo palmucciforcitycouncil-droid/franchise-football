@@ -30,7 +30,7 @@
         {% for row in team_history %}
         <div class="team-history-row">
           <div class="team-history-top">
-            <strong>Season {{ row.season_number + 1 }}</strong>
+            <strong>{{ season_year(row.season_number) }}</strong>
             <span class="muted">{{ row.wins }}-{{ row.losses }}</span>
           </div>
           <div class="team-history-finish{% if 'Champion' in row.finish %} gold{% endif %}">{{ row.finish }}</div>
@@ -65,7 +65,7 @@
         <tbody>
           {% for rec in sb_history %}
           <tr>
-            <td>{{ rec.season_number + 1 }}</td>
+            <td>{{ season_year(rec.season_number) }}</td>
             <td>
               {% if rec.super_bowl_home_abbr %}
               <span class="{% if rec.champion_abbr == rec.super_bowl_home_abbr %}winner{% endif %}">{{ rec.super_bowl_home_abbr }}{% if rec.super_bowl_home_score is not none %} {{ rec.super_bowl_home_score }}{% endif %}</span>
@@ -85,7 +85,7 @@
       <div class="dashboard-scroll">
         {% for rec in records %}
         <div class="league-history-season">
-          <h4>Season {{ rec.season_number + 1 }}{% if rec.champion_abbr %} &mdash; Champion: {{ rec.champion_abbr }}{% endif %}</h4>
+          <h4>{{ season_year(rec.season_number) }}{% if rec.champion_abbr %} &mdash; Champion: {{ rec.champion_abbr }}{% endif %}</h4>
 
           {% if rec.afc_seeds %}
           <p class="muted">AFC #1 seed: {{ rec.afc_seeds[0] }} &middot; NFC #1 seed: {{ rec.nfc_seeds[0] }}</p>
@@ -137,7 +137,7 @@
 
   {% if new_inductees %}
   <div class="card" style="border-color: var(--gold);">
-    <h3 style="color: var(--gold);">⭐ Class of Season {{ current_season_label }} Inductees</h3>
+    <h3 style="color: var(--gold);">⭐ Class of {{ current_season_label }} Inductees</h3>
     <div class="hof-grid inductees">
       {% for c in new_inductees %}
       <div class="hof-inductee-card">

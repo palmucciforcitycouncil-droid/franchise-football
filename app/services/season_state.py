@@ -35,13 +35,13 @@ from app.engine.game_state import GameResult
 from app.engine.weather import generate_weather
 from app.engine import (
     power_rating, score_fidelity, playoffs, progression, season_stats, coaching, coach_progression, injuries,
-    free_agency, awards,
+    free_agency, awards, headlines, draft,
 )
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
 from app.services import (
     gameplan_store, history_store, power_rank_history, coach_store, coach_records, depth_chart, injury_store,
-    award_race_history,
+    award_race_history, headlines_history, undrafted_pool,
 )
 from app.core.db import get_session
 from app.models.player import Player, Position
@@ -194,6 +194,8 @@ def reset_season() -> Season:
         owner_pressure_store.reset_all()
         team_expectations.compute_and_store(_season.season_number)
         save_service.save_season(_season)
+        from app.services import save_manager
+        save_manager.sync_active_save_summary()
         return _season
 
 
@@ -207,8 +209,9 @@ def set_user_team(team_abbr: str) -> Season:
     with _STATE_LOCK:
         season = get_season()
         season.user_team_abbr = team_abbr
-        from app.services import save_service
+        from app.services import save_service, save_manager
         save_service.save_season(season)
+        save_manager.sync_active_save_summary()
         return season
 
 
@@ -362,6 +365,14 @@ def simulate_current_week() -> int:
         week_total_points = 0
         week_total_teams = 0
 
+        # R9 (GDD Sec 12, ROADMAP.md Sec4e): Weekly Headlines' division-
+        # lead-change/clinch detection needs a BEFORE-this-week snapshot to
+        # diff against -- captured here since final_division_standings() is
+        # a cheap pure function over season.records, not because it needs
+        # to be persisted (unlike power_rank_history's cross-week diffing,
+        # this diff never needs to survive past this one function call).
+        prior_division_standings = playoffs.final_division_standings(season)
+
         for game in week_games:
             result = _simulate_matchup(
                 season, game.home_abbr, game.away_abbr, week_num,
@@ -423,8 +434,20 @@ def simulate_current_week() -> int:
         # final; clear the starters cache again so next week's selection
         # (and this week's Player Card/Roster status badges) reflect any
         # brand-new injuries immediately.
-        injuries.roll_injuries_for_week(season, week_num)
+        new_injuries = injuries.roll_injuries_for_week(season, week_num)
         depth_chart.clear_starters_cache()
+
+        # R9 (GDD Sec 12, ROADMAP.md Sec4e): real event detection + a
+        # deterministic template render (no LLM -- see headlines.py's own
+        # module docstring for why) over this week's now-final box scores,
+        # standings movement, and injuries. Stored so the Dashboard reads a
+        # week's headlines once instead of recomputing on every request.
+        # (season_stats' current-season cache was already cleared above,
+        # right after this week's games -- injuries don't change box-score
+        # stats, so it's still fresh for headlines.weekly_headlines()'s own
+        # cached_current_season_aggregates() call.)
+        this_week_headlines = headlines.weekly_headlines(season, week_num, prior_division_standings, new_injuries)
+        headlines_history.record_week_headlines(season.season_number, week_num, this_week_headlines)
 
         # R3d Sec 10: "after each game, if JSS threshold triggers" --
         # every AI team's HC/OC/DC/ST gets a real (seeded) firing-
@@ -443,8 +466,9 @@ def simulate_current_week() -> int:
             measured_ppg = week_total_points / week_total_teams
             score_fidelity.weekly_feedback_update(season.sfs, week_num, measured_ppg)
 
-        from app.services import save_service
+        from app.services import save_service, save_manager
         save_service.save_season(season)
+        save_manager.sync_active_save_summary()
 
         return week_num
 
@@ -495,8 +519,9 @@ def simulate_playoff_round() -> str:
         if round_name != "SB":
             bracket.rounds.append(playoffs.build_next_round(bracket))
 
-        from app.services import save_service
+        from app.services import save_service, save_manager
         save_service.save_season(season)
+        save_manager.sync_active_save_summary()
         return round_name
 
 
@@ -617,7 +642,13 @@ def apply_progression_to_roster(season: Season) -> int:
         free_agent_pool = list(s.exec(select(Player).where(Player.team_abbr == None)).all())  # noqa: E711
         for team in TEAMS:
             team_roster = [p for p in players if p.team_abbr == team.abbr]
-            free_agency.fill_roster_gaps(team.abbr, team_roster, free_agent_pool, season.season_number)
+            newly_signed = free_agency.fill_roster_gaps(team.abbr, team_roster, free_agent_pool, season.season_number)
+            # R5 (Sec 9.2): an emergency-signed free agent might be a
+            # previously-undrafted rookie -- remove() is a no-op for
+            # anyone not actually in that pool, so this is safe to call
+            # unconditionally rather than checking membership first.
+            for signed_player in newly_signed:
+                undrafted_pool.remove(signed_player.player_id)
 
         s.commit()
     return updated
@@ -740,6 +771,22 @@ def start_new_season() -> Season:
         depth_chart.clear_starters_cache()
 
         next_number = season.season_number + 1
+
+        # R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f): a
+        # real 7-round draft, generated + simulated for the upcoming
+        # season, right here in the offseason calendar (after contract
+        # renewals/coaching decisions above, before the new Season object
+        # exists so the draft order reads the season just finished's real
+        # final standings). See draft.py's own module docstring for the
+        # real, disclosed scope decisions (no new DB tables, drafted/
+        # undrafted prospects become real Player rows directly, no live
+        # draft event). Also expires any undrafted rookies that have sat
+        # unsigned for their full 3-year window (Sec 9.2, Tier-1-only).
+        draft.run_draft_for_season(season, next_number)
+        undrafted_pool.decrement_and_expire()
+        depth_chart.clear_starters_cache()
+
+
         new_season = _build_season(season.league_seed, season_number=next_number, prior_standings=prior_standings)
         new_season.user_team_abbr = season.user_team_abbr
         new_season.sfs = season.sfs
@@ -755,6 +802,7 @@ def start_new_season() -> Season:
 
         global _season
         _season = new_season
-        from app.services import save_service
+        from app.services import save_service, save_manager
         save_service.save_season(new_season)
+        save_manager.sync_active_save_summary()
         return new_season

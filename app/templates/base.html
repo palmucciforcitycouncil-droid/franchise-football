@@ -663,6 +663,13 @@
     .team-history-finish { font-size: 0.85rem; margin-top: 0.1rem; }
     .team-history-finish.gold { color: var(--gold); font-weight: 600; }
     .team-history-awards { font-size: 0.78rem; color: var(--gold); margin-top: 0.15rem; }
+
+    /* Weekly Headlines (GDD Sec12, ROADMAP.md Sec4e/R9). */
+    .headlines-list { margin: 0 0 0.75rem; padding-left: 1.2rem; }
+    .headlines-list li { margin-bottom: 0.35rem; line-height: 1.4; }
+
+    /* Scouting Panel prose summaries (ROADMAP.md Sec4e/R12). */
+    .scouting-prose { margin-bottom: 0.75rem; line-height: 1.45; }
     .league-history-season { padding: 0.85rem 0; border-bottom: 1px solid var(--border); }
     .league-history-season:last-child { border-bottom: none; }
     .league-history-season h4 { margin: 0 0 0.25rem; }
@@ -795,6 +802,7 @@
     ("/dashboard", "Dashboard"), ("/roster", "Roster"),
     ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
     ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/awards", "Awards"), ("/history", "History"),
+    ("/saves", "Saves"),
   ] %}
   <nav class="subnav">
     {% for href, label in nav_links %}
@@ -1170,7 +1178,7 @@
           career += '<div class="pc-stat-heading">Season History</div>';
           for (var h = 0; h < card.season_history.length; h++) {
             var row = card.season_history[h];
-            career += ccRow('Season ' + row.season + ' — ' + row.team + ' (' + row.role + ')', row.summary);
+            career += ccRow(row.season + ' — ' + row.team + ' (' + row.role + ')', row.summary);
           }
         } else {
           career += '<p class="muted">No completed seasons on record yet.</p>';

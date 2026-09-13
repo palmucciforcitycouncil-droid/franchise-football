@@ -291,3 +291,30 @@ def test_roy_only_includes_real_rookies_even_when_a_veteran_outproduces_them():
         rookies = len(s.exec(select(Player).where(Player.years_pro == 0)).all())
 
     assert 0 < rookies < total  # a real, meaningfully-sized subset, not everyone/no one
+
+
+@needs_db
+def test_dpoy_pool_excludes_a_fabricated_name_that_isnt_a_real_defender_but_keeps_unknown_names():
+    """The synthetic-data tests above (T. White, R. Jones, Defender0..7)
+    are fabricated names with no live DB match at all, and must keep
+    working unfiltered. Separately, a REAL player positively known (via
+    the live roster DB) to play a non-defensive position must be
+    excluded from the DPOY pool even if credited with a defensive stat --
+    R2b's special-teams tackle credit (app/engine/special_teams.py's
+    _coverage_tackler) can route a tackle to a real WR picked as a
+    "gunner," which shouldn't make them a DPOY/DROY candidate."""
+    from app.core.db import get_session
+    from app.models.player import Player, Position
+    from sqlmodel import select
+
+    with get_session() as s:
+        real_wr = s.exec(select(Player).where(Player.position == Position.WR, Player.team_abbr != None, Player.team_abbr != "BUF")).first()  # noqa: E711
+    assert real_wr is not None, "expected at least one real rostered WR not on BUF"
+
+    plays = [_interception("BUF", real_wr.full_name), _interception("BUF", "T. White")]
+    schedule = [[_played_game("BUF", real_wr.team_abbr, 10, 20, plays=plays)]]
+    season = _season(schedule)
+
+    dpoy_names = {c.name for c in awards.defensive_player_of_the_year(season)}
+    assert real_wr.full_name not in dpoy_names, "a real, known WR shouldn't be a DPOY candidate"
+    assert "T. White" in dpoy_names, "a fabricated name with no DB match must stay unfiltered"

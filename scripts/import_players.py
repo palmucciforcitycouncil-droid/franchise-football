@@ -1,50 +1,105 @@
 """
-Imports the real roster data into the Player table.
+Imports the real roster + real-world salary data into the Player table.
 
-Source files: players.csv (2368 rows, full Madden attributes, all 32
-teams) is the attribute source of truth. players_with FA.csv is used
-only to determine which players should be reclassified as free agents
-(team_abbr=None) -- its own attribute columns for FA players are mostly
-zeroed/sentinel placeholder data (a real data quality issue in that
-export), so we don't trust them; see the module-level check this script
-prints for the small number of FA players who have no full-attribute
-match in players.csv and had to fall back to that thin data anyway.
+Source file: data/raw/rosters/madden26_salary_master.xlsx (2035 player rows,
+full Madden 26 attributes for all 32 teams, plus real-world salary data
+merged in on 2026-09-13 from Over The Cap's contracts table, targeted web
+research for ~80 notable players OTC didn't have on file, and -- for
+everyone else -- a per-position log-linear model of real salary vs. Madden
+Overall rating, fit from the ~1,528 players with a real OTC contract). See
+that workbook's "Salary Match Status" and "Research Note" columns for which
+of those three a given player's numbers came from.
 
-These now live in the repo at data/raw/rosters/ (this is a private repo,
-so committing real Madden-derived player data was a deliberate choice --
-see HANDOFF.md). --source-dir overrides the default if you're working
-from the original Desktop export instead.
+This REPLACES the previous players.csv/players_with FA.csv-based import
+(2368 players, Madden's own in-game fictional contract economy for
+salary/signing_bonus -- e.g. it had Josh Allen at $182M "Total Salary",
+Joe Burrow at $2.5M -- not real NFL numbers). Those two CSVs are left in
+the repo for reference/rollback but are no longer read by this script.
+Because this source has a different (smaller) roster than the old CSVs --
+2035 vs. 2368 players -- player_ids for anyone not in the new sheet
+disappear on this import; anyone whose name+position is unchanged between
+the two sources gets the SAME player_id back (see _slug()), so only the
+~330 players absent from the new roster actually orphan old references
+(injuries, depth chart overrides, saved gameplans, historical box scores
+keyed by player_id). Accepted tradeoff, made explicitly aware mid-Season-25
+playoffs -- see the conversation this shipped in.
+
+Salary field mapping (Player has no separate Contract table -- see
+app/engine/contracts.py's module docstring):
+    salary            = real annual salary (APY)
+    guaranteed_money  = real total guaranteed money at signing (added by
+                         this same import; see app/models/player.py)
+    signing_bonus     = 0 for every re-imported player -- the source data
+                         doesn't break bonus money out separately from the
+                         rest of what's guaranteed, so there's nothing real
+                         to put here without double-counting guaranteed_money
+    contract_years_remaining = still the pre-existing synthetic 1-5
+                         placeholder (deterministically seeded per
+                         player_id) -- the source data has real contract
+                         *length*, but not real years *remaining*, which
+                         depends on when each deal was signed relative to
+                         now; not something this import can derive.
+
+Free agency: ~42 players the web research pass confirmed are currently
+retired, released and unsigned, or off a real contract that's since
+expired get team_abbr=None here (see _is_real_free_agent()) even though
+Madden's own roster still has them on a team -- reality wins over the
+game export for this one field.
+
+potential/morale: the salary-master sheet is a ratings-only Madden export
+and (unlike the old players.csv) carries no Potential/Morale columns.
+Both are required, non-nullable fields on Player, so this import
+synthesizes them the same way contract_years_remaining is synthesized --
+deterministically seeded per player_id, disclosed as synthetic here rather
+than silently defaulted:
+    potential: overall_rating + an age-based ceiling bump (younger players
+        get more room to grow, older players get less/negative), clamped
+        to [40, 99]
+    morale: a flat deterministic 60-90 range (no real signal to base this
+        on at all)
 
 Usage:
     .venv/Scripts/python.exe scripts/import_players.py
-    .venv/Scripts/python.exe scripts/import_players.py --source-dir "C:\\Users\\bpalm\\OneDrive\\Desktop\\Franchise Football game"
+    .venv/Scripts/python.exe scripts/import_players.py --source path\\to\\other.xlsx
 """
 from __future__ import annotations
 import argparse
-import csv
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from openpyxl import load_workbook
 from sqlmodel import delete
 from app.core.db import init_db, get_session
 from app.models.player import Player, Position
-from app.data.team_name_map import NICKNAME_TO_ABBR
 from app.engine.rng import RNG, stable_seed
 
+DEFAULT_SOURCE = Path(__file__).resolve().parent.parent / "data" / "raw" / "rosters" / "madden26_salary_master.xlsx"
 
-def _int(row: dict, key: str, default: int = 0) -> int:
-    raw = row.get(key, "")
-    if raw is None:
-        return default
-    raw = str(raw).strip()
-    if raw == "":
-        return default
-    try:
-        return int(float(raw))
-    except ValueError:
-        return default
+# Madden 26's Position ID -> this project's Position enum. LS (long
+# snapper) has no equivalent here (Position enum has no LS) and is
+# skipped, same as an unmapped position always has been in this importer.
+POSITION_ID_MAP: dict[str, str] = {
+    "QB": "QB", "HB": "HB", "FB": "FB", "WR": "WR", "TE": "TE",
+    "LT": "LT", "LG": "LG", "C": "C", "RG": "RG", "RT": "RT",
+    "LEDG": "LE", "REDG": "RE", "DT": "DT",
+    "WILL": "LOLB", "MIKE": "MLB", "SAM": "ROLB",
+    "CB": "CB", "FS": "FS", "SS": "SS", "K": "K", "P": "P",
+}
+
+TEAM_FULL_NAME_TO_ABBR: dict[str, str] = {
+    "Buffalo Bills": "BUF", "Miami Dolphins": "MIA", "New England Patriots": "NE", "New York Jets": "NYJ",
+    "Baltimore Ravens": "BAL", "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE", "Pittsburgh Steelers": "PIT",
+    "Houston Texans": "HOU", "Indianapolis Colts": "IND", "Jacksonville Jaguars": "JAX", "Tennessee Titans": "TEN",
+    "Denver Broncos": "DEN", "Kansas City Chiefs": "KC", "Las Vegas Raiders": "LV", "Los Angeles Chargers": "LAC",
+    "NY Jets": "NYJ",
+    "Dallas Cowboys": "DAL", "New York Giants": "NYG", "NY Giants": "NYG",
+    "Philadelphia Eagles": "PHI", "Washington Commanders": "WAS",
+    "Chicago Bears": "CHI", "Detroit Lions": "DET", "Green Bay Packers": "GB", "Minnesota Vikings": "MIN",
+    "Atlanta Falcons": "ATL", "Carolina Panthers": "CAR", "New Orleans Saints": "NO", "Tampa Bay Buccaneers": "TB",
+    "Arizona Cardinals": "ARI", "Los Angeles Rams": "LAR", "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA",
+}
 
 
 def _slug(first: str, last: str, position: str, used: set[str]) -> str:
@@ -58,21 +113,66 @@ def _slug(first: str, last: str, position: str, used: set[str]) -> str:
     return slug
 
 
-def build_player(row: dict, team_abbr: str | None, used_ids: set[str]) -> Player | None:
-    full_name = row.get("Full Name", "").strip()
-    if not full_name:
-        return None
-    parts = full_name.split(" ", 1)
-    first, last = (parts[0], parts[1]) if len(parts) > 1 else (parts[0], "")
-
-    pos_raw = row.get("Position", "").strip()
+def _int(row: dict, key: str, default: int = 0) -> int:
+    raw = row.get(key)
+    if raw is None or raw == "":
+        return default
     try:
-        position = Position(pos_raw)
-    except ValueError:
-        print(f"  skipping {full_name}: unknown position {pos_raw!r}")
+        return int(round(float(raw)))
+    except (ValueError, TypeError):
+        return default
+
+
+def _synth_potential(player_id: str, overall: int, age: int) -> int:
+    ceiling_bump = max(0, 27 - age) - max(0, age - 30)
+    noise = RNG.with_seed(stable_seed(player_id, "potential")).r().randint(-3, 3)
+    return max(40, min(99, overall + ceiling_bump + noise))
+
+
+def _synth_morale(player_id: str) -> int:
+    return RNG.with_seed(stable_seed(player_id, "morale")).r().randint(60, 90)
+
+
+def _is_real_free_agent(row: dict) -> bool:
+    """True if this player is confirmed (via the 2026-09-13 web research
+    pass, not Madden's own roster) to have no real current NFL team --
+    retired, released and unsigned, or a real contract we found that has
+    since expired. Overrides Madden's own team_abbr for these ~42 players
+    (Madden's roster and reality disagree here) rather than leaving them
+    on a real NFL team they're not actually on."""
+    otc_team = str(row.get("OTC Team") or "").lower()
+    status = str(row.get("Salary Match Status") or "")
+    return (
+        "free agent" in otc_team or "retired" in otc_team or "no team" in otc_team
+        or status.startswith("Estimated - verified")
+    )
+
+
+def build_player(row: dict, used_ids: set[str]) -> Player | None:
+    first = str(row.get("First Name") or "").strip()
+    last = str(row.get("Last Name") or "").strip()
+    if not first and not last:
         return None
 
-    player_id = _slug(first, last, pos_raw, used_ids)
+    pos_id_raw = str(row.get("Position ID") or "").strip()
+    pos_code = POSITION_ID_MAP.get(pos_id_raw)
+    if pos_code is None:
+        return None  # unmapped position (e.g. LS) -- caller counts these
+    position = Position(pos_code)
+
+    team_full = str(row.get("Team") or "").strip()
+    team_abbr = TEAM_FULL_NAME_TO_ABBR.get(team_full)
+    if team_abbr is None:
+        return None  # caller counts these
+    if _is_real_free_agent(row):
+        team_abbr = None
+
+    player_id = _slug(first, last, pos_id_raw, used_ids)
+    overall = _int(row, "Overall")
+    age = _int(row, "Age", default=25)
+
+    apy = _int(row, "Annual Salary (APY)")
+    guaranteed = _int(row, "Total Guaranteed")
 
     return Player(
         player_id=player_id,
@@ -81,146 +181,188 @@ def build_player(row: dict, team_abbr: str | None, used_ids: set[str]) -> Player
         position=position,
         team_abbr=team_abbr,
         jersey_number=_int(row, "Jersey Number"),
-        age=_int(row, "Age"),
+        age=age,
         height_inches=_int(row, "Height"),
         weight_lbs=_int(row, "Weight"),
-        college=row.get("College", "").strip(),
+        college=str(row.get("College") or "").strip(),
         years_pro=_int(row, "Years Pro"),
-        overall_rating=_int(row, "Overall Rating"),
-        potential=_int(row, "Potential"),
-        morale=_int(row, "Morale"),
-        # Real CSV headers carry a LEADING space too (" Total Salary ",
-        # " Signing Bonus ") -- a prior version of this line looked up the
-        # trailing-space-only spelling, which silently missed via dict.get()
-        # and left every imported player's salary/signing_bonus at the
-        # default of 0 (found while wiring the Player Card's Contract tab
-        # to this real data, ROADMAP.md M8; see test_imported_players_have_real_salaries).
-        salary=_int(row, " Total Salary "),
-        signing_bonus=_int(row, " Signing Bonus "),
-        # Synthetic (no such CSV column) -- deterministically seeded so a
-        # re-import reproduces the same value per player_id, matching the
-        # module's determinism convention elsewhere (see rng.stable_seed).
+        overall_rating=overall,
+        potential=_synth_potential(player_id, overall, age),
+        morale=_synth_morale(player_id),
+        salary=apy,
+        guaranteed_money=guaranteed,
+        signing_bonus=0,
         contract_years_remaining=RNG.with_seed(stable_seed(player_id, "contract_years_remaining")).r().randint(1, 5),
-        speed=_int(row, "Speed"),
-        acceleration=_int(row, "Acceleration"),
-        strength=_int(row, "Strength"),
-        agility=_int(row, "Agility"),
-        jumping=_int(row, "Jumping"),
-        stamina=_int(row, "Stamina"),
-        toughness=_int(row, "Toughness"),
-        durability=_int(row, "Injury"),
-        throw_power=_int(row, "Throw Power"),
-        throw_accuracy_short=_int(row, "Throw Accuracy Short"),
-        throw_accuracy_mid=_int(row, "Throw Accuracy Mid"),
-        throw_accuracy_deep=_int(row, "Throw Accuracy Deep"),
-        play_action=_int(row, "Play Action"),
-        throw_on_the_run=_int(row, "Throw On The Run"),
-        throw_under_pressure=_int(row, "Throw Under Pressure"),
-        break_sack=_int(row, "Break Sack"),
-        catching=_int(row, "Catching"),
-        spectacular_catch=_int(row, "Spectacular Catch"),
-        catch_in_traffic=_int(row, "Catch In Traffic"),
-        short_route_running=_int(row, "Short Route Running"),
-        medium_route_running=_int(row, "Medium Route Running"),
-        deep_route_running=_int(row, "Deep Route Running"),
-        release=_int(row, "Release"),
-        carrying=_int(row, "Carrying"),
-        trucking=_int(row, "Trucking"),
-        change_of_direction=_int(row, "Change Of Direction"),
-        ball_carrier_vision=_int(row, "Ball Carrier Vision"),
-        stiff_arm=_int(row, "Stiff Arm"),
-        spin_move=_int(row, "Spin Move"),
-        juke_move=_int(row, "Juke Move"),
-        break_tackle=_int(row, "Break Tackle"),
-        run_block=_int(row, "Run Block"),
-        pass_block=_int(row, "Pass Block"),
-        run_block_power=_int(row, "Run Block Power"),
-        run_block_finesse=_int(row, "Run Block Finesse"),
-        pass_block_power=_int(row, "Pass Block Power"),
-        pass_block_finesse=_int(row, "Pass Block Finesse"),
-        lead_block=_int(row, "Lead Block"),
-        impact_blocking=_int(row, "Impact Blocking"),
-        tackle=_int(row, "Tackle"),
-        hit_power=_int(row, "Hit Power"),
-        block_shedding=_int(row, "Block Shedding"),
-        pursuit=_int(row, "Pursuit"),
-        play_recognition=_int(row, "Play Recognition"),
-        man_coverage=_int(row, "Man Coverage"),
-        zone_coverage=_int(row, "Zone Coverage"),
-        press=_int(row, "Press"),
-        power_moves=_int(row, "Power Moves"),
-        finesse_moves=_int(row, "Finesse Moves"),
-        kick_power=_int(row, "Kick Power"),
-        kick_accuracy=_int(row, "Kick Accuracy"),
-        kick_return=_int(row, "Kick Return"),
-        awareness=_int(row, "Awareness"),
+        speed=_int(row, "SPEED"),
+        acceleration=_int(row, "ACCELERATION"),
+        strength=_int(row, "STRENGTH"),
+        agility=_int(row, "AGILITY"),
+        jumping=_int(row, "JUMPING"),
+        stamina=_int(row, "STAMINA"),
+        toughness=_int(row, "TOUGHNESS"),
+        durability=_int(row, "INJURY"),
+        throw_power=_int(row, "THROWPOWER"),
+        throw_accuracy_short=_int(row, "THROWACCURACYSHORT"),
+        throw_accuracy_mid=_int(row, "THROWACCURACYMID"),
+        throw_accuracy_deep=_int(row, "THROWACCURACYDEEP"),
+        play_action=_int(row, "PLAYACTION"),
+        throw_on_the_run=_int(row, "THROWONTHERUN"),
+        throw_under_pressure=_int(row, "THROWUNDERPRESSURE"),
+        break_sack=_int(row, "BREAKSACK"),
+        catching=_int(row, "CATCHING"),
+        spectacular_catch=_int(row, "SPECTACULARCATCH"),
+        catch_in_traffic=_int(row, "CATCHINTRAFFIC"),
+        short_route_running=_int(row, "SHORTROUTERUNNING"),
+        medium_route_running=_int(row, "MEDIUMROUTERUNNING"),
+        deep_route_running=_int(row, "DEEPROUTERUNNING"),
+        release=_int(row, "RELEASE"),
+        carrying=_int(row, "CARRYING"),
+        trucking=_int(row, "TRUCKING"),
+        change_of_direction=_int(row, "CHANGEOFDIRECTION"),
+        ball_carrier_vision=_int(row, "BCVISION"),
+        stiff_arm=_int(row, "STIFFARM"),
+        spin_move=_int(row, "SPINMOVE"),
+        juke_move=_int(row, "JUKEMOVE"),
+        break_tackle=_int(row, "BREAKTACKLE"),
+        run_block=_int(row, "RUNBLOCK"),
+        pass_block=_int(row, "PASSBLOCK"),
+        run_block_power=_int(row, "RUNBLOCKPOWER"),
+        run_block_finesse=_int(row, "RUNBLOCKFINESSE"),
+        pass_block_power=_int(row, "PASSBLOCKPOWER"),
+        pass_block_finesse=_int(row, "PASSBLOCKFINESSE"),
+        lead_block=_int(row, "LEADBLOCK"),
+        impact_blocking=_int(row, "IMPACTBLOCKING"),
+        tackle=_int(row, "TACKLE"),
+        hit_power=_int(row, "HITPOWER"),
+        block_shedding=_int(row, "BLOCKSHEDDING"),
+        pursuit=_int(row, "PURSUIT"),
+        play_recognition=_int(row, "PLAYRECOGNITION"),
+        man_coverage=_int(row, "MANCOVERAGE"),
+        zone_coverage=_int(row, "ZONECOVERAGE"),
+        press=_int(row, "PRESS"),
+        power_moves=_int(row, "POWERMOVES"),
+        finesse_moves=_int(row, "FINESSEMOVES"),
+        kick_power=_int(row, "KICKPOWER"),
+        kick_accuracy=_int(row, "KICKACCURACY"),
+        kick_return=_int(row, "KICKRETURN"),
+        awareness=_int(row, "AWARENESS"),
     )
+
+
+LB_GROUP = ("LOLB", "MLB", "ROLB")
+
+
+def _fix_zero_position_gaps(players: list[Player]) -> None:
+    """This importer's source has a real, disclosed data-quality issue:
+    it labels off-ball linebackers with Madden's specific WILL/MIKE/SAM
+    sub-roles (mapped here to LOLB/MLB/ROLB), and a real chunk of teams'
+    exports simply have zero players carrying the "SAM" (ROLB) label --
+    likely this fictional league's nickel-heavy defenses genuinely not
+    rostering a traditional SAM backer, same real-world trend as today's
+    NFL. app/services/depth_chart.py's get_defensive_starters() has no
+    None-safe fallback for an empty position (see app/engine/free_agency.py's
+    MIN_ROSTER_COUNTS comment) and crashes with IndexError the moment a
+    game involving that team is simulated -- a live bug found testing this
+    same import, not a hypothetical.
+
+    Since there are zero ROLB free agents in this same import to draw from
+    (fill_roster_gaps()'s normal fix, run automatically every offseason,
+    would find nothing to sign), this instead re-labels one team's own
+    surplus LOLB/MLB player as its ROLB -- the lowest-overall one on
+    whichever of those two positions the team has more than the required
+    minimum of, so the team doesn't lose real depth at a position it
+    actually has enough of. Every gap team in this source has that
+    surplus (never take from a position already at its 1-player minimum).
+    Mutates `players` in place. Any OTHER MIN_ROSTER_COUNTS gap (there
+    are none from this source as of 2026-09-13 outside the ROLB case,
+    confirmed by this same run's own printed warnings) is left for
+    fill_roster_gaps()'s free-agency signing path to handle at the next
+    offseason rollover, same as any in-season roster attrition."""
+    from collections import Counter
+    from app.engine.free_agency import MIN_ROSTER_COUNTS
+
+    by_team: dict[str, list[Player]] = {}
+    free_agents: list[Player] = []
+    for p in players:
+        if p.team_abbr:
+            by_team.setdefault(p.team_abbr, []).append(p)
+        else:
+            free_agents.append(p)
+
+    for team_abbr, roster in by_team.items():
+        counts = Counter(p.position.value for p in roster)
+        for position, minimum in MIN_ROSTER_COUNTS.items():
+            if counts.get(position.value, 0) >= minimum:
+                continue
+            if position.value in LB_GROUP:
+                donor_pos = max(
+                    (pos for pos in LB_GROUP if pos != position.value),
+                    key=lambda pos: counts.get(pos, 0),
+                )
+                donor_pool = [p for p in roster if p.position.value == donor_pos]
+                if len(donor_pool) > MIN_ROSTER_COUNTS[Position(donor_pos)]:
+                    weakest = min(donor_pool, key=lambda p: p.overall_rating)
+                    print(f"  {team_abbr}: relabeling {weakest.full_name} ({donor_pos} -> {position.value}) -- source had zero {position.value}")
+                    weakest.position = position
+                    counts[donor_pos] -= 1
+                    counts[position.value] = counts.get(position.value, 0) + 1
+                    continue
+            # No same-position-group donor (or not an LB-group position at
+            # all, e.g. P) -- same fix free_agency.fill_roster_gaps() would
+            # apply automatically at the next offseason rollover, just run
+            # now so this roster is never crash-prone even before its
+            # first rollover.
+            fa_candidates = [fa for fa in free_agents if fa.position.value == position.value]
+            if fa_candidates:
+                best = max(fa_candidates, key=lambda p: p.overall_rating)
+                print(f"  {team_abbr}: signing free agent {best.full_name} ({position.value}) -- source had zero {position.value}")
+                best.team_abbr = team_abbr
+                free_agents.remove(best)
+                counts[position.value] = counts.get(position.value, 0) + 1
+                continue
+            print(f"  WARNING: {team_abbr} still short at {position.value} (has {counts.get(position.value, 0)}, needs {minimum}) -- no donor or free agent available, left for fill_roster_gaps() at next rollover")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    default_source_dir = Path(__file__).resolve().parent.parent / "data" / "raw" / "rosters"
-    parser.add_argument("--source-dir", default=str(default_source_dir),
-                         help="Folder containing players.csv and players_with FA.csv (default: data/raw/rosters in the repo)")
+    parser.add_argument("--source", default=str(DEFAULT_SOURCE),
+                         help="Path to the salary-master workbook (default: data/raw/rosters/madden26_salary_master.xlsx)")
     args = parser.parse_args()
 
-    source_dir = Path(args.source_dir)
-    full_path = source_dir / "players.csv"
-    fa_path = source_dir / "players_with FA.csv"
-
-    with open(full_path, encoding="utf-8-sig") as f:
-        full_rows = list(csv.DictReader(f))
-    with open(fa_path, encoding="utf-8-sig") as f:
-        fa_rows = list(csv.DictReader(f))
-
-    def norm(name: str) -> str:
-        # "Jr." vs "Jr", "Mckinney" vs "McKinney" -- the two source files
-        # don't agree on punctuation/capitalization for every player, so
-        # matching has to tolerate that rather than treat them as different people.
-        return name.strip().rstrip(".").lower()
-
-    fa_rows_only = [r for r in fa_rows if r.get("Team", "").strip() == "FA"]
-    fa_names = {r["Full Name"].strip() for r in fa_rows_only}
-    fa_norm_names = {norm(n) for n in fa_names}
-    full_by_name = {r["Full Name"].strip(): r for r in full_rows}
-    full_by_norm_name = {norm(r["Full Name"]): r for r in full_rows}
-
-    print(f"players.csv: {len(full_rows)} rows")
-    print(f"free agents flagged in players_with FA.csv: {len(fa_names)}")
-
-    missing_full_data = fa_norm_names - set(full_by_norm_name.keys())
-    if missing_full_data:
-        print(f"WARNING: {len(missing_full_data)} free agents have no full-attribute row in players.csv (even after name normalization), using thin FA data:")
-        for name in missing_full_data:
-            print(f"  - {name}")
-
-    fa_thin_by_name = {r["Full Name"].strip(): r for r in fa_rows_only}
+    wb = load_workbook(args.source, data_only=True)
+    ws = wb.active
+    headers = [c.value for c in ws[1]]
 
     used_ids: set[str] = set()
     players: list[Player] = []
-    skipped_unmapped_team = 0
+    skipped_position = 0
+    skipped_team = 0
+    real_free_agents = 0
 
-    for row in full_rows:
-        name = row.get("Full Name", "").strip()
-        if norm(name) in fa_norm_names:
-            continue  # handled separately below with team_abbr=None
-        nickname = row.get("Team", "").strip()
-        abbr = NICKNAME_TO_ABBR.get(nickname)
-        if abbr is None:
-            skipped_unmapped_team += 1
+    for excel_row in ws.iter_rows(min_row=2, values_only=True):
+        row = dict(zip(headers, excel_row))
+        pos_id_raw = str(row.get("Position ID") or "").strip()
+        team_full = str(row.get("Team") or "").strip()
+        if pos_id_raw not in POSITION_ID_MAP:
+            skipped_position += 1
             continue
-        p = build_player(row, abbr, used_ids)
+        if team_full not in TEAM_FULL_NAME_TO_ABBR:
+            skipped_team += 1
+            continue
+        if _is_real_free_agent(row):
+            real_free_agents += 1
+        p = build_player(row, used_ids)
         if p:
             players.append(p)
 
-    for name in fa_names:
-        source_row = full_by_norm_name.get(norm(name)) or fa_thin_by_name[name]
-        p = build_player(source_row, None, used_ids)
-        if p:
-            players.append(p)
-
-    print(f"skipped (unmapped team nickname): {skipped_unmapped_team}")
+    print(f"source rows: {ws.max_row - 1}")
+    print(f"skipped (unmapped position, e.g. LS): {skipped_position}")
+    print(f"skipped (unmapped team): {skipped_team}")
+    print(f"real-world free agents/retired (team_abbr overridden to None): {real_free_agents}")
     print(f"total players built: {len(players)}")
+
+    print("checking every team meets MIN_ROSTER_COUNTS (depth_chart.py's hard requirements)...")
+    _fix_zero_position_gaps(players)
 
     init_db()
     with get_session() as session:

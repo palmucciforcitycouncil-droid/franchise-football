@@ -395,14 +395,53 @@ def mvp_from_candidates(offensive_candidates: list[AwardCandidate], win_pct_by_a
     return sorted(blended, key=lambda c: -c.score)
 
 
+def _known_non_defensive_position_keys() -> set[tuple[str, str]]:
+    """(team_abbr, full_name) for every real, live-rostered player whose
+    actual position is NOT a genuine defensive one (QB/HB/FB/WR/TE/OL/K/P).
+    R2b's real special-teams tackle credit (app/engine/special_teams.py's
+    _coverage_tackler) picks a kickoff/punt-return tackler from the
+    KICKING/PUNTING team's own WR depth (a real-world "gunner" is most
+    often a receiver) -- without this exclusion, a rookie WR who happened
+    to make one incidental coverage tackle would show up as a "DEF"
+    position DPOY/DROY candidate off that single stat, which is real data
+    but not what either award is meant to recognize (a real NFL DPOY/
+    DROY ballot is scoped to actual defenders).
+
+    Deliberately an EXCLUSION set, not an inclusion whitelist: an unknown
+    name with no live DB match at all (this module's own pure, DB-free
+    unit tests against hand-built PlayEvents naming fabricated players,
+    or a future real-historical-data caller) is never excluded by this --
+    only a POSITIVELY-confirmed real non-defensive player is. Degrades to
+    "exclude nothing" (unchanged pre-R2b behavior) if the DB isn't
+    reachable at all, same defensive pattern as this module's own
+    _prior_season_wins()."""
+    from app.models.player import Position
+    defensive_positions = {
+        Position.LE, Position.RE, Position.DT,
+        Position.LOLB, Position.MLB, Position.ROLB,
+        Position.CB, Position.FS, Position.SS,
+    }
+    try:
+        with get_session() as s:
+            players = s.exec(select(Player)).all()
+    except Exception:
+        return set()
+    return {(p.team_abbr, p.full_name) for p in players if p.position not in defensive_positions}
+
+
 def _defensive_candidates(season, rookies_only: bool = False) -> list[AwardCandidate]:
     """See this module's docstring for the disclosed DPOY weighting.
     Candidate pool: every defender credited with at least one stat this
     season (app/engine/season_stats.py's aggregate_season_defensive_stats,
     built on the real per-play defender attribution in drive_sim.py/
-    defensive_box_score.py) -- no positional split, matching how DPOY is
-    a single, position-agnostic real NFL award."""
+    defensive_box_score.py), with real, positively-confirmed non-
+    defensive players excluded (see _known_non_defensive_position_keys'
+    own docstring for why that exclusion exists) -- no FURTHER positional
+    split beyond that, matching how DPOY is a single, position-agnostic
+    real NFL award among actual defenders."""
     defense = aggregate_season_defensive_stats(season)
+    non_defenders = _known_non_defensive_position_keys()
+    defense = {key: line for key, line in defense.items() if key not in non_defenders}
     rookie_keys = _rookie_keys(season) if rookies_only else None
     return defensive_candidates_from_stats(defense, rookie_keys)
 

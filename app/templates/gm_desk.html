@@ -5,7 +5,7 @@
 
 <div class="card">
   <h2>GM Desk — {{ user_info.location }} ({{ user_info.abbr }})</h2>
-  <p class="muted">Season {{ season.season_number + 1 }} salary cap</p>
+  <p class="muted">{{ season_year(season.season_number) }} salary cap</p>
   <div class="row" style="gap: 2rem; flex-wrap: wrap;">
     <div><span class="pc-row-label">Cap</span><div style="font-size: 1.4rem;">{{ cap | money }}</div></div>
     <div><span class="pc-row-label">Committed</span><div style="font-size: 1.4rem;">{{ cap_used | money }}</div></div>

@@ -31,7 +31,23 @@ def init_db() -> None:
     from app.models import player  # noqa: F401
     from app.models import coach  # noqa: F401
     from app.models import injury  # noqa: F401
-    SQLModel.metadata.create_all(get_engine())
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine)
+    _migrate_schema(engine)
+
+
+def _migrate_schema(engine) -> None:
+    """No formal migration tool (Alembic) in this project yet -- create_all()
+    only creates tables that don't exist, it never ALTERs an existing one, so
+    a column added to a model after the table's first creation (e.g.
+    Player.guaranteed_money, added 2026-09-13) needs a manual, idempotent
+    ALTER TABLE here or every pre-existing DB file silently keeps the old
+    schema and every insert referencing the new column fails."""
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(player)")}
+        if "guaranteed_money" not in existing:
+            conn.exec_driver_sql("ALTER TABLE player ADD COLUMN guaranteed_money INTEGER DEFAULT 0")
+            conn.commit()
 
 
 def get_session() -> Session:

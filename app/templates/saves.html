@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Saved Games — Franchise Football{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Saved Games</h2>
+  <p class="muted">Pick a save to resume, or start a brand-new franchise. Each save keeps its own complete roster, season, and history -- switching saves never touches any other one.</p>
+  <form method="post" action="/saves/new" class="row" style="align-items: flex-end;">
+    <div>
+      <label for="new-save-name">New Franchise Name</label>
+      <input type="text" id="new-save-name" name="name" placeholder="e.g. My Chiefs Dynasty" required>
+    </div>
+    <div><button type="submit">Start New Franchise</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Your Saves</h3>
+  {% if not saves %}
+  <p class="muted">No saves yet -- start one above.</p>
+  {% else %}
+  {% for s in saves %}
+  <div class="team-history-row" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+    <div style="min-width: 240px;">
+      <div class="team-history-top">
+        <strong>{{ s.name }}</strong>
+        {% if s.save_id == active_save_id %}<span class="quota-pill met" style="margin-left: 0.5rem;">Active</span>{% endif %}
+      </div>
+      <div class="muted" style="font-size: 0.82rem;">
+        {% if s.user_team_abbr %}{{ s.user_team_abbr }}{% else %}No team chosen yet{% endif %}
+        {%- if s.season_number is not none %} &middot; {{ season_year(s.season_number) }}{% endif %}
+        {%- if s.current_week %} &middot; Week {{ s.current_week }}{% endif %}
+      </div>
+      <div class="muted" style="font-size: 0.75rem;">Last played {{ s.last_played_at[:10] }}</div>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <form method="post" action="/saves/{{ s.save_id }}/load" style="display: inline;">
+        <button type="submit">{% if s.save_id == active_save_id %}Continue{% else %}Load{% endif %}</button>
+      </form>
+      <details style="display: inline-block;">
+        <summary class="row-detail-toggle" style="display: inline; cursor: pointer;">Rename</summary>
+        <form method="post" action="/saves/{{ s.save_id }}/rename" class="row" style="margin-top: 0.4rem; align-items: center;">
+          <input type="text" name="name" value="{{ s.name }}" required style="width: 200px;">
+          <button type="submit" style="padding: 0.3rem 0.6rem;">Save</button>
+        </form>
+      </details>
+      <form method="post" action="/saves/{{ s.save_id }}/delete" onsubmit="return confirm('Delete &quot;{{ s.name }}&quot; permanently? This can\'t be undone.');" style="display: inline;">
+        <button type="submit" style="background:#5a2a2a; border-color:#5a2a2a; color:#fff;">Delete</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

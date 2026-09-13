@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.config import get_league_seed
+from app.config import get_league_seed, season_year
 from app.data.teams import TEAMS, TEAMS_BY_ABBR, TeamInfo
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.position_groups import POSITION_TO_GROUP, QUOTA_GROUPS
@@ -31,7 +31,10 @@ from app.engine.season_stats import aggregate_season_stats, aggregate_season_def
 from app.engine import season_stats
 from app.engine import score_fidelity, awards
 from app.engine.playoffs import bubble_teams, build_wild_card_round, final_division_standings, seed_conference
-from app.engine.scouting import find_next_opponent, build_scouting_report
+from app.engine.scouting import (
+    find_next_opponent, build_scouting_report,
+    overview_prose, offense_prose, defense_prose, special_teams_prose, discipline_prose, stats_prose,
+)
 from app.engine.weather import generate_weather
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
@@ -40,7 +43,8 @@ from app.engine.gameplan import (
 from app.engine.progression import PROGRESSED_ATTRIBUTES
 from app.services import (
     season_state, depth_chart, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
-    coach_store, coach_records, injury_store, coach_pool, award_race_history,
+    coach_store, coach_records, injury_store, coach_pool, award_race_history, save_manager, headlines_history,
+    undrafted_pool, draft_store,
 )
 from app.engine import coach_hiring, coach_replacement
 from app.services.depth_chart import clear_starters_cache
@@ -52,6 +56,16 @@ from sqlmodel import select
 app = FastAPI(title="Franchise Football")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+
+@app.on_event("startup")
+def _resume_active_save() -> None:
+    """Multi-save games: a server restart should resume whichever save
+    was active when it last stopped, not silently fall back to the old
+    single-fixed-file behavior -- see save_manager.py's own docstring.
+    A no-op (touches nothing) on a fresh install/checkout with no
+    registry.json yet, or one that predates this feature."""
+    save_manager.ensure_active_save_loaded()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -808,7 +822,7 @@ def _coach_card_json(coach: Coach) -> str:
         elif row.made_playoffs:
             bits.append("made playoffs")
         history_rows.append({
-            "season": row.season, "team": row.team_abbr or "--",
+            "season": season_year(row.season), "team": row.team_abbr or "--",
             "role": row.role.value, "summary": ", ".join(bits),
         })
 
@@ -1112,7 +1126,17 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     the engine (standings/schedule/scouting/box-score machinery); this
     route just queries/filters it per-widget instead of the single
     league-wide top-10 + latest-week-results shape the pre-M9 version
-    used, and dashboard.html arranges the result into that grid."""
+    used, and dashboard.html arranges the result into that grid.
+
+    Multi-save games: on a machine that's ever used the /saves picker
+    (i.e. data/saves/registry.json exists), no active save at all means
+    send the user there first, same priority as the team-choice redirect
+    right below -- a fresh checkout/CI environment has no registry.json
+    at all, so this never fires there (see save_manager.has_active_save's
+    own docstring)."""
+    if save_manager.REGISTRY_PATH.exists() and not save_manager.has_active_save():
+        return RedirectResponse(url="/saves", status_code=303)
+
     season = season_state.get_season()
     if season.user_team_abbr is None:
         return RedirectResponse(url="/team-select", status_code=303)
@@ -1133,6 +1157,19 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
         # disclosed "Coach Name" placeholder. Falls back to that
         # placeholder only if this database has no coaches at all.
         scouting["coach"] = _head_coach_summary(opponent_abbr) or _placeholder_coach()
+        # R12 (ROADMAP.md Sec4e, GDD-original addition): one real prose
+        # sentence per tab, additive to the stat grids above -- see
+        # scouting.py's own "Scouting Panel prose" section for why this
+        # isn't an LLM call either (same app.engine.flavor_text picker
+        # Weekly Headlines uses).
+        scouting["prose"] = {
+            "overview": overview_prose(scouting, season.league_seed),
+            "offense": offense_prose(scouting, season.league_seed),
+            "defense": defense_prose(scouting, season.league_seed),
+            "special": special_teams_prose(scouting, season.league_seed),
+            "discipline": discipline_prose(scouting, season.league_seed),
+            "stats": stats_prose(scouting, season.league_seed),
+        }
 
     all_standings = _all_division_standings(season, user_info.conference, user_info.division)
     power_rankings = _power_rankings_with_deltas(season)
@@ -1176,6 +1213,18 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     # Stats page's own Awards Race section now uses too.
     awards_race = awards.season_awards(season) if season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK else None
 
+    # R9 (GDD Sec 12, ROADMAP.md Sec4e): real Weekly Headlines, rendered
+    # deterministically once per week by season_state.simulate_current_
+    # week() and read here, not recomputed -- see headlines.py's own
+    # module docstring for why this isn't a live LLM call. current_week
+    # points at the NEXT week to simulate, so the just-completed week
+    # (if any) is current_week - 1; None before Week 1 finishes.
+    just_completed_week = season.current_week - 1
+    weekly_headlines = (
+        headlines_history.get_week_headlines(season.season_number, just_completed_week)
+        if just_completed_week >= 1 else None
+    )
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -1197,6 +1246,7 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
             "top_performers_categories": TOP_PERFORMERS_CATEGORIES,
             "top_performers_by_stat": top_performers_by_stat,
             "awards_race": awards_race,
+            "weekly_headlines": weekly_headlines,
             "position_rank_rows": position_rank_rows,
             "position_rank_groups": QUOTA_GROUPS,
             "position_rank_sort_links": position_rank_sort_links,
@@ -2058,13 +2108,13 @@ def _season_by_season_stats_for(p: Player) -> dict | None:
     season = season_state.get_season()
     cur_passing, cur_rushing, cur_receiving, cur_defense = season_stats.cached_current_season_aggregates(season)
     key = (p.team_abbr, p.full_name)
-    cur_label = f"Season {season.season_number + 1} (in progress)"
+    cur_label = f"{season_year(season.season_number)} (in progress)"
 
     archived = history_store.season_by_season_stats(p.team_abbr, p.full_name)
-    passing_rows = [_passing_row(f"Season {r['season_number'] + 1}", r["completions"], r["attempts"], r["yards"], r["touchdowns"], r["interceptions"], r.get("sacks_taken", 0)) for r in archived["passing"]]
-    rushing_rows = [_rushing_row(f"Season {r['season_number'] + 1}", r["carries"], r["yards"], r["touchdowns"], r.get("fumbles_lost", 0)) for r in archived["rushing"]]
-    receiving_rows = [_receiving_row(f"Season {r['season_number'] + 1}", r["receptions"], r["targets"], r["yards"], r["touchdowns"]) for r in archived["receiving"]]
-    defense_rows = [_defense_row(f"Season {r['season_number'] + 1}", r["solo_tackles"], r["tackles_for_loss"], r["sacks"], r["interceptions"], r["passes_defended"], r["forced_fumbles"], r["fumble_recoveries"], r["defensive_touchdowns"]) for r in archived["defense"]]
+    passing_rows = [_passing_row(str(season_year(r["season_number"])), r["completions"], r["attempts"], r["yards"], r["touchdowns"], r["interceptions"], r.get("sacks_taken", 0)) for r in archived["passing"]]
+    rushing_rows = [_rushing_row(str(season_year(r["season_number"])), r["carries"], r["yards"], r["touchdowns"], r.get("fumbles_lost", 0)) for r in archived["rushing"]]
+    receiving_rows = [_receiving_row(str(season_year(r["season_number"])), r["receptions"], r["targets"], r["yards"], r["touchdowns"]) for r in archived["receiving"]]
+    defense_rows = [_defense_row(str(season_year(r["season_number"])), r["solo_tackles"], r["tackles_for_loss"], r["sacks"], r["interceptions"], r["passes_defended"], r["forced_fumbles"], r["fumble_recoveries"], r["defensive_touchdowns"]) for r in archived["defense"]]
 
     if key in cur_passing:
         l = cur_passing[key]
@@ -2170,6 +2220,7 @@ def _player_link_or_name(name: str, team_abbr: str | None) -> Markup:
 
 templates.env.globals["player_link_or_name"] = _player_link_or_name
 templates.env.globals["format_leader_stat_line"] = _format_leader_stat_line
+templates.env.globals["season_year"] = season_year
 
 
 # Team Card (Sec3): forks the Player Card's exact pattern (a JSON blob
@@ -2270,20 +2321,21 @@ def _hof_new_inductee_keys(full_history: list, full_inductee_keys: set[tuple[str
 
 
 def _hof_all_years_active(full_history: list) -> dict[str, str]:
-    """(team_abbr|name) -> a human-facing "Season X" or "Season X-Y"
-    span, derived from real per-season leader presence across the
-    archive (passing/rushing/receiving/defensive_leaders already carry
-    every credited player, not just top-N, since the top-15 cap was
-    removed for career_stats()'s sake -- see history_store.py's own
-    docstring). +1 everywhere to match history.html's own season-number-
-    is-zero-indexed convention."""
+    """(team_abbr|name) -> a human-facing "YYYY" or "YYYY-YYYY" span
+    (the real calendar year, app/config.py's season_year -- Brian's own
+    ask, 2026-09-12, replacing a bare "Season N" sequence number with no
+    obvious real-world meaning), derived from real per-season leader
+    presence across the archive (passing/rushing/receiving/defensive_
+    leaders already carry every credited player, not just top-N, since
+    the top-15 cap was removed for career_stats()'s sake -- see
+    history_store.py's own docstring)."""
     spans: dict[str, list[int]] = {}
     for rec in full_history:
         for pool in (rec.passing_leaders, rec.rushing_leaders, rec.receiving_leaders, rec.defensive_leaders):
             for l in pool:
                 spans.setdefault(f"{l.team_abbr}|{l.name}", []).append(rec.season_number)
     return {
-        k: (f"Season {min(v) + 1}" if min(v) == max(v) else f"Season {min(v) + 1}–{max(v) + 1}")
+        k: (str(season_year(min(v))) if min(v) == max(v) else f"{season_year(min(v))}–{season_year(max(v))}")
         for k, v in spans.items()
     }
 
@@ -2524,7 +2576,7 @@ def history_view(request: Request, tab: str = "league", pos: str = "all", q: str
     eligible = _hof_eligible_candidates(inductee_keys)
     record_book = _hof_record_book() if full_history else []
     sb_history = [rec for rec in reversed(full_history) if rec.champion_abbr]
-    current_season_label = (full_history[-1].season_number + 1) if full_history else None
+    current_season_label = season_year(full_history[-1].season_number) if full_history else None
 
     return templates.TemplateResponse(request, "history.html", {
         "records": records,
@@ -2970,6 +3022,9 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             s.add(player)
             s.commit()
             depth_chart.clear_starters_cache()
+            # R5 (Sec 9.2): a signed undrafted rookie is a normal roster
+            # player now, not part of the expiring UDFA pool anymore.
+            undrafted_pool.remove(player_id)
 
         params = {"fa_offer_result": result.verdict.value, "fa_offer_player": player.full_name}
 
@@ -3020,14 +3075,51 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
 
 
 @app.get("/draft", response_class=HTMLResponse)
-def draft_view(request: Request):
-    """GDD Sec 10.4.5: Post-MVP."""
-    return templates.TemplateResponse(request, "coming_soon.html", {
-        "title": "Draft",
-        "gdd_section": "GDD §10.4.5",
-        "summary": "A draft-class scouting board (reusing the Roster table interface, with multi-select "
-                    "prospect comparison), your draft picks by round, and position-quota filtering. Needs the "
-                    "Draft system (Part 2) first.",
+def draft_view(request: Request, season_param: int | None = None):
+    """R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f): a
+    real, read-only review of a completed draft -- NOT the spec's fuller
+    interactive pre-draft scouting-board vision (Prospects grid, Draft
+    Board, live pick-by-pick sim). See app/engine/draft.py's own module
+    docstring for why: this implementation runs generation + simulation
+    as one atomic step inside start_new_season(), so by the time a user
+    could browse prospects the draft has already happened -- a real,
+    disclosed scope cut, not a hidden one (the page says so).
+
+    `season_param` (default: most recently completed draft, i.e. the
+    season currently in progress) lets the page show an older draft too,
+    since draft_store.py keeps every season's results."""
+    season = season_state.get_season()
+    target_season = season_param if season_param is not None else season.season_number
+    draft_data = draft_store.get_draft(target_season)
+
+    # Coming-soon shell (Global MVP pattern, GDD Sec9.2.8) for a fresh
+    # franchise that hasn't reached its first offseason yet -- real
+    # players don't exist to show, so don't pretend a draft happened.
+    if draft_data is None:
+        return templates.TemplateResponse(request, "coming_soon.html", {
+            "title": "Draft",
+            "gdd_section": "GDD §10.4.5 / R5",
+            "summary": "No draft has run yet -- the first one happens automatically at the end of your first "
+                       "season (see the Playoffs page's \"Start Next Season\"). Real 7-round draft, real rookie "
+                       "contracts, no fabricated data.",
+        })
+
+    picks_by_round: dict[int, list[dict]] = {}
+    for pick in draft_data["picks"]:
+        picks_by_round.setdefault(pick["round"], []).append(pick)
+
+    user_abbr = season.user_team_abbr
+    user_picks = [p for p in draft_data["picks"] if p["team_abbr"] == user_abbr] if user_abbr else []
+
+    return templates.TemplateResponse(request, "draft.html", {
+        "target_season": target_season,
+        "draft_order": draft_data["order"],
+        "picks_by_round": picks_by_round,
+        "undrafted_count": draft_data["undrafted_count"],
+        "user_abbr": user_abbr,
+        "user_picks": user_picks,
+        "has_prior_season": draft_store.get_draft(target_season - 1) is not None,
+        "has_next_season": draft_store.get_draft(target_season + 1) is not None,
     })
 
 
@@ -3264,6 +3356,69 @@ def playoffs_game_view(request: Request, round_name: str, home_abbr: str, away_a
             "back_label": "Back to playoffs",
         },
     )
+
+
+@app.get("/saves", response_class=HTMLResponse)
+def saves_view(request: Request):
+    """The real entry point this app never had: pick a named save to
+    resume, or start a brand-new franchise. Every save's own summary
+    (team/week/season) is read straight from the registry -- see
+    save_manager.sync_active_save_summary()'s own docstring for when
+    that's refreshed -- rather than loading and redirecting through
+    every single save's own season.json just to list them."""
+    return templates.TemplateResponse(
+        request,
+        "saves.html",
+        {
+            "saves": save_manager.list_saves(),
+            "active_save_id": save_manager.get_active_save_id(),
+        },
+    )
+
+
+@app.post("/saves/new")
+def saves_new(name: str = Form(...)):
+    name = name.strip() or "Untitled Franchise"
+    try:
+        save_manager.create_save(name)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    # A brand-new save has no roster progression yet and no user team --
+    # reset_season() builds its real schedule/records (same call a
+    # from-scratch franchise always used), then straight to team choice
+    # (GDD Sec 10.1), matching the existing team-select flow exactly.
+    season_state.reset_season()
+    return RedirectResponse(url="/team-select", status_code=303)
+
+
+@app.post("/saves/{save_id}/load")
+def saves_load(save_id: str):
+    try:
+        save_manager.load_save(save_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+
+@app.post("/saves/{save_id}/rename")
+def saves_rename(save_id: str, name: str = Form(...)):
+    name = name.strip()
+    if not name:
+        raise HTTPException(400, "Name can't be empty")
+    try:
+        save_manager.rename_save(save_id, name)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return RedirectResponse(url="/saves", status_code=303)
+
+
+@app.post("/saves/{save_id}/delete")
+def saves_delete(save_id: str):
+    try:
+        save_manager.delete_save(save_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return RedirectResponse(url="/saves", status_code=303)
 
 
 @app.get("/team-select", response_class=HTMLResponse)

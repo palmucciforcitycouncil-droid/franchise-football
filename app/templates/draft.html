@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Draft — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Draft &mdash; Season {{ target_season + 1 }}</h2>
+  <p class="muted">
+    A real 7-round draft: deterministic per-league prospect generation, a real worst-to-best draft order
+    (record, then strength of schedule, then a seeded tiebreak), and a need-aware greedy simulation --
+    every pick below is a real rostered player with a real rookie-scale contract, not placeholder data.
+    <strong>Disclosed scope cut:</strong> this is a review of a draft that already happened automatically at
+    your last offseason, not an interactive pre-draft scouting board -- there's no live pick-by-pick event,
+    prospect comparison, or personal draft board to build before it runs. {{ undrafted_count }} prospects went
+    undrafted this year and joined the free-agent pool (a 3-year signing window before they expire).
+  </p>
+  <p class="row" style="gap: 1rem;">
+    {% if has_prior_season %}<a href="/draft?season_param={{ target_season - 1 }}">&larr; Season {{ target_season }}</a>{% endif %}
+    {% if has_next_season %}<a href="/draft?season_param={{ target_season + 1 }}">Season {{ target_season + 2 }} &rarr;</a>{% endif %}
+  </p>
+</div>
+
+{% if user_abbr %}
+<div class="card">
+  <h3>Your Picks ({{ user_abbr }})</h3>
+  {% if user_picks %}
+  <table class="boxtable">
+    <thead><tr><th>Round</th><th>Pick</th><th>Player</th><th>Pos</th><th>College</th><th>OVR</th></tr></thead>
+    <tbody>
+      {% for p in user_picks %}
+      <tr>
+        <td>{{ p.round }}</td>
+        <td>#{{ p.overall_pick }}</td>
+        <td>{{ player_link_or_name(p.name, p.team_abbr) }}</td>
+        <td>{{ p.position }}</td>
+        <td>{{ p.college }}</td>
+        <td>{{ p.overall_rating }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No picks this draft.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Draft Order</h3>
+  <p class="muted" style="font-size: 0.82rem;">Worst record first (real strength-of-schedule and seeded-coin-flip tiebreaks).</p>
+  <div class="dashboard-scroll">
+    <ol>
+      {% for abbr in draft_order %}
+      <li>{{ team_link(abbr) }}{% if abbr == user_abbr %} <span class="muted">(you)</span>{% endif %}</li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Full Results by Round</h3>
+  <div class="dash-tabs-grid cols-4" data-tabgroup="draft-rounds">
+    {% for round_num in picks_by_round.keys() | sort %}
+    <button type="button" class="dash-tab {% if loop.first %}active{% endif %}" data-tab="r{{ round_num }}">Round {{ round_num }}</button>
+    {% endfor %}
+  </div>
+  {% for round_num in picks_by_round.keys() | sort %}
+  <div class="dash-panel" data-panel="r{{ round_num }}" data-tabgroup-panel="draft-rounds" {% if not loop.first %}hidden{% endif %}>
+    <table class="boxtable">
+      <thead><tr><th>Pick</th><th>Team</th><th>Player</th><th>Pos</th><th>College</th><th>OVR</th></tr></thead>
+      <tbody>
+        {% for p in picks_by_round[round_num] %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>#{{ p.overall_pick }}</td>
+          <td>{{ team_link(p.team_abbr) }}</td>
+          <td>{{ player_link_or_name(p.name, p.team_abbr) }}</td>
+          <td>{{ p.position }}</td>
+          <td>{{ p.college }}</td>
+          <td>{{ p.overall_rating }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

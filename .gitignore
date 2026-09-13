@@ -16,6 +16,9 @@ Thumbs.db
 
 data/raw/pbp_csv/*.csv
 data/saves/*.json
+data/saves/games/
+data/saves/registry.json
+data/franchise_template.db
 
 # Local env & coverage
 .venv/

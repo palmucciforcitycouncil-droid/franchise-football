@@ -671,20 +671,29 @@ def test_dashboard_top_performers_has_category_dropdown_and_conference_tabs():
         assert f'data-conf="{conf}"' in resp.text
 
 
-def test_dashboard_headlines_box_replaces_old_header_with_coming_soon():
-    """ROADMAP.md Sec2c items 1-2: the old "Dashboard — Season N..." header
-    is replaced by a Headlines box, which renders per the coming-soon
-    convention until R9 (GDD Sec12) actually lands -- no fabricated
-    headline content."""
+def test_dashboard_headlines_box_replaces_old_header_and_shows_real_content_once_a_week_is_played():
+    """ROADMAP.md Sec2c items 1-2 originally replaced the old "Dashboard —
+    Season N..." header with a Headlines box that rendered a "Coming
+    soon" placeholder (R9/GDD Sec12 wasn't built yet). R9 landed
+    2026-09-13 as a real, deterministic (no LLM) feature -- see
+    app/engine/headlines.py's own module docstring -- so the box now
+    shows either a real "no headlines yet" empty state (before Week 1
+    finishes) or real rendered storylines after. Updated here instead of
+    left asserting stale placeholder text, same discipline as every
+    other stale-test fix tonight."""
     season_state.set_user_team("KC")
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Headlines" in resp.text
-    assert "Coming soon" in resp.text
+    assert "No headlines yet" in resp.text  # before Week 1 has been simulated
     assert "<h2>Dashboard" not in resp.text
     # The old header's real week-status line/nav links are preserved.
     assert "Week 1 of" in resp.text
     assert 'href="/season"' in resp.text
+
+    season_state.simulate_current_week()
+    resp = client.get("/dashboard")
+    assert "headlines-list" in resp.text  # real rendered storylines now, not the empty state
 
 
 def test_dashboard_gameplan_filler_subtext_removed():

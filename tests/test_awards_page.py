@@ -158,9 +158,13 @@ def test_offensive_and_defensive_rookie_of_the_year_split_roy():
     season_state.simulate_current_week()
     season = season_state.get_season()
 
-    roy = {c.name for c in awards.rookie_of_the_year(season, top_n=1000)}
-    oroy = {c.name for c in awards.offensive_rookie_of_the_year(season, top_n=1000)}
-    droy = {c.name for c in awards.defensive_rookie_of_the_year(season, top_n=1000)}
+    # Keyed by (team_abbr, name), not name alone -- two REAL, different
+    # rookies can share an exact full name (e.g. this roster's own real
+    # Byron Young: a Raiders DE and a Rams LB, both real rookies), which
+    # a name-only set would collapse into a false "overlap".
+    roy = {(c.team_abbr, c.name) for c in awards.rookie_of_the_year(season, top_n=1000)}
+    oroy = {(c.team_abbr, c.name) for c in awards.offensive_rookie_of_the_year(season, top_n=1000)}
+    droy = {(c.team_abbr, c.name) for c in awards.defensive_rookie_of_the_year(season, top_n=1000)}
 
     assert oroy.isdisjoint(droy)
-    assert roy <= (oroy | droy)  # every ROY name traces back to one of the two halves
+    assert roy <= (oroy | droy)  # every ROY candidate traces back to one of the two halves

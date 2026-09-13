@@ -75,6 +75,14 @@ class Player(SQLModel, table=True):
     # Contract (Post-MVP -- GDD Part 2 Sec F1.1 -- stored now, unused until then)
     salary: int = 0
     signing_bonus: int = 0
+    # Real guaranteed money at signing (2026-09-13 salary import). Not always
+    # independently known -- for players estimated from a position/rating
+    # salary model (no real contract found), this is that model's own
+    # position-average guaranteed-percentage applied to the estimated salary,
+    # not a distinct real figure. signing_bonus above is left at 0 for all
+    # re-imported players since the source data doesn't break bonus out
+    # separately from the rest of guaranteed money.
+    guaranteed_money: int = 0
     # Not real Madden data (no such column exists in the CSV) -- a
     # deterministically-seeded 1-5 placeholder so the Contract tab's
     # multi-year grid and the Free Agents box's "SOON" filter have

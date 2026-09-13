@@ -113,6 +113,16 @@
     </tbody>
   </table>
   {% endif %}
+  {% if box.punt_returns %}
+  <table class="boxtable">
+    <thead><tr><th>Punt Returns</th><th>Ret</th><th>Yds</th><th>Long</th><th>TD</th></tr></thead>
+    <tbody>
+      {% for r in box.punt_returns %}
+      <tr><td>{{ player_link_or_name(r.name, team.abbr) }}</td><td>{{ r.returns }}</td><td>{{ r.yards }}</td><td>{{ r.long }}</td><td>{{ r.touchdowns }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
   {% if defense %}
   <table class="boxtable">
     <thead><tr><th>Defense</th><th>Tkl</th><th>TFL</th><th>Sk</th><th>INT</th><th>PD</th><th>FF</th><th>FR</th><th>TD</th></tr></thead>

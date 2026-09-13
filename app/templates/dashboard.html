@@ -2,17 +2,22 @@
 {% from "macros.html" import pct %}
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
-<!-- Headlines (ROADMAP.md Sec2c item 2): replaces the old "Dashboard — Season
-     N..." header box. GDD Sec12/R9's real event-detection + Claude-generated
-     headlines aren't built yet (needs its own scoping session -- an LLM call
-     is a real determinism-policy question this project hasn't settled), so
-     this renders per item 1's coming-soon convention until R9 lands. Keeps
-     the old header's week-status line/nav links, since those are real,
-     useful, non-spec-sounding info, not the kind of filler item 4 asks to
-     strip. -->
+<!-- Headlines (ROADMAP.md Sec2c item 2 -> Sec4e/R9, built 2026-09-12):
+     real event-detection + a deterministic template render, NOT a live
+     Claude API call -- see app/engine/headlines.py's own module docstring
+     for why (GDD Sec1.3's Determinism & Seeding Policy). Rendered once by
+     season_state.simulate_current_week() and read here, not recomputed. -->
 <div class="card">
   <h2>Headlines</h2>
-  <p class="muted">Coming soon &mdash; Weekly Headlines (GDD &sect;12, ROADMAP.md R9) needs a real scoping pass (event detection, a Claude API call, an offline fallback, and a determinism-policy decision) before this box shows real content.</p>
+  {% if weekly_headlines %}
+  <ul class="headlines-list">
+    {% for line in weekly_headlines %}
+    <li>{{ line }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No headlines yet &mdash; simulate a week to see this season's storylines here.</p>
+  {% endif %}
   <p class="muted">
     {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
     See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.
@@ -232,6 +237,7 @@
 
     <div class="dashboard-scroll">
       <div class="dash-panel" data-panel="overview">
+        {% if scouting.prose %}<p class="scouting-prose">{{ scouting.prose.overview }}</p>{% endif %}
         {% if scouting.summary.philosophy %}
         <div class="dash-stat-row"><span>Philosophy</span><span>{{ scouting.summary.philosophy }}</span></div>
         {% endif %}
@@ -263,6 +269,7 @@
       </div>
 
       <div class="dash-panel" data-panel="offense" hidden>
+        {% if scouting.prose %}<p class="scouting-prose">{{ scouting.prose.offense }}</p>{% endif %}
         <div class="dash-subhead">Situational Play-Calling{% if scouting.offense.sample_size %} <span class="muted">({{ scouting.offense.sample_size }} plays)</span>{% endif %}</div>
         <div class="dash-subhead">1st Down Tendencies</div>
         <div class="dash-stat-row"><span>Run</span><span>{{ pct(scouting.offense.first_down_run_pct) }}</span></div>
@@ -282,6 +289,7 @@
       </div>
 
       <div class="dash-panel" data-panel="defense" hidden>
+        {% if scouting.prose %}<p class="scouting-prose">{{ scouting.prose.defense }}</p>{% endif %}
         <div class="dash-subhead">Base Philosophy{% if scouting.defense.sample_size %} <span class="muted">({{ scouting.defense.sample_size }} plays)</span>{% endif %}</div>
         <div class="dash-stat-row"><span>Run Defense</span><span>{{ pct(scouting.defense.run_defense_pct) }}</span></div>
         <div class="dash-stat-row"><span>Pass Defense</span><span>{{ pct(scouting.defense.pass_defense_pct) }}</span></div>
@@ -301,6 +309,7 @@
       </div>
 
       <div class="dash-panel" data-panel="special" hidden>
+        {% if scouting.prose %}<p class="scouting-prose">{{ scouting.prose.special }}</p>{% endif %}
         <div class="dash-subhead">4th Down Aggressiveness</div>
         <div class="dash-stat-row"><span>Attempts</span><span>{{ scouting.fourth_down.attempts }}</span></div>
         <div class="dash-stat-row"><span>Conversions</span><span>{{ scouting.fourth_down.conversions }}</span></div>
@@ -314,6 +323,7 @@
       </div>
 
       <div class="dash-panel" data-panel="discipline" hidden>
+        {% if scouting.prose %}<p class="scouting-prose">{{ scouting.prose.discipline }}</p>{% endif %}
         <div class="dash-subhead">Penalty Statistics{% if scouting.discipline.total %} <span class="muted">({{ scouting.discipline.total }} total)</span>{% endif %}</div>
         <div class="dash-stat-row"><span>Penalties / Game</span><span>{{ scouting.discipline.per_game if scouting.discipline.per_game is not none else "N/A" }}</span></div>
         <div class="dash-stat-row"><span>League Rank</span><span>{% if scouting.league_ranks.penalty_rank %}#{{ scouting.league_ranks.penalty_rank }} of {{ scouting.league_ranks.of_teams }}{% else %}N/A{% endif %}</span></div>
@@ -326,6 +336,7 @@
       </div>
 
       <div class="dash-panel" data-panel="stats" hidden>
+        {% if scouting.prose %}<p class="scouting-prose">{{ scouting.prose.stats }}</p>{% endif %}
         <div class="dash-subhead">Turnover Differential</div>
         <div class="dash-stat-row"><span>Season Total</span><span>{{ scouting.summary.turnover_diff }}</span></div>
         <div class="dash-stat-row"><span>League Rank</span><span>{% if scouting.league_ranks.turnover_rank %}#{{ scouting.league_ranks.turnover_rank }} of {{ scouting.league_ranks.of_teams }}{% else %}N/A{% endif %}</span></div>

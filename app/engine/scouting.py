@@ -30,6 +30,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from app.engine.flavor_text import pick_and_render
+
 OFFENSIVE_PENALTY_TYPES = {"False start", "Delay of game", "Illegal formation", "Holding"}
 DEFENSIVE_PENALTY_TYPES = {"Offside", "Defensive pass interference", "Roughing the passer"}
 
@@ -433,3 +435,154 @@ def build_scouting_report(season, opponent_abbr: str) -> dict:
         "league_ranks": league_ranks(season, opponent_abbr),
         "weather": next_opponent_weather(season, opponent_abbr),
     }
+
+
+# ---------------------------------------------------------------------------
+# Scouting Panel prose (ROADMAP.md Sec4e/R12, 2026-09-12, GDD-original --
+# not from any Figma source, same precedent as the Awards Race box).
+#
+# One short sentence per tab, bucketing the exact real fields the stat
+# grids on this page already show into a qualitative bracket (pass-heavy/
+# run-heavy/balanced, blitz-heavy/conservative, etc.) and picking a real
+# phrasing deterministically -- same app.engine.flavor_text picker Weekly
+# Headlines uses, same reason: no live LLM call, reproducible given the
+# same LEAGUE_SEED (GDD Sec 1.3). Purely additive -- every stat grid these
+# tabs already render stays exactly as it was; this is one extra sentence
+# above each one. None of these functions invents a bracket boundary that
+# isn't already a real threshold used elsewhere in this module (Pass-Heavy/
+# Run-Heavy/Balanced reuses team_summary()'s own `philosophy` field
+# verbatim, not a second, different cutoff).
+# ---------------------------------------------------------------------------
+
+PROSE_TEMPLATES: dict[str, list[str]] = {
+    "overview_no_games": [
+        "{team} hasn't played a game yet this season -- no real tendencies to report yet.",
+    ],
+    "overview_pass_heavy": [
+        "{team} leans pass-heavy on offense, averaging {ppg} points and {papg} allowed per game.",
+        "A pass-first attack: {team} is averaging {ppg} PPG this season ({papg} allowed).",
+    ],
+    "overview_run_heavy": [
+        "{team} builds around the run, averaging {ppg} points and {papg} allowed per game.",
+        "Ground-and-pound identity: {team} scores {ppg} PPG while allowing {papg}.",
+    ],
+    "overview_balanced": [
+        "{team} plays a balanced offense, averaging {ppg} points and {papg} allowed per game.",
+    ],
+    "offense_pass_heavy": [
+        "{team} throws {first_down_pass_pct}% of the time on 1st down, climbing to {third_long_pass_pct}% on 3rd-and-long.",
+    ],
+    "offense_run_heavy": [
+        "{team} leans run on early downs ({first_down_run_pct}% run on 1st down) but opens up on 3rd-and-long ({third_long_pass_pct}% pass).",
+    ],
+    "offense_balanced": [
+        "{team} keeps defenses honest with a {first_down_pass_pct}% pass / {first_down_run_pct}% run split on 1st down.",
+    ],
+    "offense_no_sample": [
+        "Not enough offensive snaps logged yet to show a real situational split for {team}.",
+    ],
+    "defense_blitz_heavy": [
+        "{team}'s defense brings pressure often, blitzing on {blitz_pct}% of snaps.",
+    ],
+    "defense_conservative": [
+        "{team}'s defense plays it conservative, blitzing on just {blitz_pct}% of snaps.",
+    ],
+    "defense_balanced_blitz": [
+        "{team} mixes it up on defense, blitzing {blitz_pct}% of the time ({man_pct}% man coverage).",
+    ],
+    "defense_no_sample": [
+        "Not enough defensive snaps logged yet to show a real blitz/coverage split for {team}.",
+    ],
+    "special_teams": [
+        "{team} has made {fg_pct}% of field goal attempts this season.",
+    ],
+    "special_teams_no_sample": [
+        "{team} hasn't attempted a field goal yet this season.",
+    ],
+    "discipline_clean": [
+        "{team} is one of the league's more disciplined teams, ranked #{rank} in penalties per game.",
+    ],
+    "discipline_average": [
+        "{team} ranks #{rank} in the league in penalties per game.",
+    ],
+    "discipline_sloppy": [
+        "{team} has struggled with penalties, ranked #{rank} in the league.",
+    ],
+    "stats_positive_to": [
+        "{team} owns a plus-{diff} turnover margin, a real edge on the stat sheet.",
+    ],
+    "stats_negative_to": [
+        "{team} is a minus-{diff} in turnover margin this season.",
+    ],
+    "stats_even_to": [
+        "{team} is even in turnover margin this season.",
+    ],
+}
+
+
+def overview_prose(scouting: dict, league_seed: int) -> str:
+    team, summary = scouting["team_abbr"], scouting["summary"]
+    if not summary["games_played"]:
+        return pick_and_render(PROSE_TEMPLATES, "overview_no_games", (league_seed, team), team=team)
+    category = {"Pass-Heavy": "overview_pass_heavy", "Run-Heavy": "overview_run_heavy"}.get(summary["philosophy"], "overview_balanced")
+    return pick_and_render(
+        PROSE_TEMPLATES, category, (league_seed, team, summary["games_played"]),
+        team=team, ppg=summary["ppg"], papg=summary["papg"],
+    )
+
+
+def offense_prose(scouting: dict, league_seed: int) -> str:
+    team, offense = scouting["team_abbr"], scouting["offense"]
+    if not offense["sample_size"]:
+        return pick_and_render(PROSE_TEMPLATES, "offense_no_sample", (league_seed, team), team=team)
+    pass_pct = offense["first_down_pass_pct"] or 0
+    category = "offense_pass_heavy" if pass_pct >= 58 else "offense_run_heavy" if pass_pct <= 42 else "offense_balanced"
+    return pick_and_render(
+        PROSE_TEMPLATES, category, (league_seed, team, offense["sample_size"]),
+        team=team, first_down_pass_pct=offense["first_down_pass_pct"], first_down_run_pct=offense["first_down_run_pct"],
+        third_long_pass_pct=offense["third_long_pass_pct"],
+    )
+
+
+def defense_prose(scouting: dict, league_seed: int) -> str:
+    team, defense = scouting["team_abbr"], scouting["defense"]
+    if not defense["sample_size"]:
+        return pick_and_render(PROSE_TEMPLATES, "defense_no_sample", (league_seed, team), team=team)
+    blitz = defense["blitz_pct"] or 0
+    category = "defense_blitz_heavy" if blitz >= 35 else "defense_conservative" if blitz <= 15 else "defense_balanced_blitz"
+    return pick_and_render(
+        PROSE_TEMPLATES, category, (league_seed, team, defense["sample_size"]),
+        team=team, blitz_pct=defense["blitz_pct"], man_pct=defense["man_pct"],
+    )
+
+
+def special_teams_prose(scouting: dict, league_seed: int) -> str:
+    team, fg = scouting["team_abbr"], scouting["field_goals"]
+    total_attempts = sum(b["attempted"] for b in fg.values()) if isinstance(fg, dict) else 0
+    if not total_attempts:
+        return pick_and_render(PROSE_TEMPLATES, "special_teams_no_sample", (league_seed, team), team=team)
+    total_made = sum(b["made"] for b in fg.values())
+    fg_pct = round(100 * total_made / total_attempts, 1)
+    return pick_and_render(
+        PROSE_TEMPLATES, "special_teams", (league_seed, team, total_attempts),
+        team=team, fg_pct=fg_pct,
+    )
+
+
+def discipline_prose(scouting: dict, league_seed: int) -> str:
+    team = scouting["team_abbr"]
+    rank = scouting["league_ranks"]["penalty_rank"]
+    if rank is None:
+        return pick_and_render(PROSE_TEMPLATES, "discipline_average", (league_seed, team), team=team, rank="—")
+    category = "discipline_clean" if rank <= 10 else "discipline_sloppy" if rank >= 23 else "discipline_average"
+    return pick_and_render(PROSE_TEMPLATES, category, (league_seed, team, rank), team=team, rank=rank)
+
+
+def stats_prose(scouting: dict, league_seed: int) -> str:
+    team, summary = scouting["team_abbr"], scouting["summary"]
+    diff = summary["turnover_diff"]
+    category = "stats_positive_to" if diff > 0 else "stats_negative_to" if diff < 0 else "stats_even_to"
+    return pick_and_render(
+        PROSE_TEMPLATES, category, (league_seed, team, summary["games_played"]),
+        team=team, diff=abs(diff),
+    )

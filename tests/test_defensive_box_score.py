@@ -28,6 +28,39 @@ def test_sack_credits_sack_and_solo_tackle():
     assert box[0].solo_tackles == 1
 
 
+def test_kickoff_return_credits_a_solo_tackle_to_the_coverage_defender():
+    """R2b: a kickoff/punt-return tackle is real defensive credit for the
+    KICKING/PUNTING team, even though the tackler was drawn from that
+    team's OWN offense (WR depth, app/engine/special_teams.py's
+    _coverage_tackler) -- offense_abbr on this PlayEvent is the
+    RECEIVING team, so `abbr` (the kicking/punting team) is correctly
+    treated as the defense here."""
+    plays = [_pe("kickoff", 22, "return", offense_abbr="BUF", defender_name="Some Gunner")]
+    box = build_defensive_box_score(plays, "KC")
+    assert box[0].name == "Some Gunner"
+    assert box[0].solo_tackles == 1
+
+
+def test_punt_return_credits_a_solo_tackle_to_the_coverage_defender():
+    plays = [_pe("punt_return", 9, "return", offense_abbr="BUF", defender_name="Some Gunner")]
+    box = build_defensive_box_score(plays, "KC")
+    assert box[0].name == "Some Gunner"
+    assert box[0].solo_tackles == 1
+
+
+def test_kickoff_and_punt_return_touchdowns_credit_no_tackle():
+    plays = [
+        _pe("kickoff", 100, "return_td", offense_abbr="BUF", defender_name=""),
+        _pe("punt_return", 100, "return_td", offense_abbr="BUF", defender_name=""),
+    ]
+    assert build_defensive_box_score(plays, "KC") == []
+
+
+def test_kickoff_touchback_credits_no_tackle():
+    plays = [_pe("kickoff", 0, "touchback", offense_abbr="BUF", defender_name="")]
+    assert build_defensive_box_score(plays, "KC") == []
+
+
 def test_interception_credits_int_but_not_a_tackle():
     plays = [_pe("pass", 0, "turnover", defender_name="Xavien Howard")]
     box = build_defensive_box_score(plays, "BUF")

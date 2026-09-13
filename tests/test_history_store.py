@@ -183,7 +183,7 @@ def test_history_route_renders_empty_and_populated_states():
 
         resp = client.get("/history")
         assert resp.status_code == 200
-        assert "Season 1" in resp.text
+        assert "2002" in resp.text  # season_year(0) -- app/config.py's real-calendar-year label
     finally:
         if db_module._engine is not None:
             db_module._engine.dispose()
@@ -498,13 +498,13 @@ def test_hof_all_years_active_spans_first_to_last_credited_season():
     history = [_synthetic_record(0, passing=[s0]), _synthetic_record(1), _synthetic_record(2, passing=[s2])]
 
     spans = _hof_all_years_active(history)
-    assert spans["KC|Test QB"] == "Season 1–3"
+    assert spans["KC|Test QB"] == "2002–2004"  # season_year(0)-season_year(2)
 
 
 def test_hof_all_years_active_single_season_has_no_dash():
     s0 = SeasonPassingLine(name="Rookie", team_abbr="KC", attempts=100, yards=1000, touchdowns=5)
     spans = _hof_all_years_active([_synthetic_record(0, passing=[s0])])
-    assert spans["KC|Rookie"] == "Season 1"
+    assert spans["KC|Rookie"] == "2002"  # season_year(0)
 
 
 def test_hof_eligible_candidates_excludes_inductees_and_requires_min_seasons(tmp_path):

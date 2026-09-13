@@ -444,3 +444,120 @@ def test_build_scouting_report_against_a_real_simulated_season():
     assert report["summary"]["games_played"] >= 1
     assert isinstance(report["offense"]["sample_size"], int)
     assert isinstance(report["discipline"]["total"], int)
+
+
+# --- Scouting Panel prose (ROADMAP.md Sec4e/R12) -----------------------------
+
+def _fake_scouting(team_abbr="KC", games_played=5, philosophy="Balanced", ppg=24.0, papg=20.0,
+                    first_down_pass_pct=50.0, third_long_pass_pct=70.0, sample_size=100,
+                    blitz_pct=25.0, man_pct=50.0, def_sample_size=100,
+                    fg_buckets=None, penalty_rank=15, turnover_diff=0):
+    return {
+        "team_abbr": team_abbr,
+        "summary": {
+            "games_played": games_played, "philosophy": philosophy, "ppg": ppg, "papg": papg,
+            "turnover_diff": turnover_diff,
+        },
+        "offense": {
+            "sample_size": sample_size, "first_down_pass_pct": first_down_pass_pct,
+            "first_down_run_pct": scouting._complement(first_down_pass_pct), "third_long_pass_pct": third_long_pass_pct,
+        },
+        "defense": {"sample_size": def_sample_size, "blitz_pct": blitz_pct, "man_pct": man_pct},
+        "field_goals": fg_buckets or {"Under 40": {"made": 3, "attempted": 3, "pct": 100.0}, "40-49": {"made": 1, "attempted": 2, "pct": 50.0}, "50+": {"made": 0, "attempted": 0, "pct": None}},
+        "league_ranks": {"penalty_rank": penalty_rank, "turnover_rank": 10, "of_teams": 32},
+    }
+
+
+def test_overview_prose_no_games_yet():
+    s = _fake_scouting(games_played=0)
+    text = scouting.overview_prose(s, league_seed=1)
+    assert "hasn't played" in text
+
+
+def test_overview_prose_reflects_real_philosophy_bucket():
+    pass_heavy = scouting.overview_prose(_fake_scouting(philosophy="Pass-Heavy", ppg=30.0, papg=18.0), league_seed=1)
+    assert "30.0" in pass_heavy
+    run_heavy = scouting.overview_prose(_fake_scouting(philosophy="Run-Heavy"), league_seed=1)
+    assert run_heavy  # renders without error, a different template bucket
+
+
+def test_offense_prose_no_sample():
+    s = _fake_scouting(sample_size=0)
+    assert "Not enough" in scouting.offense_prose(s, league_seed=1)
+
+
+def test_offense_prose_pass_heavy_bucket_uses_real_values():
+    s = _fake_scouting(first_down_pass_pct=70.0, third_long_pass_pct=85.0)
+    text = scouting.offense_prose(s, league_seed=1)
+    assert "70.0" in text and "85.0" in text
+
+
+def test_defense_prose_blitz_heavy_bucket():
+    s = _fake_scouting(blitz_pct=45.0)
+    text = scouting.defense_prose(s, league_seed=1)
+    assert "45.0" in text
+
+
+def test_special_teams_prose_computes_real_combined_pct():
+    s = _fake_scouting()
+    text = scouting.special_teams_prose(s, league_seed=1)
+    # 4 made of 5 attempted across the two non-empty buckets = 80.0%
+    assert "80.0" in text
+
+
+def test_special_teams_prose_no_attempts_yet():
+    s = _fake_scouting(fg_buckets={"Under 40": {"made": 0, "attempted": 0, "pct": None}, "40-49": {"made": 0, "attempted": 0, "pct": None}, "50+": {"made": 0, "attempted": 0, "pct": None}})
+    assert "hasn't attempted" in scouting.special_teams_prose(s, league_seed=1)
+
+
+def test_discipline_prose_uses_real_rank_buckets():
+    clean = scouting.discipline_prose(_fake_scouting(penalty_rank=3), league_seed=1)
+    assert "disciplined" in clean
+    sloppy = scouting.discipline_prose(_fake_scouting(penalty_rank=30), league_seed=1)
+    assert "struggled" in sloppy
+
+
+def test_discipline_prose_handles_no_games_played_rank_of_none():
+    s = _fake_scouting(penalty_rank=None)
+    text = scouting.discipline_prose(s, league_seed=1)
+    assert text  # renders without a KeyError/TypeError on a None rank
+
+
+def test_stats_prose_reflects_real_turnover_sign():
+    positive = scouting.stats_prose(_fake_scouting(turnover_diff=5), league_seed=1)
+    assert "plus-5" in positive
+    negative = scouting.stats_prose(_fake_scouting(turnover_diff=-3), league_seed=1)
+    assert "minus-3" in negative
+    even = scouting.stats_prose(_fake_scouting(turnover_diff=0), league_seed=1)
+    assert "even" in even
+
+
+def test_prose_functions_are_deterministic_given_the_same_inputs():
+    s = _fake_scouting()
+    assert scouting.overview_prose(s, league_seed=7) == scouting.overview_prose(s, league_seed=7)
+    assert scouting.offense_prose(s, league_seed=7) == scouting.offense_prose(s, league_seed=7)
+
+
+@pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
+def test_build_scouting_report_includes_real_prose_via_the_dashboard_route():
+    """The prose fields aren't computed inside build_scouting_report()
+    itself (app/main.py's dashboard_view adds scouting['prose'] after
+    calling it) -- this confirms the report's own shape has everything
+    each prose function needs, end-to-end against a real simulated
+    season, not just the synthetic fixtures above."""
+    from app.services import season_state
+
+    season_state.reset_season()
+    for _ in range(3):
+        season_state.simulate_current_week()
+    season = season_state.get_season()
+    next_opponent = scouting.find_next_opponent(season, "KC")
+    opponent_abbr, _ = next_opponent
+    report = scouting.build_scouting_report(season, opponent_abbr)
+
+    assert scouting.overview_prose(report, season.league_seed)
+    assert scouting.offense_prose(report, season.league_seed)
+    assert scouting.defense_prose(report, season.league_seed)
+    assert scouting.special_teams_prose(report, season.league_seed)
+    assert scouting.discipline_prose(report, season.league_seed)
+    assert scouting.stats_prose(report, season.league_seed)
