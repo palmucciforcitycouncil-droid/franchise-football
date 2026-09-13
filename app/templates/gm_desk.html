@@ -25,6 +25,16 @@
 </div>
 {% endif %}
 
+{% if trade_result %}
+<div class="card">
+  {% if trade_result == 'ACCEPT' %}
+  <p><strong>{{ team_b }}</strong> accepted your trade.</p>
+  {% else %}
+  <p><strong>{{ team_b }}</strong> rejected your trade — the value they'd receive isn't close enough to what they'd give up.</p>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card">
   <h3>Expiring Contracts ({{ expiring | length }})</h3>
   {% if expiring %}
@@ -77,16 +87,6 @@
     </table>
   </div>
 </div>
-
-{% if trade_result %}
-<div class="card">
-  {% if trade_result == 'ACCEPT' %}
-  <p><strong>{{ team_b }}</strong> accepted your trade.</p>
-  {% else %}
-  <p><strong>{{ team_b }}</strong> rejected your trade — the value they'd receive isn't close enough to what they'd give up.</p>
-  {% endif %}
-</div>
-{% endif %}
 
 <div class="card">
   <h3>Propose Trade</h3>

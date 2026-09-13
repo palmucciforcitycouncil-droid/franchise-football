@@ -285,6 +285,7 @@ def roster_view(
     find_min_spd: str | None = None, find_max_spd: str | None = None,
     find_min_cth: str | None = None, find_max_cth: str | None = None,
     find_min_tck: str | None = None, find_max_tck: str | None = None,
+    find_min_age: str | None = None, find_max_age: str | None = None,
     find_rookie: bool = False,
     find_sort: str = "ovr", find_dir: str = "desc",
     fa_offer_result: str | None = None, fa_offer_player: str | None = None,
@@ -327,6 +328,7 @@ def roster_view(
     find_min_spd = _int_or_none(find_min_spd); find_max_spd = _int_or_none(find_max_spd)
     find_min_cth = _int_or_none(find_min_cth); find_max_cth = _int_or_none(find_max_cth)
     find_min_tck = _int_or_none(find_min_tck); find_max_tck = _int_or_none(find_max_tck)
+    find_min_age = _int_or_none(find_min_age); find_max_age = _int_or_none(find_max_age)
 
     if view not in ("attributes", "stats"):
         view = "attributes"
@@ -519,6 +521,7 @@ def roster_view(
         or find_min_spd is not None or find_max_spd is not None
         or find_min_cth is not None or find_max_cth is not None
         or find_min_tck is not None or find_max_tck is not None
+        or find_min_age is not None or find_max_age is not None
     )
     if find_active:
         with get_session() as s:
@@ -546,6 +549,10 @@ def roster_view(
             find_results = [p for p in find_results if p.tackle >= find_min_tck]
         if find_max_tck is not None:
             find_results = [p for p in find_results if p.tackle <= find_max_tck]
+        if find_min_age is not None:
+            find_results = [p for p in find_results if p.age >= find_min_age]
+        if find_max_age is not None:
+            find_results = [p for p in find_results if p.age <= find_max_age]
         if find_rookie:
             find_results = [p for p in find_results if p.age <= 23]
 
@@ -592,7 +599,8 @@ def roster_view(
             "find_min_ovr": find_min_ovr, "find_max_ovr": find_max_ovr,
             "find_min_spd": find_min_spd, "find_max_spd": find_max_spd,
             "find_min_cth": find_min_cth, "find_max_cth": find_max_cth,
-            "find_min_tck": find_min_tck, "find_max_tck": find_max_tck, "find_rookie": find_rookie,
+            "find_min_tck": find_min_tck, "find_max_tck": find_max_tck,
+            "find_min_age": find_min_age, "find_max_age": find_max_age, "find_rookie": find_rookie,
             "find_sort": effective_find_sort, "find_dir": find_direction,
             "find_sort_columns": ROSTER_SORT_COLUMN_LABELS,
             "all_positions": list(Position),
