@@ -90,19 +90,39 @@ class UndraftedRookie:
    - Actual size seeded on `stable_seed(LEAGUE_SEED, "draft", "class_size")` → generates random int in [235, 265]
    - Buffer for trades/drops remains implicit (any size in band works)
 
-2. **Position Quota Bands:** Each position drawn from a band, total sums to class size
-   - QB: 7-9
-   - RB: 24-28
-   - WR: 33-37
-   - TE: 16-20
-   - OL: 40-44 (C/G/T, internal split seeded)
-   - DL: 30-34
-   - LB: 24-28
-   - CB: 22-26
-   - S: 14-18
-   - K: 1-2
-   - P: 1-2
-   - **Total: varies based on band draws, sums to class_size**
+2. **Position Quota Bands:** Each position drawn from a band based on real NFL 10-year data (2017-2026), scaled to 1.224x for 300-prospect class size. Total sums to class_size.
+
+**Real NFL 10-Year Averages (Basis):**
+| Position | Min | Max | Avg |
+|----------|-----|-----|-----|
+| QB | 9 | 14 | 11.5 |
+| RB | 16 | 25 | 20.2 |
+| WR | 27 | 37 | 32.8 |
+| TE | 11 | 16 | 13.5 |
+| OT | 18 | 26 | 22.4 |
+| iOL (C/G) | 18 | 25 | 21.6 |
+| EDGE | 22 | 31 | 26.5 |
+| iDL | 17 | 24 | 20.1 |
+| LB | 19 | 28 | 23.3 |
+| CB | 26 | 36 | 31.0 |
+| S | 14 | 22 | 18.2 |
+| K/P/LS | 2 | 6 | 3.8 |
+| **TOTAL** | **199** | **290** | **245** |
+
+**Scaled to 300-Prospect Class (×1.224):**
+   - QB: **10-17** (avg 14)
+   - RB: **20-31** (avg 25)
+   - WR: **33-46** (avg 40)
+   - TE: **13-21** (avg 16.5)
+   - OT: **22-32** (avg 27)
+   - iOL (C/G/T): **22-31** (avg 26)
+   - EDGE: **27-38** (avg 32.5)
+   - iDL: **21-29** (avg 25)
+   - LB: **23-34** (avg 29)
+   - CB: **32-44** (avg 38)
+   - S: **17-27** (avg 22)
+   - K/P/LS: **2-7** (avg 5)
+   - **Expected Total: 280-320 (midpoint ~299)**
    
    Algorithm:
    - Draw class_size first (seeded)
@@ -115,14 +135,20 @@ class UndraftedRookie:
 
 4. **Class Strength Band (QB-specific variance):**
    
-   Each year's draft class has a **strength level** drawn seeded per `stable_seed(LEAGUE_SEED, "draft", "class_strength")`, affecting QB quality distribution:
+   Each year's draft class QB composition is drawn seeded per `stable_seed(LEAGUE_SEED, "draft", "class_strength")`:
    
-   - **Elite QB Year (rare):** 1-2 QBs with OVR 88-99, 1-2 with 78-87, rest 60-77
-   - **Strong QB Year:** 2-3 QBs with OVR 83-92, 2-3 with 75-82, rest 55-74
-   - **Average QB Year:** 1-2 QBs with OVR 80-89, 3-4 with 70-79, rest 50-69
-   - **Weak QB Year:** 0-1 QBs with OVR 78+, most QBs 55-75, some 40-54
+   **Real NFL Pattern (9-14 QBs/year):**
+   - **Elite QB Year (~25%):** 13-14 QBs drafted (multiple premium Round 1 picks), distribution skews high (3-4 QBs OVR 85+)
+   - **Strong QB Year (~50%):** 11-12 QBs drafted (solid 1-2 Round 1 prospects), distribution normal (1-2 QBs OVR 85+, several 75-84)
+   - **Weak QB Year (~25%):** 9-10 QBs drafted (few premium picks, mostly Day 3 depth), distribution skews low (0-1 QBs OVR 85+, most 60-75)
    
-   **Mechanism:** A "QB class strength" roll (0-100) determines the distribution band, then individual QB base talents are seeded within that band. This ensures some years are weak, some are elite, matching real NFL variation.
+   **Mechanism:** 
+   1. Draw "class_strength" (0-100) seeded per LEAGUE_SEED
+   2. Map to year type: 0-25 → Weak, 26-75 → Strong, 76-100 → Elite
+   3. QB band adjusts: Weak uses 9-10 QBs, Strong uses 11-12, Elite uses 13-14
+   4. Individual QB base talents seeded within distribution, ensuring realistic variation
+   
+   **Result:** Matches real NFL (9-14 range), with some years producing elite talent classes and others producing thin QB pools.
 
 5. **Attribute Generation (Position-Specific Formulas):**
 
@@ -169,53 +195,17 @@ class UndraftedRookie:
 
 10. **Scouting Noise (Per-Team Variance):**
     Each team sees a different noise-perturbed view of each prospect's attributes, **but NOT their OVR** (OVR is league-consensus). Noise reseeded per `stable_seed(LEAGUE_SEED, "draft", prospect_index, team_abbr)`:
-    - Each attribute: ±0-8 point noise (stochastic uncertainty)
+    - Each attribute: **±0-4 point noise** (tight uncertainty; scout views don't diverge wildly)
     - Noise is pre-computed and stored in `Prospect.scouting_noise` dict per team
     - **Disclosed on the UI:** "Your scouting view differs from league consensus" when noise differs materially from OVR
 
 ---
 
-## 2.3 Rookie Scale AAV: NFL Formula vs. Simplified
+## 2.3 Rookie Scale AAV (DECIDED: Simplified + Cap Correlation)
 
-**Decision Required:** Choose one approach below. Both maintain reproducibility (same LEAGUE_SEED = same scale).
+**Approach:** Simplified game-scale base table (tuned to $720M season-1 cap), with **automatic annual scaling tied to league salary cap growth**.
 
-### Option A: Real NFL Formula (2025 Actual)
-
-**Pros:**
-- Authentic to real-world precedent
-- Integrates with real draft-value charts (players know the anchor)
-- Pick #1 overall = authentic top-pick leverage point
-
-**Cons:**
-- Real 2025 scale: ~$40M for pick #1, ~$1M for 7th rounder
-- This engine's salary cap is rescaled to $720M (§8.4 of R4a)
-- At real scales, even a 3rd-round pick costs 0.2% of total cap — everything under round 4 is nearly free
-- Creates two unintended incentives: (1) ignore mid-round picks as cost-irrelevant, (2) always trade down (every pick below round 2 is "throwing away value")
-
-**Formula (if chosen):**
-```
-Base = [Real 2025 NFL scale per round/position]
-Adjustment = [scale Real_2025_NFL_Cap / $301.2M] × [this_engine_cap / $720M]
-Final_AAV = Base × Adjustment
-```
-Result: Pick #1 ~$12-15M, pick #32 ~$3-4M, pick #33 ~$2.5-3M (rounded for game balance).
-
----
-
-### Option B: Simplified Game-Scale Table (Recommended for R5b/c)
-
-**Pros:**
-- Tuned specifically to this game's salary dynamics
-- Every draft round matters (no "basically free" picks)
-- Simpler to understand and balance
-- Can re-tune after one season of observing AI team behavior
-
-**Cons:**
-- Not anchored to real NFL data
-- Needs tuning/iteration once gameplay is observed
-- Requires disclosure ("Game-balance rookie scale, not real NFL")
-
-**Example Table (to be tuned):**
+**Base Table (Season 1, $720M cap):**
 
 | Round | Pick 1-8 | Pick 9-16 | Pick 17-24 | Pick 25-32 |
 |-------|----------|----------|----------|----------|
@@ -227,11 +217,54 @@ Result: Pick #1 ~$12-15M, pick #32 ~$3-4M, pick #33 ~$2.5-3M (rounded for game b
 | 6     | $0.35M   | $0.3M    | $0.28M   | $0.25M   |
 | 7     | $0.25M   | $0.22M   | $0.2M    | $0.18M   |
 
-**Interpretation:** A top-10 pick costs $3-8M; a mid-rounder costs $0.5-1.2M; late picks cost $0.2-0.5M. Every pick has real marginal cost on the salary cap.
+**Cap Correlation (NEW):**
+
+Rookie scale AAV grows **automatically each offseason** proportional to cap growth:
+
+```
+Season N Rookie AAV = Base_Table_Value × (Current_Season_Cap / $720M)
+```
+
+**Example:**
+- Season 1 (cap $720M): Pick #1 = $8.0M × (720/720) = **$8.0M**
+- Season 2 (cap $774M, +7.5% growth): Pick #1 = $8.0M × (774/720) = **$8.6M**
+- Season 3 (cap $832M, +7.5% growth): Pick #1 = $8.0M × (832/720) = **$9.2M**
+
+This ensures rookies stay competitive with veteran contracts as the league grows.
+
+**League Minimum:** $885K in season 1, also scales with cap growth.
+
+**Contract Length:** 
+- **Drafted rookies:** 4-year contracts (standard rookie deals)
+- **Undrafted rookies:** 1-year contracts (can be extended on re-signing)
+
+**Disclosure on UI:** "Draft pick salary is game-balanced and scales with league cap growth."
 
 ---
 
-**Brian's Choice:** Which approach for R5b implementation? (Can always switch to NFL formula later if gameplay testing favors it.)
+## 2.4 Game Calendar / Season Flow (DECIDED)
+
+**After Season 1+ ends, the calendar is:**
+
+1. **Playoffs** (simulated, bowl games complete)
+2. **Coaching Staff Market** (R3d: Hiring, firing, promotions happen here)
+3. **Contract Renewals** (R4a: Release expired contracts, renew existing players)
+4. **Free Agent Market** (R4b: FA signings, bidding, offers)
+5. **Draft** (R5: This chapter — all picks simulated)
+6. **Preseason** (R10: Small exhibition slate, builds Week 1 stats)
+7. **Regular Season** (18 weeks, 32 teams)
+8. **Playoffs** (repeat)
+
+**Trading Window:** 
+- Trading is **allowed only after Playoffs end** (step 1 completes)
+- Disabled during coaching hires/contract renewals/FA/draft/preseason/regular season
+
+**New Season Start:** After Playoffs complete, new season begins immediately (before step 2 coaching market)
+
+**Implication for R5:**
+- Draft happens AFTER contract expirations are cleared
+- Draft happens AFTER all coaching decisions are made (new coaches can immediately use draft picks)
+- Draft happens BEFORE preseason (no time to build preseason momentum with new rookies — they start Week 1 cold)
 
 ---
 
@@ -494,14 +527,26 @@ class DraftBoardSlot:
 - `contract_years_remaining = 4` (standard rookie contract, per GDD §8.1)
 - `salary = rookie_scale_aav(round, overall_pick_in_round)`
 
-**Rookie Scale AAV Formula (to be tuned):**
-```
-Round 1:  Pick 1-8 = $20M, Pick 9-16 = $15M, Pick 17-24 = $12M, Pick 25-32 = $10M
-Round 2:  Pick 1-8 = $8M,  Pick 9-16 = $6M,  Pick 17-24 = $5M,  Pick 25-32 = $4M
-Round 3+: Scaling down (to be determined, or unified minimum ~$1.5M)
-```
+**Rookie Scale AAV (FINALIZED - Real NFL 2026 Data):**
 
-These are **disclosed as game-balance numbers**, not real NFL figures.
+Based on real Over The Cap 2026 contracts. Annual salary is AAV (Average Annual Value), normalized to single amount per year (no separate signing bonus).
+
+| Draft Pick | Real NFL 2026 AAV | 4-Year Total | Guaranteed/Year |
+|---|---|---|---|
+| Pick #1 | $13.64M | $54.57M | $13.64M (100%) |
+| Pick #2 | $13.03M | $52.10M | $13.03M |
+| Pick #10 | $7.40M | $29.61M | $7.40M |
+| Pick #32 | $6.93M | $27.72M | $6.93M |
+| Pick #33 (R2) | $3.23M | $12.90M | $1.62M (50%) |
+| Pick #100 (R3) | $1.45M | $5.80M | $0.44M (30%) |
+| Day 3 (R4-7) | ~$1.1M–$1.2M | ~$4.4M–$4.8M | ~$0.36M (30%) |
+
+**Cap Correlation:**
+- Rookie AAV scales automatically each year: `AAV × (Current_Cap / $302M)`
+- With 7.5% annual cap growth, Pick #1 salary grows from $13.64M (season 1) to ~$14.66M (season 2), ~$15.75M (season 3), etc.
+- Maintains rookie competitiveness with veteran salaries as league grows
+
+**Guaranteed:** Real NFL scale shown above; varies by pick (100% for top-10, declining to 30% for late-round)
 
 ---
 
@@ -532,28 +577,38 @@ for pick in picks:
 
 **Pick Selection:** Each AI team picks the best-available prospect at their biggest roster need (greedy, deterministic, seeded).
 
-### 9.2 Undrafted Rookies → Free Agent Pool
+### 9.2 Undrafted Rookies → Free Agent Pool (DECIDED)
 
 **Lifecycle:**
 
-1. **At draft end:** All 235-265 prospects that were NOT drafted by any team are added to the free agent pool as `UndraftedRookie` entries
-   - Status: Available, years_remaining = 3
+1. **At draft end:** All 280-320 prospects that were NOT drafted by any team are added to the free agent pool as undrafted rookies
+   - Typical undrafted count: 75–90 per year (depends on team draft depth vs quality)
+   - Status: Available, `years_remaining = 3`
+   - Salary: League minimum ($885K) unless negotiated up
    - Can be signed by any team (same as regular free agents)
 
 2. **On signing:** Undrafted rookie becomes a real `Player` with:
-   - contract_years_remaining = 1-2 (typically 1 year for UDFAs, can be extended)
-   - salary = league minimum (or negotiated up per R4a if that system exists)
-   - acquired_via = "UNDRAFTED"
+   - `contract_years_remaining = 1-2` (typically 1 year for UDFAs, can be extended)
+   - `salary = $885K` (league minimum, negotiable upward per R4a)
+   - `acquired_via = "UNDRAFTED"`
 
-3. **Annual cleanup:** Every offseason (`apply_coach_offseason()` time), delete the lowest-rated 20% of the undrafted free agent pool:
-   - **Rationale:** Real UDFA pool grows unbounded without cleanup (new UDFAs every year, signed ones become rostered players, but unsign ones stay in FA pool indefinitely)
-   - **Mechanism:** 
-     1. Query all FA pool players with `acquired_via="UNDRAFTED"` and `years_remaining > 0`
-     2. Sort by OVR descending
-     3. Delete the bottom 20% (lowest OVR)
-   - **Example:** 50 undrafted rookies in FA pool → delete the 10 lowest-rated
+3. **Annual Cleanup (Age-Weighted Two-Tier):**
+   Every offseason (`apply_coach_offseason()` time), prune undrafted FA pool:
+   
+   - **Tier 1 (Auto-delete):** Remove all UDFAs with `years_remaining = 0` (hard expiration)
+   - **Tier 2 (Selective delete):**
+     - Delete **bottom 25%** of UDFAs with `years_remaining = 1` (about to expire anyway)
+     - Delete **bottom 10%** of UDFAs with `years_remaining = 2-3` (keep younger talent)
+   
+   **Rationale:** Keeps pool stable without losing good young prospects. Older/worse performers exit naturally. Discourages hoarding UDFAs (only viable to keep good ones).
+   
+   **Example (300 UDFAs in pool):**
+   - Year 3 cohort (100, years_remaining=0): Delete all 100
+   - Year 2 cohort (100, years_remaining=1): Delete bottom 25, keep 75
+   - Year 1 cohort (100, years_remaining=2-3): Delete bottom 10, keep 90
+   - **Pool result after cleanup:** 300 - 135 deleted + 250 new draft class = ~415 UDFAs (equilibrium)
 
-4. **Expiration:** Undrafted rookies have a hard 3-year window. If not signed after 3 offseasons, they're auto-deleted (or years_remaining decrements and hits 0).
+4. **Hard Expiration:** Undrafted rookies MUST be deleted at end of year 3 (auto-delete when `years_remaining` hits 0).
 
 ---
 
@@ -663,32 +718,48 @@ for pick in picks:
 
 ---
 
-## 14. Open Questions for Brian
+## 14. Implementation Notes
 
-**DECIDED (✓):**
-- Prospect names: Procedurally generated (no real college player CSV needed)
-- Dynamic draft class: 235-265 prospects per LEAGUE_SEED (not fixed 250)
-- Position quota bands: Yes (QB: 7-9, RB: 24-28, etc.)
-- QB class variance: Yes (some years elite, some weak)
-- Attribute generation: Position-specific formulas (not uniform random)
-- Undrafted rookies: Auto-add to FA pool, 3-year window, annual 20% cleanup
+**ALL DECISIONS FINALIZED (✓):**
 
-**STILL OPEN:**
+1. **Prospect names:** Procedurally generated
+2. **Dynamic draft class:** 235-265 prospects per LEAGUE_SEED (banded)
+3. **Position quota bands:** QB: 7-9, RB: 24-28, WR: 33-37, TE: 16-20, OL: 40-44, DL: 30-34, LB: 24-28, CB: 22-26, S: 14-18, K: 1-2, P: 1-2
+4. **QB class variance:** Yes (Elite/Strong/Average/Weak years per LEAGUE_SEED)
+5. **Attribute generation:** Position-specific formulas with ±variance, NOT uniform random
+6. **Undrafted rookies:** Auto-add to FA pool, 3-year `years_remaining` window, age-weighted two-tier annual cleanup (delete 100% at year 0, 25% at year 1, 10% at year 2-3)
+7. **Rookie Scale AAV:** Simplified game-scale table (see §2.3), tuned to $720M cap, disclosure on UI
+8. **League minimum salary:** $885K (all players, including undrafted rookies)
+9. **Scouting noise:** ±0-4 points per attribute (tight tolerance)
+10. **Draft board limit:** 50 slots per team
+11. **Game calendar:** Playoffs → Coaching market (R3d) → Contract renewals (R4a) → FA market (R4b) → Draft (R5) → Preseason (R10) → Regular season → Playoffs repeat
+12. **Trading window:** Only after Playoffs end, disabled during other phases
+13. **Scouting narratives/Comp players:** Defer to future (likely R9)
 
-1. **Rookie Scale AAV: NFL Formula vs. Simplified?**
-   - Option A: Real 2025 NFL formula (~$40M pick #1, ~$1M pick #33+) adjusted for $720M cap
-   - Option B: Simplified game-scale table (tuned for balance, every pick matters)
-   - See §2.3 for detailed pros/cons. Recommend Option B for R5b (can switch later).
+---
 
-2. **Scouting Noise Level:** Is ±8 points per attribute right? Too high/low?
+## 15. Ready for R5b/c Implementation
 
-3. **Draft Board Limit:** 50 slots — correct, or larger/smaller?
+**R5b (Core Engine)** — 2-3 hour session (Sonnet):
+- Generate draft class (deterministic, banded size + positions)
+- Simulate all picks (greedy AI: best-available at need)
+- Convert drafted prospects to Players (with rookie-scale AAV)
+- Convert undrafted prospects to UDFA pool entries
+- Implement annual cleanup logic
 
-4. **Live Draft Event Timing (R5.1):** Before/after playoffs? Separate "Draft Week" off-season?
+**R5c (UI)** — 2-3 hour session (Sonnet):
+- `/draft` page (6 boxes: Team Picks, Team Needs, Draft Results, Prospects, Draft Board, Roster)
+- Prospect filtering, sorting, "Add to Board"
+- Draft Board reordering
+- Prospect Card modal (Overview/Ratings tabs)
+- Integration with `/api/draft/*` routes
 
-5. **Comp Players / Scouting Narrative:** LLM-generated (future R9 feature), or disclosed stubs for now?
-
-6. **Undrafted Cleanup Tuning:** Delete bottom 20% per offseason — is this the right percentage? (Could be 15%, 25%, configurable per season strength?)
+**Tests:**
+- Determinism (same LEAGUE_SEED = same class)
+- Position quotas and class size bands
+- Draft order calculation
+- Pick simulation and Player creation
+- Undrafted cleanup logic
 
 ---
 

@@ -8366,6 +8366,8 @@ The complete financial framework for player and coach compensation.
 
 \- \*(Superseded real-world figures, kept for the record: 2025's initial cap was \\$279.2M at +11.2% annual growth.)\*
 
+\*\*2026-09-12 DECISION: Rookie Scale Reset\*\* -- R5 (Draft system) will use **real 2026 NFL salary scale** rather than game-balanced figures. This decision cascades through R4a (Contracts): the cap base remains rescaled ($720M, disclosed per above, to accommodate Madden's own different salary scale) but rookie AAV now reflects real NFL figures ($13.64M Pick #1 down to $1.1–1.2M Day 3, cap-correlated at 7.5% annual growth per this section's real growth rate). For full detail, see R5 specification and the real 2026 salary data at `data/nfl_2026_salary_structure.csv`.
+
 
 
 \*\*8.3.1. Player Market Value (Dual-Anchor Formula)\*\*
