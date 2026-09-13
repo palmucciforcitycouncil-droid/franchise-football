@@ -88,6 +88,26 @@ W_COACH = 0.15
 ACCEPT_THRESHOLD = 1.00  # Sec 8.4's own real starting threshold, held fixed (no tick-decay -- see module docstring)
 
 
+def fa_offer_reaction(score: float) -> str:
+    """Same purpose as contracts.offer_reaction() (live negotiation-UI
+    feedback, Brian's ask 2026-09-13) but scaled around THIS module's own
+    real ACCEPT_THRESHOLD (1.00, not contracts.py's 0.97) -- reusing
+    contracts.py's band offsets against a different threshold would
+    silently mislabel scores near the boundary (e.g. a 0.98 here is a
+    real REJECT, not "Interested"). No COUNTER concept exists in this
+    module (see module docstring), so these bands are purely descriptive
+    feedback -- ACCEPT/REJECT/OVER_CAP is still the only real verdict."""
+    if score >= 1.10:
+        return "Very Interested"
+    if score >= ACCEPT_THRESHOLD:
+        return "Interested"
+    if score >= 0.90:
+        return "Considering"
+    if score >= 0.80:
+        return "Lowball"
+    return "Not Interested"
+
+
 def evaluate_fa_offer(
     player: Player, team_abbr: str, offered_aav: float, offered_years: int,
     season_number: int, team_rating: float, current_group_rating: float | None,

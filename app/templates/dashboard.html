@@ -7,7 +7,7 @@
      Claude API call -- see app/engine/headlines.py's own module docstring
      for why (GDD Sec1.3's Determinism & Seeding Policy). Rendered once by
      season_state.simulate_current_week() and read here, not recomputed. -->
-<div class="card">
+<div class="card headlines-card">
   <h2>Headlines</h2>
   {% if weekly_headlines %}
   <ul class="headlines-list">
@@ -18,10 +18,6 @@
   {% else %}
   <p class="muted">No headlines yet &mdash; simulate a week to see this season's storylines here.</p>
   {% endif %}
-  <p class="muted">
-    {% if season.is_complete %}Season complete.{% else %}Week {{ season.current_week }} of {{ season.schedule | length }} up next.{% endif %}
-    See the full <a href="/season">Season</a> page to simulate more weeks, or <a href="/stats">Stats</a> for complete leaderboards.
-  </p>
 </div>
 
 <div class="dashboard-grid">
@@ -75,7 +71,10 @@
   <div class="card dashboard-span-2">
     <h3>Box Score</h3>
     {% if last_game %}
-    <div class="boxscore-summary">
+    {% set user_score = last_game.home_score if last_game.is_home else last_game.away_score %}
+    {% set opp_score = last_game.away_score if last_game.is_home else last_game.home_score %}
+    {% set user_result = 'win' if user_score > opp_score else ('loss' if user_score < opp_score else 'tie') %}
+    <div class="boxscore-summary {{ user_result }}">
       <div class="boxscore-team">
         <div class="team-badge">{{ last_game.home_abbr }}</div>
         <span class="boxscore-score {% if last_game.home_score > last_game.away_score %}winner{% endif %}">{{ last_game.home_score }}</span>
@@ -187,7 +186,7 @@
   <!-- Row 2, Column 1: Team Schedule (TeamSchedule.tsx's row-list styling) -->
   <div class="card">
     <h3>Team Schedule</h3>
-    <div class="dashboard-scroll dashboard-scroll-flex">
+    <div class="dashboard-scroll">
       {% for g in team_schedule %}
       <div class="schedule-row {% if g.week == season.current_week %}current-week{% endif %} {% if g.result %}{{ 'tie' if g.result.tied else ('win' if g.result.won else 'loss') }}{% endif %}">
         <div>
@@ -467,46 +466,6 @@
         </tbody>
       </table>
     </div>
-
-    <!-- A2 (docs/handoff_prestige_and_coach_impact.md): the FBGM-style
-         position-rank sheet -- Team/Conf/Div/Team Rating/Avg Age, then a
-         1-32 rank per position group (app/engine/roster_strength.py's
-         14 groups) plus a Coach rank. Sortable via the same GET-param +
-         full-page-reload convention as the Roster page. Wide by design
-         (19 columns across 32 teams) -- .table-wrap is the same
-         overflow-x:auto convention the Roster/Stats/Staff tables already
-         use for exactly this. -->
-    <h4 style="margin: 14px 0 6px;">Position Ranks</h4>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {% for cid, label in [('team','Team'), ('conf','Conf'), ('div','Div'), ('rating','Rating'), ('age','Age')] %}
-            <th><a href="{{ position_rank_sort_links[cid] }}" class="stats-sort-link {% if pr_sort == cid %}active-sort{% endif %}">{{ label }}{% if pr_sort == cid %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-            {% endfor %}
-            {% for grp in position_rank_groups %}
-            <th><a href="{{ position_rank_sort_links[grp] }}" class="stats-sort-link {% if pr_sort == grp %}active-sort{% endif %}">{{ grp }}{% if pr_sort == grp %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-            {% endfor %}
-            <th><a href="{{ position_rank_sort_links.coach }}" class="stats-sort-link {% if pr_sort == 'coach' %}active-sort{% endif %}">Coach{% if pr_sort == 'coach' %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in position_rank_rows %}
-          <tr class="{% if row.team.abbr == season.user_team_abbr %}starter{% endif %}">
-            <td>{{ team_link(row.team.abbr, row.team.location + ' (' + row.team.abbr + ')') }}</td>
-            <td>{{ row.team.conference }}</td>
-            <td>{{ row.team.division }}</td>
-            <td>{{ row.rating | round | int }}</td>
-            <td>{{ row.age | round(1) }}</td>
-            {% for grp in position_rank_groups %}
-            <td>{{ row.group_ranks[grp] }}</td>
-            {% endfor %}
-            <td>{{ row.coach_rank }}{% if row.coach_overall is none %} (vacant){% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
   </div>
 
   <!-- Row 3, Column 2: Top Performers (ROADMAP.md Sec2d-B item 11): real
@@ -578,7 +537,7 @@
       {% for key, candidates in [("mvp", awards_race.mvp), ("opoy", awards_race.opoy), ("dpoy", awards_race.dpoy), ("roy", awards_race.roy)] %}
       <div class="dash-panel" data-panel="{{ key }}" {% if key != "mvp" %}hidden{% endif %}>
         {% for c in candidates %}
-        <div class="dash-stat-row"><span>{{ loop.index }}. {{ player_link_or_name(c.name, c.team_abbr) }} ({{ c.team_abbr }})</span><span class="muted">{{ c.stat_line }}</span></div>
+        <div class="dash-stat-row awards-row"><span>{{ loop.index }}. {{ player_link_or_name(c.name, c.team_abbr) }} ({{ c.position }}, {{ c.team_abbr }})</span><span class="muted">{{ c.stat_line }}</span></div>
         {% else %}
         <p class="muted">No candidates yet.</p>
         {% endfor %}
@@ -586,7 +545,9 @@
       {% endfor %}
       <div class="dash-panel" data-panel="coty" hidden>
         {% for c in awards_race.coty %}
-        <div class="dash-stat-row"><span>{{ loop.index }}. {{ c.name }} ({{ c.team_abbr }})</span><span class="muted">{{ c.stat_line }}</span></div>
+        <div class="dash-stat-row awards-row"><span>{{ loop.index }}.
+          {% if coty_cards.get(c.coach_id) %}<span class="coach-name-link coach-link" data-coach-card='{{ coty_cards[c.coach_id] }}'>{{ c.name }}</span>{% else %}{{ c.name }}{% endif %}
+          ({{ c.team_abbr }})</span><span class="muted">{{ c.stat_line }}</span></div>
         {% else %}
         <p class="muted">No coaching staff imported into this database yet &mdash; see the <a href="/staff">Staff</a> page.</p>
         {% endfor %}
@@ -595,6 +556,49 @@
     {% else %}
     <p class="muted">Check back after Week 4 &mdash; too few games played so far to rank candidates meaningfully.</p>
     {% endif %}
+  </div>
+
+  <!-- A2 (docs/handoff_prestige_and_coach_impact.md): the FBGM-style
+       position-rank sheet -- Team/Conf/Div/Team Rating/Avg Age, then a
+       1-32 rank per position group (app/engine/roster_strength.py's
+       14 groups) plus a Coach rank. Sortable via the same GET-param +
+       full-page-reload convention as the Roster page. Its own card
+       (Brian's request), moved to the bottom of the grid and spanning
+       all 3 columns -- wide by design (19 columns across 32 teams),
+       so the full grid width gives it the most room before .table-wrap's
+       overflow-x:auto has to kick in. -->
+  <div class="card dashboard-span-3">
+    <h3>Position Ranks</h3>
+    <div class="table-wrap table-wrap-top-scroll" id="position-ranks-table">
+      <table>
+        <thead>
+          <tr>
+            {% for cid, label in [('team','Team'), ('conf','Conf'), ('div','Div'), ('rating','Rating'), ('age','Age')] %}
+            <th><a href="{{ position_rank_sort_links[cid] }}" data-preserve-scroll="position-ranks-table" class="stats-sort-link {% if pr_sort == cid %}active-sort{% endif %}">{{ label }}{% if pr_sort == cid %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+            {% endfor %}
+            {% for grp in position_rank_groups %}
+            <th><a href="{{ position_rank_sort_links[grp] }}" data-preserve-scroll="position-ranks-table" class="stats-sort-link {% if pr_sort == grp %}active-sort{% endif %}">{{ grp }}{% if pr_sort == grp %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+            {% endfor %}
+            <th><a href="{{ position_rank_sort_links.coach }}" data-preserve-scroll="position-ranks-table" class="stats-sort-link {% if pr_sort == 'coach' %}active-sort{% endif %}">Coach{% if pr_sort == 'coach' %}{% if pr_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in position_rank_rows %}
+          <tr class="{% if row.team.abbr == season.user_team_abbr %}starter{% endif %}">
+            <td>{{ team_link(row.team.abbr, row.team.location + ' (' + row.team.abbr + ')') }}</td>
+            <td>{{ row.team.conference }}</td>
+            <td>{{ row.team.division }}</td>
+            <td>{{ row.rating | round | int }}</td>
+            <td>{{ row.age | round(1) }}</td>
+            {% for grp in position_rank_groups %}
+            <td>{{ row.group_ranks[grp] }}</td>
+            {% endfor %}
+            <td>{{ row.coach_rank }}{% if row.coach_overall is none %} (vacant){% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}

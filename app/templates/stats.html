@@ -2,7 +2,7 @@
 {% block title %}League Stats — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>League Stats — LEAGUE_SEED={{ season.league_seed }}</h2>
+  <h2>League Stats</h2>
   <p class="muted">Customize and analyze real season statistics across teams and players. Simulate more weeks on the <a href="/season">Season</a> page to grow these.</p>
 </div>
 
@@ -206,12 +206,12 @@
     </div>
   </form>
 
-  <div class="stats-table-wrap">
+  <div class="stats-table-wrap" id="stats-table-wrap">
     <table class="boxtable stats-table">
       <thead>
         <tr>
           {% for col in columns %}
-          <th><a href="{{ sort_links[col.id] }}" class="stats-sort-link {% if sort == col.id %}active-sort{% endif %}">{{ col.label }}{% if sort == col.id %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+          <th><a href="{{ sort_links[col.id] }}" data-preserve-scroll="stats-table-wrap" class="stats-sort-link {% if sort == col.id %}active-sort{% endif %}">{{ col.label }}{% if sort == col.id %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
           {% endfor %}
         </tr>
       </thead>

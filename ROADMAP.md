@@ -379,6 +379,19 @@ Same session that wrote §4e's scope also built it, then kept going through the 
 
 ---
 
+## 4g. Live-testing session, 2026-09-13 — a large UX/bugfix pass, not a new R-chunk
+
+Full narrative in HANDOFF.md's own entry for this date. Summary of what changed and what's still open, for anyone scoping the next chunk:
+
+**Shipped, real and tested:** a shared slider-based Negotiation modal (GM Desk re-sign + Free Agency sign + Player Card Contract tab all route through it now), two new read-only preview endpoints (`/gm-desk/offer/preview`, `/free-agency/offer/preview`), a real Guaranteed-money slider that finally writes `Player.guaranteed_money` on ACCEPT (nothing did before this), a Football-Mogul-style Trade board with an Acquire hand-off from any Player Card, a header Menu (New/Save/Load Game) replacing the "Saves" nav tab, sortable Roster Stats view, and a real cross-cutting fix to the scroll-preserve mechanism that silently never worked for any `onchange="this.form.submit()"` picker in the app.
+
+**Deliberately not built, still fully open:**
+- **Practice Squad (16 extra slots) + IR system.** Scoping is locked in (see HANDOFF's own account) but zero code exists yet — this is a real, medium-sized chunk on its own: a `roster_status` field + real DB migration (follow `app/core/db.py::_migrate_schema()`'s existing idempotent-ALTER-TABLE pattern, same as `guaranteed_money` was added), real 53-man active-roster enforcement on FA signs/trades, a real IR-eligibility check against `injury_store`, a real 4-week Reactivate timer, and two new Roster-page boxes.
+- **Coach hiring-away-at-contract-expiration.** Retirement and firing are both real; a coach's contract simply running out currently does nothing. Needs real design work (AI-initiated poaching of an under-contract coach vs. a real coaching free-agency window) before it's buildable.
+- **New-save history seeding** ("2002" instead of a real year) — already spawned as its own task (`task_bac6f3b8`), may already be done by the time this is read; check before re-scoping.
+
+---
+
 ## 5. How to actually run this efficiently (the token-saving playbook)
 
 This session (the one that produced this file) is enormous — every remaining turn in it re-sends its entire history. That's the single biggest thing to avoid going forward.

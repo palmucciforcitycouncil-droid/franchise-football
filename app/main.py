@@ -187,6 +187,27 @@ def _roster_sort_value(p: Player, key: str, depth_slot: dict[str, str]):
     }.get(key, p.overall_rating)
 
 
+# The Roster page's Stats view (G/Pass/Rush/Rec/Def) -- separate key
+# space from ROSTER_SORT_KEYS since these come from stats_data (a
+# per-game-aggregate dict keyed by (name, pos), built by
+# _stats_page_aggregates()) rather than the Player row itself.
+ROSTER_STATS_SORT_KEYS = ("name", "pos", "g", "pass", "rush", "rec", "def")
+
+
+def _roster_stats_sort_value(p: Player, stat: dict | None, key: str):
+    if key in ("name", "pos"):
+        return p.full_name.lower() if key == "name" else p.position.value
+    if stat is None:
+        return -1  # players with no stat line for this team sort to the bottom (desc) / top (asc), never crash
+    return {
+        "g": stat.get("games_played") or 0,
+        "pass": stat.get("pass_yds") or 0,
+        "rush": stat.get("rush_yds") or 0,
+        "rec": stat.get("rec_yds") or 0,
+        "def": (stat.get("solo_tackles") or 0) + (stat.get("sacks") or 0),
+    }.get(key, 0)
+
+
 def _depth_chart_groups_for_team(team_abbr: str, players_on_team: list[Player]) -> list[dict]:
     """Same per-position resolved-order grouping `roster_view`/
     `depth_chart_view` already build for the DEP column and the embedded
@@ -420,13 +441,39 @@ def roster_view(
         active_filters.append("Rookie (age <= 23)")
     generated_query = " AND ".join(active_filters) if active_filters else None
 
+    # Compute stats data if needed -- moved above the sort block so the
+    # Stats view's own sort (below) can key off it.
+    stats_data = None
+    if view == "stats":
+        season = season_state.get_season()
+        player_rows, _ = _stats_page_aggregates(season)
+        # Filter to this team only
+        stats_data = {(r["player_name"], r["player_pos"]): r for r in player_rows if r["player_team"] == team_abbr}
+
     # Sortable columns (GET-param + full-page-reload, Stats' M3 precedent).
-    effective_sort = sort if sort in ROSTER_SORT_KEYS else None
+    # The Stats view (G/Pass/Rush/Rec/Def) sorts on a different field
+    # space than Attributes (OVR/SPD/...), stored in stats_data rather
+    # than on the Player row itself -- ROSTER_STATS_SORT_KEYS/
+    # _roster_stats_sort_value() below are a separate mapping for
+    # exactly that, sharing the same sort/dir GET params (unambiguous
+    # since a page only ever shows one view at a time).
     direction = dir if dir in ("asc", "desc") else "asc"
-    if effective_sort:
-        rows = sorted(filtered_players, key=lambda p: _roster_sort_value(p, effective_sort, depth_slot), reverse=(direction == "desc"))
+    if view == "stats":
+        effective_sort = sort if sort in ROSTER_STATS_SORT_KEYS else None
+        if effective_sort:
+            rows = sorted(
+                filtered_players,
+                key=lambda p: _roster_stats_sort_value(p, stats_data.get((p.full_name, p.position.value)), effective_sort),
+                reverse=(direction == "desc"),
+            )
+        else:
+            rows = filtered_players
     else:
-        rows = filtered_players
+        effective_sort = sort if sort in ROSTER_SORT_KEYS else None
+        if effective_sort:
+            rows = sorted(filtered_players, key=lambda p: _roster_sort_value(p, effective_sort, depth_slot), reverse=(direction == "desc"))
+        else:
+            rows = filtered_players
 
     def roster_query(overrides: dict) -> str:
         base: dict = {
@@ -445,7 +492,8 @@ def roster_view(
         return "/roster?" + urlencode(params)
 
     sort_links = {}
-    for cid in ROSTER_SORT_KEYS:
+    sort_key_space = ROSTER_STATS_SORT_KEYS if view == "stats" else ROSTER_SORT_KEYS
+    for cid in sort_key_space:
         next_dir = "desc" if (effective_sort == cid and direction == "asc") else "asc"
         sort_links[cid] = roster_query({"sort": cid, "dir": next_dir})
 
@@ -458,14 +506,6 @@ def roster_view(
         "position": [], "min_ovr": None, "max_ovr": None, "min_spd": None, "max_spd": None,
         "min_cth": None, "max_cth": None, "min_tck": None, "max_tck": None, "rookie": None,
     })
-
-    # Compute stats data if needed
-    stats_data = None
-    if view == "stats":
-        season = season_state.get_season()
-        player_rows, _ = _stats_page_aggregates(season)
-        # Filter to this team only
-        stats_data = {(r["player_name"], r["player_pos"]): r for r in player_rows if r["player_team"] == team_abbr}
 
     # Top Free Agents (TopFreeAgentsBox.tsx). fa_status:
     #   ALL/OFF/DEF -- real free agents (no OVR floor or top-N cap anymore,
@@ -795,7 +835,14 @@ def _notable_players_for(team_abbr: str, min_ovr: int = 85) -> list[dict]:
 
 
 def _money(amount: int) -> str:
-    return "${:,}".format(amount)
+    """Display-only rounding to the nearest $1,000. Several real numbers
+    this engine computes (salary cap growth, expected_market_value(),
+    veteran_minimum(), counter-offer AAVs) are formulas, not imported
+    data, so they land on an arbitrary exact dollar (e.g. $4,321,232)
+    that reads as fake precision -- real sports-sim UIs (and this
+    project's own imported salary data) always show round thousands.
+    Rounds for display only; the underlying stored value is untouched."""
+    return "${:,}".format(round(amount / 1000) * 1000)
 
 
 def _coach_card_json(coach: Coach) -> str:
@@ -858,7 +905,7 @@ def _coach_card_json(coach: Coach) -> str:
         "job_security": f"{coach.job_security_score:.0f}",
         "appointment_type": coach.appointment_type,
         "background": coach.background,
-        "salary": _money(coach.salary_aav),
+        "salary": coach.salary_aav,
         "contract_years": coach.contract_years,
         "career_record": f"{coach.career_wins}-{coach.career_losses}",
         "seasons_coached": coach.seasons_coached,
@@ -1212,6 +1259,18 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     # STANDINGS_BASED_FEATURES_MIN_WEEK's own docstring), same gate the
     # Stats page's own Awards Race section now uses too.
     awards_race = awards.season_awards(season) if season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK else None
+    # Brian's request, 2026-09-13: COTY candidates in the Awards Race box
+    # should open the real Coach Card, same as every other coach name in
+    # this app (Staff page's own .coach-link convention) -- CoachAwardCandidate
+    # only carries coach_id/name/team_abbr/record/stat_line, not a real
+    # Coach row, so this builds the same _coach_card_json() blob Staff
+    # already uses, keyed by coach_id for the template to look up.
+    coty_cards = {}
+    if awards_race:
+        for cand in awards_race.coty:
+            coach = coach_store.by_id(cand.coach_id)
+            if coach:
+                coty_cards[cand.coach_id] = _coach_card_json(coach)
 
     # R9 (GDD Sec 12, ROADMAP.md Sec4e): real Weekly Headlines, rendered
     # deterministically once per week by season_state.simulate_current_
@@ -1246,6 +1305,7 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
             "top_performers_categories": TOP_PERFORMERS_CATEGORIES,
             "top_performers_by_stat": top_performers_by_stat,
             "awards_race": awards_race,
+            "coty_cards": coty_cards,
             "weekly_headlines": weekly_headlines,
             "position_rank_rows": position_rank_rows,
             "position_rank_groups": QUOTA_GROUPS,
@@ -1998,17 +2058,28 @@ def _header_context() -> dict:
     single route's own context dict for data that's always the same
     shape. Returns user_team=None before a team's been chosen (team-
     select, or a route hit before any franchise setup) -- base.html
-    falls back to the plain title in that case."""
+    falls back to the plain title in that case.
+
+    Also carries the Menu dialog's own data (Brian's request,
+    2026-09-13: New/Save/Load Game folded into one header-level menu,
+    replacing the persistent "Saves" nav tab) -- the menu is reachable
+    from every page, so this is the one place already called on every
+    page render to hang it off of, rather than threading save-list data
+    through every route's own context dict too."""
+    saves_list = save_manager.list_saves()
+    active_save_id = save_manager.get_active_save_id()
     season = season_state.get_season()
     if season.user_team_abbr is None:
-        return {"user_team": None}
+        return {"user_team": None, "saves_list": saves_list, "active_save_id": active_save_id, "default_save_name": None}
     team = TEAMS_BY_ABBR[season.user_team_abbr]
     record = season.records[season.user_team_abbr]
     rank = next((i for i, r in enumerate(season.standings(), start=1) if r.abbr == team.abbr), None)
+    default_save_name = f"{team.abbr} · {season_year(season.season_number)} · Week {season.current_week}"
     return {
         "user_team": team,
         "user_record": record,
         "user_rank_ordinal": _ordinal(rank) if rank is not None else None,
+        "saves_list": saves_list, "active_save_id": active_save_id, "default_save_name": default_save_name,
     }
 
 
@@ -2181,7 +2252,7 @@ def _player_card_json(p: Player) -> str:
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
         "team": p.team_abbr or "FA", "morale": p.morale, "stamina": p.stamina,
         "attrs": attrs, "career": _season_by_season_stats_for(p),
-        "salary": p.salary, "signing_bonus": p.signing_bonus,
+        "salary": p.salary, "guaranteed_money": p.guaranteed_money,
         "contract_years_remaining": p.contract_years_remaining,
         "injury": _injury_summary_for(p),
         # R4a (GDD Sec 8.3.1): the real Contract Sought value, replacing
@@ -2894,15 +2965,32 @@ def staff_hire_coach(request: Request, team_abbr: str, role: str = Form(...), co
     return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
 
 
+CAP_HITS_SORT_KEYS = ("name", "pos", "ctr", "yrs")
+
+
+def _cap_hits_sort_value(p: Player, key: str):
+    """Deliberately separate from _roster_sort_value(): that function's
+    own "yrs" key means years_pro (the Roster page's "Yrs" column), but
+    this table's "Yrs Left" column is contract_years_remaining -- reusing
+    "yrs" from the shared helper would silently sort the wrong field."""
+    return {
+        "name": p.full_name.lower(), "pos": p.position.value,
+        "ctr": p.salary, "yrs": p.contract_years_remaining,
+    }.get(key, p.salary)
+
+
 @app.get("/gm-desk", response_class=HTMLResponse)
 def gm_desk_view(request: Request, offer_result: str | None = None, offer_player: str | None = None,
                   counter_aav: str | None = None, counter_years: str | None = None,
-                  team_b: str | None = None, trade_result: str | None = None):
+                  team_b: str | None = None, trade_result: str | None = None,
+                  cap_sort: str | None = None, cap_dir: str = "desc", acquire: str | None = None):
     """GDD Sec 10.4.4 / R4a (GDD Sec 8.3) / R4c (GDD Sec 8.5): real Cap
     Summary, Re-sign flow, and a real Propose Trade panel (player(s)-
-    for-player(s) only -- no draft picks, see app/engine/trades.py's
-    module docstring for why). Draft-eligible prospects still need the
-    Draft (R5), disclosed via the summary text at the bottom of the page."""
+    for-player(s) only -- draft picks aren't a tradeable asset in this
+    engine, see app/engine/trades.py's module docstring for why).
+    Top Cap Hits is sortable via the same GET-param convention as the
+    Roster/Stats/Dashboard tables (see _cap_hits_sort_value() for why it
+    doesn't just reuse _roster_sort_value())."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         return RedirectResponse(url="/team-select", status_code=303)
@@ -2913,7 +3001,29 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
 
     cap = round(contracts.salary_cap_for_season(season.season_number))
     cap_space = round(contracts.team_cap_space(roster, season.season_number))
+
+    effective_cap_sort = cap_sort if cap_sort in CAP_HITS_SORT_KEYS else "ctr"
+    cap_direction = cap_dir if cap_dir in ("asc", "desc") else "desc"
+    # The top-10-by-salary SELECTION is always fixed -- sorting only
+    # reorders those same 10 for display, it never swaps in a different
+    # set of players (e.g. clicking "Yrs Left" ascending shouldn't turn
+    # this into "10 lowest cap hits sorted by years left").
     top_cap_hits = sorted(roster, key=lambda p: -p.salary)[:10]
+    top_cap_hits = sorted(
+        top_cap_hits, key=lambda p: _cap_hits_sort_value(p, effective_cap_sort),
+        reverse=(cap_direction == "desc"),
+    )
+
+    def cap_query(overrides: dict) -> str:
+        base = {"team_b": team_b, "cap_sort": cap_sort, "cap_dir": cap_dir}
+        base.update(overrides)
+        return "/gm-desk?" + urlencode([(k, v) for k, v in base.items() if v not in (None, "")])
+
+    cap_hits_sort_links = {}
+    for cid in CAP_HITS_SORT_KEYS:
+        next_dir = "asc" if (effective_cap_sort == cid and cap_direction == "desc") else "desc"
+        cap_hits_sort_links[cid] = cap_query({"cap_sort": cid, "cap_dir": next_dir})
+
     expiring = sorted(
         (p for p in roster if p.contract_years_remaining <= 1),
         key=lambda p: (p.contract_years_remaining, -p.overall_rating),
@@ -2928,7 +3038,9 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         }
 
     trade_partner_roster = None
+    team_b_info = None
     if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
+        team_b_info = TEAMS_BY_ABBR[team_b]
         with get_session() as s:
             trade_partner_roster = sorted(
                 s.exec(select(Player).where(Player.team_abbr == team_b)).all(),
@@ -2940,6 +3052,8 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         "season": season, "user_info": TEAMS_BY_ABBR[user_abbr],
         "cap": cap, "cap_space": cap_space, "cap_used": cap - cap_space,
         "top_cap_hits": top_cap_hits, "expiring": expiring,
+        "cap_hits_sort_links": cap_hits_sort_links, "cap_sort": effective_cap_sort, "cap_dir": cap_direction,
+        "team_b_info": team_b_info, "preselect_player_id": acquire,
         "offer_feedback": offer_feedback,
         "roster": sorted(roster, key=lambda p: -p.overall_rating),
         "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
@@ -2949,19 +3063,64 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
     })
 
 
-@app.post("/gm-desk/offer")
-def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(...), years: int = Form(...)):
-    """R4a's real negotiation flow (GDD Sec 8.3.3): a single deterministic
-    ACCEPT/REJECT/COUNTER verdict per submitted offer -- see
-    app/engine/contracts.py's module docstring for why this skips Sec
-    8.3.3's stateful Mood Meter. An ACCEPT really updates the player's
-    real salary/contract_years_remaining in the DB; REJECT/COUNTER
-    change nothing."""
+@app.get("/gm-desk/offer/preview")
+def gm_desk_offer_preview(player_id: str, aav: int, years: int):
+    """Read-only twin of gm_desk_offer() below, for the slider-based
+    Negotiation modal's live "Player Reaction" feedback (Brian's ask,
+    2026-09-13) -- calls the exact same contracts.evaluate_offer() so the
+    live preview and the real submit always agree, but never touches the
+    DB. Called on every slider move (client-side debounced), so it's
+    deliberately cheap: no session commit, no cache invalidation."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
     if years < 1 or years > 7 or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
+
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player is None or player.team_abbr != season.user_team_abbr:
+            raise HTTPException(404, "Player not found on your roster")
+        team_rating = roster_strength.compute_roster_strength(season.user_team_abbr).team_rating
+        result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating)
+
+    return {
+        "verdict": result.verdict.value, "reaction": contracts.offer_reaction(result.offer_score),
+        "counter_aav": result.counter_aav, "counter_years": result.counter_years,
+    }
+
+
+@app.post("/gm-desk/offer")
+def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(...), years: int = Form(...),
+                   guaranteed: int = Form(0)):
+    """R4a's real negotiation flow (GDD Sec 8.3.3): a single deterministic
+    ACCEPT/REJECT/COUNTER verdict per submitted offer -- see
+    app/engine/contracts.py's module docstring for why this skips Sec
+    8.3.3's stateful Mood Meter. An ACCEPT really updates the player's
+    real salary/contract_years_remaining/guaranteed_money in the DB;
+    REJECT/COUNTER change nothing. `guaranteed` (the Negotiation modal's
+    own Guaranteed slider, 2026-09-13) is a real, user-chosen contract
+    term that gets persisted on ACCEPT, but does NOT feed into the
+    ACCEPT/REJECT/COUNTER verdict itself -- Sec 8.3.3's Offer Score
+    formula (contracts.evaluate_offer()) has no guarantee term to begin
+    with, so omitting it from the score isn't a deviation from a real
+    GDD term, just not inventing one that was never specified.
+
+    Returns JSON, not a redirect (changed 2026-09-13, Brian's report):
+    the Negotiation modal now submits this via fetch() and renders the
+    real verdict IN PLACE (a "We have a deal"/"Rejected" message, or the
+    sliders jumping to the real counter terms on COUNTER) instead of a
+    full-page reload that closed the modal with no visible feedback at
+    all. GM Desk's own Expiring Contracts table is this route's only
+    other caller, and it already goes through the same modal (its
+    "Negotiate" button), so nothing still expects the old redirect."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    if years < 1 or years > 7 or aav < 0:
+        raise HTTPException(422, "Invalid offer terms")
+    if guaranteed < 0 or guaranteed > aav * years:
+        raise HTTPException(422, "Guaranteed amount can't exceed the total contract value")
 
     with get_session() as s:
         player = s.get(Player, player_id)
@@ -2974,30 +3133,65 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
         if result.verdict == contracts.OfferVerdict.ACCEPT:
             player.salary = aav
             player.contract_years_remaining = years
+            player.guaranteed_money = guaranteed
             s.add(player)
             s.commit()
 
-        params = {"offer_result": result.verdict.value, "offer_player": player.full_name}
-        if result.verdict == contracts.OfferVerdict.COUNTER:
-            params["counter_aav"] = result.counter_aav
-            params["counter_years"] = result.counter_years
-
-    return RedirectResponse(url="/gm-desk?" + urlencode(params), status_code=303)
+        return {
+            "verdict": result.verdict.value, "player_name": player.full_name,
+            "counter_aav": result.counter_aav, "counter_years": result.counter_years,
+        }
 
 
-@app.post("/free-agency/offer")
-def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = Form(...), years: int = Form(...)):
-    """R4b's real signing flow (GDD Sec 8.4). No multi-team AI bidding
-    (see app/engine/free_agency.py's own module docstring) -- a single
-    deterministic ACCEPT/REJECT/OVER_CAP verdict against the user's own
-    submitted offer. An ACCEPT really rosters the player (team_abbr set,
-    real salary/years/signing_bonus written) and clears depth_chart's
-    starter cache so the new signing is immediately selectable."""
+@app.get("/free-agency/offer/preview")
+def free_agency_offer_preview(player_id: str, aav: int, years: int):
+    """Read-only twin of free_agency_offer() below, same purpose/shape as
+    gm_desk_offer_preview() above -- see that route's docstring."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
     if years < 1 or years > 7 or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
+    user_abbr = season.user_team_abbr
+
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player is None or player.team_abbr is not None:
+            raise HTTPException(404, "Player is not a free agent")
+        team_players = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
+        group = POSITION_TO_GROUP[player.position]
+        current_group_rating = roster_strength.compute_group_ratings(user_abbr, team_players).get(group)
+        team_rating = roster_strength.compute_roster_strength(user_abbr).team_rating
+
+        result = free_agency.evaluate_fa_offer(
+            player, user_abbr, float(aav), years, season.season_number,
+            team_rating, current_group_rating, team_players,
+        )
+
+    return {"verdict": result.verdict.value, "reaction": free_agency.fa_offer_reaction(result.score)}
+
+
+@app.post("/free-agency/offer")
+def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = Form(...), years: int = Form(...),
+                       guaranteed: int = Form(0)):
+    """R4b's real signing flow (GDD Sec 8.4). No multi-team AI bidding
+    (see app/engine/free_agency.py's own module docstring) -- a single
+    deterministic ACCEPT/REJECT/OVER_CAP verdict against the user's own
+    submitted offer. An ACCEPT really rosters the player (team_abbr set,
+    real salary/years/guaranteed_money written) and clears depth_chart's
+    starter cache so the new signing is immediately selectable.
+    `guaranteed` (the Negotiation modal's own slider) is persisted on
+    ACCEPT but doesn't affect the verdict -- see gm_desk_offer()'s own
+    docstring for why (Sec 8.4's Offer Score formula has no guarantee
+    term either). Returns JSON, not a redirect -- see gm_desk_offer()'s
+    own docstring for why (the modal renders the verdict in place)."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    if years < 1 or years > 7 or aav < 0:
+        raise HTTPException(422, "Invalid offer terms")
+    if guaranteed < 0 or guaranteed > aav * years:
+        raise HTTPException(422, "Guaranteed amount can't exceed the total contract value")
     user_abbr = season.user_team_abbr
 
     with get_session() as s:
@@ -3019,6 +3213,7 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             player.team_abbr = user_abbr
             player.salary = aav
             player.contract_years_remaining = years
+            player.guaranteed_money = guaranteed
             s.add(player)
             s.commit()
             depth_chart.clear_starters_cache()
@@ -3026,9 +3221,7 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             # player now, not part of the expiring UDFA pool anymore.
             undrafted_pool.remove(player_id)
 
-        params = {"fa_offer_result": result.verdict.value, "fa_offer_player": player.full_name}
-
-    return RedirectResponse(url="/roster?team_abbr=FA&" + urlencode(params), status_code=303)
+        return {"verdict": result.verdict.value, "player_name": player.full_name}
 
 
 @app.post("/gm-desk/trade")

@@ -14,30 +14,20 @@
 </div>
 {% endif %}
 <div class="card">
-  <h2>Roster</h2>
-  <p class="muted">Pick a team to browse its full roster. Starters (top row at each position) are highlighted in gold. The {% if view == 'attributes' %}<strong>Attributes</strong>{% else %}<strong>Stats</strong>{% endif %} view is selected.</p>
-  <form method="get" action="/roster">
-    <div class="row">
-      <div>
-        <label for="team_abbr">Team</label>
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; {% if team %}margin-bottom: 1rem;{% endif %}">
+    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      <h3 style="margin: 0;">{% if team %}{{ team.location }} ({{ team.abbr }}){% if generated_query %} &mdash; matching filters{% endif %}{% else %}Roster{% endif %}</h3>
+      <form method="get" action="/roster" style="display: flex; align-items: center; gap: 0.5rem;">
         <select name="team_abbr" id="team_abbr">
           <option value="FA" {% if team and team.abbr == "FA" %}selected{% endif %}>Free Agents</option>
           {% for t in teams %}
           <option value="{{ t.abbr }}" {% if team and t.abbr == team.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
           {% endfor %}
         </select>
-      </div>
-      <div>
         <button type="submit">View Roster</button>
-      </div>
+      </form>
     </div>
-  </form>
-</div>
-
-{% if team %}
-<div class="card">
-  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-    <h3>{{ team.location }} ({{ team.abbr }}) &mdash; {{ players | length }} players{% if generated_query %} matching filters{% endif %}</h3>
+    {% if team %}
     <div style="display: flex; gap: 0.5rem;">
       <!-- View Toggle -->
       <div style="display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.25rem;">
@@ -46,7 +36,15 @@
       </div>
       <button onclick="alert('Export to Sheets — coming soon')" type="button">⬇ Export</button>
     </div>
+    {% endif %}
   </div>
+  {% if not team %}
+  <p class="muted" style="margin-top: 0.75rem;">Pick a team to browse its full roster. Starters (top row at each position) are highlighted in gold.</p>
+  {% endif %}
+</div>
+
+{% if team %}
+<div class="card">
 
   {% if position_quotas and team.abbr != 'FA' %}
   <div style="margin-bottom: 1rem;">
@@ -72,53 +70,57 @@
         <input type="hidden" name="view" value="{{ view }}">
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">{% endif %}
 
-        <label>Positions</label>
-        <div class="filter-checkbox-grid">
-          {% for pos in filter_groups %}
-          <label class="filter-checkbox"><input type="checkbox" name="position" value="{{ pos }}" {% if pos in position_filter %}checked{% endif %}> {{ pos }}</label>
-          {% endfor %}
-        </div>
-
-        <div class="filter-range-grid">
-          <div>
-            <label>Overall (OVR)</label>
-            <div class="range-inputs">
-              <input type="number" name="min_ovr" placeholder="Min" min="0" max="99" value="{{ min_ovr if min_ovr is not none else '' }}">
-              <span class="muted">&ndash;</span>
-              <input type="number" name="max_ovr" placeholder="Max" min="0" max="99" value="{{ max_ovr if max_ovr is not none else '' }}">
-            </div>
-          </div>
-          <div>
-            <label>Speed (SPD)</label>
-            <div class="range-inputs">
-              <input type="number" name="min_spd" placeholder="Min" min="0" max="99" value="{{ min_spd if min_spd is not none else '' }}">
-              <span class="muted">&ndash;</span>
-              <input type="number" name="max_spd" placeholder="Max" min="0" max="99" value="{{ max_spd if max_spd is not none else '' }}">
-            </div>
-          </div>
-          <div>
-            <label>Catching (CTH)</label>
-            <div class="range-inputs">
-              <input type="number" name="min_cth" placeholder="Min" min="0" max="99" value="{{ min_cth if min_cth is not none else '' }}">
-              <span class="muted">&ndash;</span>
-              <input type="number" name="max_cth" placeholder="Max" min="0" max="99" value="{{ max_cth if max_cth is not none else '' }}">
-            </div>
-          </div>
-          <div>
-            <label>Tackling (TCK)</label>
-            <div class="range-inputs">
-              <input type="number" name="min_tck" placeholder="Min" min="0" max="99" value="{{ min_tck if min_tck is not none else '' }}">
-              <span class="muted">&ndash;</span>
-              <input type="number" name="max_tck" placeholder="Max" min="0" max="99" value="{{ max_tck if max_tck is not none else '' }}">
-            </div>
+        <div class="filter-section">
+          <label>Positions</label>
+          <div class="filter-checkbox-grid">
+            {% for pos in filter_groups %}
+            <label class="filter-checkbox"><input type="checkbox" name="position" value="{{ pos }}" {% if pos in position_filter %}checked{% endif %}> {{ pos }}</label>
+            {% endfor %}
           </div>
         </div>
 
-        <label>Status</label>
-        <div class="filter-checkbox-grid" style="margin-bottom: 1rem;">
+        <div class="filter-section">
+          <label>Attribute Ranges</label>
+          <div class="filter-range-grid">
+            <div>
+              <span class="filter-range-label">OVR</span>
+              <div class="range-inputs">
+                <input type="number" name="min_ovr" placeholder="Min" min="0" max="99" value="{{ min_ovr if min_ovr is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="max_ovr" placeholder="Max" min="0" max="99" value="{{ max_ovr if max_ovr is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <span class="filter-range-label">SPD</span>
+              <div class="range-inputs">
+                <input type="number" name="min_spd" placeholder="Min" min="0" max="99" value="{{ min_spd if min_spd is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="max_spd" placeholder="Max" min="0" max="99" value="{{ max_spd if max_spd is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <span class="filter-range-label">CTH</span>
+              <div class="range-inputs">
+                <input type="number" name="min_cth" placeholder="Min" min="0" max="99" value="{{ min_cth if min_cth is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="max_cth" placeholder="Max" min="0" max="99" value="{{ max_cth if max_cth is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <span class="filter-range-label">TCK</span>
+              <div class="range-inputs">
+                <input type="number" name="min_tck" placeholder="Min" min="0" max="99" value="{{ min_tck if min_tck is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="max_tck" placeholder="Max" min="0" max="99" value="{{ max_tck if max_tck is not none else '' }}">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="filter-section">
           <label class="filter-checkbox"><input type="checkbox" name="rookie" value="1" {% if rookie %}checked{% endif %}> Rookie (age &le; 23)</label>
+          <p class="muted" style="font-size: 0.78rem; margin: 0.4rem 0 0;">Injured-only and On-trade-block filters aren't offered &mdash; no in-season health status or trade system exists in this engine yet.</p>
         </div>
-        <p class="muted" style="font-size: 0.78rem; margin-top: -0.5rem; margin-bottom: 1rem;">Injured-only and On-trade-block filters aren't offered &mdash; no in-season health status or trade system exists in this engine yet.</p>
 
         {% if generated_query %}
         <label>Generated Query</label>
@@ -134,14 +136,13 @@
   </details>
 
   {% if view == 'attributes' %}
-  <div class="roster-table-wrap">
+  <div class="roster-table-wrap" id="roster-table-wrap">
   <table>
     <thead>
       <tr>
-        <th>#</th>
-        <th><a href="{{ sort_links.name }}" class="stats-sort-link {% if sort == 'name' %}active-sort{% endif %}">Player{% if sort == 'name' %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ sort_links.name }}" data-preserve-scroll="roster-table-wrap" class="stats-sort-link {% if sort == 'name' %}active-sort{% endif %}">Player{% if sort == 'name' %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
         {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
-        <th><a href="{{ sort_links[cid] }}" class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ sort_links[cid] }}" data-preserve-scroll="roster-table-wrap" class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
         {% endfor %}
       </tr>
     </thead>
@@ -149,7 +150,6 @@
       {% for p in players %}
       {% set ovr = p.overall_rating %}
       <tr class="{% if p.player_id in starters %}starter{% endif %}" data-card='{{ p | player_card_json }}'>
-        <td>{{ p.jersey_number }}</td>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.position.value }}</td>
         <td>{{ p.age }}</td>
@@ -166,7 +166,7 @@
         <td>{{ p.stamina }}</td>
         <td>{{ injury_risk(p) }}</td>
         <td>{{ p.morale }}</td>
-        <td>{% if p.salary %}${{ '{:,}'.format(p.salary) }}{% else %}&mdash;{% endif %}</td>
+        <td>{% if p.salary %}{{ p.salary | money }}{% else %}&mdash;{% endif %}</td>
         <td>{{ p.years_pro }}</td>
         <td>{{ depth_slot.get(p.player_id, '—') }}</td>
       </tr>
@@ -176,10 +176,14 @@
   </div>
   {% else %}
   <!-- Stats view -->
-  <div class="roster-table-wrap">
+  <div class="roster-table-wrap" id="roster-stats-table-wrap">
   <table>
     <thead>
-      <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>Pass</th><th>Rush</th><th>Rec</th><th>Def</th></tr>
+      <tr>
+        {% for cid, label in [('name','Name'), ('pos','Pos'), ('g','G'), ('pass','Pass Yds'), ('rush','Rush Yds'), ('rec','Rec Yds'), ('def','Tkl/Sk')] %}
+        <th><a href="{{ sort_links[cid] }}" data-preserve-scroll="roster-stats-table-wrap" class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        {% endfor %}
+      </tr>
     </thead>
     <tbody>
       {% if stats_data %}
@@ -187,7 +191,6 @@
       {% set stat = stats_data.get((p.full_name, p.position.value)) %}
       {% if stat %}
       <tr class="{% if p.player_id in starters %}starter{% endif %}" data-card='{{ p | player_card_json }}'>
-        <td>{{ p.jersey_number }}</td>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.position.value }}</td>
         <td>{{ stat.games_played or '-' }}</td>

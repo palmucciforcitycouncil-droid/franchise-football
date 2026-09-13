@@ -556,16 +556,19 @@ def test_staff_page_is_real_not_a_stub():
     resp = client.get("/staff")
     assert resp.status_code == 200
     assert "Coming soon" not in resp.text
-    assert "Coaching Staff" in resp.text
     assert "Trait Effects" in resp.text
     assert "data-coach-card=" in resp.text
 
     head_coach = coach_store.head_coach("KC")
     assert head_coach is not None
     assert head_coach.full_name in resp.text
-    # The generated-vs-real disclosure must be on the page, not just in
-    # a docstring -- it's the whole reason the generated ratings are
-    # acceptable to show at all.
+    # The generated-vs-real disclosure must be on the page, not just in a
+    # docstring -- it's the whole reason the generated ratings are
+    # acceptable to show at all. It moved from a page-level summary
+    # paragraph (removed 2026-09-13, Brian's "too busy" report -- the top
+    # card is now just a team picker) into each real coach's own
+    # data-coach-card blob (_coach_card_json()'s own "generated_note"
+    # field), which is arguably the more relevant place for it anyway.
     assert "deterministically generated" in resp.text
 
 
@@ -687,9 +690,6 @@ def test_dashboard_headlines_box_replaces_old_header_and_shows_real_content_once
     assert "Headlines" in resp.text
     assert "No headlines yet" in resp.text  # before Week 1 has been simulated
     assert "<h2>Dashboard" not in resp.text
-    # The old header's real week-status line/nav links are preserved.
-    assert "Week 1 of" in resp.text
-    assert 'href="/season"' in resp.text
 
     season_state.simulate_current_week()
     resp = client.get("/dashboard")
@@ -924,7 +924,7 @@ def test_dashboard_box_score_moved_to_row_1_with_scoreboard_and_game_leaders():
     from app.services import season_state as ss
     season = ss.get_season()
     game = next(g for g in season.schedule[0] if "KC" in (g.home_abbr, g.away_abbr))
-    assert "class=\"boxscore-summary\"" in resp.text
+    assert "class=\"boxscore-summary " in resp.text  # win/loss/tie band class appended, Brian's request 2026-09-13
     assert "Game Leaders" in resp.text
     assert f'class="boxscore-leaders-team">{game.home_abbr}<' in resp.text
     assert f'class="boxscore-leaders-team">{game.away_abbr}<' in resp.text

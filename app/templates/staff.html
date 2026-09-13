@@ -23,7 +23,7 @@
   <div class="coach-meta">
     <span>{{ entry.coach.age }} years old</span>
     <span>{{ entry.coach.experience_years }} yrs exp</span>
-    <span>${{ "{:,}".format(entry.coach.salary_aav) }}/yr</span>
+    <span>{{ entry.coach.salary_aav | money }}/yr</span>
     <span>{{ entry.coach.contract_years }} yr(s) left</span>
   </div>
   <div class="pc-row"><span class="pc-row-label">Overall</span><span class="coach-ovr">{{ entry.coach.overall }}</span></div>
@@ -100,28 +100,17 @@
 
 {% block content %}
 <div class="card">
-  <h2>Coaching Staff</h2>
-  <p class="muted">
-    {{ team.location }} ({{ team.abbr }}) &mdash; {{ staff_size }} coaches, {{ payroll }} total staff payroll.
-    Names, titles and salaries are real (2026 staff directory, GDD &sect;3.6.1); every rating and
-    tendency is deterministically generated from this league's seed &mdash; open any coach's card for the
-    full breakdown and disclosure. Owner Win Pressure: <strong>{{ owner_pressure }}/90</strong>
-    (R3d &sect;3.2 &mdash; franchise-level, persists across coaching changes; higher means the
-    owner's patience for a rebuild is running out).
-  </p>
-  <form method="get" action="/staff">
-    <div class="row">
-      <div>
-        <label for="team">Team</label>
-        <select name="team" id="team">
-          {% for t in teams %}
-          <option value="{{ t.abbr }}" {% if t.abbr == team_abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div><button type="submit">View Staff</button></div>
-    </div>
-  </form>
+  <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+    <h3 style="margin: 0;">{{ team.location }} ({{ team.abbr }})</h3>
+    <form method="get" action="/staff" style="display: flex; align-items: center; gap: 0.5rem;">
+      <select name="team" id="team">
+        {% for t in teams %}
+        <option value="{{ t.abbr }}" {% if t.abbr == team_abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+        {% endfor %}
+      </select>
+      <button type="submit">View Staff</button>
+    </form>
+  </div>
 </div>
 
 <div class="staff-grid">
@@ -177,7 +166,7 @@
           <td>{{ entry.coach.reputation }}</td>
           <td>{{ entry.coach.player_dev_offense }}</td>
           <td>{{ entry.coach.player_dev_defense }}</td>
-          <td>${{ "{:,}".format(entry.coach.salary_aav) }}</td>
+          <td>{{ entry.coach.salary_aav | money }}</td>
         </tr>
         {% else %}
         <tr><td colspan="9" class="muted">No assistant coaches on this staff.</td></tr>
@@ -187,14 +176,14 @@
   </div>
 </div>
 
-<div class="card" style="margin-top: 16px;">
+<div class="card" style="margin-top: 16px;" id="find-coaches-card">
   <h3>Find Coaches</h3>
   <p class="muted" style="font-size: 0.85rem;">
     Real league-wide search across every coach on every staff (and any free agents &mdash;
     currently {{ free_agent_count }}, since the real seed staffs all 32 teams and only
     retirement opens a seat). Search by name, specialty, title, or team abbreviation.
   </p>
-  <form method="get" action="/staff">
+  <form method="get" action="/staff" data-preserve-scroll="find-coaches-card">
     <input type="hidden" name="team" value="{{ team_abbr }}">
     <div class="staff-search-row">
       <div>
@@ -228,7 +217,7 @@
           <td>{{ entry.coach.age }}</td>
           <td><span class="coach-ovr">{{ entry.coach.overall }}</span></td>
           <td>{{ entry.coach.reputation }}</td>
-          <td>${{ "{:,}".format(entry.coach.salary_aav) }}</td>
+          <td>{{ entry.coach.salary_aav | money }}</td>
         </tr>
         {% endfor %}
       </tbody>

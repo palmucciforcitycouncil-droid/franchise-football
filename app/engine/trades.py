@@ -2,11 +2,15 @@
 Player Trades (GDD Part 1 Sec 8.5 -- R4c).
 
 **No draft picks.** Sec 8.5's fuller design lets a trade include picks
-from "the current draft and the next two drafts" -- this engine has no
-Draft system (R5, which itself needs R4a first, per ROADMAP.md's own
-ordering), so there are no picks to trade. Every trade here is
-player(s)-for-player(s) only, the same real scope cut R4a already took
-for the rookie scale (same root cause: no Draft yet).
+from "the current draft and the next two drafts." R5 (the Draft) exists
+now, but it runs fully automatically each offseason from that season's
+own standings (app/engine/draft.py's `generate_draft_class()`/
+`simulate_draft()`) -- there's no persistent "Team X owns the 2027 1st
+overall" record anywhere to trade, since pick ownership was never
+modeled as a standing, transferable asset. Every trade here is still
+player(s)-for-player(s) only; the reason has shifted from "no Draft
+exists" to "the Draft doesn't track pick ownership as tradeable
+inventory."
 
 **Player Value (Surplus Value), Sec 8.5's own real formula shape**: the
 NPV of a player's contract surplus (on-field value vs. salary) over the

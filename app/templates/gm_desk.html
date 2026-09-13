@@ -30,10 +30,9 @@
   {% if expiring %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs Left</th><th>Offer AAV</th><th>Offer Yrs</th><th></th></tr></thead>
+      <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs Left</th><th></th></tr></thead>
       <tbody>
         {% for p in expiring %}
-        {% set form_id = 'offer-form-' + p.player_id %}
         <tr>
           <td>{{ player_link(p) }}</td>
           <td>{{ p.position.value }}</td>
@@ -41,14 +40,7 @@
           <td>{{ p.overall_rating }}</td>
           <td>{{ p.salary | money }}</td>
           <td>{{ p.contract_years_remaining }}</td>
-          <td>
-            <form id="{{ form_id }}" method="post" action="/gm-desk/offer">
-              <input type="hidden" name="player_id" value="{{ p.player_id }}">
-              <input type="number" name="aav" value="{{ p.salary }}" min="0" step="10000" style="width: 110px;">
-            </form>
-          </td>
-          <td><input type="number" name="years" form="{{ form_id }}" value="2" min="1" max="7" style="width: 55px;"></td>
-          <td><button type="submit" form="{{ form_id }}">Offer</button></td>
+          <td><button type="button" class="pc-negotiate-btn" data-negotiate-resign data-card='{{ p | player_card_json }}'>Negotiate</button></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -59,11 +51,16 @@
   {% endif %}
 </div>
 
-<div class="card">
+<div class="card" id="cap-hits-table">
   <h3>Top Cap Hits</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Player</th><th>Pos</th><th>Salary</th><th>Yrs Left</th></tr></thead>
+      <thead><tr>
+        <th><a href="{{ cap_hits_sort_links.name }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'name' %}active-sort{% endif %}">Player{% if cap_sort == 'name' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ cap_hits_sort_links.pos }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'pos' %}active-sort{% endif %}">Pos{% if cap_sort == 'pos' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ cap_hits_sort_links.ctr }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'ctr' %}active-sort{% endif %}">Salary{% if cap_sort == 'ctr' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ cap_hits_sort_links.yrs }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'yrs' %}active-sort{% endif %}">Yrs Left{% if cap_sort == 'yrs' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+      </tr></thead>
       <tbody>
         {% for p in top_cap_hits %}
         <tr>
@@ -88,12 +85,12 @@
 </div>
 {% endif %}
 
-<div class="card">
+<div class="card" id="propose-trade-card">
   <h3>Propose Trade</h3>
   {% if not trade_window_open %}
   <p class="muted pc-injury-status">The trade window is closed for this season (deadline: week 8).</p>
   {% endif %}
-  <form method="get" action="/gm-desk">
+  <form method="get" action="/gm-desk" data-preserve-scroll="propose-trade-card">
     <label for="team_b">Trade with</label>
     <select name="team_b" id="team_b" onchange="this.form.submit()">
       <option value="">Choose a team&hellip;</option>
@@ -104,52 +101,73 @@
   </form>
 
   {% if trade_partner_roster %}
-  <form method="post" action="/gm-desk/trade" style="margin-top: 12px;">
+  <form method="post" action="/gm-desk/trade" id="trade-form" class="trade-board" data-preselect="{{ preselect_player_id or '' }}">
     <input type="hidden" name="team_b" value="{{ team_b }}">
-    <div class="row" style="gap: 2rem; align-items: flex-start; flex-wrap: wrap;">
-      <div style="min-width: 260px;">
-        <h4>You Give ({{ user_info.abbr }})</h4>
-        <div class="table-wrap" style="max-height: 320px; overflow-y: auto;">
-          <table>
-            <tbody>
-              {% for p in roster %}
-              <tr>
-                <td><input type="checkbox" name="give" value="{{ p.player_id }}"></td>
-                <td>{{ p.full_name }}</td>
-                <td>{{ p.position.value }}</td>
-                <td>{{ p.overall_rating }}</td>
-                <td>{{ p.salary | money }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div style="min-width: 260px;">
-        <h4>You Get ({{ team_b }})</h4>
-        <div class="table-wrap" style="max-height: 320px; overflow-y: auto;">
-          <table>
-            <tbody>
-              {% for p in trade_partner_roster %}
-              <tr>
-                <td><input type="checkbox" name="get" value="{{ p.player_id }}"></td>
-                <td>{{ p.full_name }}</td>
-                <td>{{ p.position.value }}</td>
-                <td>{{ p.overall_rating }}</td>
-                <td>{{ p.salary | money }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+    <div class="trade-roster-col">
+      <h4>{{ user_info.location }} ({{ user_info.abbr }})</h4>
+      <div class="trade-roster-wrap">
+        <table class="trade-roster-table">
+          <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Salary</th><th>Yrs</th></tr></thead>
+          <tbody>
+            {% for p in roster %}
+            <tr class="trade-row" data-trade-card='{{ p | player_card_json }}'>
+              <td>
+                <input type="checkbox" name="give" value="{{ p.player_id }}" class="trade-checkbox"
+                       data-name="{{ p.full_name }}" data-pos="{{ p.position.value }}"
+                       data-ovr="{{ p.overall_rating }}" data-salary="{{ p.salary }}"
+                       data-yrs="{{ p.contract_years_remaining }}" data-side="give" hidden>
+                {{ p.full_name }}
+              </td>
+              <td>{{ p.position.value }}</td>
+              <td>{{ p.overall_rating }}</td>
+              <td>{{ p.salary | money }}</td>
+              <td>{{ p.contract_years_remaining }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
-    <button type="submit" style="margin-top: 10px;" {% if not trade_window_open %}disabled{% endif %}>Propose Trade</button>
+    <div class="trade-roster-col">
+      <h4>{{ team_b_info.location }} ({{ team_b_info.abbr }})</h4>
+      <div class="trade-roster-wrap">
+        <table class="trade-roster-table">
+          <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Salary</th><th>Yrs</th></tr></thead>
+          <tbody>
+            {% for p in trade_partner_roster %}
+            <tr class="trade-row" data-trade-card='{{ p | player_card_json }}'>
+              <td>
+                <input type="checkbox" name="get" value="{{ p.player_id }}" class="trade-checkbox"
+                       data-name="{{ p.full_name }}" data-pos="{{ p.position.value }}"
+                       data-ovr="{{ p.overall_rating }}" data-salary="{{ p.salary }}"
+                       data-yrs="{{ p.contract_years_remaining }}" data-side="get" hidden>
+                {{ p.full_name }}
+              </td>
+              <td>{{ p.position.value }}</td>
+              <td>{{ p.overall_rating }}</td>
+              <td>{{ p.salary | money }}</td>
+              <td>{{ p.contract_years_remaining }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="trade-offer-panel">
+      <h4>Current Offer</h4>
+      <div class="trade-offer-label">{{ user_info.abbr }} sends</div>
+      <ul class="trade-offer-list" data-offer-list="give"><li class="muted trade-offer-empty">Click a player to add them</li></ul>
+      <div class="trade-offer-label">{{ team_b_info.abbr }} sends</div>
+      <ul class="trade-offer-list" data-offer-list="get"><li class="muted trade-offer-empty">Click a player to add them</li></ul>
+      <div class="trade-offer-actions">
+        <button type="submit" {% if not trade_window_open %}disabled{% endif %}>Submit Offer</button>
+        <button type="button" id="trade-clear-btn">Clear Offer</button>
+      </div>
+      <p class="muted trade-offer-note">No counter-offer negotiation -- the AI side returns a single accept/reject verdict on the exact offer submitted (app/engine/trades.py), not adjustable terms.</p>
+    </div>
   </form>
   {% endif %}
-</div>
 
-<div class="card">
-  <p class="muted">Draft-eligible prospects aren't built yet (needs R5, the Draft) — trades here are player(s)-for-player(s) only, no picks.</p>
+  <p class="muted trade-offer-note" style="margin-top: 0.75rem;">Trades are player(s)-for-player(s) only. Draft picks aren't a tradeable asset here -- the Draft runs automatically from that season's standings and doesn't track pick ownership as a standing, transferable asset.</p>
 </div>
 {% endblock %}

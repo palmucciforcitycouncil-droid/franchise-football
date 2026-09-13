@@ -82,8 +82,32 @@ class HeadlineEvent:
 
 
 def _team_name(abbr: str) -> str:
-    t = TEAMS_BY_ABBR.get(abbr)
-    return t.location if t else abbr
+    """Despite the name, returns the team's real ABBREVIATION (e.g. "KC"),
+    not its location -- Brian's request, 2026-09-13: headlines read more
+    like real ticker-style sports headlines that way. Kept as a function
+    (not just using `abbr` directly at each of this module's ~15 call
+    sites) so a real location name could come back with one change here
+    if that's ever preferred again."""
+    return abbr
+
+
+def _positions_by_name(team_abbr: str) -> dict[str, str]:
+    """{full_name: position} for every real rostered player on team_abbr
+    -- Brian's request, 2026-09-13: a named player in a headline should
+    show their real position (e.g. "Sam Darnold (QB)"), matching how the
+    rest of this app always pairs a player name with their position. The
+    stat-line dataclasses this module reads from (PassingLine/
+    RushingLine/ReceivingLine/defensive lines, app/engine/box_score.py)
+    only carry name + stats, not position, so this does one real lookup
+    per team per detection pass rather than changing those shared,
+    already-tested dataclasses just for a headline-only need."""
+    from app.core.db import get_session
+    from app.models.player import Player
+    from sqlmodel import select
+
+    with get_session() as s:
+        players = s.exec(select(Player).where(Player.team_abbr == team_abbr)).all()
+        return {p.full_name: p.position.value for p in players}
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +216,9 @@ def _detect_record_events(season, week_num: int, week_games: list, user_team_abb
             for abbr in (game.home_abbr, game.away_abbr):
                 box = build_box_score(game.result.plays, abbr)
                 this_week_lines = getattr(box, pool_name)
+                if not this_week_lines:
+                    continue
+                positions = _positions_by_name(abbr)
                 for line in this_week_lines:
                     season_total = getattr(pool.get((abbr, line.name)), stat, 0)
                     this_week_amount = getattr(line, stat, 0)
@@ -200,7 +227,8 @@ def _detect_record_events(season, week_num: int, week_games: list, user_team_abb
                         events.append(HeadlineEvent(
                             tier=1, category="record", magnitude=20.0, is_user_team=(abbr == user_team_abbr),
                             template_key="single_season_record",
-                            values={"name": line.name, "team": _team_name(abbr), "stat": label.replace("_", " "),
+                            values={"name": line.name, "pos": positions.get(line.name, ""),
+                                    "team": _team_name(abbr), "stat": label.replace("_", " "),
                                     "value": season_total},
                             event_key=f"record|{abbr}|{line.name}|{stat}|{week_num}",
                         ))
@@ -294,6 +322,7 @@ def _detect_game_events(season, week_games: list, user_team_abbr: str | None) ->
 
         # 2a statistical milestones (single-game).
         for abbr in (home, away):
+            positions = _positions_by_name(abbr)
             box = build_box_score(game.result.plays, abbr)
             for pool_name, stat, threshold, label in _MILESTONES:
                 for line in getattr(box, pool_name):
@@ -302,7 +331,8 @@ def _detect_game_events(season, week_games: list, user_team_abbr: str | None) ->
                         events.append(HeadlineEvent(
                             tier=2, category="milestone", magnitude=(value - threshold) / threshold * 20.0,
                             is_user_team=(abbr == user_team_abbr), template_key="stat_milestone",
-                            values={"name": line.name, "team": _team_name(abbr), "value": value,
+                            values={"name": line.name, "pos": positions.get(line.name, ""),
+                                    "team": _team_name(abbr), "value": value,
                                     "stat": label.replace("_", " ")},
                             event_key=f"milestone|{abbr}|{line.name}|{stat}",
                         ))
@@ -312,14 +342,16 @@ def _detect_game_events(season, week_games: list, user_team_abbr: str | None) ->
                     events.append(HeadlineEvent(
                         tier=2, category="milestone", magnitude=(line.sacks - 3) * 4.0,
                         is_user_team=(abbr == user_team_abbr), template_key="stat_milestone",
-                        values={"name": line.name, "team": _team_name(abbr), "value": line.sacks, "stat": "sacks"},
+                        values={"name": line.name, "pos": positions.get(line.name, ""),
+                                "team": _team_name(abbr), "value": line.sacks, "stat": "sacks"},
                         event_key=f"milestone|{abbr}|{line.name}|sacks",
                     ))
                 if line.solo_tackles >= 10:
                     events.append(HeadlineEvent(
                         tier=2, category="milestone", magnitude=(line.solo_tackles - 10) * 2.0,
                         is_user_team=(abbr == user_team_abbr), template_key="stat_milestone",
-                        values={"name": line.name, "team": _team_name(abbr), "value": line.solo_tackles, "stat": "tackles"},
+                        values={"name": line.name, "pos": positions.get(line.name, ""),
+                                "team": _team_name(abbr), "value": line.solo_tackles, "stat": "tackles"},
                         event_key=f"milestone|{abbr}|{line.name}|tackles",
                     ))
 
@@ -353,7 +385,7 @@ def _detect_injury_events(injuries_this_week: list, user_team_abbr: str | None) 
             events.append(HeadlineEvent(
                 tier=3, category="injury", magnitude=player.overall_rating - 80,
                 is_user_team=(injury.team_abbr == user_team_abbr), template_key="notable_injury",
-                values={"name": player.full_name, "team": _team_name(injury.team_abbr),
+                values={"name": player.full_name, "pos": player.position.value, "team": _team_name(injury.team_abbr),
                         "injury_type": injury.injury_type.value.replace("_", " ").lower(),
                         "weeks_out": injury.weeks_out},
                 event_key=f"injury|{injury.injury_id}",
@@ -439,8 +471,8 @@ TEMPLATES: dict[str, list[str]] = {
         "{team} locks up the {division} crown.",
     ],
     "single_season_record": [
-        "{name} ({team}) sets a new single-season record with {value} {stat}.",
-        "Record book alert: {name} ({team}) now owns the single-season {stat} mark at {value}.",
+        "{name} ({pos}, {team}) sets a new single-season record with {value} {stat}.",
+        "Record book alert: {name} ({pos}, {team}) now owns the single-season {stat} mark at {value}.",
     ],
     "blowout": [
         "{winner} routs {loser} {w_score}-{l_score}.",
@@ -463,14 +495,14 @@ TEMPLATES: dict[str, list[str]] = {
         "{team}'s defense holds the opponent to just {allowed} points.",
     ],
     "stat_milestone": [
-        "{name} ({team}) posts {value} {stat} this week.",
+        "{name} ({pos}, {team}) posts {value} {stat} this week.",
     ],
     "close_game": [
         "{winner} edges {loser} in a nail-biter, {w_score}-{l_score}.",
         "{winner} survives {loser} {w_score}-{l_score} in a one-score game.",
     ],
     "notable_injury": [
-        "{name} ({team}) exits with a {injury_type} injury, expected out {weeks_out} week(s).",
+        "{name} ({pos}, {team}) exits with a {injury_type} injury, expected out {weeks_out} week(s).",
     ],
     "win_streak": [
         "{team} extends its winning streak to {length} games.",

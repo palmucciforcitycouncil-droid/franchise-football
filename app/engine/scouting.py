@@ -500,7 +500,7 @@ PROSE_TEMPLATES: dict[str, list[str]] = {
         "{team} hasn't attempted a field goal yet this season.",
     ],
     "discipline_clean": [
-        "{team} is one of the league's more disciplined teams, ranked #{rank} in penalties per game.",
+        "{team} is one of the league's more disciplined teams, ranked #{rank} in least penalties per game.",
     ],
     "discipline_average": [
         "{team} ranks #{rank} in the league in penalties per game.",

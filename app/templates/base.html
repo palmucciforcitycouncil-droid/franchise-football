@@ -56,13 +56,14 @@
     }
     .header-team .team-name { font-weight: 700; font-size: 1.05rem; white-space: nowrap; }
     .header-team .team-meta { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
-    .sim-week-form button {
+    .header-actions { display: flex; align-items: center; gap: 0.6rem; }
+    .sim-week-form button, #menu-btn {
       background: transparent;
       border: 1px solid var(--gold);
       color: var(--gold);
       white-space: nowrap;
     }
-    .sim-week-form button:hover { background: rgba(212, 175, 55, 0.12); filter: none; }
+    .sim-week-form button:hover, #menu-btn:hover { background: rgba(212, 175, 55, 0.12); filter: none; }
     .sim-week-form button:disabled { opacity: 0.6; cursor: default; }
 
     /* Sim-in-progress overlay: shown on submit of any .sim-week-form (the
@@ -175,7 +176,13 @@
     table.boxtable { margin-bottom: 1rem; }
     table.boxtable:last-child { margin-bottom: 0; }
     table.boxtable th:first-child, table.boxtable td:first-child { text-align: left; }
-    table.boxtable th:not(:first-child), table.boxtable td:not(:first-child) { text-align: right; }
+    /* A fixed, narrow width on every stat column (Brian's "dead space"/
+       "indentation doesn't look correct" report) -- without it, a table
+       with one wide Name column and 3-4 short numeric ones (C/ATT, Yds,
+       TD, INT) stretches those short columns out to fill the box's full
+       100% width under the default auto table layout, spacing single-
+       or triple-digit numbers far apart from their own header label. */
+    table.boxtable th:not(:first-child), table.boxtable td:not(:first-child) { text-align: right; width: 70px; }
     tr.starter td:first-child { color: var(--gold); font-weight: 600; }
     td.depth-actions { white-space: nowrap; text-align: right; }
     td.depth-actions form { display: inline-block; margin-left: 0.25rem; }
@@ -200,10 +207,62 @@
     dialog#player-card-modal, dialog#team-card-modal, dialog#coach-card-modal {
       background: var(--panel); color: var(--text);
       border: 1px solid var(--border); border-radius: 10px;
-      padding: 0; width: 820px; max-width: 95vw; max-height: 85vh;
+      padding: 0; width: 1040px; max-width: 96vw; max-height: 90vh;
     }
     dialog#player-card-modal::backdrop, dialog#team-card-modal::backdrop,
     dialog#coach-card-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog#negotiation-modal {
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 0; width: 480px; max-width: 92vw;
+    }
+    dialog#negotiation-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog#menu-modal {
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 0; width: 560px; max-width: 92vw;
+    }
+    dialog#menu-modal::backdrop { background: rgba(0, 0, 0, 0.6); }
+    #menu-modal .pc-header { padding: 1rem 1.25rem; }
+    #menu-modal #menu-close { background: none; border: none; color: var(--muted); font-size: 1.4rem; cursor: pointer; line-height: 1; }
+    #menu-modal #menu-close:hover { color: var(--text); }
+    .menu-body { display: flex; min-height: 260px; }
+    .menu-tabs {
+      display: flex; flex-direction: column; gap: 0.25rem; flex: 0 0 150px;
+      border-right: 1px solid var(--border); padding: 1rem 0.6rem;
+    }
+    .menu-tab {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      padding: 0.6rem 0.75rem; font-size: 0.9rem; text-align: left; border-radius: 6px;
+    }
+    .menu-tab:hover { background: rgba(45, 74, 111, 0.3); color: var(--text); }
+    .menu-tab.active { background: var(--border); color: var(--text); font-weight: 600; }
+    .menu-panels { flex: 1; padding: 1.25rem; }
+    .menu-panel[hidden] { display: none; }
+    .menu-panel form { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+    .menu-panel input[type="text"] {
+      width: 100%; padding: 0.5rem 0.75rem; background: #14202e; color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+    }
+    .menu-save-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: 0.6rem 0; border-bottom: 1px solid var(--border);
+    }
+    .menu-save-row:last-child { border-bottom: none; }
+    .neg-slider-row { margin-bottom: 1.1rem; }
+    .neg-slider-label { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.9rem; }
+    .neg-slider-label span:first-child { color: var(--muted); }
+    .neg-slider-row input[type="range"] { width: 100%; accent-color: var(--gold); }
+    .neg-reaction-good { color: #4ade80; }
+    .neg-reaction-mid { color: var(--gold); }
+    .neg-reaction-bad { color: #f87171; }
+    .neg-result-message {
+      border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.75rem;
+      font-weight: 600; text-align: center;
+    }
+    .neg-result-message.accept { background: rgba(34, 197, 94, 0.14); color: #4ade80; }
+    .neg-result-message.reject { background: rgba(239, 68, 68, 0.14); color: #f87171; }
+    .neg-result-message.counter { background: rgba(212, 175, 55, 0.14); color: var(--gold); }
     .pc-header {
       display: flex; align-items: flex-start; justify-content: space-between;
       gap: 1rem; padding: 1.25rem 1.5rem 1rem; border-bottom: 1px solid var(--border);
@@ -234,7 +293,7 @@
       background: none; border: none; color: var(--muted); cursor: pointer;
       padding: 0.5rem 0.9rem; font-size: 0.9rem; border-radius: 6px 6px 0 0;
     }
-    .pc-body { padding: 1.25rem 1.5rem 1.5rem; overflow-y: auto; max-height: calc(85vh - 130px); }
+    .pc-body { padding: 1.25rem 1.5rem 1.5rem; overflow-y: auto; max-height: calc(90vh - 130px); }
     .pc-panel[hidden] { display: none; }
     .pc-row {
       display: flex; align-items: center; justify-content: space-between;
@@ -255,12 +314,43 @@
     .pc-contract-grid-row { display: flex; }
     .pc-contract-grid-row + .pc-contract-grid-row { border-top: 1px solid var(--border); }
     .pc-contract-year {
-      flex: 0 0 84px; text-align: center; padding: 0.6rem 0.4rem;
+      /* min-width: 0 overrides a flex item's default min-width: auto --
+         without it, flex-shrink:0 alone still doesn't stop a wide value
+         like "$18,247,000" from growing the column past its 100px
+         flex-basis while a shorter one ("Yr 1", "$1,255,000") stays at
+         exactly 100px, throwing every column in that row out of
+         alignment with the same column in every other row. Right-
+         aligned (Brian's request) -- reads as a real financial figure,
+         not a centered label. */
+      flex: 0 0 100px; min-width: 0; text-align: right; padding: 0.6rem 0.6rem;
       font-size: 0.82rem; border-right: 1px solid var(--border);
     }
     .pc-contract-grid-row:first-child .pc-contract-year { color: var(--muted); font-weight: 600; }
     .pc-contract-year.pc-contract-year-active { color: var(--text); }
     .pc-contract-year.pc-contract-year-empty { color: var(--muted); }
+    .pc-contract-year.pc-contract-row-heading {
+      flex: 0 0 110px; min-width: 0; text-align: left; color: var(--muted); font-weight: 600;
+      background: var(--panel); position: sticky; left: 0;
+    }
+    /* Zebra-shade every OTHER year column (Yr2, Yr4, ...) across all three
+       rows so a column stays visually traceable top-to-bottom without
+       gridlines alone -- nth-child(odd), excluding the row-heading cell
+       itself (always position 1), lands exactly on Yr2/Yr4/Yr6... since
+       Yr1 is position 2. */
+    .pc-contract-grid-row > .pc-contract-year:nth-child(odd):not(.pc-contract-row-heading) {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .pc-negotiate-btn { margin-top: 0.75rem; }
+    .pc-acquire-btn {
+      display: inline-block; margin-top: 0.5rem; padding: 0.3rem 0.8rem;
+      background: var(--gold); color: #1a1200; border: none; border-radius: 6px;
+      font-weight: 600; font-size: 0.85rem; cursor: pointer; text-decoration: none;
+    }
+    .pc-negotiate-form { margin-top: 0.6rem; }
+    .pc-rating-picker {
+      width: 100%; margin-bottom: 0.75rem; padding: 0.5rem 0.6rem;
+      background: #14202e; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    }
     .pc-stat-heading {
       color: var(--gold); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
       margin: 1rem 0 0.5rem;
@@ -429,22 +519,33 @@
     .ovr-badge.tier-low { background: rgba(148, 163, 184, 0.2); color: var(--muted); }
 
     .roster-filter-panel { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem; }
-    .roster-filter-panel summary { cursor: pointer; padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.9rem; }
+    /* list-style:none is the real cross-browser way to suppress a
+       <summary>'s native disclosure triangle -- the old webkit-only
+       ::-webkit-details-marker rule left Chromium's own default marker
+       showing ALONGSIDE the custom "▸"/"▾" one below it, a real double-
+       arrow bug ("too busy", Brian's report). */
+    .roster-filter-panel summary { cursor: pointer; padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.9rem; list-style: none; }
     .roster-filter-panel summary::-webkit-details-marker { display: none; }
     .roster-filter-panel summary::before { content: "▸ "; }
     .roster-filter-panel[open] summary::before { content: "▾ "; }
-    .roster-filter-body { padding: 0 0.9rem 0.9rem; }
-    .filter-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 0.3rem 0.75rem; margin-bottom: 1rem; }
-    .filter-checkbox { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--text); margin-bottom: 0; }
+    .roster-filter-body { padding: 0.4rem 0.9rem 0.9rem; }
+    /* Each filter group gets its own labeled block with real vertical
+       separation, instead of every group's controls running directly
+       into the next with no visual break. */
+    .filter-section { padding: 0.75rem 0; }
+    .filter-section + .filter-section { border-top: 1px solid var(--border); }
+    .filter-section > label { display: block; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.5rem; }
+    .filter-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 0.4rem 0.75rem; }
+    .filter-checkbox { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--text); margin-bottom: 0; white-space: nowrap; }
     .filter-checkbox input { width: auto; }
-    .filter-range-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
-    .filter-range-grid label { margin-bottom: 0.2rem; }
+    .filter-range-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem 1rem; }
+    .filter-range-label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.25rem; }
     .filter-range-grid .range-inputs { display: flex; gap: 0.4rem; align-items: center; }
     .filter-range-grid input[type="number"] { width: 100%; padding: 0.35rem 0.5rem; }
     .filter-query-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.75rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
     .filter-actions { display: flex; gap: 0.6rem; }
 
-    .roster-quick-boxes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; }
+    .roster-quick-boxes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; align-items: start; }
     @media (max-width: 700px) { .roster-quick-boxes { grid-template-columns: 1fr; } }
     .fa-row, .find-row {
       background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
@@ -495,7 +596,7 @@
        pattern (see /stats's own M3 precedent) instead of the source's
        client-side React state. */
     .hof-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; }
-    .hof-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    .hof-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; align-items: start; }
     /* M14 correction: Figma caps Members at 3 columns (lg:grid-cols-3)
        and Inductees at 2 (md:grid-cols-2) -- the shared auto-fill above
        can exceed both on a wide screen. */
@@ -525,7 +626,7 @@
     .hof-progress-track { background: var(--border); border-radius: 4px; height: 6px; width: 140px; overflow: hidden; }
     .hof-progress-fill { background: var(--gold); height: 100%; }
 
-    .record-book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+    .record-book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; align-items: start; }
     .record-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem; }
     .record-card h4 { margin: 0 0 0.5rem; color: var(--gold); font-size: 0.9rem; }
     .record-card ol { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
@@ -554,13 +655,15 @@
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1.5rem;
+      align-items: start;
     }
-    /* .card becomes a flex column only inside the dashboard grid, so a card
-       can opt one internal scroll region into filling the stretched height
-       via .dashboard-scroll-flex below (Team Schedule) without changing
-       .dashboard-scroll's own fixed-max-height behavior for every other
-       card that still relies on it (Box Score, Scouting Panel, Power
-       Rankings, Top Performers, Awards Race). */
+    /* align-items: start (Brian's "too much dead space" reports across
+       several boxes -- Team Schedule, Top Performers) -- CSS Grid's
+       default align-items:stretch was forcing every card in a row to
+       match the row's TALLEST card's height, leaving blank space below
+       any card whose own content (a bounded .dashboard-scroll box, not a
+       filled one) was naturally shorter than its neighbor. Cards now
+       size to their own content instead. */
     /* min-width: 0 overrides a grid item's default min-width: auto, which
        otherwise refuses to shrink a card below its widest child's intrinsic
        width -- without it, a wide table (Position Ranks' 19 columns) grows
@@ -568,8 +671,8 @@
        overflow-x:auto, dragging the entire page into horizontal scroll. */
     .dashboard-grid .card { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
     .dashboard-span-2 { grid-column: span 2; }
-    .dashboard-scroll { max-height: 420px; overflow-y: auto; }
-    .dashboard-scroll-flex { flex: 1; min-height: 0; max-height: none; }
+    .dashboard-span-3 { grid-column: span 3; }
+    .dashboard-scroll { max-height: 420px; overflow-y: auto; padding-right: 0.5rem; }
 
     /* Scouting Panel opponent header (ROADMAP.md Sec2d item 2): the
        "@ SEA" line is the thing the user most needs to spot at a
@@ -579,6 +682,7 @@
     @media (max-width: 900px) {
       .dashboard-grid { grid-template-columns: 1fr; }
       .dashboard-span-2 { grid-column: span 1; }
+      .dashboard-span-3 { grid-column: span 1; }
     }
 
     /* Box Score condensed scoreboard summary + Game Leaders (ROADMAP.md
@@ -590,6 +694,13 @@
       gap: 1.5rem; padding: 1rem 0; margin-bottom: 0.75rem;
     }
     .boxscore-team { display: flex; align-items: center; gap: 0.75rem; }
+    /* Same red/green win/loss band Team Schedule's .schedule-row already
+       uses, so a completed game reads the same way in both boxes -- one
+       band across the whole summary bar, colored by the USER team's own
+       result (not each side colored independently by its own W/L). */
+    .boxscore-summary.win { background: rgba(34, 197, 94, 0.10); border-radius: 8px; }
+    .boxscore-summary.loss { background: rgba(239, 68, 68, 0.10); border-radius: 8px; }
+    .boxscore-summary.tie { background: rgba(148, 163, 184, 0.12); border-radius: 8px; }
     /* Larger than the header's own 44px .team-badge (Brian's explicit ask
        for bigger team names/final score on the scoreboard) -- scoped to
        .boxscore-team only, not a global .team-badge size change. */
@@ -665,8 +776,18 @@
     .team-history-awards { font-size: 0.78rem; color: var(--gold); margin-top: 0.15rem; }
 
     /* Weekly Headlines (GDD Sec12, ROADMAP.md Sec4e/R9). */
-    .headlines-list { margin: 0 0 0.75rem; padding-left: 1.2rem; }
-    .headlines-list li { margin-bottom: 0.35rem; line-height: 1.4; }
+    /* Brian's request: this box should read as compact as a 3-team
+       standings block, not a tall stacked list. 2-column layout (CSS
+       multi-column balances top-to-bottom-then-wrap on its own, no
+       template split needed) plus a height cap sized to ~3 standings
+       rows, smaller title/body text, and overflow-y:auto as a safety net
+       for a week with more headlines than fit. */
+    .headlines-card h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+    .headlines-list {
+      margin: 0; padding-left: 1.1rem; column-count: 2; column-gap: 2rem;
+      max-height: 108px; overflow-y: auto; font-size: 0.82rem;
+    }
+    .headlines-list li { margin-bottom: 0.3rem; line-height: 1.35; break-inside: avoid; }
 
     /* Scouting Panel prose summaries (ROADMAP.md Sec4e/R12). */
     .scouting-prose { margin-bottom: 0.75rem; line-height: 1.45; }
@@ -680,9 +801,16 @@
        filters rows by data-conf rather than swapping panels. */
     .tp-conf-tabs { display: flex; gap: 0.35rem; }
     .tp-category-select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.4rem 0.5rem; font-family: inherit; width: 100%; }
-    .tp-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.2rem; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
+    .tp-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.2rem; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
     .tp-row:last-child { border-bottom: none; }
-    .tp-rank { color: var(--gold); font-size: 0.85rem; width: 1.4rem; flex-shrink: 0; text-align: right; }
+    /* A real rank badge (Brian's request) -- same circle-in-a-box
+       convention .pc-avatar/.team-badge already use elsewhere, not a
+       bare number floating in front of the row. */
+    .tp-rank {
+      display: flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%;
+      background: var(--border); color: var(--gold); font-size: 0.78rem; font-weight: 700;
+    }
     .tp-row-main { flex: 1; min-width: 0; }
     .tp-value { font-weight: 600; flex-shrink: 0; }
 
@@ -701,8 +829,20 @@
       background: rgba(248, 113, 113, 0.18); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.4);
     }
     .pr-delta-none { color: var(--muted); }
-    .dash-stat-row { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 0.3rem 0; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
+    .dash-stat-row { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; font-size: 0.88rem; padding: 0.5rem 0.1rem; border-bottom: 1px solid rgba(45, 74, 111, 0.5); }
     .dash-stat-row:last-child { border-bottom: none; }
+    /* Awards Race candidate rows (Brian's "stat columns should be
+       aligned" report): stat_line is one free-text summary string per
+       candidate (awards.py's own AwardCandidate.stat_line), not
+       separate numeric fields to put in real table columns -- but a
+       FIXED-width name column still gets every row's stat text starting
+       at the same X position, which is what actually reads as
+       "misaligned" here. A long-name row also wraps to 2 lines now
+       (align-items: flex-start) instead of vertically centering the
+       stat text against it. */
+    .dash-stat-row.awards-row { align-items: flex-start; }
+    .dash-stat-row.awards-row > span:first-child { flex: 0 0 170px; }
+    .dash-stat-row.awards-row > span:last-child { flex: 1; text-align: left; }
     .dash-subhead { color: var(--gold); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0.9rem 0 0.4rem; }
     .dash-subhead:first-child { margin-top: 0; }
 
@@ -767,6 +907,43 @@
        already use, so a wide staff table scrolls inside its own card
        instead of scrolling the page body. */
     .table-wrap { overflow-x: auto; }
+    /* Position Ranks (Dashboard) is both wide AND tall (32 rows), so the
+       browser's native horizontal scrollbar -- rendered at the bottom
+       edge of the scrolling box -- ends up below all 32 rows, off-screen
+       until the user scrolls the whole box down first. Flipping the box
+       180deg (then flipping its table content back the same amount)
+       relocates that same native scrollbar to the box's visual top edge
+       without needing a second, JS-synced scrollbar element. */
+    .table-wrap-top-scroll { transform: rotateX(180deg); }
+    .table-wrap-top-scroll > table { transform: rotateX(180deg); }
+
+    /* GM Desk Propose Trade -- Football Mogul-style layout (Brian's own
+       reference screenshot): both rosters side by side, click a row to
+       add/remove it from the deal (double-click still opens the Player
+       Card, same as everywhere else -- data-trade-card is a SEPARATE
+       attribute from the global tr[data-card] single-click-opens-card
+       convention specifically so the two don't collide on the same
+       click). A live "Current Offer" panel replaces having to scroll
+       back up to see what's already checked. No cash/picks balancing --
+       neither system exists in this engine. */
+    .trade-board { display: grid; grid-template-columns: 1fr 1fr minmax(220px, 260px); gap: 1rem; margin-top: 12px; align-items: start; }
+    .trade-board h4 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    .trade-roster-wrap { max-height: 360px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .trade-roster-table { font-size: 0.85rem; }
+    .trade-roster-table th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
+    .trade-roster-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+    .trade-row { cursor: pointer; }
+    .trade-row:hover { background: rgba(45, 74, 111, 0.3); }
+    .trade-row.selected { background: rgba(212, 175, 55, 0.14); }
+    .trade-offer-panel { background: var(--bg); border-radius: 8px; padding: 0.75rem 0.9rem; }
+    .trade-offer-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin: 0.6rem 0 0.3rem; }
+    .trade-offer-label:first-of-type { margin-top: 0; }
+    .trade-offer-list { list-style: none; margin: 0 0 0.4rem; padding: 0; min-height: 1.4rem; }
+    .trade-offer-list li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; padding: 0.25rem 0; }
+    .trade-offer-list li.trade-offer-empty { color: var(--muted); font-style: italic; }
+    .trade-offer-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .trade-offer-note { font-size: 0.76rem; margin-top: 0.5rem; margin-bottom: 0; }
+    @media (max-width: 900px) { .trade-board { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -784,12 +961,16 @@
         </div>
       </div>
     </div>
-    <form method="post" action="/season/simulate-week" class="sim-week-form">
-      <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
-      <button type="submit">Sim Week</button>
-    </form>
+    <div class="header-actions">
+      <button type="button" id="menu-btn">Menu</button>
+      <form method="post" action="/season/simulate-week" class="sim-week-form">
+        <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+        <button type="submit">Sim Week</button>
+      </form>
+    </div>
     {% else %}
     <h1>Franchise <span>Football</span></h1>
+    <button type="button" id="menu-btn">Menu</button>
     {% endif %}
   </header>
   <div id="sim-loading-overlay" class="sim-loading-overlay" role="status" aria-live="polite">
@@ -802,13 +983,77 @@
     ("/dashboard", "Dashboard"), ("/roster", "Roster"),
     ("/staff", "Staff"), ("/gm-desk", "GM Desk"), ("/draft", "Draft"),
     ("/playoffs", "Playoffs"), ("/stats", "Stats"), ("/awards", "Awards"), ("/history", "History"),
-    ("/saves", "Saves"),
   ] %}
   <nav class="subnav">
     {% for href, label in nav_links %}
     <a href="{{ href }}" class="{{ 'active' if request.url.path == href else '' }}">{{ label }}</a>
     {% endfor %}
   </nav>
+
+  <!-- Menu dialog (Brian's request, 2026-09-13): New/Save/Load Game
+       folded into one header-level menu (reachable from every page, via
+       header_context()'s own saves_list/active_save_id/default_save_name)
+       instead of a persistent "Saves" nav tab. Reuses the exact same
+       /saves/new, /saves/{id}/rename, /saves/{id}/load routes the old
+       standalone Saves page already used -- this is a new front end onto
+       real, already-working save-management flows, not a new backend. -->
+  <dialog id="menu-modal">
+    <div class="pc-header">
+      <h3 style="margin: 0;">Menu</h3>
+      <button type="button" id="menu-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="menu-body">
+      <div class="menu-tabs">
+        <button type="button" class="menu-tab active" data-menu-tab="new">New Game</button>
+        <button type="button" class="menu-tab" data-menu-tab="save">Save Game</button>
+        <button type="button" class="menu-tab" data-menu-tab="load">Load Game</button>
+      </div>
+      <div class="menu-panels">
+        <div class="menu-panel" data-menu-panel="new">
+          <form method="post" action="/saves/new">
+            <label for="menu-new-name">Franchise Name</label>
+            <input type="text" id="menu-new-name" name="name" placeholder="e.g. My Chiefs Dynasty" required>
+            <button type="submit">Start New Franchise</button>
+          </form>
+        </div>
+        <div class="menu-panel" data-menu-panel="save" hidden>
+          {% if hc.active_save_id %}
+          <form method="post" action="/saves/{{ hc.active_save_id }}/rename">
+            <label for="menu-save-name">Save Name</label>
+            <input type="text" id="menu-save-name" name="name" value="{{ hc.default_save_name }}"
+                   data-default="{{ hc.default_save_name }}"
+                   onfocus="if (this.value === this.dataset.default) { this.value = ''; }" required>
+            <button type="submit">Save Game</button>
+          </form>
+          {% else %}
+          <p class="muted">No active save yet -- start a New Game first.</p>
+          {% endif %}
+        </div>
+        <div class="menu-panel" data-menu-panel="load" hidden>
+          {% if not hc.saves_list %}
+          <p class="muted">No saves yet -- start one under New Game.</p>
+          {% else %}
+          {% for s in hc.saves_list %}
+          <div class="menu-save-row">
+            <div>
+              <strong>{{ s.name }}</strong>{% if s.save_id == hc.active_save_id %} <span class="quota-pill met">Active</span>{% endif %}
+              <div class="muted" style="font-size: 0.8rem;">
+                {% if s.user_team_abbr %}{{ s.user_team_abbr }}{% endif -%}
+                {%- if s.season_number is not none %} &middot; {{ season_year(s.season_number) }}{% endif -%}
+                {%- if s.current_week %} &middot; Week {{ s.current_week }}{% endif %}
+              </div>
+            </div>
+            <form method="post" action="/saves/{{ s.save_id }}/load">
+              <button type="submit">{% if s.save_id == hc.active_save_id %}Continue{% else %}Load{% endif %}</button>
+            </form>
+          </div>
+          {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <main>
     {% block content %}{% endblock %}
   </main>
@@ -816,14 +1061,15 @@
   <dialog id="player-card-modal">
     <div class="pc-header">
       <div class="pc-header-main">
-        <div class="pc-avatar" id="pc-num"></div>
+        <div class="pc-avatar" id="pc-pos-avatar"></div>
         <div>
           <h3 id="pc-name"></h3>
           <div class="pc-badges">
-            <span class="pc-badge-pos" id="pc-pos"></span>
             <span class="pc-badge-ovr" id="pc-ovr"></span>
             <span class="pc-badge-team" id="pc-team"></span>
+            <span class="pc-badge-team" id="pc-age"></span>
           </div>
+          <div id="pc-acquire-slot"></div>
         </div>
       </div>
       <button type="button" id="pc-close" aria-label="Close">&times;</button>
@@ -890,6 +1136,7 @@
             <span class="pc-badge-pos" id="cc-role"></span>
             <span class="pc-badge-ovr" id="cc-ovr"></span>
             <span class="pc-badge-team" id="cc-team"></span>
+            <span class="pc-badge-team" id="cc-age"></span>
           </div>
         </div>
       </div>
@@ -907,21 +1154,79 @@
     </div>
   </dialog>
 
+  <!-- Negotiation modal (Brian's own Figma reference, 2026-09-13): shared
+       by GM Desk's re-sign flow and Free Agency's Sign flow -- both are
+       already the same real shape (player_id/aav/years -> a real
+       ACCEPT/REJECT[/COUNTER] verdict), so one modal replaces two
+       different-looking raw-number-input forms. Sliders update the
+       "Player Reaction" live via a real, read-only preview call to
+       whichever */offer/preview endpoint matches the mode. Make Offer
+       itself submits via fetch() to the real, mutating */offer endpoint
+       and renders the verdict IN PLACE (2026-09-13, Brian's report: a
+       real full-page-reload submit closed this modal with no visible
+       feedback) -- see openNegotiation()'s own script comment. -->
+  <dialog id="negotiation-modal">
+    <div class="pc-header">
+      <div class="pc-header-main">
+        <div class="pc-avatar" id="neg-pos-avatar"></div>
+        <div>
+          <h3 id="neg-name"></h3>
+          <div class="pc-badges">
+            <span class="pc-badge-ovr" id="neg-ovr"></span>
+            <span class="pc-badge-team" id="neg-team"></span>
+          </div>
+        </div>
+      </div>
+      <button id="neg-close" type="button">&times;</button>
+    </div>
+    <div class="pc-body">
+      <div id="neg-result-message" class="neg-result-message" hidden></div>
+      <div class="pc-row"><span class="pc-row-label">Market Value</span><span id="neg-market-value"></span></div>
+      <h4 style="margin: 1rem 0 0.5rem;">Your Offer</h4>
+      <div class="neg-slider-row">
+        <div class="neg-slider-label"><span>Contract Length</span><span id="neg-years-value"></span></div>
+        <input type="range" id="neg-years" min="1" max="7" step="1">
+      </div>
+      <div class="neg-slider-row">
+        <div class="neg-slider-label"><span>Annual Salary</span><span id="neg-aav-value"></span></div>
+        <input type="range" id="neg-aav" min="0" step="50000">
+      </div>
+      <div class="neg-slider-row">
+        <div class="neg-slider-label"><span>Guaranteed</span><span id="neg-guaranteed-value"></span></div>
+        <input type="range" id="neg-guaranteed-pct" min="0" max="100" step="5">
+      </div>
+      <div class="pc-row"><span class="pc-row-label">Total Contract Value</span><span id="neg-total-value"></span></div>
+      <div class="pc-row"><span class="pc-row-label">Player Reaction</span><span id="neg-reaction">&mdash;</span></div>
+      <div class="trade-offer-actions" style="margin-top: 1rem;">
+        <button type="button" id="neg-cancel" style="background: transparent; border: 1px solid var(--border); color: var(--text);">Cancel</button>
+        <button type="button" id="neg-submit">Make Offer</button>
+      </div>
+    </div>
+  </dialog>
+
   <script>
     (function () {
+      // Real Contract tab "Negotiate" button needs to know whose player
+      // this is (a real re-sign offer only applies to the user's OWN
+      // expiring player; a real Sign offer only applies to a free agent)
+      // -- header_context()'s hc.user_team is already computed server-
+      // side for the persistent header badge, reused here rather than
+      // adding a second user-team lookup.
+      var USER_TEAM_ABBR = {{ (hc.user_team.abbr if hc.user_team else None) | tojson }};
       var modal = document.getElementById('player-card-modal');
-      var numEl = document.getElementById('pc-num');
+      var posAvatarEl = document.getElementById('pc-pos-avatar');
       var nameEl = document.getElementById('pc-name');
-      var posEl = document.getElementById('pc-pos');
       var ovrEl = document.getElementById('pc-ovr');
       var teamEl = document.getElementById('pc-team');
+      var ageEl = document.getElementById('pc-age');
+      var acquireSlotEl = document.getElementById('pc-acquire-slot');
       var overviewEl = document.getElementById('pc-panel-overview');
       var ratingsEl = document.getElementById('pc-panel-ratings');
       var statsEl = document.getElementById('pc-panel-stats');
       var contractEl = document.getElementById('pc-panel-contract');
 
       function bar(label, value) {
-        return '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>' + label + '</span><span>' + value + '/99</span></div>' +
+        return '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>' + label + '</span><span>' + value + '</span></div>' +
           '<div class="pc-bar-track"><div class="pc-bar-fill" style="width:' + Math.max(0, Math.min(100, value)) + '%"></div></div></div>';
       }
 
@@ -951,32 +1256,310 @@
       var SEASON_STAT_ORDER = ['passing', 'rushing', 'receiving', 'defense'];
       var NO_CAREER_STATS_HTML = '<p class="muted">No stats yet this season, and no archived seasons either -- these fill in once games are played.</p>';
 
-      // M8: Player.salary/signing_bonus are real, already-imported Madden
-      // data (see player.py's own docstring) that simply had no UI consumer
-      // until now -- shown as-is, not synthetic. contract_years_remaining is
-      // NOT real Madden data (no such CSV column) -- a disclosed, seeded 1-5
-      // placeholder (player.py's own docstring) so the grid below has
-      // something to key off until R4a (Contracts & Cap, Post-MVP, GDD Sec
-      // 8.3) replaces it with a real negotiated term/cap system.
+      // Rounds to the nearest $1,000 for display, same as app/main.py's
+      // own _money() Jinja filter -- see that function's docstring for
+      // why (computed contract/cap numbers land on an arbitrary exact
+      // dollar that reads as fake precision).
       function money(n) {
         if (n === null || n === undefined) { return '--'; }
-        return '$' + Number(n).toLocaleString('en-US');
+        return '$' + (Math.round(Number(n) / 1000) * 1000).toLocaleString('en-US');
       }
 
+      // M8/R4a: Player.salary is real -- either the original imported
+      // Madden figure, or a real negotiated AAV once GM Desk's re-sign or
+      // Free Agency flow has ACCEPTed an offer (app/engine/contracts.py).
+      // guaranteed_money is also real (2026-09-13 salary import) but is a
+      // single TOTAL-at-signing figure, not an already-scheduled per-year
+      // breakdown -- split evenly across the active years here (same
+      // "flat repeated" treatment Salary already gets) rather than
+      // dumping the whole total on Year 1. contract_years_remaining is
+      // real for any player who's actually been through a negotiation;
+      // for everyone else it's still the original disclosed, seeded 1-5
+      // placeholder. The grid renders exactly `years` columns (real max
+      // is 7, the same cap GM Desk's own offer form enforces) instead of
+      // a fixed 20 -- no fabricated empty years past what's on the books.
       function contractPanel(card) {
-        var years = card.contract_years_remaining || 0;
-        var yearHeaders = '';
-        var yearSalaries = '';
-        for (var i = 1; i <= 20; i++) {
-          var active = i <= years;
-          yearHeaders += '<div class="pc-contract-year">Yr ' + i + '</div>';
-          yearSalaries += '<div class="pc-contract-year ' + (active ? 'pc-contract-year-active' : 'pc-contract-year-empty') + '">' +
-            (active ? money(card.salary) : '—') + '</div>';
+        // A free agent has no current team and no active contract --
+        // contract_years_remaining is a synthetic 1-5 placeholder applied
+        // to every Player row regardless of roster status (player.py's
+        // own docstring), so showing it here for an FA fabricated a
+        // multi-year salary grid for someone with no real deal at all
+        // (Brian's report, 2026-09-13). No contract to show; only the
+        // real Negotiate/Sign action applies.
+        if (card.team === 'FA') {
+          return '<p class="muted">No current contract -- free agent.</p>' + negotiateSectionHtml(card);
         }
-        return '<div class="pc-row"><span class="pc-row-label">Signing Bonus</span><span>' + money(card.signing_bonus) + '</span></div>' +
-          '<div class="pc-contract-grid-wrap"><div class="pc-contract-grid-row">' + yearHeaders + '</div>' +
-          '<div class="pc-contract-grid-row">' + yearSalaries + '</div></div>' +
-          '<p class="muted">Years remaining is a placeholder estimate (' + years + ' of 20 shown, same salary repeated flat) -- real contract length, escalators, and cap space aren\'t modeled yet. Contracts &amp; Cap is a Post-MVP system (see HANDOFF.md\'s Known Gaps).</p>';
+        var years = Math.max(card.contract_years_remaining || 0, 1);
+        var perYearGuaranteed = (card.guaranteed_money || 0) / years;
+        var yearHeaders = '<div class="pc-contract-year pc-contract-row-heading"></div>';
+        var salaryRow = '<div class="pc-contract-year pc-contract-row-heading">Salary</div>';
+        var guaranteedRow = '<div class="pc-contract-year pc-contract-row-heading">Guaranteed</div>';
+        for (var i = 1; i <= years; i++) {
+          yearHeaders += '<div class="pc-contract-year">Yr ' + i + '</div>';
+          salaryRow += '<div class="pc-contract-year pc-contract-year-active">' + money(card.salary) + '</div>';
+          guaranteedRow += '<div class="pc-contract-year pc-contract-year-active">' + money(perYearGuaranteed) + '</div>';
+        }
+        return '<div class="pc-contract-grid-wrap"><div class="pc-contract-grid-row">' + yearHeaders + '</div>' +
+          '<div class="pc-contract-grid-row">' + salaryRow + '</div>' +
+          '<div class="pc-contract-grid-row">' + guaranteedRow + '</div></div>' +
+          negotiateSectionHtml(card);
+      }
+
+      // A real "Negotiate" button only appears where a real negotiation
+      // actually exists: a free agent (R4b Free Agency, /free-agency/
+      // offer) or the user's OWN player with an expiring deal (R4a GM
+      // Desk re-sign, /gm-desk/offer -- GM Desk itself only offers this
+      // to contract_years_remaining <= 1, so this mirrors that same real
+      // scope rather than pretending a mid-contract re-sign is possible).
+      // Anyone else (an AI team's player, or the user's own player mid-
+      // contract) gets no button at all -- omitted, not a disabled fake
+      // one, same disclosed-by-omission convention as everywhere else.
+      // Escapes a value for safe embedding inside a single-quoted HTML
+      // attribute (a real player name can contain an apostrophe, e.g.
+      // "De'Von" -- unescaped, that would terminate the attribute early
+      // and corrupt the markup).
+      function attrJson(obj) {
+        return JSON.stringify(obj).replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      }
+
+      function negotiateSectionHtml(card) {
+        if (card.team === 'FA') {
+          var faOpts = {
+            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+            actionUrl: '/free-agency/offer', previewUrl: '/free-agency/offer/preview',
+            expectedValue: card.expected_salary, defaultAav: card.expected_salary, defaultYears: 3,
+          };
+          return '<button type="button" class="pc-negotiate-btn" data-negotiate="' + attrJson(faOpts) + '">Negotiate</button>';
+        }
+        if (card.team === USER_TEAM_ABBR && (card.contract_years_remaining || 0) <= 1) {
+          var resignOpts = {
+            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+            actionUrl: '/gm-desk/offer', previewUrl: '/gm-desk/offer/preview',
+            expectedValue: card.expected_salary, defaultAav: card.salary, defaultYears: 2,
+          };
+          return '<button type="button" class="pc-negotiate-btn" data-negotiate="' + attrJson(resignOpts) + '">Negotiate</button>';
+        }
+        return '';
+      }
+
+      // Negotiation modal (Brian's own Figma reference, 2026-09-13) --
+      // see the <dialog id="negotiation-modal"> markup's own comment for
+      // why it's shared by both offer flows. Sliders update "Player
+      // Reaction" via a real, debounced, read-only call to whichever
+      // */offer/preview endpoint matches the mode; Make Offer submits
+      // via fetch() to negActionUrl and renders the verdict in place
+      // (a deliberate exception to this app's usual GET-param/full-
+      // page-reload convention -- see the submit handler's own comment).
+      var negModal = document.getElementById('negotiation-modal');
+      var negPosAvatarEl = document.getElementById('neg-pos-avatar');
+      var negNameEl = document.getElementById('neg-name');
+      var negOvrEl = document.getElementById('neg-ovr');
+      var negTeamEl = document.getElementById('neg-team');
+      var negMarketValueEl = document.getElementById('neg-market-value');
+      var negYearsInput = document.getElementById('neg-years');
+      var negYearsValueEl = document.getElementById('neg-years-value');
+      var negAavInput = document.getElementById('neg-aav');
+      var negAavValueEl = document.getElementById('neg-aav-value');
+      var negGuaranteedInput = document.getElementById('neg-guaranteed-pct');
+      var negGuaranteedValueEl = document.getElementById('neg-guaranteed-value');
+      var negTotalValueEl = document.getElementById('neg-total-value');
+      var negReactionEl = document.getElementById('neg-reaction');
+      var negResultMessageEl = document.getElementById('neg-result-message');
+      var negActionUrl = null;
+      var negPreviewTimer = null;
+      var negCurrentOpts = null;
+
+      function negReactionClass(reaction) {
+        if (reaction === 'Very Interested' || reaction === 'Interested') { return 'neg-reaction-good'; }
+        if (reaction === 'Considering' || reaction === 'Lowball') { return 'neg-reaction-mid'; }
+        return 'neg-reaction-bad';
+      }
+
+      // Total guaranteed is a share of the TOTAL contract value (AAV x
+      // years), not a per-year figure -- matches how guaranteed_money is
+      // already stored/shown elsewhere (Player Card Contract tab: one
+      // real total, not a per-year schedule). The slider only sets what
+      // fraction of the deal is guaranteed; it does NOT feed into the
+      // real ACCEPT/REJECT/COUNTER score below -- Sec 8.3.3/8.4's own
+      // Offer Score formulas don't include a guarantee term at all, so
+      // leaving it out of the verdict is an omission of a term the GDD
+      // itself never specified, not a deviation from one it did.
+      function negGuaranteedDollar() {
+        var years = Number(negYearsInput.value);
+        var aav = Number(negAavInput.value);
+        var pct = Number(negGuaranteedInput.value);
+        return aav * years * (pct / 100);
+      }
+
+      function negUpdateDisplay() {
+        var years = Number(negYearsInput.value);
+        var aav = Number(negAavInput.value);
+        negYearsValueEl.textContent = years + (years === 1 ? ' year' : ' years');
+        negAavValueEl.textContent = money(aav) + '/yr';
+        negGuaranteedValueEl.textContent = negGuaranteedInput.value + '% (' + money(negGuaranteedDollar()) + ' total)';
+        negTotalValueEl.textContent = money(aav * years);
+      }
+
+      function negFetchReaction() {
+        if (!negCurrentOpts) { return; }
+        var years = Number(negYearsInput.value);
+        var aav = Math.round(Number(negAavInput.value));
+        var url = negCurrentOpts.previewUrl + '?player_id=' + encodeURIComponent(negCurrentOpts.playerId) +
+          '&aav=' + aav + '&years=' + years;
+        negReactionEl.textContent = 'Checking…';
+        negReactionEl.className = '';
+        fetch(url).then(function (r) {
+          if (!r.ok) { throw new Error('preview failed'); }
+          return r.json();
+        }).then(function (data) {
+          if (data.verdict === 'OVER_CAP') {
+            negReactionEl.textContent = 'Over your cap space';
+            negReactionEl.className = 'neg-reaction-bad';
+            return;
+          }
+          negReactionEl.textContent = data.reaction;
+          negReactionEl.className = negReactionClass(data.reaction);
+        }).catch(function () {
+          negReactionEl.textContent = '--';
+          negReactionEl.className = '';
+        });
+      }
+
+      function negScheduleFetch() {
+        negUpdateDisplay();
+        if (negPreviewTimer) { clearTimeout(negPreviewTimer); }
+        negPreviewTimer = setTimeout(negFetchReaction, 250);
+      }
+
+      if (negYearsInput) {
+        negYearsInput.addEventListener('input', negScheduleFetch);
+        negAavInput.addEventListener('input', negScheduleFetch);
+        // Guaranteed % doesn't affect the real verdict (see
+        // negGuaranteedDollar()'s own comment), so only refresh the
+        // display -- no need to re-fetch a fresh Player Reaction.
+        negGuaranteedInput.addEventListener('input', negUpdateDisplay);
+      }
+
+      function negShowResult(kind, text) {
+        negResultMessageEl.textContent = text;
+        negResultMessageEl.className = 'neg-result-message ' + kind;
+        negResultMessageEl.hidden = false;
+      }
+
+      function negClearResult() {
+        negResultMessageEl.hidden = true;
+        negResultMessageEl.textContent = '';
+        negResultMessageEl.className = 'neg-result-message';
+      }
+
+      function openNegotiation(opts) {
+        negCurrentOpts = opts;
+        negClearResult();
+        negPosAvatarEl.textContent = opts.pos;
+        negNameEl.textContent = opts.name;
+        negOvrEl.textContent = opts.ovr + ' OVR';
+        negTeamEl.textContent = opts.team;
+        negMarketValueEl.textContent = money(opts.expectedValue) + '/yr';
+
+        negYearsInput.value = opts.defaultYears;
+        var maxAav = Math.max(opts.expectedValue * 2, opts.defaultAav * 2, 1000000);
+        negAavInput.max = Math.round(maxAav / 50000) * 50000;
+        negAavInput.value = opts.defaultAav;
+        negGuaranteedInput.value = 50;
+        negUpdateDisplay();
+        negFetchReaction();
+
+        negActionUrl = opts.actionUrl;
+        negModal.showModal();
+      }
+
+      function negCloseModal() {
+        if (negPreviewTimer) { clearTimeout(negPreviewTimer); }
+        negModal.close();
+      }
+
+      var negCloseBtn = document.getElementById('neg-close');
+      var negCancelBtn = document.getElementById('neg-cancel');
+      var negSubmitBtn = document.getElementById('neg-submit');
+      if (negCloseBtn) {
+        negCloseBtn.addEventListener('click', negCloseModal);
+        negCancelBtn.addEventListener('click', negCloseModal);
+        // Make Offer submits via fetch and renders the real verdict IN
+        // PLACE (Brian's report, 2026-09-13: the old full-page-reload
+        // submit closed the modal with no visible feedback at all --
+        // gm_desk_offer()/free_agency_offer() now return JSON instead of
+        // redirecting, see their own docstrings). ACCEPT/REJECT/OVER_CAP
+        // show a message and stop there; COUNTER moves the sliders to
+        // the real counter terms and re-fetches a fresh Player Reaction
+        // against them, so the user can see exactly what would now
+        // clear -- submitting again at that point is a real second offer,
+        // not just re-displaying the same counter.
+        negSubmitBtn.addEventListener('click', function () {
+          var body = new URLSearchParams();
+          body.set('player_id', negCurrentOpts.playerId);
+          body.set('aav', Math.round(Number(negAavInput.value)));
+          body.set('years', negYearsInput.value);
+          body.set('guaranteed', Math.round(negGuaranteedDollar()));
+          negSubmitBtn.disabled = true;
+          fetch(negActionUrl, {method: 'POST', body: body})
+            .then(function (r) {
+              if (!r.ok) { throw new Error('offer submit failed'); }
+              return r.json();
+            })
+            .then(function (data) {
+              if (data.verdict === 'ACCEPT') {
+                negShowResult('accept', 'We have a deal!');
+              } else if (data.verdict === 'COUNTER') {
+                negShowResult('counter', 'How about this?');
+                // Round UP to the slider's own $50k step, never to
+                // nearest -- a <input type="range" step="50000"> SILENTLY
+                // snaps an assigned .value to the nearest step, which can
+                // round a precise counter DOWN below the real number
+                // (contracts.py's own counter_aav is deliberately ceil'd
+                // to be the minimum that clears ACCEPT_THRESHOLD if
+                // resubmitted verbatim -- rounding to nearest here could
+                // silently undershoot that minimum, making the exact
+                // counter the player just proposed still not clear on
+                // resubmission, which is a real, confusing bug this
+                // rounds away from rather than into).
+                var counterAav = Math.ceil(data.counter_aav / 50000) * 50000;
+                if (counterAav > Number(negAavInput.max)) {
+                  negAavInput.max = counterAav;
+                }
+                negAavInput.value = counterAav;
+                negYearsInput.value = data.counter_years;
+                negUpdateDisplay();
+                negFetchReaction();
+              } else if (data.verdict === 'OVER_CAP') {
+                negShowResult('reject', 'That offer would put you over your cap space.');
+              } else {
+                negShowResult('reject', 'Rejected.');
+              }
+            })
+            .catch(function () {
+              negShowResult('reject', 'Something went wrong submitting that offer -- try again.');
+            })
+            .finally(function () {
+              negSubmitBtn.disabled = false;
+            });
+        });
+      }
+
+      // Menu dialog (New/Save/Load Game) -- reachable from every page.
+      var menuModal = document.getElementById('menu-modal');
+      var menuBtn = document.getElementById('menu-btn');
+      var menuCloseBtn = document.getElementById('menu-close');
+      if (menuBtn) {
+        menuBtn.addEventListener('click', function () { menuModal.showModal(); });
+        menuCloseBtn.addEventListener('click', function () { menuModal.close(); });
+        document.querySelectorAll('.menu-tab').forEach(function (tabBtn) {
+          tabBtn.addEventListener('click', function () {
+            document.querySelectorAll('.menu-tab').forEach(function (b) { b.classList.remove('active'); });
+            tabBtn.classList.add('active');
+            document.querySelectorAll('.menu-panel').forEach(function (p) { p.hidden = true; });
+            document.querySelector('.menu-panel[data-menu-panel="' + tabBtn.dataset.menuTab + '"]').hidden = false;
+          });
+        });
       }
 
       function statCell(v) {
@@ -1013,41 +1596,96 @@
       // Card modal uses, instead of a second, drifting copy of this markup.
       function injuryRow(card) {
         // R1 (GDD Sec 3.8/6.10): real injury status, omitted entirely
-        // when healthy -- never a fabricated "Healthy" badge.
+        // when healthy -- never a fabricated "Healthy" badge. The "(IR)"
+        // suffix used to surface here too (injury.placed_on_ir is a
+        // real, deterministic weeks_out>=4 flag), but no real IR
+        // roster-management system exists (exempt roster spot,
+        // designated-for-return rules, etc.) -- Brian's ask, 2026-09-13:
+        // just show OUT + weeks remaining, not a roster mechanic this
+        // engine doesn't actually model.
         if (!card.injury) { return ''; }
         var inj = card.injury;
-        var label = inj.status + (inj.ir ? ' (IR)' : '') +
+        var label = inj.status +
           (inj.weeks_out > 0 ? ' -- ' + inj.weeks_out + ' wk' + (inj.weeks_out === 1 ? '' : 's') + ' out' : '');
         return '<div class="pc-row"><span class="pc-row-label">Injury</span><span class="pc-injury-status">' +
           inj.severity + ' ' + inj.type + ': ' + label + '</span></div>';
       }
 
       function overviewPanel(card) {
+        // Age moved to the header badge row (Brian's request) -- not
+        // repeated here to avoid showing it twice.
         return injuryRow(card) +
-          '<div class="pc-row"><span class="pc-row-label">Age</span><span>' + card.age + ' years old</span></div>' +
+          bar('Overall', card.ovr) +
           '<div class="pc-row"><span class="pc-row-label">Potential</span><span>' + card.pot + '</span></div>' +
           bar('Morale', card.morale) + bar('Stamina', card.stamina);
       }
 
+      // Ratings tab picker (Brian's request): a real player can have a
+      // long attribute list to scroll through -- this dropdown jumps
+      // straight to one, reusing the exact same "select filters to one
+      // panel, 'All' shows everything" convention Top Performers'
+      // .tp-category-select already established, so it behaves the same
+      // way anywhere in the app.
       function ratingsPanel(card) {
         var rows = '';
         for (var key in card.attrs) {
           if (Object.prototype.hasOwnProperty.call(card.attrs, key)) {
-            rows += bar(key, card.attrs[key]);
+            rows += '<div data-rating-item="' + key + '">' + bar(key, card.attrs[key]) + '</div>';
           }
         }
-        return rows;
+        var options = '<option value="">All Ratings</option>';
+        for (var key2 in card.attrs) {
+          if (Object.prototype.hasOwnProperty.call(card.attrs, key2)) {
+            options += '<option value="' + key2 + '">' + key2 + '</option>';
+          }
+        }
+        return '<select class="pc-rating-picker">' + options + '</select>' + rows;
+      }
+
+      function wireRatingsPicker(container) {
+        var picker = container.querySelector('.pc-rating-picker');
+        if (!picker) { return; }
+        picker.addEventListener('change', function () {
+          var chosen = picker.value;
+          container.querySelectorAll('[data-rating-item]').forEach(function (el) {
+            el.hidden = !!chosen && el.dataset.ratingItem !== chosen;
+          });
+        });
+      }
+
+      // Acquire button (Brian's request): the header-level equivalent of
+      // the Contract tab's own Negotiate button for a free agent (opens
+      // the same real Negotiation modal directly -- this IS the real "FA
+      // signing screen"), or a real hand-off into GM Desk's trade board
+      // for a player on another team, with that exact player pre-added
+      // to the "get" side automatically (see the trade-board init code's
+      // own handling of the ?acquire= query param). Omitted entirely for
+      // the user's own players -- there's nothing to acquire.
+      function acquireButtonHtml(card) {
+        if (card.team === USER_TEAM_ABBR) { return ''; }
+        if (card.team === 'FA') {
+          var faOpts = {
+            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+            actionUrl: '/free-agency/offer', previewUrl: '/free-agency/offer/preview',
+            expectedValue: card.expected_salary, defaultAav: card.expected_salary, defaultYears: 3,
+          };
+          return '<button type="button" class="pc-acquire-btn" data-negotiate="' + attrJson(faOpts) + '">Acquire</button>';
+        }
+        return '<a class="pc-acquire-btn" href="/gm-desk?team_b=' + encodeURIComponent(card.team) +
+          '&acquire=' + encodeURIComponent(card.player_id) + '">Acquire</a>';
       }
 
       function openCard(card) {
-        numEl.textContent = card.num || '--';
+        posAvatarEl.textContent = card.pos;
         nameEl.textContent = card.name;
-        posEl.textContent = card.pos;
         ovrEl.textContent = card.ovr + ' OVR';
         teamEl.textContent = card.team;
+        ageEl.textContent = 'Age ' + card.age;
+        acquireSlotEl.innerHTML = acquireButtonHtml(card);
 
         overviewEl.innerHTML = overviewPanel(card);
         ratingsEl.innerHTML = ratingsPanel(card);
+        wireRatingsPicker(ratingsEl);
         statsEl.innerHTML = statsPanel(card.career);
         contractEl.innerHTML = contractPanel(card);
 
@@ -1067,17 +1705,14 @@
       // R4b (GDD Sec 8.4): a real expected-value figure and a real Sign
       // form, not the R11-era stub (no negotiation system existed then).
       function contractSoughtPanel(card) {
-        var formId = 'fa-offer-' + card.player_id;
+        var faOpts = {
+          playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+          actionUrl: '/free-agency/offer', previewUrl: '/free-agency/offer/preview',
+          expectedValue: card.expected_salary, defaultAav: card.expected_salary, defaultYears: 3,
+        };
         return '<h4 style="margin: 0 0 0.4rem;">Contract Sought</h4>' +
           '<div class="pc-row"><span class="pc-row-label">Expected Value</span><span>' + money(card.expected_salary) + '/yr</span></div>' +
-          '<form id="' + formId + '" method="post" action="/free-agency/offer" style="margin-top: 8px;">' +
-          '<input type="hidden" name="player_id" value="' + card.player_id + '">' +
-          '<label class="pc-row-label">Offer AAV</label> ' +
-          '<input type="number" name="aav" value="' + card.expected_salary + '" min="0" step="10000" style="width: 130px;"> ' +
-          '<label class="pc-row-label">Years</label> ' +
-          '<input type="number" name="years" value="3" min="1" max="7" style="width: 55px;"> ' +
-          '<button type="submit">Sign</button>' +
-          '</form>';
+          '<button type="button" class="pc-negotiate-btn" data-negotiate="' + attrJson(faOpts) + '">Negotiate</button>';
       }
 
       function renderInlineDetail(card, panel) {
@@ -1099,6 +1734,7 @@
           panelsHtml += '<div class="pc-panel" data-inline-panel="sought" hidden>' + contractSoughtPanel(card) + '</div>';
         }
         panel.innerHTML = '<div class="pc-tabs">' + tabsHtml + '</div><div class="pc-body">' + panelsHtml + '</div>';
+        wireRatingsPicker(panel);
       }
 
       // Team Card (Sec3): forks openCard()'s exact shape -- populate each
@@ -1119,6 +1755,7 @@
       var ccRoleEl = document.getElementById('cc-role');
       var ccOvrEl = document.getElementById('cc-ovr');
       var ccTeamEl = document.getElementById('cc-team');
+      var ccAgeEl = document.getElementById('cc-age');
       var ccOverviewEl = document.getElementById('cc-panel-overview');
       var ccRatingsEl = document.getElementById('cc-panel-ratings');
       var ccCareerEl = document.getElementById('cc-panel-career');
@@ -1128,14 +1765,16 @@
       }
 
       function openCoachCard(card) {
-        ccInitialsEl.textContent = card.initials;
+        ccInitialsEl.textContent = card.role;
         ccNameEl.textContent = card.name;
         ccRoleEl.textContent = card.title;
         ccOvrEl.textContent = card.overall + ' OVR';
         ccTeamEl.textContent = card.team_abbr || 'Free Agent';
+        ccAgeEl.textContent = 'Age ' + card.age;
 
-        var overview = ccRow('Age', card.age) +
-          ccRow('Experience', card.experience_years + ' yrs') +
+        // Age moved to the header badge row (same as the Player Card) --
+        // not repeated here to avoid showing it twice.
+        var overview = ccRow('Experience', card.experience_years + ' yrs') +
           ccRow('Reputation', card.reputation) +
           ccRow('Role', card.title) +
           (card.specialty ? ccRow('Specialty', card.specialty) : '') +
@@ -1166,7 +1805,7 @@
           ccRow('Conference Titles', card.conference_titles) +
           ccRow('Super Bowl Wins', card.super_bowl_wins) +
           ccRow('Coach of the Year', card.coach_awards) +
-          ccRow('Salary', card.salary) +
+          ccRow('Salary', money(card.salary)) +
           ccRow('Contract', card.contract_years + ' yr(s) remaining');
         if (card.titles_by_role && card.titles_by_role.length) {
           career += '<div class="pc-stat-heading">Titles by Role Held</div>';
@@ -1297,6 +1936,44 @@
       }
 
       document.addEventListener('click', function (e) {
+        // Negotiation modal trigger (GM Desk re-sign, Free Agency sign,
+        // and the Player Card Contract tab's own "Negotiate" button all
+        // share this one modal -- see openNegotiation() below). A plain
+        // <button data-negotiate='{...}'> is already excluded from the
+        // tr[data-card] whole-row-opens-card branch below (that branch
+        // explicitly skips clicks inside "a, button"), so this needs no
+        // stopPropagation.
+        var negotiateBtn = e.target.closest('[data-negotiate]');
+        if (negotiateBtn) {
+          try {
+            openNegotiation(JSON.parse(negotiateBtn.dataset.negotiate));
+          } catch (err) {
+            console.error('Failed to parse negotiation data', err);
+          }
+          return;
+        }
+
+        // GM Desk's Expiring Contracts table: a plain data-card blob
+        // (the same one tr[data-card] rows and .player-link already use
+        // everywhere else) rather than a second, hand-built opts JSON --
+        // this is always a re-sign (the user's own roster), so the mode
+        // is fixed.
+        var negotiateResignBtn = e.target.closest('[data-negotiate-resign]');
+        if (negotiateResignBtn) {
+          try {
+            var resignCard = JSON.parse(negotiateResignBtn.dataset.card);
+            openNegotiation({
+              playerId: resignCard.player_id, name: resignCard.name, pos: resignCard.pos,
+              ovr: resignCard.ovr, team: resignCard.team,
+              actionUrl: '/gm-desk/offer', previewUrl: '/gm-desk/offer/preview',
+              expectedValue: resignCard.expected_salary, defaultAav: resignCard.salary, defaultYears: 2,
+            });
+          } catch (err) {
+            console.error('Failed to parse player card data', err);
+          }
+          return;
+        }
+
         // M11: Roster table row click opens the Player Card (RosterTable.tsx's
         // own whole-row onClick), not just the name link inside it.
         var rosterRow = e.target.closest('tr[data-card]');
@@ -1487,11 +2164,130 @@
       if (scrollAnchor) {
         sessionStorage.removeItem('ffg-scroll-anchor');
         var anchorEl = document.getElementById(scrollAnchor);
-        if (anchorEl) { anchorEl.scrollIntoView(); }
+        if (anchorEl) {
+          // scrollIntoView() aligns the anchor's TOP with the viewport's
+          // TOP -- but the persistent header is position:sticky, so it
+          // still overlays that same top strip, hiding the anchor's own
+          // heading and first rows behind it. The page LOOKS like it
+          // landed further down than it did (Brian's reports: Free
+          // Agents' position picker, the Depth Chart's Move buttons, and
+          // "various boxes" generally) even though the raw scroll math
+          // was already correct. Scroll up by the header's real rendered
+          // height afterward so the anchor's own top is actually visible
+          // below it, not hidden underneath it.
+          anchorEl.scrollIntoView();
+          var stickyHeader = document.querySelector('header');
+          if (stickyHeader) {
+            window.scrollBy(0, -(stickyHeader.getBoundingClientRect().height + 12));
+          }
+        }
       }
       document.querySelectorAll('[data-preserve-scroll]').forEach(function (el) {
         var save = function () { sessionStorage.setItem('ffg-scroll-anchor', el.dataset.preserveScroll); };
-        el.addEventListener(el.tagName === 'FORM' ? 'submit' : 'click', save);
+        if (el.tagName === 'FORM') {
+          el.addEventListener('submit', save);
+          // A <select onchange="this.form.submit()"> inside this form
+          // (Free Agents' fa_pos/fa_status, GM Desk/Trade's team_b, ...)
+          // calls submit() PROGRAMMATICALLY -- per the HTML spec that
+          // does NOT fire the form's own 'submit' event (only a real
+          // user-initiated submit does), so 'submit' alone silently
+          // never saved the anchor for any of these pickers even though
+          // their form already carried data-preserve-scroll. 'change'
+          // bubbles from the select up to this form before the resulting
+          // navigation actually unloads the page, so listening here too
+          // catches that case for free, with no per-picker fix needed.
+          el.addEventListener('change', save);
+        } else {
+          el.addEventListener('click', save);
+        }
+      });
+
+      // GM Desk Propose Trade board (Football Mogul-style, Brian's own
+      // reference screenshot): click a row to add/remove it from the
+      // deal, double-click opens the real Player Card. Deliberately NOT
+      // the global tr[data-card] single-click-opens-card listener above
+      // -- these rows carry data-trade-card (a different attribute) so a
+      // single click here toggles the trade checkbox instead, with
+      // dblclick reserved for the card.
+      var tradeForm = document.getElementById('trade-form');
+      if (tradeForm) {
+        function renderTradeOffer() {
+          ['give', 'get'].forEach(function (side) {
+            var list = tradeForm.querySelector('.trade-offer-list[data-offer-list="' + side + '"]');
+            var checked = tradeForm.querySelectorAll('.trade-checkbox[data-side="' + side + '"]:checked');
+            if (!checked.length) {
+              list.innerHTML = '<li class="muted trade-offer-empty">Click a player to add them</li>';
+              return;
+            }
+            var html = '';
+            checked.forEach(function (cb) {
+              html += '<li><span>' + cb.dataset.name + ' (' + cb.dataset.pos + ', ' + cb.dataset.ovr + ' OVR)</span>' +
+                '<span>' + money(cb.dataset.salary) + '/yr, ' + cb.dataset.yrs + ' yr' + (cb.dataset.yrs === '1' ? '' : 's') + '</span></li>';
+            });
+            list.innerHTML = html;
+          });
+        }
+
+        tradeForm.querySelectorAll('.trade-row').forEach(function (row) {
+          row.addEventListener('click', function () {
+            var cb = row.querySelector('.trade-checkbox');
+            cb.checked = !cb.checked;
+            row.classList.toggle('selected', cb.checked);
+            renderTradeOffer();
+          });
+          row.addEventListener('dblclick', function () {
+            try {
+              openCard(JSON.parse(row.dataset.tradeCard));
+            } catch (err) {
+              console.error('Failed to parse player card data', err);
+            }
+          });
+        });
+
+        var clearBtn = document.getElementById('trade-clear-btn');
+        if (clearBtn) {
+          clearBtn.addEventListener('click', function () {
+            tradeForm.querySelectorAll('.trade-checkbox:checked').forEach(function (cb) { cb.checked = false; });
+            tradeForm.querySelectorAll('.trade-row.selected').forEach(function (row) { row.classList.remove('selected'); });
+            renderTradeOffer();
+          });
+        }
+
+        // Acquire button hand-off (Brian's request): the Player Card's
+        // own Acquire button (for a player on another team) navigates
+        // here with ?team_b=<their team>&acquire=<player_id> -- pick up
+        // that player_id and pre-add them to the "get" side automatically
+        // instead of making the user find and click their row again.
+        var preselectId = tradeForm.dataset.preselect;
+        if (preselectId) {
+          var preselectCb = tradeForm.querySelector('.trade-checkbox[data-side="get"][value="' + preselectId + '"]');
+          if (preselectCb) {
+            preselectCb.checked = true;
+            preselectCb.closest('.trade-row').classList.add('selected');
+            renderTradeOffer();
+            preselectCb.closest('.trade-row').scrollIntoView({block: 'center'});
+          }
+        }
+      }
+
+      // Double-scrollbar fix (Brian's report): a native <dialog> opened
+      // via showModal() does NOT lock the page underneath it -- the
+      // background page keeps its own scrollbar rendered right next to
+      // the modal's own internal .pc-body/.menu-body scrollbar, even
+      // though the page itself is inert while the dialog has focus. A
+      // MutationObserver on each dialog's own "open" attribute (rather
+      // than wrapping every individual showModal()/close() call site
+      // above) means this works generically for every current and
+      // future dialog in one place.
+      var allDialogs = document.querySelectorAll('dialog');
+      function anyDialogOpen() {
+        return Array.prototype.some.call(allDialogs, function (d) { return d.open; });
+      }
+      function syncBodyScrollLock() {
+        document.body.style.overflow = anyDialogOpen() ? 'hidden' : '';
+      }
+      allDialogs.forEach(function (d) {
+        new MutationObserver(syncBodyScrollLock).observe(d, {attributes: true, attributeFilter: ['open']});
       });
     })();
   </script>

@@ -166,6 +166,26 @@ ACCEPT_THRESHOLD = 0.97
 COUNTER_THRESHOLD = 0.80  # below this, the player just walks (REJECT) rather than countering
 
 
+def offer_reaction(score: float) -> str:
+    """Finer-grained live feedback than the real ACCEPT/COUNTER/REJECT
+    verdict alone (Brian's ask, 2026-09-13, matching a Figma reference's
+    "Player Reaction" label on a slider-based negotiation screen) -- new
+    tuning layered on top of the existing real ACCEPT_THRESHOLD (0.97)/
+    COUNTER_THRESHOLD (0.80), same "this module's own choice, not in the
+    GDD" category as those two. Purely a label; the real verdict
+    computed by evaluate_offer() above is what actually decides
+    ACCEPT/REJECT/COUNTER, this never overrides it."""
+    if score >= 1.05:
+        return "Very Interested"
+    if score >= ACCEPT_THRESHOLD:
+        return "Interested"
+    if score >= 0.88:
+        return "Considering"
+    if score >= COUNTER_THRESHOLD:
+        return "Lowball"
+    return "Not Interested"
+
+
 def evaluate_offer(
     player: Player, offered_aav: float, offered_years: int,
     season_number: int, team_rating: float,
