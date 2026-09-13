@@ -1,0 +1,91 @@
+================================================================================
+R3D IMPLEMENTATION PROMPT — Copy this entire text into a new Claude Code session
+================================================================================
+
+Read these files in order (you'll need them):
+- HANDOFF.md (full context on what happened 2026-09-09 through 2026-09-12)
+- ROADMAP.md (current state, what chunks are done, what's left)
+- docs/GDD_v3.2.md (especially Sections 8.2.3, 8.3.3, 8.4, 7.9)
+- docs/R3d_COACHING_SYSTEM_SPECIFICATION.md (the full R3d design, just written 2026-09-12)
+
+Your task: Implement R3d — Coach Hiring/Firing/Promotion Market — as fully specified in R3d_COACHING_SYSTEM_SPECIFICATION.md.
+
+Key context:
+- R3a/R3b/R3c (Coach entity, import, UI) are DONE (2026-09-11)
+- R4a/R4b/R4c (Contracts/FA/Trades) are DONE (2026-09-12)
+- A1/A2/A3 (Roster Strength) are DONE (2026-09-12)
+- R3d was designed but never implemented; full spec just completed (2026-09-12)
+
+What you're building:
+
+1. **Enhanced Job Security Score (JSS)** — multi-factor, context-aware (not just win-loss)
+2. **OwnerWinPressure** — franchise-level, persistent, yearly adjustment based on expectations
+3. **Firing Probability Model** — probabilistic (not deterministic), with in-season gates, tenure modifiers
+4. **Replacement Logic** — separate from firing; decides WHO to hire once a coach is fired
+5. **Coach Free-Agent Pool** — seeded from Top_100_Football_Coaching_Candidates.xlsx, with real ratings
+6. **AI Autonomy** — all 31 non-user teams autonomously hire/fire/promote every offseason + in-season
+7. **User Controls** — Hire/Fire/Promote buttons on Staff page for the user's own team only
+8. **Emergent Narratives** — the system should naturally produce realistic coaching stories (patient owner + improving team survives; impatient owner + strong roster fires; coordinator failures trigger coordinator fires without HC firing; etc.)
+
+What you're NOT building (disclosed scope cuts):
+- Multi-team AI bidding wars for coaches (single deterministic verdict, like player FA)
+- Coach salary negotiation (they accept/reject based on merit + interest, not haggling)
+- Salary cap on coaching (no cap exists in real NFL)
+
+Settled decisions (do not re-open):
+1. AI teams get full autonomy, user controls their own team manually
+2. Coach free-agent pool is seeded from real coaches (Excel file)
+3. College coaches are rated LOWER than current NFL coaches (prevent wholesale replacement)
+4. Big-school college HC will NOT accept interim-only or assistant roles
+5. OwnerWinPressure does NOT reset when HC is fired (franchise expectations persist)
+6. Build hiring/firing/promotion simultaneously, not in phases
+
+Your implementation should:
+
+1. Read docs/R3d_COACHING_SYSTEM_SPECIFICATION.md completely (it's the authoritative spec, not a suggestion)
+2. Identify which existing files need modifications (coach.py, coach_records.py, main.py, staff.html, etc.)
+3. Identify which new files need to be created (coach_hiring.py, coach_replacement.py, coach_pool.py, etc.)
+4. Implement in this order:
+   a. Enhanced JSS calculation in coach_records.py
+   b. OwnerWinPressure persistent state in Team/Franchise entity
+   c. FiringProbability model (app/engine/coach_hiring.py)
+   d. Replacement logic (app/engine/coach_replacement.py)
+   e. Coach FA pool management (app/services/coach_pool.py)
+   f. AI autonomy loop (season_state.py integration)
+   g. User team manual controls (main.py routes + staff.html UI)
+   h. Testing (20 scenario tests + 10K-season calibration if feasible)
+
+5. Before writing code:
+   a. Verify the Coach model has all necessary fields (JSS, owner_patience per-team, JSS history, etc.)
+   b. Verify you understand how AI teams will autonomously run coaching decisions (offseason + after each game)
+   c. Understand that interim vs. permanent appointment is a real mechanic, not a label
+
+6. Run the test suite after every logical chunk (don't wait until the end)
+
+7. Don't forget:
+   a. Backward compatibility — databases without coaches still work
+   b. The four-path isolation rule for any standalone scripts (see ROADMAP.md Sec 2b)
+   c. Coach backgrounds are real from the seed file; don't fabricate narratives about unnamed coaches
+   d. In-season firing gates are MODIFIERS on the probability, not absolute prohibitions
+
+8. Expected deliverables when done:
+   a. Full JSS calculation for HC/OC/DC/ST/AC
+   b. OwnerWinPressure persistent state with annual adjustment
+   c. Firing probability model that produces ~6-9 HC firings per 32-team season (calibration target)
+   d. Replacement logic that chooses internal promotion vs. external hire
+   e. Coach free-agent pool seeded and managed
+   f. AI autonomy loop running every offseason
+   g. User team manual hire/fire/promote controls
+   h. All 20 scenario tests passing
+   i. Summary of what calibration simulation found (if run)
+
+Scoring targets (calibration):
+- ~6-9 HC firings per season (actual NFL: 7.4 average over 2021-2025)
+- ~12-16 OC/DC changes per season
+- Realistic HC/coordinator tenure distributions
+- Coaches with identical JSS produce different outcomes based on context (not deterministic)
+
+Read the spec completely before you code. If you have questions about the spec itself, ask — don't guess.
+Good luck.
+
+================================================================================
