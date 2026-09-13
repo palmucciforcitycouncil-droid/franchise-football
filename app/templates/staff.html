@@ -9,8 +9,14 @@
   Layout mirrors the source: a wide Head Coach box beside the staff
   summary and the trait-effects panel, then a coordinator row, then the
   assistants, then Find Coaches. Where the source has controls with no
-  real system behind them (Hire/Fire/Negotiate, Focus Area), this page
-  says so on-screen instead of rendering a button that does nothing.
+  real system behind them (Hire/Fire/Negotiate), this page says so
+  on-screen instead of rendering a button that does nothing.
+
+  Focus Area (R13, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md) is real: a
+  per-coach dropdown, editable for the user's own team only, posting to
+  /staff/{team_abbr}/{coach_id}/focus. AI teams' assistants are reassigned
+  autonomously every offseason instead (app/services/coach_ai.py's
+  run_focus_autonomy()) -- shown read-only for them.
 #}
 
 {% macro coach_box(entry, wide=False) %}
@@ -49,6 +55,41 @@
   <div class="pc-row"><span class="pc-row-label">Job Security</span><span>{{ "%.0f"|format(entry.coach.job_security_score) }}/100</span></div>
   {% if entry.coach.appointment_type != "Permanent" %}
   <div class="pc-row"><span class="pc-row-label">Status</span><span>{{ entry.coach.appointment_type }}</span></div>
+  {% endif %}
+  {% if is_user_team %}
+  <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" style="margin-top: 6px;">
+    <label for="focus-{{ entry.coach.coach_id }}" class="pc-row-label">Focus Area</label>
+    <select name="focus_area" id="focus-{{ entry.coach.coach_id }}" onchange="this.form.submit()">
+      {% for fa in focus_areas %}
+      <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% else %}
+  <div class="pc-row"><span class="pc-row-label">Focus Area</span><span>{{ entry.coach.focus_area }}</span></div>
+  {% endif %}
+  {% if is_user_team %}
+  <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/extend" style="margin-top: 6px;">
+    <label class="pc-row-label">Extend Contract</label>
+    <div class="row" style="gap: 6px;">
+      <input type="number" name="aav" min="0" step="1000" placeholder="AAV $" required
+             style="width: 45%;">
+      <input type="number" name="years" min="1" max="7" placeholder="Years" required
+             style="width: 30%;">
+      <button type="submit" style="width: 25%;">Offer</button>
+    </div>
+  </form>
+  {% if extend_feedback and extend_feedback.coach_name == entry.coach.full_name %}
+  <p class="muted" style="font-size: 0.85rem; margin-top: 4px;">
+    {% if extend_feedback.verdict == "ACCEPT" %}
+    Extension accepted.
+    {% elif extend_feedback.verdict == "COUNTER" %}
+    Countered: ${{ "{:,}".format(extend_feedback.counter_aav) }}/yr &times; {{ extend_feedback.counter_years }} yr(s).
+    {% else %}
+    Rejected -- try a higher offer.
+    {% endif %}
+  </p>
+  {% endif %}
   {% endif %}
   {% if is_user_team and entry.role in fireable_roles %}
   <form method="post" action="/staff/{{ team_abbr }}/fire" style="margin-top: 8px;"
@@ -158,13 +199,16 @@
   <h3>Assistant Coaches ({{ assistants | length }})</h3>
   <p class="muted" style="font-size: 0.85rem;">
     Every assistant's specialty is the real position-group title from the seed directory
-    (GDD &sect;7.7.2.1a). Their development ratings feed the offseason progression pass as a
-    pooled staff voice alongside the head coach and coordinator.
+    (GDD &sect;7.7.2.1a). Focus Area (R13) decides which bucket their ratings actually feed
+    into &mdash; not every assistant contributes to player development anymore, only the ones
+    focused there. {% if is_user_team %}Editable below.{% else %}AI teams' assistants are
+    reassigned autonomously every offseason based on real team need
+    (app/services/coach_ai.py's run_focus_autonomy()).{% endif %}
   </p>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Coach</th><th>Specialty</th><th>Age</th><th>Exp</th><th>OVR</th><th>Rep</th><th>Dev (Off)</th><th>Dev (Def)</th><th>Salary</th></tr>
+        <tr><th>Coach</th><th>Specialty</th><th>Age</th><th>Exp</th><th>OVR</th><th>Rep</th><th>Focus Area</th><th>Salary</th></tr>
       </thead>
       <tbody>
         {% for entry in assistants %}
@@ -175,12 +219,23 @@
           <td>{{ entry.coach.experience_years }}</td>
           <td><span class="coach-ovr">{{ entry.coach.overall }}</span></td>
           <td>{{ entry.coach.reputation }}</td>
-          <td>{{ entry.coach.player_dev_offense }}</td>
-          <td>{{ entry.coach.player_dev_defense }}</td>
+          <td>
+            {% if is_user_team %}
+            <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus">
+              <select name="focus_area" onchange="this.form.submit()">
+                {% for fa in focus_areas %}
+                <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
+                {% endfor %}
+              </select>
+            </form>
+            {% else %}
+            {{ entry.coach.focus_area }}
+            {% endif %}
+          </td>
           <td>${{ "{:,}".format(entry.coach.salary_aav) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="muted">No assistant coaches on this staff.</td></tr>
+        <tr><td colspan="8" class="muted">No assistant coaches on this staff.</td></tr>
         {% endfor %}
       </tbody>
     </table>

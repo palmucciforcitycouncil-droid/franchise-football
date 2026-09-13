@@ -75,6 +75,23 @@ SUPER_BOWL_NONE = "NONE"
 SUPER_BOWL_LOSS = "LOSS"
 SUPER_BOWL_WIN = "WIN"
 
+def tier_key(role: CoachRole) -> str:
+    """Which organizational tier `role` belongs to for anything that
+    compares coaches' pay/quality against their real peers -- comparing
+    an assistant's $450K to a head coach's $20M would be meaningless.
+    OC/DC/ST share one tier (the same organizational level; GDD Sec
+    7.9.5's HOF weighting already treats ST as OC/DC's peer). Originally
+    scripts/import_coaches.py's own private `_tier_key` (reputation
+    percentile at import time); promoted here so app/engine/coach_
+    contracts.py's coach_market_value() can share the identical grouping
+    at negotiation time instead of a second, potentially-drifting copy."""
+    if role is CoachRole.HC:
+        return "HC"
+    if role in (CoachRole.OC, CoachRole.DC, CoachRole.ST):
+        return "COORD"
+    return "AC"
+
+
 # R3d (Coach Hiring/Firing/Promotion Market) appointment designations --
 # Sec 5 of docs/R3d_COACHING_SYSTEM_SPECIFICATION.md.
 APPOINTMENT_PERMANENT = "Permanent"
@@ -84,6 +101,66 @@ APPOINTMENT_TEMPORARY_PROMOTION = "TemporaryPromotion"
 APPOINTMENT_TYPES = [
     APPOINTMENT_PERMANENT, APPOINTMENT_INTERIM, APPOINTMENT_ACTING, APPOINTMENT_TEMPORARY_PROMOTION,
 ]
+
+# R13 (Coach Focus Areas, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md) --
+# turns the Figma source's per-coach "Focus Area" dropdown (a real, disclosed
+# no-op through R3c: "nothing in the engine reads a focus area") into a real,
+# consumed choice. `app/engine/coaching.py`'s `build_staff_effect()` groups a
+# staff's ratings by each coach's OWN focus_area instead of hardcoding by
+# role -- Focus Area REALLOCATES an existing coach's influence, it never adds
+# power (keeps the module's own LeagueBaseline calibration guarantee intact).
+# `2 Min Offense` (a real Figma source option) is deliberately NOT included --
+# this engine has no clock/2-minute-drill model anywhere, same reason
+# `clock_management`/`challenge_sense` were deleted from this model outright.
+FOCUS_OF_GAMEPLAN = "OF Gameplan"
+FOCUS_DF_GAMEPLAN = "DF Gameplan"
+# A coach here contributes to BOTH OF Gameplan and DF Gameplan simultaneously,
+# at a reduced weight on each (app/engine/coaching.py's BALANCE_SPLIT_FACTOR)
+# -- real influence on both sides, smaller than fully focusing on just one.
+# The Head Coach's own default (see default_focus_area_for() below).
+FOCUS_BALANCED_GAMEPLAN = "Balanced Gameplan"
+FOCUS_DEVELOPMENT = "Development"
+FOCUS_SPECIAL_TEAMS = "Special Teams Work"
+FOCUS_TRAINING = "Training"
+FOCUS_SCOUTING = "Scouting"
+FOCUS_AREAS = [
+    FOCUS_OF_GAMEPLAN, FOCUS_DF_GAMEPLAN, FOCUS_BALANCED_GAMEPLAN, FOCUS_DEVELOPMENT,
+    FOCUS_SPECIAL_TEAMS, FOCUS_TRAINING, FOCUS_SCOUTING,
+]
+
+
+def default_focus_area_for(role: CoachRole, specialty: Optional[str]) -> str:
+    """The sensible starting focus_area for a freshly-imported or freshly-
+    migrated coach (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 4).
+    Shared by scripts/import_coaches.py (fresh imports/template rebuilds) and
+    scripts/migrate_add_r13_focus_area.py (the existing live DB) so both
+    paths produce identical defaults -- one heuristic, not two that could
+    drift apart.
+
+    HC defaults to Balanced Gameplan (not a single side) -- an earlier draft
+    of this spec defaulted HC to one side, which silently zeroed their
+    contribution to the OTHER side; Balanced Gameplan is the real design fix,
+    not a compatibility patch. AC defaults key off the real seed's own
+    specialty text where it plausibly says something ("special teams",
+    "strength"/"conditioning"); every other AC (the real position coaches --
+    QB/WR/OL/DL/LB/DB/etc.) defaults to Development, matching how every
+    assistant was already pooled into player development before this system
+    existed."""
+    if role is CoachRole.OC:
+        return FOCUS_OF_GAMEPLAN
+    if role is CoachRole.DC:
+        return FOCUS_DF_GAMEPLAN
+    if role is CoachRole.ST:
+        return FOCUS_SPECIAL_TEAMS
+    if role is CoachRole.HC:
+        return FOCUS_BALANCED_GAMEPLAN
+    text = (specialty or "").lower()
+    if "special team" in text:
+        return FOCUS_SPECIAL_TEAMS
+    if "strength" in text or "conditioning" in text:
+        return FOCUS_TRAINING
+    return FOCUS_DEVELOPMENT
+
 
 # R3d's Tier 3 candidate pool (app/services/coach_pool.py) -- real named
 # college/former-NFL candidates seeded from data/raw/coaches/
@@ -182,6 +259,12 @@ class Coach(SQLModel, table=True):
     # file) -- None for the 433 real staff, which has no such text to
     # import and none is fabricated for them.
     background: Optional[str] = None
+
+    # R13: which bucket this coach's ratings feed into (see FOCUS_AREAS
+    # above). Real, changeable via the Staff page for the user's own team;
+    # AI teams' assistants get reassigned autonomously every offseason
+    # (app/services/coach_ai.py's run_focus_autonomy()).
+    focus_area: str = FOCUS_DEVELOPMENT
 
     # --- Career championship rollups by role held (GDD Sec 7.9.1) ---
     hc_afc_championships: int = 0

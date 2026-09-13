@@ -77,7 +77,7 @@ from pathlib import Path
 import pytest
 
 from app.core import db as db_module
-from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool
+from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool, draft_pick_store
 
 # Captured once, at collection time, before any fixture below ever
 # reassigns `db_module.DB_PATH` -- the one stable reference point
@@ -113,6 +113,11 @@ def _isolate_season_save_path():
     # simulated offseason by season_state.start_new_season().
     real_draft_path = draft_store.DEFAULT_PATH
     real_undrafted_path = undrafted_pool.DEFAULT_PATH
+    # Draft-Pick Trading (GDD Sec 8.5): same session-scoped throwaway-path
+    # treatment as draft_store/undrafted_pool above -- real persistent
+    # pick ownership, written by every real rollover (season_state.py's
+    # _build_season()) and by app/engine/trades.py's execute_trade().
+    real_pick_inventory_path = draft_pick_store.DEFAULT_PATH
     # Multi-save games (save_manager.py): defense in depth -- no existing
     # test creates/loads/deletes a save (see that module's own docstring
     # for why its registry-existence check already makes it a no-op in
@@ -130,9 +135,10 @@ def _isolate_season_save_path():
     test_headlines_path = Path("data/saves/_test_isolated_headlines_history.json")
     test_draft_path = Path("data/saves/_test_isolated_draft_history.json")
     test_undrafted_path = Path("data/saves/_test_isolated_undrafted_pool.json")
+    test_pick_inventory_path = Path("data/saves/_test_isolated_pick_inventory.json")
     test_registry_path = Path("data/saves/_test_isolated_registry.json")
     test_saves_root = Path("data/saves/_test_isolated_games")
-    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path):
+    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_pick_inventory_path, test_registry_path):
         p.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
     shutil.rmtree(test_saves_root, ignore_errors=True)
     save_service.DEFAULT_SAVE_PATH = test_path
@@ -143,6 +149,7 @@ def _isolate_season_save_path():
     headlines_history.DEFAULT_PATH = test_headlines_path
     draft_store.DEFAULT_PATH = test_draft_path
     undrafted_pool.DEFAULT_PATH = test_undrafted_path
+    draft_pick_store.DEFAULT_PATH = test_pick_inventory_path
     save_manager.REGISTRY_PATH = test_registry_path
     save_manager.SAVES_ROOT = test_saves_root
     owner_pressure_store.clear_cache()
@@ -158,11 +165,12 @@ def _isolate_season_save_path():
         headlines_history.DEFAULT_PATH = real_headlines_path
         draft_store.DEFAULT_PATH = real_draft_path
         undrafted_pool.DEFAULT_PATH = real_undrafted_path
+        draft_pick_store.DEFAULT_PATH = real_pick_inventory_path
         save_manager.REGISTRY_PATH = real_registry_path
         save_manager.SAVES_ROOT = real_saves_root
         owner_pressure_store.clear_cache()
         team_expectations.clear_cache()
-        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path):
+        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_pick_inventory_path, test_registry_path):
             p.unlink(missing_ok=True)
         shutil.rmtree(test_saves_root, ignore_errors=True)
 

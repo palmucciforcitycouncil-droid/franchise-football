@@ -43,11 +43,26 @@ scales here are this module's own documented choices -- GDD Sec 7.7.2.2
 defines the sliders and their direction but gives no formula converting
 a 0-100 slider into a probability shift, the same gap gameplan.py's own
 docstring notes for its option tooltips.
+
+**R13 (Coach Focus Areas, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md):**
+build_staff_effect() used to gather each slider by ROLE (the OC's tendency
+sliders always drove offense, the DC's always drove defense, every coach's
+dev ratings were always pooled). It now gathers by each coach's OWN chosen
+`focus_area` instead -- a coach not focused on a bucket contributes NOTHING
+to it, full stop. This is a REALLOCATION, not an added power source: the
+same `LeagueBaseline` centering below still guarantees a staff can only move
+its own team relative to the league, never move the league itself, exactly
+as before. `_weighted_blend()` is the one new primitive this required --
+everything downstream of it (the StaffEffect fields, every accessor
+function) is unchanged from the pre-R13 shape.
 """
 from __future__ import annotations
 from dataclasses import dataclass
 
-from app.models.coach import Coach, CoachRole
+from app.models.coach import (
+    Coach, CoachRole, FOCUS_OF_GAMEPLAN, FOCUS_DF_GAMEPLAN, FOCUS_BALANCED_GAMEPLAN,
+    FOCUS_DEVELOPMENT, FOCUS_SPECIAL_TEAMS, FOCUS_TRAINING,
+)
 
 # Rating -> bias scales. A 0-100 rating is read as its distance from the
 # LEAGUE AVERAGE for that rating (see LeagueBaseline below), scaled into
@@ -72,13 +87,25 @@ PENALTY_RATE_AT_MAX_DISCIPLINE = 0.70
 # progression formula is where it lands).
 DEV_MULTIPLIER_MIN = 0.85
 DEV_MULTIPLIER_MAX = 1.15
+# R13 Sec 5.2: motivation_chemistry -> injury-rate multiplier (Training
+# focus). Same shape as the discipline->penalty-rate pair above -- a
+# league-average Training investment lands on exactly 1.0.
+INJURY_RISK_AT_ZERO_TRAINING = 1.20
+INJURY_RISK_AT_MAX_TRAINING = 0.80
 
-# How much of a side's identity comes from the coordinator vs. the head
-# coach. The coordinator calls that side of the ball; the head coach
-# sets the program's overall temperament. With no coordinator hired,
-# the head coach carries the full weight.
-COORDINATOR_WEIGHT = 0.6
-HEAD_COACH_WEIGHT = 0.4
+# R13 Sec 5.1: how much weight a coach's OWN chosen focus_area carries into
+# whichever bucket it targets -- replaces the old two-tier COORDINATOR_WEIGHT/
+# HEAD_COACH_WEIGHT role-based split with a focus-based one covering all
+# three staff tiers. Values chosen so a bucket with exactly one HC + one
+# coordinator focused there reproduces the old 0.4/0.6 split exactly.
+HC_TIER_WEIGHT = 0.4
+COORDINATOR_TIER_WEIGHT = 0.6
+ASSISTANT_TIER_WEIGHT = 0.3
+# Balanced Gameplan (R13 Sec 5.1): a coach here contributes to BOTH OF
+# Gameplan and DF Gameplan at this fraction of their normal tier weight on
+# EACH side -- real influence on both, smaller than fully focusing on one
+# (Brian's own explicit design, 2026-09-13).
+BALANCE_SPLIT_FACTOR = 0.5
 
 # The rating value that counts as "league average" when no real league
 # is available to measure against (unit tests with hand-built staffs,
@@ -111,6 +138,10 @@ class LeagueBaseline:
     dev_offense: float = NEUTRAL_RATING
     dev_defense: float = NEUTRAL_RATING
     tendency: float = NEUTRAL_RATING
+    # R13: motivation_chemistry's league mean -- same pool shape as
+    # dev_offense/dev_defense (mean across every employed coach), NOT
+    # HC-only like discipline, since Training can be any coach's focus.
+    motivation_chemistry: float = NEUTRAL_RATING
 
 
 NEUTRAL_BASELINE = LeagueBaseline()
@@ -143,24 +174,59 @@ class StaffEffect:
     fg_range_bonus: float = 0.0
     dev_multiplier_offense: float = 1.0
     dev_multiplier_defense: float = 1.0
+    # R13 Sec 5.2: Training focus (via motivation_chemistry) -> injury-rate
+    # multiplier. 1.0 = league-average Training investment, same shape as
+    # penalty_rate_multiplier above.
+    injury_risk_multiplier: float = 1.0
 
 
 NEUTRAL = StaffEffect(team_abbr="")
 
 
-def _blend(coordinator: Coach | None, head: Coach | None, attr: str) -> int:
-    """Coordinator-weighted blend of one slider, falling back cleanly
-    when either seat is vacant. Returns a league-average 50 when the
-    team has no staff at all, which makes every bias below exactly
-    zero -- i.e. the pre-coach engine behavior."""
-    if coordinator is not None and head is not None:
-        return int(round(COORDINATOR_WEIGHT * getattr(coordinator, attr)
-                         + HEAD_COACH_WEIGHT * getattr(head, attr)))
-    if coordinator is not None:
-        return getattr(coordinator, attr)
-    if head is not None:
-        return getattr(head, attr)
-    return 50
+def _tier_weight(role: CoachRole) -> float:
+    """R13 Sec 5.1: how much one coach's focus_area choice counts,
+    by their organizational tier -- HC > coordinator (OC/DC/ST) >
+    assistant. Replaces the old COORDINATOR_WEIGHT/HEAD_COACH_WEIGHT
+    two-tier split."""
+    if role is CoachRole.HC:
+        return HC_TIER_WEIGHT
+    if role is CoachRole.AC:
+        return ASSISTANT_TIER_WEIGHT
+    return COORDINATOR_TIER_WEIGHT
+
+
+def _bucket_weight(coach: Coach, target_focus: str) -> float:
+    """How much weight `coach` contributes to `target_focus`'s blend: their
+    full tier weight if focused there directly, `BALANCE_SPLIT_FACTOR` of it
+    if Balanced Gameplan and `target_focus` is one of the two gameplan
+    buckets (R13 Sec 5.1), otherwise 0.0 -- a coach contributes NOTHING
+    outside their own chosen focus, the whole point of this being a
+    reallocation rather than free power."""
+    if coach.focus_area == target_focus:
+        return _tier_weight(CoachRole(coach.role))
+    if coach.focus_area == FOCUS_BALANCED_GAMEPLAN and target_focus in (FOCUS_OF_GAMEPLAN, FOCUS_DF_GAMEPLAN):
+        return _tier_weight(CoachRole(coach.role)) * BALANCE_SPLIT_FACTOR
+    return 0.0
+
+
+def _weighted_blend(staff, target_focus: str, attr: str, fallback: float) -> float:
+    """Tier-weighted average of `attr` across every coach in `staff`
+    contributing to `target_focus` (via `_bucket_weight`). Returns
+    `fallback` when nobody contributes at all -- the same graceful
+    degradation the old `_blend()` had for a vacant coordinator seat,
+    generalized to "nobody focused here" instead of "role not filled".
+    Passing the bucket's own league-baseline value as `fallback` makes an
+    empty bucket collapse to an exactly-neutral (1.0x) multiplier
+    downstream, via `_slider(fallback, fallback) == 0`."""
+    total_weight = 0.0
+    total = 0.0
+    for coach in staff:
+        w = _bucket_weight(coach, target_focus)
+        if w <= 0:
+            continue
+        total_weight += w
+        total += w * getattr(coach, attr)
+    return total / total_weight if total_weight > 0 else fallback
 
 
 def _dev_multiplier(rating: float, center: float) -> float:
@@ -176,66 +242,71 @@ def _penalty_multiplier(discipline: float, center: float) -> float:
     return 1.0 - _slider(discipline, center) * span
 
 
+def _injury_risk_multiplier(motivation_chemistry: float, center: float) -> float:
+    """R13 Sec 5.2: Training focus (via motivation_chemistry) -> injury-rate
+    multiplier, same shape as _penalty_multiplier above."""
+    hi, lo = INJURY_RISK_AT_ZERO_TRAINING, INJURY_RISK_AT_MAX_TRAINING
+    span = (hi - lo) / 2.0
+    return 1.0 - _slider(motivation_chemistry, center) * span
+
+
 def build_staff_effect(team_abbr: str, staff: list[Coach] | tuple[Coach, ...],
                        baseline: LeagueBaseline = NEUTRAL_BASELINE) -> StaffEffect:
     """Pure reduction of a staff list to sim biases -- no DB access, so
     it's directly unit-testable with hand-built Coach objects. Use
     staff_effect_for() for the cached, DB-backed version, which supplies
-    the real measured `baseline` for this league."""
-    by_role: dict[CoachRole, Coach] = {}
-    assistants: list[Coach] = []
-    for coach in staff:
-        role = CoachRole(coach.role)
-        if role is CoachRole.AC:
-            assistants.append(coach)
-        elif role not in by_role:
-            by_role[role] = coach
+    the real measured `baseline` for this league.
 
-    head = by_role.get(CoachRole.HC)
-    oc = by_role.get(CoachRole.OC)
-    dc = by_role.get(CoachRole.DC)
-    st = by_role.get(CoachRole.ST)
-
-    if head is None and oc is None and dc is None and st is None and not assistants:
+    R13: every input below is gathered via `_weighted_blend()`, keyed by
+    each coach's OWN `focus_area` rather than their role -- a coach whose
+    focus points elsewhere contributes NOTHING to a given bucket. An empty
+    staff (no coaches at all) is the one case handled outside that
+    machinery, short-circuiting to a fully neutral effect exactly as
+    before R13."""
+    if not staff:
         return StaffEffect(team_abbr=team_abbr)
 
+    head = next((c for c in staff if CoachRole(c.role) is CoachRole.HC), None)
+
+    t = baseline.tendency
+    of_run_pass = _weighted_blend(staff, FOCUS_OF_GAMEPLAN, "run_pass_tendency", t)
+    of_rz_bias = _weighted_blend(staff, FOCUS_OF_GAMEPLAN, "red_zone_offense_bias", t)
+    of_aggression = _weighted_blend(staff, FOCUS_OF_GAMEPLAN, "offensive_aggression", t)
+    of_two_point = _weighted_blend(staff, FOCUS_OF_GAMEPLAN, "two_point_tendency", t)
+    df_blitz = _weighted_blend(staff, FOCUS_DF_GAMEPLAN, "blitz_rate", t)
+    df_rz_bias = _weighted_blend(staff, FOCUS_DF_GAMEPLAN, "red_zone_defense_bias", t)
     # coverage_mix is 0 = man heavy, 100 = zone heavy (Sec 7.7.2.2).
     # decide_coverage()'s own default is a 40% man / 60% zone split, so
     # a league-average staff must land on exactly 0.40 for this system
     # to be a lean rather than a recalibration.
-    coverage_mix = _blend(dc, head, "coverage_mix")
-    man_prob = max(0.10, min(0.75, 0.40 - _slider(coverage_mix, baseline.tendency) * COVERAGE_SWING))
+    df_coverage = _weighted_blend(staff, FOCUS_DF_GAMEPLAN, "coverage_mix", t)
+    df_fourth = _weighted_blend(staff, FOCUS_DF_GAMEPLAN, "fourth_down_defense", t)
+    man_prob = max(0.10, min(0.75, 0.40 - _slider(df_coverage, t) * COVERAGE_SWING))
 
-    dev_off_pool = [c.player_dev_offense for c in [head, oc] if c is not None]
-    dev_def_pool = [c.player_dev_defense for c in [head, dc] if c is not None]
-    if assistants:
-        # Position coaches genuinely are where day-to-day development
-        # happens, so the assistant pool gets a real (if smaller) say:
-        # one averaged "assistants" voice alongside the HC and the
-        # coordinator, not one vote per assistant (which would let a
-        # 14-deep staff drown out both).
-        dev_off_pool.append(sum(c.player_dev_offense for c in assistants) / len(assistants))
-        dev_def_pool.append(sum(c.player_dev_defense for c in assistants) / len(assistants))
+    dev_off = _weighted_blend(staff, FOCUS_DEVELOPMENT, "player_dev_offense", baseline.dev_offense)
+    dev_def = _weighted_blend(staff, FOCUS_DEVELOPMENT, "player_dev_defense", baseline.dev_defense)
+    training_mc = _weighted_blend(staff, FOCUS_TRAINING, "motivation_chemistry", baseline.motivation_chemistry)
+    st_focus = _weighted_blend(staff, FOCUS_SPECIAL_TEAMS, "special_teams_focus", t)
 
-    t = baseline.tendency
     return StaffEffect(
         team_abbr=team_abbr,
-        pass_bias=_slider(_blend(oc, head, "run_pass_tendency"), t) * PASS_MIX_SCALE,
-        rz_pass_bias=_slider(_blend(oc, head, "red_zone_offense_bias"), t) * RZ_PASS_SCALE,
-        fourth_down_bias=_slider(_blend(oc, head, "offensive_aggression"), t) * FOURTH_DOWN_SCALE,
-        two_point_bias=_slider(_blend(oc, head, "two_point_tendency"), t) * TWO_POINT_SCALE,
-        blitz_bias=_slider(_blend(dc, head, "blitz_rate"), t) * BLITZ_SCALE,
-        rz_blitz_bias=_slider(_blend(dc, head, "red_zone_defense_bias"), t) * RZ_BLITZ_SCALE,
+        pass_bias=_slider(of_run_pass, t) * PASS_MIX_SCALE,
+        rz_pass_bias=_slider(of_rz_bias, t) * RZ_PASS_SCALE,
+        fourth_down_bias=_slider(of_aggression, t) * FOURTH_DOWN_SCALE,
+        two_point_bias=_slider(of_two_point, t) * TWO_POINT_SCALE,
+        blitz_bias=_slider(df_blitz, t) * BLITZ_SCALE,
+        rz_blitz_bias=_slider(df_rz_bias, t) * RZ_BLITZ_SCALE,
         man_coverage_prob=man_prob,
-        run_tactic_extra_penalty=(max(0.0, _slider(_blend(dc, head, "fourth_down_defense"), t))
-                                  * FOURTH_DOWN_DEFENSE_SCALE * 20),
+        run_tactic_extra_penalty=max(0.0, _slider(df_fourth, t)) * FOURTH_DOWN_DEFENSE_SCALE * 20,
+        # discipline stays a fixed HC-only read, unaffected by focus_area
+        # (R13 Sec 5.1: not everything becomes reallocatable -- a program's
+        # discipline culture is a leadership trait, not a delegable focus).
         penalty_rate_multiplier=_penalty_multiplier(
             head.discipline if head else baseline.discipline, baseline.discipline),
-        fg_range_bonus=_slider(st.special_teams_focus if st else t, t) * FG_RANGE_SCALE,
-        dev_multiplier_offense=(_dev_multiplier(sum(dev_off_pool) / len(dev_off_pool), baseline.dev_offense)
-                                if dev_off_pool else 1.0),
-        dev_multiplier_defense=(_dev_multiplier(sum(dev_def_pool) / len(dev_def_pool), baseline.dev_defense)
-                                if dev_def_pool else 1.0),
+        fg_range_bonus=_slider(st_focus, t) * FG_RANGE_SCALE,
+        dev_multiplier_offense=_dev_multiplier(dev_off, baseline.dev_offense),
+        dev_multiplier_defense=_dev_multiplier(dev_def, baseline.dev_defense),
+        injury_risk_multiplier=_injury_risk_multiplier(training_mc, baseline.motivation_chemistry),
     )
 
 
@@ -244,15 +315,19 @@ def league_baseline() -> LeagueBaseline:
     Computed once from every employed coach and cached; cleared by
     clear_cache() whenever a Coach row changes.
 
-    Each pool matches how that rating is actually consumed:
-    `discipline` is only ever read off the HEAD coach, so its baseline
-    is the mean across the 32 head coaches -- not across all 433
-    staffers, which would measure Andy Reid against a $450K assistant.
-    The development ratings are blended across a whole staff, so theirs
-    is the mean across every coach. The tendency sliders are drawn
-    symmetrically around 50 by construction, so their baseline is the
-    mean of every slider on every coach, which lands on ~50 and
-    confirms that rather than assuming it."""
+    Each pool matches how that rating is actually consumed, and is
+    DELIBERATELY independent of any coach's current focus_area -- what
+    counts as "average" for a rating is a property of the coaching
+    population, not of who currently happens to be focused where (that
+    would create a feedback loop as focus assignments change). `discipline`
+    is only ever read off the HEAD coach, so its baseline is the mean
+    across the 32 head coaches -- not across all 433 staffers, which would
+    measure Andy Reid against a $450K assistant. The development ratings
+    and motivation_chemistry (R13's Training input) are blended across a
+    whole staff, so theirs is the mean across every coach. The tendency
+    sliders are drawn symmetrically around 50 by construction, so their
+    baseline is the mean of every slider on every coach, which lands on
+    ~50 and confirms that rather than assuming it."""
     global _BASELINE
     if _BASELINE is not None:
         return _BASELINE
@@ -274,6 +349,7 @@ def league_baseline() -> LeagueBaseline:
         discipline=sum(c.discipline for c in heads) / len(heads) if heads else NEUTRAL_RATING,
         dev_offense=sum(c.player_dev_offense for c in coaches) / len(coaches),
         dev_defense=sum(c.player_dev_defense for c in coaches) / len(coaches),
+        motivation_chemistry=sum(c.motivation_chemistry for c in coaches) / len(coaches),
         tendency=sum(tendency_values) / len(tendency_values),
     )
     return _BASELINE
@@ -358,3 +434,9 @@ def fg_range_bonus(effect: StaffEffect | None) -> float:
     goal (GDD Sec 7.7.2.2: special_teams_focus "affects ... average FG
     try distances")."""
     return 0.0 if effect is None else effect.fg_range_bonus
+
+
+def injury_risk_multiplier(effect: StaffEffect | None) -> float:
+    """R13 Sec 5.2: Training-focused staff (via motivation_chemistry) ->
+    team injury-rate multiplier."""
+    return 1.0 if effect is None else effect.injury_risk_multiplier

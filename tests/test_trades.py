@@ -1,14 +1,13 @@
 """
-Trades tests (ROADMAP.md R4c; GDD Part 1 Sec 8.5). Style follows this
-suite's existing convention -- hand-built fixtures, exact/directional
-expected values for the pure functions. See app/engine/trades.py's own
-module docstring for the real, disclosed scope cut (no draft picks --
-no Draft system exists) from the GDD's fuller design.
+Trades tests (ROADMAP.md R4c; GDD Part 1 Sec 8.5) -- players AND real
+draft picks. Style follows this suite's existing convention -- hand-built
+fixtures, exact/directional expected values for the pure functions.
 """
 from __future__ import annotations
 
-from app.engine import trades
+from app.engine import draft, trades
 from app.models.player import Player, Position
+from app.services.season_state import Season, TeamRecord
 
 
 def _player(position: Position, overall: int, player_id: str, age: int = 26,
@@ -92,3 +91,79 @@ def test_execute_trade_swaps_team_abbr_on_both_sides():
     trades.execute_trade("AA", a_players, "BB", b_players)
     assert a_players[0].team_abbr == "BB"
     assert b_players[0].team_abbr == "AA"
+
+
+# --------------------------------------------------------------------
+# Draft-Pick Trading (GDD Sec 8.5, app/services/draft_pick_store.py)
+# --------------------------------------------------------------------
+
+def _season_with_records(records: dict[str, tuple[int, int]]) -> Season:
+    recs = {abbr: TeamRecord(abbr=abbr, location=abbr, wins=w, losses=l) for abbr, (w, l) in records.items()}
+    return Season(league_seed=1, schedule=[], records=recs)
+
+
+def test_estimated_pick_order_rank_puts_the_worst_record_first():
+    season = _season_with_records({"AA": (0, 10), "BB": (5, 5), "CC": (10, 0)})
+    assert draft.estimated_pick_order_rank(season, "AA") == 1
+    assert draft.estimated_pick_order_rank(season, "CC") == 3
+
+
+def test_pick_value_uses_the_real_sec_4_1_chart():
+    assert draft.pick_value(1, 1) == 3000
+    assert draft.pick_value(1, 32) == 1400
+    assert draft.pick_value(7, 32) == 2
+
+
+def test_pick_trade_value_converts_points_to_dollars():
+    season = _season_with_records({"AA": (0, 10), "BB": (10, 0)})
+    pick = trades.PickRef(season_number=1, round=1, original_team_abbr="AA")
+    value = trades.pick_trade_value(pick, season)
+    assert value == draft.pick_value(1, 1) * trades.DOLLARS_PER_PICK_POINT
+
+
+def test_evaluate_trade_requires_a_season_when_picks_are_included():
+    import pytest
+    give_pick = trades.PickRef(1, 1, "AA")
+    with pytest.raises(ValueError):
+        trades.evaluate_trade([], [], season_number=0, ai_sends_picks=[give_pick])
+
+
+def test_evaluate_trade_includes_real_pick_value_on_both_sides():
+    season = _season_with_records({"AA": (0, 10), "BB": (10, 0)})
+    # AA's own real future 1st-round pick (worst record = highest value)
+    # sent for literally nothing -- a real, lopsided ask the AI must reject.
+    give_pick = trades.PickRef(1, 1, "AA")
+    result = trades.evaluate_trade([], [], season_number=1, ai_sends_picks=[give_pick], season=season)
+    assert result.value_sent > 0
+    assert not result.accepted
+
+
+def test_evaluate_trade_still_works_player_only_with_no_season(): # regression: existing R4c shape
+    give = [_player(Position.WR, 80, "wr1", salary=5_000_000)]
+    get = [_player(Position.WR, 80, "wr2", salary=5_000_000)]
+    result = trades.evaluate_trade(give, get, season_number=0)  # no picks, no season -- must not raise
+    assert result.accepted
+
+
+def test_execute_trade_transfers_real_pick_ownership(monkeypatch):
+    from app.services import draft_pick_store
+    transferred = []
+    monkeypatch.setattr(
+        draft_pick_store, "transfer_pick",
+        lambda season_number, round, original_team_abbr, new_owner_abbr, path=None:
+            transferred.append((season_number, round, original_team_abbr, new_owner_abbr)),
+    )
+    pick_a = trades.PickRef(1, 2, "AA")
+    pick_b = trades.PickRef(1, 3, "BB")
+    trades.execute_trade("AA", [], "BB", [], team_a_picks=[pick_a], team_b_picks=[pick_b])
+    assert (1, 2, "AA", "BB") in transferred
+    assert (1, 3, "BB", "AA") in transferred
+
+
+def test_execute_trade_with_no_picks_never_touches_the_pick_store(monkeypatch):
+    from app.services import draft_pick_store
+    monkeypatch.setattr(draft_pick_store, "transfer_pick",
+                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not be called")))
+    a_players = [_player(Position.WR, 80, "wr1", team_abbr="AA")]
+    b_players = [_player(Position.QB, 85, "qb1", team_abbr="BB")]
+    trades.execute_trade("AA", a_players, "BB", b_players)  # must not raise

@@ -542,6 +542,54 @@ def test_gm_desk_is_real_not_a_stub():
     assert "Cap Space" in resp.text
 
 
+def test_gm_desk_trade_panel_shows_real_tradeable_picks():
+    """Draft-Pick Trading (GDD Sec 8.5): the Propose Trade panel lists
+    real, currently-owned picks for both sides, not just players."""
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    resp = client.get("/gm-desk?team_b=BUF")
+    assert resp.status_code == 200
+    assert "Round 1" in resp.text  # the user's own current-season 1st, at minimum
+
+
+def test_gm_desk_trade_route_accepts_a_pick_for_pick_swap():
+    """A pick-for-pick trade (no players either side) really transfers
+    ownership via app/services/draft_pick_store.py once accepted."""
+    from app.services import draft_pick_store
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+
+    kc_pick = draft_pick_store.picks_owned_by("KC")[0]
+    buf_pick = draft_pick_store.picks_owned_by("BUF")[0]
+
+    resp = client.post("/gm-desk/trade", data={
+        "team_b": "BUF", "give_picks": [kc_pick.pick_id], "get_picks": [buf_pick.pick_id],
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "trade_result=" in resp.headers["location"]
+    # Whether accepted or not, the route must not have crashed -- and if
+    # accepted, ownership really moved.
+    if "trade_result=ACCEPT" in resp.headers["location"]:
+        assert draft_pick_store.owner_of(kc_pick.season_number, kc_pick.round, kc_pick.original_team_abbr) == "BUF"
+        assert draft_pick_store.owner_of(buf_pick.season_number, buf_pick.round, buf_pick.original_team_abbr) == "KC"
+
+
+def test_gm_desk_trade_route_rejects_a_pick_not_owned_by_the_offering_team():
+    from app.services import draft_pick_store
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+
+    someone_elses_pick = draft_pick_store.picks_owned_by("BUF")[0]  # KC does NOT own this
+    sf_pick = draft_pick_store.picks_owned_by("SF")[0]
+    resp = client.post("/gm-desk/trade", data={
+        "team_b": "SF", "give_picks": [someone_elses_pick.pick_id], "get_picks": [sf_pick.pick_id],
+    })
+    assert resp.status_code == 404
+
+
 def test_staff_page_is_real_not_a_stub():
     """ROADMAP.md R3: /staff renders the real coaching staff -- the head
     coach by name, the Trait Effects panel showing the actual sim biases

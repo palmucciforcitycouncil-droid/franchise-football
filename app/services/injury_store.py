@@ -88,6 +88,21 @@ def season_injury_count(season_number: int) -> int:
         return 0
 
 
+def team_season_injury_count(season_number: int, team_abbr: str) -> int:
+    """Same as season_injury_count() but for one team -- R13's AI Focus
+    Autonomy (app/services/coach_ai.py's run_focus_autonomy()) uses this
+    real per-team signal to bias assistant reassignment toward Training
+    for a team that had an above-average injury season."""
+    try:
+        with get_session() as session:
+            rows = session.exec(
+                select(Injury).where(Injury.season_number == season_number, Injury.team_abbr == team_abbr)
+            ).all()
+            return len(rows)
+    except OperationalError:
+        return 0
+
+
 def resolve_all_active() -> None:
     """Offseason healing: real NFL players recover over an offseason,
     and this engine doesn't model offseason-carryover injury risk (Sec

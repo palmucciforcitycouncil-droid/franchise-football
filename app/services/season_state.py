@@ -155,6 +155,12 @@ def _build_season(
     records = {
         t.abbr: TeamRecord(abbr=t.abbr, location=t.location) for t in TEAMS
     }
+    # Draft-Pick Trading (GDD Sec 8.5): keeps the real 3-draft-year
+    # tradeable window (this season + the next two) always seeded as a
+    # new season starts, whether that's a brand-new franchise
+    # (reset_season()) or a real rollover (start_new_season()).
+    from app.services import draft_pick_store
+    draft_pick_store.ensure_lookahead_seeded(season_number)
     return Season(league_seed=league_seed, schedule=schedule, records=records, season_number=season_number,
                   preseason_schedule=preseason_schedule)
 
@@ -689,6 +695,20 @@ def apply_coach_offseason(season: Season) -> int:
                     coach, team_ranks, season.season_number, season.league_seed,
                 )
                 coach_progression.apply_coach_progression(coach, result)
+                # Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
+                # Sec 11): contract_years now really counts down, same rollover
+                # spot Player.contract_years_remaining already decrements at
+                # (R4a). Employed coaches only -- a free agent (team_abbr is
+                # None, e.g. just fired, or a never-hired pool candidate) has
+                # no active contract to count down. Floored at 0, not
+                # negative -- 0 means "expired," not "owes the team years."
+                # AI teams' expired contracts get resolved by coach_ai.run_
+                # offseason_autonomy() right below; the user's own team's
+                # expired contracts just sit at 0 until the user explicitly
+                # Extends or Fires (same "user coaching moves are always
+                # manual" precedent as Fire/Hire).
+                if coach.team_abbr is not None:
+                    coach.contract_years = max(0, coach.contract_years - 1)
                 s.add(coach)
                 updated += 1
             s.commit()
@@ -707,6 +727,14 @@ def apply_coach_offseason(season: Season) -> int:
     # its manual equivalent.
     from app.services import coach_ai
     coach_ai.run_offseason_autonomy(season, exclude_team_abbr=season.user_team_abbr)
+    coach_store.clear_cache()
+    coaching.clear_cache()
+
+    # R13 Sec 7: AI Focus Autonomy -- reassigns AI teams' ASSISTANT coaches'
+    # Focus Areas based on this season's real signals. Runs last, after
+    # hiring/firing has already settled this offseason's real staff, so it
+    # never re-evaluates a coach who was just fired.
+    coach_ai.run_focus_autonomy(season, exclude_team_abbr=season.user_team_abbr)
     coach_store.clear_cache()
     coaching.clear_cache()
 

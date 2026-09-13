@@ -25,7 +25,11 @@ from app.engine import coaching, coach_progression
 from app.engine.awards import (
     _pythagorean_expected_wins, _rank_norm, coach_of_the_year,
 )
-from app.models.coach import Coach, CoachRole, CoachSeasonStats
+from app.models.coach import (
+    Coach, CoachRole, CoachSeasonStats,
+    FOCUS_OF_GAMEPLAN, FOCUS_DF_GAMEPLAN, FOCUS_BALANCED_GAMEPLAN, FOCUS_DEVELOPMENT,
+    FOCUS_SPECIAL_TEAMS, FOCUS_TRAINING, FOCUS_SCOUTING, default_focus_area_for,
+)
 from app.services import coach_store, coach_records, season_state
 from scripts.import_coaches import (
     build_coaches, coach_id_for, dedupe_entries, map_title, parse_seed,
@@ -150,10 +154,17 @@ def test_generated_profiles_are_deterministic_for_a_given_league_seed():
 
 def _coach(role: CoachRole, **overrides) -> Coach:
     """A neutral coach (every slider and rating at a league-average 50)
-    so a test only has to state the one field it's actually exercising."""
+    so a test only has to state the one field it's actually exercising.
+
+    R13: defaults `focus_area` to this role's own real Sec 4 default
+    (default_focus_area_for) rather than the model's bare "Development"
+    fallback -- an OC/DC/ST built here contributes to the bucket its role
+    name implies unless a test explicitly overrides focus_area to test
+    reassignment itself."""
     fields = dict(
         coach_id=f"test_{role.value.lower()}", first_name="Test", last_name=role.value,
         role=role, team_abbr="TST", salary_aav=1_000_000, reputation=50,
+        focus_area=default_focus_area_for(role, None),
     )
     fields.update(overrides)
     return Coach(**fields)
@@ -186,10 +197,12 @@ def test_a_league_average_staff_also_produces_no_bias():
 
 def test_a_pass_happy_coordinator_outweighs_the_head_coach():
     """Sec 7.7.2.2's run_pass_tendency, blended 60/40 toward whoever
-    actually calls that side of the ball."""
+    actually calls that side of the ball -- both coaches focused directly
+    on OF Gameplan here (not the HC's own Balanced-Gameplan default, which
+    has its own dedicated split-weight test below)."""
     staff = [
-        _coach(CoachRole.HC, run_pass_tendency=50),
-        _coach(CoachRole.OC, run_pass_tendency=100),
+        _coach(CoachRole.HC, run_pass_tendency=50, focus_area=FOCUS_OF_GAMEPLAN),
+        _coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_OF_GAMEPLAN),
     ]
     effect = coaching.build_staff_effect("TST", staff)
     # blend = 0.6*100 + 0.4*50 = 80 -> slider 0.6 -> 0.6 * PASS_MIX_SCALE
@@ -230,7 +243,8 @@ def test_penalty_and_dev_multipliers_are_measured_against_the_league_not_a_hardc
     differentiation this system is for."""
     baseline = coaching.LeagueBaseline(discipline=70.0, dev_offense=70.0, dev_defense=70.0, tendency=50.0)
     average_for_this_league = coaching.build_staff_effect(
-        "TST", [_coach(CoachRole.HC, discipline=70, player_dev_offense=70, player_dev_defense=70)],
+        "TST", [_coach(CoachRole.HC, discipline=70, player_dev_offense=70, player_dev_defense=70,
+                       focus_area=FOCUS_DEVELOPMENT)],
         baseline,
     )
     assert average_for_this_league.penalty_rate_multiplier == pytest.approx(1.0)
@@ -269,6 +283,86 @@ def test_none_effect_is_a_no_op_at_every_accessor():
     assert coaching.defense_coverage_man_prob(None) is None
     assert coaching.penalty_rate_multiplier(None) == 1.0
     assert coaching.fg_range_bonus(None) == 0.0
+    assert coaching.injury_risk_multiplier(None) == 1.0
+
+
+# --------------------------------------------------------------------
+# R13: Coach Focus Areas (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md)
+# --------------------------------------------------------------------
+
+def test_reassigning_focus_away_zeroes_that_buckets_contribution():
+    """The whole point of R13: a coach whose focus points elsewhere
+    contributes NOTHING to a bucket, even if their own rating there is
+    extreme -- reallocation, not free power."""
+    staff = [
+        _coach(CoachRole.HC, run_pass_tendency=50, focus_area=FOCUS_DEVELOPMENT),
+        _coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_SCOUTING),
+    ]
+    effect = coaching.build_staff_effect("TST", staff)
+    # nobody is focused on OF Gameplan at all -> falls back to neutral
+    assert effect.pass_bias == pytest.approx(0.0)
+
+
+def test_balanced_gameplan_contributes_to_both_sides_at_reduced_weight():
+    """Brian's own design (2026-09-13): a Balanced Gameplan coach helps
+    BOTH OF and DF Gameplan, at a smaller weight on each than the same
+    coach fully focused on just one side would carry."""
+    oc = _coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_OF_GAMEPLAN)
+    dc = _coach(CoachRole.DC, blitz_rate=100, focus_area=FOCUS_DF_GAMEPLAN)
+    balanced_hc = _coach(CoachRole.HC, run_pass_tendency=0, blitz_rate=0, focus_area=FOCUS_BALANCED_GAMEPLAN)
+    solo_of_hc = _coach(CoachRole.HC, run_pass_tendency=0, blitz_rate=0, focus_area=FOCUS_OF_GAMEPLAN)
+    dc_alone = coaching.build_staff_effect("TST", [dc])
+
+    with_balanced = coaching.build_staff_effect("TST", [oc, dc, balanced_hc])
+    with_solo_of = coaching.build_staff_effect("TST", [oc, dc, solo_of_hc])
+
+    # A Balanced HC pulls the OF blend toward their own 0 less hard than a
+    # fully OF-focused HC would (their weight there is halved) -> pass_bias
+    # stays closer to the OC's own full-strength number.
+    assert with_balanced.pass_bias > with_solo_of.pass_bias > 0
+
+    # solo_of_hc contributes NOTHING to DF Gameplan at all, so the DC calls
+    # it alone there -- identical to a staff with no HC whatsoever.
+    assert with_solo_of.blitz_bias == pytest.approx(dc_alone.blitz_bias)
+    # The SAME Balanced HC still pulls on the DF side too (their 0 drags
+    # the blend down from the DC's own 100), just not all the way to zero.
+    assert 0 < with_balanced.blitz_bias < with_solo_of.blitz_bias
+
+
+def test_training_focus_moves_injury_risk_in_the_right_direction():
+    """R13 Sec 5.2: a MORE motivated/cohesive Training-focused staff must
+    LOWER the team's injury-rate multiplier."""
+    lax = coaching.build_staff_effect("TST", [_coach(CoachRole.AC, motivation_chemistry=0, focus_area=FOCUS_TRAINING)])
+    sharp = coaching.build_staff_effect("TST", [_coach(CoachRole.AC, motivation_chemistry=99, focus_area=FOCUS_TRAINING)])
+    assert lax.injury_risk_multiplier > 1.0 > sharp.injury_risk_multiplier
+    assert sharp.injury_risk_multiplier == pytest.approx(coaching.INJURY_RISK_AT_MAX_TRAINING, abs=0.02)
+
+
+def test_injury_risk_multiplier_measured_against_the_league_not_a_hardcoded_50():
+    baseline = coaching.LeagueBaseline(motivation_chemistry=70.0, tendency=50.0)
+    effect = coaching.build_staff_effect(
+        "TST", [_coach(CoachRole.AC, motivation_chemistry=70, focus_area=FOCUS_TRAINING)], baseline)
+    assert effect.injury_risk_multiplier == pytest.approx(1.0)
+
+
+def test_a_coach_not_focused_on_training_does_not_affect_injury_risk():
+    effect = coaching.build_staff_effect(
+        "TST", [_coach(CoachRole.AC, motivation_chemistry=99, focus_area=FOCUS_SCOUTING)])
+    assert effect.injury_risk_multiplier == pytest.approx(1.0)
+
+
+def test_default_focus_area_for_matches_the_spec_table():
+    """docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 4's default table,
+    asserted directly against the real function every import/migration
+    script shares."""
+    assert default_focus_area_for(CoachRole.OC, None) == FOCUS_OF_GAMEPLAN
+    assert default_focus_area_for(CoachRole.DC, None) == FOCUS_DF_GAMEPLAN
+    assert default_focus_area_for(CoachRole.ST, None) == FOCUS_SPECIAL_TEAMS
+    assert default_focus_area_for(CoachRole.HC, None) == FOCUS_BALANCED_GAMEPLAN
+    assert default_focus_area_for(CoachRole.AC, "Special Teams (Assistant)") == FOCUS_SPECIAL_TEAMS
+    assert default_focus_area_for(CoachRole.AC, "Strength and Conditioning") == FOCUS_TRAINING
+    assert default_focus_area_for(CoachRole.AC, "Quarterbacks") == FOCUS_DEVELOPMENT
+    assert default_focus_area_for(CoachRole.AC, None) == FOCUS_DEVELOPMENT
 
 
 # --------------------------------------------------------------------

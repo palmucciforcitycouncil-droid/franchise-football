@@ -48,7 +48,7 @@ from app.core.db import get_session, init_db
 from app.engine.rng import RNG, stable_seed
 from app.models.coach import (
     Coach, CoachRole, OFFENSIVE_PROFILES, DEFENSIVE_PROFILES,
-    POOL_TIER_COLLEGE, POOL_TIER_FORMER_NFL,
+    POOL_TIER_COLLEGE, POOL_TIER_FORMER_NFL, default_focus_area_for,
 )
 from sqlmodel import select
 
@@ -246,6 +246,7 @@ def build_candidate_coach(candidate: Candidate, league_seed: int) -> Coach:
         specialty=None, team_abbr=None, salary_aav=0, age=age, experience_years=experience_years,
         contract_years=0, reputation=reputation, is_generated_profile=True,
         pool_tier=candidate.pool_tier, background=candidate.background,
+        focus_area=default_focus_area_for(candidate.role, None),
     )
     for attr in ("run_pass_tendency", "offensive_aggression", "pace", "red_zone_offense_bias",
                  "two_point_tendency", "blitz_rate", "coverage_mix", "fourth_down_defense",

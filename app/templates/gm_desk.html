@@ -121,6 +121,13 @@
                 <td>{{ p.salary | money }}</td>
               </tr>
               {% endfor %}
+              {% for pk in user_picks %}
+              <tr>
+                <td><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"></td>
+                <td colspan="2">{{ pk.label }}</td>
+                <td colspan="2" class="muted">est. {{ pk.est_value | money }}</td>
+              </tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
@@ -139,6 +146,13 @@
                 <td>{{ p.salary | money }}</td>
               </tr>
               {% endfor %}
+              {% for pk in trade_partner_picks %}
+              <tr>
+                <td><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"></td>
+                <td colspan="2">{{ pk.label }}</td>
+                <td colspan="2" class="muted">est. {{ pk.est_value | money }}</td>
+              </tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
@@ -150,6 +164,11 @@
 </div>
 
 <div class="card">
-  <p class="muted">Draft-eligible prospects aren't built yet (needs R5, the Draft) — trades here are player(s)-for-player(s) only, no picks.</p>
+  <p class="muted">
+    Draft picks are real, tradeable assets (GDD &sect;8.5): the current season's picks plus the
+    next two drafts. A future pick's value is estimated from live current-season standings
+    (the real order isn't final until that season ends) using the same real pick-value chart
+    (&sect;4.1) the Draft itself uses.
+  </p>
 </div>
 {% endblock %}

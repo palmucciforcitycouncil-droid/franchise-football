@@ -50,7 +50,7 @@ from app.engine import coach_hiring, coach_replacement
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
-from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT
+from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT, FOCUS_AREAS
 from sqlmodel import select
 
 app = FastAPI(title="Franchise Football")
@@ -856,6 +856,7 @@ def _coach_card_json(coach: Coach) -> str:
         "offensive_profile": coach.offensive_profile,
         "defensive_profile": coach.defensive_profile,
         "job_security": f"{coach.job_security_score:.0f}",
+        "focus_area": coach.focus_area,
         "appointment_type": coach.appointment_type,
         "background": coach.background,
         "salary": _money(coach.salary_aav),
@@ -2639,14 +2640,23 @@ def hof_view_redirect(pos: str = "all", q: str = ""):
 STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST]
 
 
-def _staff_effect_rows(effect) -> list[tuple[str, str, str]]:
+def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
     """GDD Sec 9.2.5.1's "Trait Effects Matrix", built from the REAL
     biases this staff feeds into the sim (app/engine/coaching.py), so
     the panel shows what the staff is actually doing this season rather
     than a static description of what a coach could theoretically do.
-    Each row is (label, value, which engine system consumes it)."""
+    Each row is (label, value, which engine system consumes it).
+
+    R13: injury_risk_multiplier and the Scouting readout follow the exact
+    same "prove it's doing something" precedent as every row above --
+    added here rather than a second panel."""
+    from app.engine import draft as draft_engine
+
     def pct(x):
         return f"{x * 100:+.1f}%"
+
+    scouting_strength = draft_engine.team_scouting_strength(team_abbr)
+    scouting_reduction = scouting_strength / (scouting_strength + draft_engine.SCOUTING_STRENGTH_K)
 
     return [
         ("Pass/run mix", pct(effect.pass_bias), "Play-calling (Sec 6.6.1)"),
@@ -2659,6 +2669,8 @@ def _staff_effect_rows(effect) -> list[tuple[str, str, str]]:
         ("FG attempt range", f"{effect.fg_range_bonus:+.1f} yds", "Field-goal decision"),
         ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "Offseason progression (Sec 7.6)"),
         ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "Offseason progression (Sec 7.6)"),
+        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "Training focus -> injury system (R13)"),
+        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}%", "Scouting focus -> draft pick decisions (R13)"),
     ]
 
 
@@ -2764,7 +2776,9 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
 
 
 @app.get("/staff", response_class=HTMLResponse)
-def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
+def staff_view(request: Request, q: str = "", role: str = "", team: str = "",
+                extend_result: str | None = None, extend_coach: str | None = None,
+                extend_counter_aav: str | None = None, extend_counter_years: str | None = None):
     """Real Staff page. `team` lets any team's staff be viewed (the
     Scouting Panel's Head Coach link and Find Coaches results both point
     here); it defaults to the user's own team, same convention /roster
@@ -2817,6 +2831,14 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
             for c in coach_store.search(q, role=role, limit=40)
         ]
 
+    extend_feedback = None
+    if extend_result and extend_coach:
+        extend_feedback = {
+            "coach_name": extend_coach, "verdict": extend_result,
+            "counter_aav": int(extend_counter_aav) if extend_counter_aav else None,
+            "counter_years": int(extend_counter_years) if extend_counter_years else None,
+        }
+
     from app.services import owner_pressure_store
     return templates.TemplateResponse(request, "staff.html", {
         "season": season,
@@ -2827,7 +2849,8 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
         "assistants": assistant_rows,
         "staff_size": len(staff),
         "payroll": _money(sum(c.salary_aav for c in staff)),
-        "effect_rows": _staff_effect_rows(effect),
+        "effect_rows": _staff_effect_rows(effect, team_abbr),
+        "focus_areas": FOCUS_AREAS,
         "search_results": search_results,
         "q": q,
         "role": role,
@@ -2838,6 +2861,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
         "owner_pressure": round(owner_pressure_store.pressure_for(team_abbr)),
         # HC/OC/DC/ST only -- R3d Sec 8 doesn't model AC firing.
         "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value, CoachRole.ST.value],
+        "extend_feedback": extend_feedback,
     })
 
 
@@ -2894,15 +2918,93 @@ def staff_hire_coach(request: Request, team_abbr: str, role: str = Form(...), co
     return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
 
 
+@app.post("/staff/{team_abbr}/{coach_id}/focus")
+def staff_set_focus_area(request: Request, team_abbr: str, coach_id: str, focus_area: str = Form(...)):
+    """R13 (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 6): the real
+    Focus Area dropdown -- user's own team only (AI teams' assistants are
+    reassigned autonomously every offseason instead, coach_ai.run_focus_
+    autonomy()). Any coach on the roster can be reassigned, not just
+    assistants -- the HC/OC/DC/ST can all freely pick, same rule as
+    everyone else (Sec 2's settled decision)."""
+    from app.engine import coaching
+    from app.models.coach import FOCUS_AREAS, Coach as CoachModel
+
+    season = season_state.get_season()
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    if focus_area not in FOCUS_AREAS:
+        raise HTTPException(422, "Invalid focus area")
+
+    with get_session() as s:
+        coach = s.get(CoachModel, coach_id)
+        if coach is None or coach.team_abbr != team_abbr:
+            raise HTTPException(404, "No such coach on this team")
+        coach.focus_area = focus_area
+        s.add(coach)
+        s.commit()
+
+    coach_store.clear_cache()
+    coaching.clear_cache()
+    return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
+
+
+@app.post("/staff/{team_abbr}/{coach_id}/extend")
+def staff_extend_coach(request: Request, team_abbr: str, coach_id: str,
+                         aav: int = Form(...), years: int = Form(...)):
+    """Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
+    Sec 11): the real Extend Contract negotiation -- same single
+    deterministic ACCEPT/REJECT/COUNTER shape as gm_desk_offer()'s player
+    negotiation. User's own team only; AI teams' contract decisions are
+    autonomous (app/services/coach_ai.py's run_offseason_autonomy(), which
+    reuses the real firing-probability roll rather than negotiating with
+    itself -- see app/engine/coach_contracts.py's own module docstring)."""
+    from app.engine import coach_contracts
+    from app.models.coach import Coach as CoachModel
+
+    season = season_state.get_season()
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    if years < 1 or years > 7 or aav < 0:
+        raise HTTPException(422, "Invalid offer terms")
+
+    with get_session() as s:
+        coach = s.get(CoachModel, coach_id)
+        if coach is None or coach.team_abbr != team_abbr:
+            raise HTTPException(404, "No such coach on this team")
+
+        team_record = season.records.get(team_abbr)
+        team_win_pct = team_record.win_pct if team_record is not None else 0.5
+        result = coach_contracts.evaluate_extension(coach, float(aav), years, team_win_pct)
+
+        if result.verdict == coach_contracts.ExtensionVerdict.ACCEPT:
+            coach.salary_aav = aav
+            coach.contract_years = years
+            s.add(coach)
+            s.commit()
+
+        params = {"extend_result": result.verdict.value, "extend_coach": coach.full_name}
+        if result.verdict == coach_contracts.ExtensionVerdict.COUNTER:
+            params["extend_counter_aav"] = result.counter_aav
+            params["extend_counter_years"] = result.counter_years
+
+    if result.verdict == coach_contracts.ExtensionVerdict.ACCEPT:
+        coach_store.clear_cache()
+
+    return RedirectResponse(url=f"/staff?team={team_abbr}&" + urlencode(params), status_code=303)
+
+
 @app.get("/gm-desk", response_class=HTMLResponse)
 def gm_desk_view(request: Request, offer_result: str | None = None, offer_player: str | None = None,
                   counter_aav: str | None = None, counter_years: str | None = None,
                   team_b: str | None = None, trade_result: str | None = None):
     """GDD Sec 10.4.4 / R4a (GDD Sec 8.3) / R4c (GDD Sec 8.5): real Cap
-    Summary, Re-sign flow, and a real Propose Trade panel (player(s)-
-    for-player(s) only -- no draft picks, see app/engine/trades.py's
-    module docstring for why). Draft-eligible prospects still need the
-    Draft (R5), disclosed via the summary text at the bottom of the page."""
+    Summary, Re-sign flow, and a real Propose Trade panel -- players AND
+    real draft picks (current season + the next two, app/services/
+    draft_pick_store.py). Draft-eligible prospects still need the Draft
+    (R5) to have actually run for a given season."""
+    from app.engine import draft, trades
+    from app.services import draft_pick_store
+
     season = season_state.get_season()
     if season.user_team_abbr is None:
         return RedirectResponse(url="/team-select", status_code=303)
@@ -2919,6 +3021,19 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         key=lambda p: (p.contract_years_remaining, -p.overall_rating),
     )
 
+    def _pick_rows(team_abbr: str) -> list[dict]:
+        rows = []
+        for pk in draft_pick_store.picks_owned_by(team_abbr):
+            rank = draft.estimated_pick_order_rank(season, pk.original_team_abbr)
+            rows.append({
+                "pick_id": pk.pick_id,
+                "label": f"{season_year(pk.season_number)} Round {pk.round}"
+                         + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != team_abbr else ""),
+                "est_value": round(trades.pick_trade_value(
+                    trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr), season)),
+            })
+        return rows
+
     offer_feedback = None
     if offer_result and offer_player:
         offer_feedback = {
@@ -2928,12 +3043,15 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         }
 
     trade_partner_roster = None
+    trade_partner_picks = None
+    user_picks = _pick_rows(user_abbr)
     if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
         with get_session() as s:
             trade_partner_roster = sorted(
                 s.exec(select(Player).where(Player.team_abbr == team_b)).all(),
                 key=lambda p: -p.overall_rating,
             )
+        trade_partner_picks = _pick_rows(team_b)
 
     return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
@@ -2944,6 +3062,7 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         "roster": sorted(roster, key=lambda p: -p.overall_rating),
         "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
         "team_b": team_b, "trade_partner_roster": trade_partner_roster,
+        "user_picks": user_picks, "trade_partner_picks": trade_partner_picks,
         "trade_window_open": trades.is_trade_window_open(season.current_week),
         "trade_result": trade_result,
     })
@@ -3033,12 +3152,15 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
 
 @app.post("/gm-desk/trade")
 def gm_desk_trade(request: Request, team_b: str = Form(...),
-                   give: list[str] = Form(default=[]), get: list[str] = Form(default=[])):
-    """R4c's real trade flow (GDD Sec 8.5): player(s)-for-player(s) only
-    (no draft picks -- see app/engine/trades.py's module docstring),
-    evaluated from the AI team's own side via a real Surplus Value
-    formula. An ACCEPT really swaps team_abbr for every player on both
-    sides in the DB and clears depth_chart's starter cache."""
+                   give: list[str] = Form(default=[]), get: list[str] = Form(default=[]),
+                   give_picks: list[str] = Form(default=[]), get_picks: list[str] = Form(default=[])):
+    """R4c's real trade flow (GDD Sec 8.5): players AND real draft picks
+    (app/services/draft_pick_store.py), evaluated from the AI team's own
+    side via a real Surplus Value + pick-value formula. An ACCEPT really
+    swaps team_abbr for every player AND real pick ownership for every
+    pick on both sides, and clears depth_chart's starter cache."""
+    from app.services import draft_pick_store
+
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
@@ -3047,8 +3169,19 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
         raise HTTPException(422, "Invalid trade partner")
     if not trades.is_trade_window_open(season.current_week):
         raise HTTPException(422, f"Trade window is closed (deadline: week {trades.TRADE_DEADLINE_WEEK})")
-    if not give or not get:
-        raise HTTPException(422, "A trade needs at least one player on each side")
+    if not (give or give_picks) or not (get or get_picks):
+        raise HTTPException(422, "A trade needs at least one asset (player or pick) on each side")
+
+    user_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(user_abbr)}
+    team_b_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(team_b)}
+    if any(pid not in user_owned_picks for pid in give_picks):
+        raise HTTPException(404, "One of your offered picks isn't yours to trade")
+    if any(pid not in team_b_owned_picks for pid in get_picks):
+        raise HTTPException(404, "One of the requested picks isn't theirs to trade")
+    give_pick_refs = [trades.PickRef(user_owned_picks[pid].season_number, user_owned_picks[pid].round,
+                                      user_owned_picks[pid].original_team_abbr) for pid in give_picks]
+    get_pick_refs = [trades.PickRef(team_b_owned_picks[pid].season_number, team_b_owned_picks[pid].round,
+                                     team_b_owned_picks[pid].original_team_abbr) for pid in get_picks]
 
     with get_session() as s:
         give_players = [s.get(Player, pid) for pid in give]
@@ -3058,11 +3191,15 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
         if any(p is None or p.team_abbr != team_b for p in get_players):
             raise HTTPException(404, "One of the requested players wasn't found on that roster")
 
-        # Evaluated from the AI (team_b) side: they SEND get_players, RECEIVE give_players.
-        result = trades.evaluate_trade(get_players, give_players, season.season_number)
+        # Evaluated from the AI (team_b) side: they SEND get_players/get_pick_refs, RECEIVE give_players/give_pick_refs.
+        result = trades.evaluate_trade(
+            get_players, give_players, season.season_number,
+            ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
+        )
 
         if result.accepted:
-            trades.execute_trade(user_abbr, give_players, team_b, get_players)
+            trades.execute_trade(user_abbr, give_players, team_b, get_players,
+                                  team_a_picks=give_pick_refs, team_b_picks=get_pick_refs)
             for p in give_players + get_players:
                 s.add(p)
             s.commit()

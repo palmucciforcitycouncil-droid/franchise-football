@@ -49,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlmodel import select
 
 from app.core.db import init_db, get_session
-from app.models.coach import Coach, CoachRole, OFFENSIVE_PROFILES, DEFENSIVE_PROFILES
+from app.models.coach import Coach, CoachRole, OFFENSIVE_PROFILES, DEFENSIVE_PROFILES, default_focus_area_for, tier_key
 from app.data.team_name_map import NICKNAME_TO_ABBR
 from app.engine.rng import RNG, stable_seed
 from app.config import get_league_seed
@@ -196,18 +196,6 @@ def coach_id_for(entry: SeedEntry) -> str:
     return re.sub(r"[^a-z0-9_]", "", base.lower().replace(" ", "_").replace("'", "").replace(".", ""))
 
 
-def _tier_key(role: CoachRole) -> str:
-    """Reputation is a salary percentile WITHIN a role tier -- comparing
-    an assistant's $450K to a head coach's $20M would be meaningless.
-    OC/DC/ST share one tier (they're the same organizational level, and
-    GDD Sec 7.9.5's HOF weighting already treats ST as OC/DC's peer)."""
-    if role is CoachRole.HC:
-        return "HC"
-    if role in (CoachRole.OC, CoachRole.DC, CoachRole.ST):
-        return "COORD"
-    return "AC"
-
-
 def reputation_from_salary(salary: int, tier_salaries: list[int]) -> int:
     """Percentile rank of `salary` within its tier, mapped onto 40-99.
 
@@ -346,7 +334,7 @@ def build_coaches(entries: list[SeedEntry], league_seed: int) -> list[Coach]:
     # person listed twice doesn't get counted twice in their own tier.
     tier_salaries: dict[str, list[int]] = {}
     for r in resolved:
-        tier_salaries.setdefault(_tier_key(r.role), []).append(r.entry.salary_aav)
+        tier_salaries.setdefault(tier_key(r.role), []).append(r.entry.salary_aav)
 
     coaches: list[Coach] = []
     for r in resolved:
@@ -358,7 +346,8 @@ def build_coaches(entries: list[SeedEntry], league_seed: int) -> list[Coach]:
             specialty=r.specialty,
             team_abbr=r.entry.team_abbr,
             salary_aav=r.entry.salary_aav,
-            reputation=reputation_from_salary(r.entry.salary_aav, tier_salaries[_tier_key(r.role)]),
+            reputation=reputation_from_salary(r.entry.salary_aav, tier_salaries[tier_key(r.role)]),
+            focus_area=default_focus_area_for(r.role, r.specialty),
         )
         _generate_profile(coach, league_seed)
         coaches.append(coach)
