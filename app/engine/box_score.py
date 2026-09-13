@@ -78,12 +78,14 @@ attribution build on top of it, not new game logic):
     code path (it belongs to the defense's team, not this drive's
     offense -- see simulate_drive's own comment there), so it's left
     unattributed rather than guessed; it still counts toward the score.
-  - Punting is net yards only, not gross -- this engine has no return-
-    game simulation (same disclosed gap as scouting.py's own field_goal_
-    accuracy/return-average notes), so there's no separate return
-    yardage to net a gross kick distance against. "Inside the 20" is
-    derived from the same net-yards figure (the punt's real effect on
-    field position), not a second parallel calculation.
+  - Punting is net yards only, not gross -- R2b added a real punt-RETURN
+    yardage figure (TeamBoxScore.punt_returns) alongside it, but that's a
+    disclosed DECOMPOSITION of this same net number (gross = net +
+    return, app/engine/special_teams.py's punt_return_result), not an
+    independently-tracked gross kick distance netted against a return.
+    "Inside the 20" is derived from the same net-yards figure (the
+    punt's real effect on field position), not a second parallel
+    calculation.
   - Both are single-row per team per game, like Passing -- this engine
     models exactly one active kicker and one active punter per team
     (app/services/depth_chart.py's `k`/`p`), no in-game rotation or
@@ -168,13 +170,13 @@ class PuntingLine:
 
 @dataclass
 class ReturnLine:
-    """Kickoff-return credit (app/engine/special_teams.py) -- a separate
-    line from Kicking/Punting since a return belongs to a different
-    player than the kicker/punter, same "never credit the wrong player"
-    discipline as Rushing/Receiving above. Punt returns aren't included:
-    drive_sim.py's punt model is still net-yards-only (no tracked gross
-    kick distance to net a real return against), the same disclosed gap
-    scouting.py's own field_goal_accuracy/return-average notes describe."""
+    """Kickoff- or punt-return credit (app/engine/special_teams.py) -- a
+    separate line from Kicking/Punting since a return belongs to a
+    different player than the kicker/punter, same "never credit the
+    wrong player" discipline as Rushing/Receiving above. R2b added real
+    punt-return yardage (TeamBoxScore.punt_returns, its own list -- real
+    box scores keep Kick Returns and Punt Returns as separate
+    categories, not one merged list)."""
     name: str
     returns: int = 0
     yards: int = 0
@@ -189,7 +191,8 @@ class TeamBoxScore:
     receiving: List[ReceivingLine] = field(default_factory=list)
     kicking: List[KickingLine] = field(default_factory=list)   # length 0 or 1 today, see module docstring
     punting: List[PuntingLine] = field(default_factory=list)   # length 0 or 1 today, see module docstring
-    returns: List[ReturnLine] = field(default_factory=list)    # kickoff returns only, see ReturnLine's own docstring
+    returns: List[ReturnLine] = field(default_factory=list)    # kickoff returns, see ReturnLine's own docstring
+    punt_returns: List[ReturnLine] = field(default_factory=list)  # R2b: punt returns, kept separate -- see ReturnLine
 
 
 def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
@@ -208,6 +211,7 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     kicking_by_name: dict[str, KickingLine] = {}
     punting_by_name: dict[str, PuntingLine] = {}
     returns_by_name: dict[str, ReturnLine] = {}
+    punt_returns_by_name: dict[str, ReturnLine] = {}
 
     def rushing_line(name: str) -> RushingLine:
         return rushing_by_name.setdefault(name, RushingLine(name=name))
@@ -223,6 +227,9 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
 
     def return_line(name: str) -> ReturnLine:
         return returns_by_name.setdefault(name, ReturnLine(name=name))
+
+    def punt_return_line(name: str) -> ReturnLine:
+        return punt_returns_by_name.setdefault(name, ReturnLine(name=name))
 
     for p in plays:
         if p.offense_abbr != abbr:
@@ -249,6 +256,15 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
         elif p.play_type == "kickoff":
             if p.outcome in ("return", "return_td") and p.returner_name:
                 rl = return_line(p.returner_name)
+                rl.returns += 1
+                rl.yards += p.yards
+                rl.long = max(rl.long, p.yards)
+                if p.outcome == "return_td":
+                    rl.touchdowns += 1
+
+        elif p.play_type == "punt_return":
+            if p.outcome in ("return", "return_td") and p.returner_name:
+                rl = punt_return_line(p.returner_name)
                 rl.returns += 1
                 rl.yards += p.yards
                 rl.long = max(rl.long, p.yards)
@@ -308,6 +324,7 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
     kicking = sorted(kicking_by_name.values(), key=lambda k: k.name)
     punting = sorted(punting_by_name.values(), key=lambda p: p.name)
     returns = sorted(returns_by_name.values(), key=lambda r: -r.yards)
+    punt_returns = sorted(punt_returns_by_name.values(), key=lambda r: -r.yards)
     return TeamBoxScore(
         passing=[passing] if (passing.attempts or passing.sacks) else [],
         rushing=rushing,
@@ -315,4 +332,5 @@ def build_box_score(plays: List[PlayEvent], abbr: str) -> TeamBoxScore:
         kicking=kicking,
         punting=punting,
         returns=returns,
+        punt_returns=punt_returns,
     )

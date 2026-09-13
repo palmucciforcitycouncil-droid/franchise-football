@@ -72,9 +72,17 @@ PARAMS: Dict[str, Any] = {
             "40-49": 0.85,
             "50+": 0.67,
         },
+        # R2b realism pass: real NFL FG block rate runs ~1-2% of attempts,
+        # punt block rate ~0.3-0.6% -- both were tuned noticeably below
+        # that band before this pass (0.3%/0.2%), nudged up here. Kept
+        # conservative (low end of each real range) rather than jumping
+        # straight to the real average, since a block is also a real,
+        # separate scoring-swing event (a good return can flip field
+        # position hard) that the Score Fidelity System's existing
+        # calibration was tuned around the old, lower rate.
         "punt_touchback": 0.07,
-        "punt_block": 0.002,
-        "fg_block": 0.003,
+        "punt_block": 0.004,
+        "fg_block": 0.010,
     },
 
     # Drive outcome priors used by simple drive simulators as a starting point

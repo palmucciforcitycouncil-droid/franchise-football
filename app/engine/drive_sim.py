@@ -550,33 +550,45 @@ def _decide_fourth_down(
     return "punt"
 
 
-def _punt_result(rng: RNG, pos: int) -> Tuple[int, int, bool]:
+PUNT_TOUCHBACK_SPOT = 20  # real NFL punt-touchback spot -- the receiving team's own 20,
+                          # a DIFFERENT rule than a kickoff's 25 (KICKOFF_TOUCHBACK_SPOT)
+
+
+def _punt_result(rng: RNG, pos: int) -> Tuple[int, int, bool, bool]:
     """Returns (the receiving team's new field position (0..100 from
     their own perspective), the net punt yards that actually produced
-    that field-position change, whether it was blocked). "Net", not
-    gross -- this engine has no OPEN-FIELD return-game simulation (a
-    separate, pre-existing disclosed gap, see scouting.py's own
-    field_goal_accuracy/return-average notes: a real returner/return-
-    yardage figure isn't tracked for a normal punt the way
-    special_teams.py now tracks one for kickoffs, since a punt's
-    "net yards" already folds any return effect into one number rather
-    than two); the net figure returned here is computed AFTER the
-    field-position clamp below, so it always matches the real,
+    that field-position change, whether it was blocked, whether it was a
+    touchback). "Net", not gross -- this engine's field-position math
+    here is unchanged by R2b's real punt-RETURN yardage (app/engine/
+    special_teams.py's punt_return_result, resolved from game_sim.py):
+    that return figure is a real, disclosed DECOMPOSITION of this same
+    net outcome (gross = net + return) for stat-credit purposes, never a
+    second, independent field-position roll -- see that function's own
+    docstring for why. The net figure returned here is computed AFTER
+    the field-position clamp below, so it always matches the real,
     already-applied field-position swing exactly (app/engine/box_score.
     py's Punting line, ROADMAP.md M2, reads it back out the same way).
     A blocked punt (tuning.py's punt_block, GDD Sec 6.8) is modeled as
     the receiving team taking over right around the line of scrimmage --
     not simulating the block-recovery race itself, same "disclose the
-    simplification" approach as everywhere else in this file."""
+    simplification" approach as everywhere else in this file. A
+    touchback (tuning.py's punt_touchback, R2b -- previously defined but
+    never actually rolled anywhere) spots the receiving team at their
+    own 20 outright, bypassing the normal net-yards Gaussian for that
+    one roll, same real NFL rule."""
     if rng.prob(PARAMS["special"]["punt_block"]):
         new_pos = max(2, min(98, 100 - pos))
-        return new_pos, 0, True
+        return new_pos, 0, True, False
+    if rng.prob(PARAMS["special"]["punt_touchback"]):
+        new_pos = PUNT_TOUCHBACK_SPOT
+        net_yards = (100 - new_pos) - pos
+        return new_pos, net_yards, False, True
     net = P.punt_net_mu + rng.gauss(0, P.punt_net_sigma)
     receiving_spot_from_kicking_pov = pos + net  # how far up the (kicking team's) field the ball ends up
     new_pos = 100 - receiving_spot_from_kicking_pov
     new_pos = max(2, min(40, int(round(new_pos))))
     net_yards = (100 - new_pos) - pos
-    return new_pos, net_yards, False
+    return new_pos, net_yards, False, False
 
 
 def simulate_drive(
@@ -658,10 +670,15 @@ def simulate_drive(
             decision = _decide_fourth_down(pos, distance, trailing, aggression, rng,
                                             offense_gameplan=offense_gameplan, offense_staff=offense_staff)
             if decision == "punt":
-                next_pos, punt_yards, punt_blocked = _punt_result(rng, pos)
-                punt_desc, punt_outcome = ("Punt is BLOCKED!", "blocked") if punt_blocked else ("Punt", "punt")
+                next_pos, punt_yards, punt_blocked, punt_touchback = _punt_result(rng, pos)
+                if punt_blocked:
+                    punt_desc, punt_outcome, summary = "Punt is BLOCKED!", "blocked", "Punt is BLOCKED!"
+                elif punt_touchback:
+                    punt_desc, punt_outcome, summary = "Punt into the end zone, touchback", "punt", "Punt (touchback)"
+                else:
+                    punt_desc, punt_outcome, summary = "Punt", "punt", "Punt"
                 play_events.append(PlayEvent(down, distance, pos, "punt", punt_yards, punt_desc, punt_outcome))
-                return 0, punt_desc if punt_blocked else "Punt", next_pos, total_plays, total_yards, turnovers, play_events
+                return 0, summary, next_pos, total_plays, total_yards, turnovers, play_events
             if decision == "field_goal":
                 made, attempt_yards, blocked = _attempt_field_goal(rng, pos, kicker, weather_mods)
                 if made:
@@ -866,5 +883,5 @@ def simulate_drive(
 
     # Safety valve: ran out of play budget mid-drive (shouldn't happen in
     # practice) -- treat it as a punt from the current spot.
-    next_pos, _, _ = _punt_result(rng, pos)
+    next_pos, _, _, _ = _punt_result(rng, pos)
     return 0, "Punt (drive length limit)", next_pos, total_plays, total_yards, turnovers, play_events

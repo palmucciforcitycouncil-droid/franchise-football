@@ -7,6 +7,8 @@ overwritten to "gain", and PlayEvents recording the down/distance/field
 position *after* a play instead of what it was actually run under. All
 three are guarded here so they can't silently regress.
 """
+import pytest
+
 from app.engine.rng import RNG
 from app.engine.rating import TeamRatings
 from app.engine.game_sim import simulate_game, TeamSim
@@ -605,3 +607,71 @@ def test_simulate_game_threads_gameplan_to_the_right_side():
         conservative_pass_attempts.append(result_conservative.home_totals.pass_attempts)
 
     assert sum(aggressive_pass_attempts) > sum(conservative_pass_attempts)
+
+
+# --- R2b: punt touchbacks + real punt-return integration -------------------
+
+def test_punt_result_can_produce_a_real_touchback():
+    from app.engine.drive_sim import _punt_result, PUNT_TOUCHBACK_SPOT
+
+    for seed in range(300):
+        rng = RNG.with_seed(seed)
+        new_pos, net_yards, blocked, is_touchback = _punt_result(rng, 30)
+        if is_touchback:
+            assert not blocked
+            assert new_pos == PUNT_TOUCHBACK_SPOT
+            return
+    pytest.fail("no punt touchback in 300 seeds -- PARAMS['special']['punt_touchback'] may not be wired in")
+
+
+def test_punt_result_touchback_and_block_are_mutually_exclusive():
+    from app.engine.drive_sim import _punt_result
+
+    for seed in range(500):
+        rng = RNG.with_seed(seed)
+        _, _, blocked, is_touchback = _punt_result(rng, 30)
+        assert not (blocked and is_touchback)
+
+
+def test_a_real_simulated_game_produces_real_punt_return_plays_with_tackle_credit():
+    """End-to-end: a full simulated game must produce real punt_return
+    PlayEvents (not just the underlying 'punt' ones), each attributed to
+    the RECEIVING team (not the punting team) so box_score.py credits the
+    right side, with a real tackler credited on a plain return."""
+    found_return = found_tackle = False
+    for seed in range(30):
+        rng = RNG.with_seed(seed)
+        home = TeamSim(name="Kansas City", abbr="KC", ratings=AVG)
+        away = TeamSim(name="Buffalo", abbr="BUF", ratings=AVG)
+        result = simulate_game(rng, home, away)
+        for p in result.plays:
+            if p.play_type == "punt_return":
+                assert p.offense_abbr in ("KC", "BUF")
+                assert p.returner_name
+                found_return = True
+                if p.outcome == "return" and p.defender_name:
+                    found_tackle = True
+    assert found_return, "expected at least one real punt return across 30 simulated games"
+    assert found_tackle, "expected at least one real punt-return tackle credit across 30 simulated games"
+
+
+def test_punt_return_is_credited_to_the_receiving_teams_own_box_score():
+    """A punt_return PlayEvent's offense_abbr must be the RECEIVING team,
+    not the team that punted -- otherwise box_score.py would silently
+    drop the return from either team's stats."""
+    from app.engine.box_score import build_box_score
+
+    for seed in range(30):
+        rng = RNG.with_seed(seed)
+        home = TeamSim(name="Kansas City", abbr="KC", ratings=AVG)
+        away = TeamSim(name="Buffalo", abbr="BUF", ratings=AVG)
+        result = simulate_game(rng, home, away)
+        return_plays = [p for p in result.plays if p.play_type == "punt_return"]
+        if not return_plays:
+            continue
+        for p in return_plays:
+            box = build_box_score(result.plays, p.offense_abbr)
+            names_in_box = {r.name for r in box.punt_returns}
+            assert p.returner_name in names_in_box
+        return
+    pytest.fail("no punt returns found across 30 simulated games")

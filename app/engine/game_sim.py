@@ -65,8 +65,10 @@ def _resolve_kickoff(
         return spot, (kicker_is_home if recovered else receiver_is_home), 0, 0, events
 
     receiving_starters = home_off_starters if receiver_is_home else away_off_starters
-    kres = special_teams.kickoff_result(rng, receiving_starters)
-    events.append(PlayEvent(0, 0, 0, "kickoff", kres.return_yards, kres.desc, kres.kind, returner_name=kres.returner_name))
+    kicking_starters = away_off_starters if receiver_is_home else home_off_starters
+    kres = special_teams.kickoff_result(rng, receiving_starters, kicking_starters)
+    events.append(PlayEvent(0, 0, 0, "kickoff", kres.return_yards, kres.desc, kres.kind,
+                             returner_name=kres.returner_name, defender_name=kres.tackler_name))
     if kres.kind != "return_td":
         return kres.new_pos, receiver_is_home, 0, 0, events
 
@@ -271,6 +273,64 @@ def simulate_game(
         else:
             field_pos = next_field_pos
             next_side_home = not side_home
+            if txt == "Punt":
+                # R2b (GDD Sec 6.8's return game): real punt-return
+                # yardage + tackle credit, resolved HERE rather than in
+                # simulate_drive() for the same reason kickoffs already
+                # are -- a return's stat credit belongs to a DIFFERENT
+                # team's box score than the drive that just ended (the
+                # RECEIVING team gets the return yardage, the PUNTING
+                # team's coverage gets the tackle). return_distance is
+                # measured from the net-yards spot simulate_drive already
+                # finalized (field_pos, just set above); see special_
+                # teams.py's punt_return_result docstring for why this
+                # never re-touches that field-position outcome except on
+                # the rare return_td override below.
+                receiving_side_home = next_side_home
+                receiving_off = home_off_starters if receiving_side_home else away_off_starters
+                punting_off = home_off_starters if side_home else away_off_starters
+                punt_return = special_teams.punt_return_result(
+                    rng, receiving_off, punting_off, return_distance=100 - field_pos,
+                )
+                if punt_return.kind != "no_return":
+                    return_pe = PlayEvent(
+                        0, 0, 0, "punt_return", punt_return.return_yards, punt_return.desc, punt_return.kind,
+                        returner_name=punt_return.returner_name, defender_name=punt_return.tackler_name,
+                    )
+                    if punt_return.kind == "return_td":
+                        # The RECEIVING team scores immediately, same shape
+                        # as a kickoff-return TD -- a flat PAT roll with no
+                        # real kicker object in scope here, the same
+                        # disclosed simplification drive_sim.py's own
+                        # defensive-TD PAT already uses (see simulate_
+                        # drive's turnover branch).
+                        made_pat = rng.prob(P.pat_make)
+                        pts = 7 if made_pat else 6
+                        if receiving_side_home:
+                            h += pts
+                        else:
+                            a += pts
+                        # Stamped directly (not via pending_kickoff_events)
+                        # since the team that scored this TD is NOT
+                        # necessarily who receives the ensuing kickoff --
+                        # relying on the next iteration's `off.abbr` would
+                        # mis-attribute the return to the wrong team.
+                        return_pe.offense_abbr = home.abbr if receiving_side_home else away.abbr
+                        return_pe.drive_number = i + 1
+                        all_plays.append(return_pe)
+                        field_pos, next_side_home, kickoff_h, kickoff_a, pending_kickoff_events = _resolve_kickoff(
+                            rng, kicker_is_home=receiving_side_home, home=home, away=away, h=h, a=a,
+                            drives_left=drives_left, home_off_starters=home_off_starters, away_off_starters=away_off_starters,
+                            is_two_minute=is_two_min, allow_onside=True, home_staff=home_staff, away_staff=away_staff,
+                        )
+                        h += kickoff_h
+                        a += kickoff_a
+                    else:
+                        # A plain return: next_side_home already correctly
+                        # points at the receiving team, so the normal
+                        # pending-event stamping at the top of the next
+                        # iteration attributes this to them for free.
+                        pending_kickoff_events = [return_pe]
 
     winner = "home" if h >= a else "away"
     res = GameResult(home_score=h, away_score=a, winner=winner, events=events, plays=all_plays)

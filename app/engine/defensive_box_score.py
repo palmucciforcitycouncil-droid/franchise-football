@@ -119,5 +119,11 @@ def build_defensive_box_score(plays: List[PlayEvent], abbr: str) -> List[Defensi
             dl.solo_tackles += 1
             if p.play_type == "run" and p.yards <= 0:
                 dl.tackles_for_loss += 1
+        elif p.play_type in ("kickoff", "punt_return") and p.outcome == "return" and p.defender_name:
+            # R2b: real special-teams tackle credit (kickoff/punt-return
+            # coverage) -- app/engine/special_teams.py's _coverage_tackler.
+            # No credit on a return_td (nobody made the tackle) or a
+            # touchback (no return happened at all).
+            line(p.defender_name).solo_tackles += 1
 
     return sorted(lines.values(), key=lambda l: -l.solo_tackles)
