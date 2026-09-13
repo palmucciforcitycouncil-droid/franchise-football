@@ -24,16 +24,25 @@ the full account):
   rookies again, which undercuts the whole point of building this. The
   underlying generate+simulate logic is identical either way; this is a
   strictly more useful hook for the same amount of code.
-- **No live/interactive draft event or pre-draft Draft Board.** The spec's
-  own vision (Sec 5, Sec 6) has prospects browsable and board-able BEFORE
-  the draft resolves, with the user's board influencing their own picks.
-  Building that needs a whole pending/uncommitted "class exists, draft
-  hasn't run yet" state machine. Given real time constraints, this
-  implementation runs generation + simulation as one atomic step (closer
-  to the spec's own Sec 9.1 "current implementation" framing) and the
-  `/draft` page is a real, read-only REVIEW of what happened, not an
-  interactive scouting tool. A genuinely disclosed cut from the spec's
-  fuller vision, not a hidden one -- see the page's own on-screen note.
+- **Live pick-by-pick draft, added 2026-09-13 (Brian's ask).** The class
+  for next season is now generated the moment the CURRENT season is
+  built (`season_state._build_season()`) and persisted in full via
+  `app/services/draft_class_store.py` -- browsable, sortable, and
+  personally board-able (`app/services/draft_board_store.py`, reference-
+  only, never affects the real simulated picks below) for that entire
+  season, not just after the fact. The draft itself resolves one real
+  slot at a time (`draft_slots()`/`resolve_one_pick()`/
+  `apply_single_pick_to_db()` below), driven by the user's own pacing on
+  the Draft page (Sim Pick / Sim to Your Next Pick / End) and tracked in
+  `app/services/draft_progress_store.py` across separate HTTP requests
+  -- it deliberately does NOT auto-run the user's own team's picks; only
+  "End" auto-resolves them, as an explicit bail-out. `run_draft_for_
+  season()`/`simulate_draft()`/`apply_draft_to_db()` below are UNCHANGED
+  and still used as the atomic, one-call fallback (season_state.
+  finish_offseason() only reaches for them if the live draft was never
+  engaged with at all) and by every existing test -- the live event is
+  an additional way to resolve the same real, deterministic picks, not
+  a replacement pipeline.
 - **Attribute generation is a simplified position-profile formula**, not
   the spec's fuller per-attribute-variance table for every one of the
   Player model's ~50 real attributes. Each position has a small set of
@@ -394,6 +403,117 @@ def simulate_draft(prospects: list[ProspectDraft], order: list[str], rounds: int
             team_counts[best.group] += 1
             overall_pick += 1
     return DraftResult(order=order, picks=picks, undrafted_indexes=list(remaining.keys()))
+
+
+# ---------------------------------------------------------------------------
+# Live, pick-by-pick draft (Brian's ask, 2026-09-13) -- the exact same
+# needs-aware greedy logic as simulate_draft() above, factored so ONE
+# slot can resolve per real HTTP request instead of the whole draft
+# resolving inside one function call. See app/services/
+# draft_progress_store.py's own docstring for how a slot's real position
+# in the sequence survives across those separate requests.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DraftSlot:
+    round: int
+    overall_pick: int
+    team_abbr: str
+
+
+def draft_slots(order: list[str], rounds: int = ROUNDS) -> list[DraftSlot]:
+    """The fixed, real sequence of (round, overall_pick, team) slots a
+    draft resolves in -- a pure function of `order` (compute_draft_
+    order()'s real standings-based result) and `rounds`, identical
+    whether computed once atomically (simulate_draft) or read fresh on
+    every request by the live pick-by-pick engine."""
+    slots: list[DraftSlot] = []
+    overall_pick = 1
+    for rnd in range(1, rounds + 1):
+        for team_abbr in order:
+            slots.append(DraftSlot(round=rnd, overall_pick=overall_pick, team_abbr=team_abbr))
+            overall_pick += 1
+    return slots
+
+
+def resolve_one_pick(
+    prospects_by_index: dict[int, ProspectDraft], drafted_indexes: set[int],
+    team_abbr: str, group_counts: dict[str, dict[str, int]],
+) -> ProspectDraft:
+    """The exact same needs-aware greedy choice simulate_draft() makes
+    for one team's turn (see that function's own docstring), extracted
+    so the live pick-by-pick engine can call it for one slot at a time.
+    `group_counts` is mutated in place (the picked prospect's own group
+    incremented) so the next call for this same team sees an accurate
+    need, same as simulate_draft()'s own in-memory bookkeeping -- the
+    caller owns this dict across calls (typically seeded once from
+    _all_teams_group_counts() at the start of a live draft)."""
+    team_counts = group_counts.setdefault(team_abbr, {group: 0 for group in GROUP_POSITIONS})
+    needs = _needs_from_counts(team_counts)[:3]
+    remaining = [p for i, p in prospects_by_index.items() if i not in drafted_indexes]
+    candidates = [p for p in remaining if p.group in needs]
+    pool = candidates or remaining
+    best = max(pool, key=lambda p: (p.overall_rating, -p.index))
+    team_counts[best.group] += 1
+    return best
+
+
+def apply_single_pick_to_db(prospect: ProspectDraft, team_abbr: str, overall_pick: int, round_num: int,
+                             league_seed: int, season_number: int) -> dict:
+    """Writes ONE drafted prospect as a real Player row the moment its
+    pick resolves -- the live pick-by-pick engine's own unit of work.
+    Same real rookie-scale contract terms apply_draft_to_db() already
+    uses, just for a single prospect instead of a whole DraftResult's
+    worth at once. Returns the same pick-dict shape draft_store.py's
+    `picks` list uses, ready for draft_progress_store.record_pick()."""
+    from app.core.db import get_session
+
+    salary = rookie_scale_aav(overall_pick, season_number)
+    player = _prospect_to_player(prospect, league_seed, season_number, team_abbr, salary, contract_years_remaining=4)
+    # player_id/full_name are both deterministic and known BEFORE the
+    # insert (_player_id_for()/prospect's own name) -- read them off the
+    # object before commit, not after: a SQLAlchemy Session expires an
+    # object's attributes on commit by default, and this function's own
+    # `with get_session()` block has already closed by the time the
+    # caller would otherwise touch `player` again, which raised a real
+    # DetachedInstanceError the first time this ran live (caught by this
+    # feature's own test suite, not by inspection).
+    player_id, full_name = player.player_id, player.full_name
+    with get_session() as s:
+        s.add(player)
+        s.commit()
+    return {
+        "round": round_num, "overall_pick": overall_pick, "team_abbr": team_abbr,
+        "player_id": player_id, "name": full_name, "position": prospect.position.value,
+        "college": prospect.college, "overall_rating": prospect.overall_rating,
+    }
+
+
+def finalize_undrafted_to_db(prospects_by_index: dict[int, ProspectDraft], drafted_indexes: set[int],
+                              league_seed: int, season_number: int) -> int:
+    """Once every slot has resolved, whoever's left in the class becomes
+    a real free agent -- the exact same treatment apply_draft_to_db()
+    already gives undrafted prospects (real Player row, team_abbr=None,
+    league-minimum 1-year deal, registered in undrafted_pool), extracted
+    so the live pick-by-pick engine can call it once at the draft's real
+    end instead of inside one atomic function. Returns the count."""
+    from app.core.db import get_session
+    from app.services import undrafted_pool
+
+    undrafted_player_ids: list[str] = []
+    with get_session() as s:
+        for index, prospect in prospects_by_index.items():
+            if index in drafted_indexes:
+                continue
+            player = _prospect_to_player(
+                prospect, league_seed, season_number, None,
+                salary=LEAGUE_MINIMUM_BASE, contract_years_remaining=1,
+            )
+            s.add(player)
+            undrafted_player_ids.append(player.player_id)
+        s.commit()
+    undrafted_pool.add_undrafted(undrafted_player_ids)
+    return len(undrafted_player_ids)
 
 
 # ---------------------------------------------------------------------------

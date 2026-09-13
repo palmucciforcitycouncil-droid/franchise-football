@@ -70,6 +70,43 @@ def test_a_strong_offer_to_a_cap_healthy_team_is_accepted():
     assert result.verdict == free_agency.FAOfferVerdict.ACCEPT
 
 
+def test_fa_offer_guaranteed_money_is_additive_not_a_regression_for_unguaranteed_offers():
+    """Brian's ask, 2026-09-13: guaranteed money should move the needle,
+    but an unguaranteed offer (offered_guaranteed=0, the default) must
+    score exactly as it did before this bonus existed."""
+    player = _player(Position.WR, 80, "wr1")
+    from app.engine import contracts
+    expected = contracts.expected_market_value(player, 0)
+    default_omitted = free_agency.evaluate_fa_offer(
+        player, "ZZ", offered_aav=expected * 0.8, offered_years=3, season_number=0,
+        team_rating=80.0, current_group_rating=None, team_players_for_cap=[],
+    )
+    explicit_zero = free_agency.evaluate_fa_offer(
+        player, "ZZ", offered_aav=expected * 0.8, offered_years=3, season_number=0,
+        team_rating=80.0, current_group_rating=None, team_players_for_cap=[], offered_guaranteed=0.0,
+    )
+    assert default_omitted.score == explicit_zero.score
+
+
+def test_fa_offer_more_guaranteed_money_can_turn_a_reject_into_an_accept():
+    player = _player(Position.WR, 80, "wr1")
+    from app.engine import contracts
+    expected = contracts.expected_market_value(player, 0)
+    aav, years = expected * 0.95, 3
+    unguaranteed = free_agency.evaluate_fa_offer(
+        player, "ZZ", offered_aav=aav, offered_years=years, season_number=0,
+        team_rating=80.0, current_group_rating=None, team_players_for_cap=[],
+    )
+    assert unguaranteed.verdict != free_agency.FAOfferVerdict.ACCEPT
+
+    fully_guaranteed = free_agency.evaluate_fa_offer(
+        player, "ZZ", offered_aav=aav, offered_years=years, season_number=0,
+        team_rating=80.0, current_group_rating=None, team_players_for_cap=[], offered_guaranteed=aav * years,
+    )
+    assert fully_guaranteed.score > unguaranteed.score
+    assert fully_guaranteed.verdict == free_agency.FAOfferVerdict.ACCEPT
+
+
 def test_release_expired_contracts_frees_only_players_at_zero_years():
     roster = [
         _player(Position.WR, 80, "wr1", team_abbr="ZZ", contract_years_remaining=0),
@@ -120,3 +157,67 @@ def test_fill_roster_gaps_leaves_a_position_unfilled_when_the_league_has_nobody_
     roster: list[Player] = []
     signed = free_agency.fill_roster_gaps("ZZ", roster, free_agent_pool=[], season_number=0)
     assert signed == []  # disclosed gap, not a crash -- nobody to sign
+
+
+# --- run_ai_resign_decisions (offseason re-signing window, Brian's ask 2026-09-13) ----
+
+def test_run_ai_resign_decisions_ignores_the_excluded_team():
+    """The user's own team is excluded -- they get the real interactive
+    GM Desk Negotiation flow instead, gated by season_state's "resign"
+    offseason_stage, not this AI-only roll."""
+    roster = [_player(Position.QB, 95, f"qb{i}", team_abbr="ZZ", contract_years_remaining=0) for i in range(20)]
+    resigned = free_agency.run_ai_resign_decisions(roster, season_number=0, exclude_team_abbr="ZZ")
+    assert resigned == 0
+    assert all(p.contract_years_remaining == 0 for p in roster)
+
+
+def test_run_ai_resign_decisions_skips_players_not_yet_expired():
+    roster = [_player(Position.QB, 95, "qb1", team_abbr="ZZ", contract_years_remaining=2)]
+    resigned = free_agency.run_ai_resign_decisions(roster, season_number=0)
+    assert resigned == 0
+    assert roster[0].contract_years_remaining == 2
+
+
+def test_run_ai_resign_decisions_never_resigns_a_player_the_team_cant_afford():
+    """The cap-space guard runs BEFORE the seeded roll -- an offer over
+    cap space never happens, regardless of how the dice land."""
+    from app.engine import contracts
+    cap = contracts.salary_cap_for_season(0)
+    expensive = _player(Position.QB, 99, "qb1", team_abbr="ZZ", contract_years_remaining=0, salary=1)
+    # Committed salary alone already exceeds the cap -- team_cap_space is
+    # negative before this player's own (nonzero) expected market value
+    # is even considered, so no roll should ever accept re-signing them.
+    cap_eating_teammates = [_player(Position.WR, 80, f"w{i}", team_abbr="ZZ", salary=round(cap)) for i in range(2)]
+    roster = [expensive] + cap_eating_teammates
+    resigned = free_agency.run_ai_resign_decisions(roster, season_number=0)
+    assert resigned == 0
+    assert expensive.contract_years_remaining == 0
+    assert expensive.team_abbr == "ZZ"  # never released either -- that's release_expired_contracts()'s job
+
+
+def test_run_ai_resign_decisions_resigns_at_least_some_cap_healthy_stars():
+    """A high-rated player on a cap-healthy team is re-signed often, not
+    never -- across enough distinct players (distinct seeds), at least
+    one real re-sign should land."""
+    roster = [_player(Position.WR, 92, f"wr{i}", team_abbr="ZZ", contract_years_remaining=0, salary=1) for i in range(200)]
+    resigned = free_agency.run_ai_resign_decisions(roster, season_number=0)
+    assert resigned > 0
+    assert any(p.contract_years_remaining > 0 for p in roster)
+    assert all(p.team_abbr == "ZZ" for p in roster)  # this function never releases anyone itself
+
+
+def test_run_ai_resign_decisions_declines_at_least_some_replacement_level_players():
+    """A low-rated player is far less likely to be kept -- across enough
+    distinct players, at least one real decline (still at 0 years,
+    ready for release_expired_contracts()) should land."""
+    roster = [_player(Position.WR, 45, f"wr{i}", team_abbr="ZZ", contract_years_remaining=0, salary=1) for i in range(200)]
+    free_agency.run_ai_resign_decisions(roster, season_number=0)
+    assert any(p.contract_years_remaining == 0 for p in roster)
+
+
+def test_run_ai_resign_decisions_is_deterministic():
+    roster_a = [_player(Position.WR, 80, f"wr{i}", team_abbr="ZZ", contract_years_remaining=0, salary=1) for i in range(30)]
+    roster_b = [_player(Position.WR, 80, f"wr{i}", team_abbr="ZZ", contract_years_remaining=0, salary=1) for i in range(30)]
+    free_agency.run_ai_resign_decisions(roster_a, season_number=0)
+    free_agency.run_ai_resign_decisions(roster_b, season_number=0)
+    assert [p.contract_years_remaining for p in roster_a] == [p.contract_years_remaining for p in roster_b]

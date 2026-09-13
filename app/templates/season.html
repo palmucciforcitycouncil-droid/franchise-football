@@ -4,13 +4,26 @@
 
 <div class="card">
   <h2>Season</h2>
-  {% if season.is_complete %}
+  {% if season.preseason_pending %}
+    <p class="muted">Preseason Round {{ season.preseason_rounds_played + 1 }} of {{ season.preseason_total_rounds }} -- optional, but its box scores feed a small progression nudge and back-fill the Scouting Panel/Top Performers until Week 1 is played.</p>
+    <form method="post" action="/season/simulate-week">
+      <button type="submit">Sim Preseason Round {{ season.preseason_rounds_played + 1 }}</button>
+    </form>
+  {% elif season.is_complete %}
     <p><strong>Season complete</strong> — all {{ n_weeks }} weeks simulated.</p>
+    {% if season.playoffs is none or not season.playoffs.is_complete %}
+    <p class="muted">See the <a href="/playoffs">Playoffs</a> page and keep pressing Sim Week to play out the bracket.</p>
+    {% elif season.offseason_stage == "staff" %}
+    <p class="muted">The offseason is underway -- head to the <a href="/staff">Staff</a> page for Staff Decisions, then continue to free agency and the draft.</p>
+    {% elif season.offseason_stage == "resign" %}
+    <p class="muted">The offseason is underway -- head to the <a href="/gm-desk">GM Desk</a> for Free Agent Decisions, then continue to the draft.</p>
+    {% elif season.offseason_stage == "draft" %}
+    <p class="muted">The offseason is underway -- head to the <a href="/draft">Draft</a> page to run it live.</p>
+    {% else %}
+    <p class="muted">Champion decided -- press Sim Week to begin the offseason.</p>
+    {% endif %}
   {% else %}
     <p class="muted">Week {{ season.current_week }} of {{ n_weeks }}</p>
-    {% if season.current_week == 1 and season.preseason_schedule and not season.preseason_complete %}
-    <p class="muted">Preseason isn't simulated yet -- optional, but its box scores feed a small progression nudge and back-fill the Scouting Panel/Top Performers until Week 1 is played.</p>
-    {% endif %}
     <form method="post" action="/season/simulate-week">
       <button type="submit">Simulate Week {{ season.current_week }}</button>
     </form>

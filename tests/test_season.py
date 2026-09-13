@@ -7,7 +7,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import season_state, save_service, gameplan_store, history_store, power_rank_history
+from app.services import (
+    season_state, save_service, gameplan_store, history_store, power_rank_history,
+    award_race_history, headlines_history, draft_class_store, draft_board_store, draft_progress_store,
+)
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.data.teams import TEAMS
 
@@ -27,6 +30,25 @@ history_store.DEFAULT_PATH = Path("data/saves/_test_season_history.json")
 # ROADMAP.md Sec2d-B item 10: simulate_current_week() now writes a weekly
 # Power Ranking snapshot too -- same isolation reasoning as the paths above.
 power_rank_history.DEFAULT_PATH = Path("data/saves/_test_season_power_ranks.json")
+# Same reasoning: simulate_current_week() also writes a real weekly Awards-
+# Race snapshot and real Weekly Headlines every call -- this module runs
+# full/partial seasons dozens of times, and without this redirect every
+# one of those writes would land in the live app's real award_race_history.json/
+# headlines_history.json (both keyed by season_number, so a test season's
+# always-season-0 writes could clobber the real franchise's own archived
+# season 0 if it has one -- found via a real, if inert, instance of exactly
+# this during this feature's own test run).
+award_race_history.DEFAULT_PATH = Path("data/saves/_test_season_award_race.json")
+headlines_history.DEFAULT_PATH = Path("data/saves/_test_season_headlines.json")
+# Brian's ask, 2026-09-13: _build_season() now ALSO generates + persists
+# next season's real draft class (draft_class_store) every single time
+# it runs -- same isolation reasoning as every store above, or every
+# reset_season() call in this file would write into the live app's real
+# data/saves/draft_classes.json, keyed by a season_number that could
+# collide with a real franchise's own pending class.
+draft_class_store.DEFAULT_PATH = Path("data/saves/_test_season_draft_classes.json")
+draft_board_store.DEFAULT_PATH = Path("data/saves/_test_season_draft_board.json")
+draft_progress_store.DEFAULT_PATH = Path("data/saves/_test_season_draft_progress.json")
 
 
 def setup_function(_):
@@ -35,6 +57,11 @@ def setup_function(_):
     season_state.reset_season()
     gameplan_store.DEFAULT_PATH.unlink(missing_ok=True)
     power_rank_history.DEFAULT_PATH.unlink(missing_ok=True)
+    award_race_history.DEFAULT_PATH.unlink(missing_ok=True)
+    headlines_history.DEFAULT_PATH.unlink(missing_ok=True)
+    draft_class_store.DEFAULT_PATH.unlink(missing_ok=True)
+    draft_board_store.DEFAULT_PATH.unlink(missing_ok=True)
+    draft_progress_store.DEFAULT_PATH.unlink(missing_ok=True)
 
 
 def test_schedule_shape():
@@ -132,6 +159,7 @@ def test_season_page_loads():
 
 
 def test_simulate_week_advances_and_updates_standings():
+    season_state.simulate_preseason()  # clear the preseason first -- Sim Week plays that before Week 1
     resp = client.post("/season/simulate-week", follow_redirects=True)
     assert resp.status_code == 200
     assert "Week 2" in resp.text
@@ -817,6 +845,94 @@ def test_preseason_save_load_round_trip():
     assert reloaded_game.home_abbr == orig_game.home_abbr
     assert reloaded_game.result.home_score == orig_game.result.home_score
     assert reloaded_game.result.away_score == orig_game.result.away_score
+
+
+# --- Sim Week driving preseason round-by-round (Brian's ask, 2026-09-13) ----------------
+
+def test_simulate_next_preseason_round_plays_exactly_one_round_at_a_time():
+    season = season_state.get_season()
+    assert season.preseason_rounds_played == 0
+
+    round_num = season_state.simulate_next_preseason_round()
+    assert round_num == 1
+    assert season.preseason_rounds_played == 1
+    assert all(g.result is not None for g in season.preseason_schedule[0])
+    assert all(g.result is None for g in season.preseason_schedule[1])
+    # Same "never touches records" rule as simulate_preseason().
+    assert all(r.wins == 0 and r.losses == 0 for r in season.records.values())
+
+    for expected_round in (2, 3, 4):
+        assert season_state.simulate_next_preseason_round() == expected_round
+    assert season.preseason_complete
+
+    # Idempotent once complete, same convention as the other simulate_* functions.
+    assert season_state.simulate_next_preseason_round() == 0
+
+
+def test_simulate_week_route_plays_preseason_rounds_before_the_regular_season():
+    season_state.set_user_team("KC")
+    for expected_round in (1, 2, 3, 4):
+        resp = client.post("/season/simulate-week", data={"redirect_to": "/season"}, follow_redirects=False)
+        assert resp.status_code == 303
+        season = season_state.get_season()
+        assert season.preseason_rounds_played == expected_round
+        assert season.current_week == 1  # regular season hasn't started yet
+
+    resp = client.post("/season/simulate-week", data={"redirect_to": "/season"}, follow_redirects=False)
+    assert resp.status_code == 303
+    season = season_state.get_season()
+    assert season.preseason_complete
+    assert season.current_week == 2  # first regular-season week just got simulated
+
+
+def test_simulate_week_route_never_retroactively_forces_preseason_once_week_1_is_past():
+    """Regression test for a real bug found via manual testing against a
+    live save (season 25, week 19) that had never played its preseason:
+    Sim Week must NOT suddenly demand 4 rounds of preseason once the
+    regular season (or playoffs) already moved past Week 1 without it --
+    preseason only gates progress as the literal first weeks of a BRAND
+    NEW season (season_state.Season.preseason_pending)."""
+    season_state.set_user_team("KC")
+    # Bypass preseason entirely, same as a save/reload from before Sim Week
+    # drove it, or a franchise that just never played it -- current_week
+    # advances past 1 with preseason_schedule still fully unplayed.
+    season_state.simulate_current_week()
+    season_state.simulate_current_week()
+    season = season_state.get_season()
+    assert season.current_week == 3
+    assert not season.preseason_complete
+    assert not season.preseason_pending  # too late for preseason to gate anything now
+
+    resp = client.post("/season/simulate-week", data={"redirect_to": "/season"}, follow_redirects=False)
+    assert resp.status_code == 303
+    season = season_state.get_season()
+    assert season.current_week == 4  # advanced the regular season, not preseason
+    assert not season.preseason_complete  # preseason itself is untouched -- just no longer gating
+
+
+def test_simulate_week_route_reaches_the_offseason_pause_after_the_super_bowl():
+    """Regression test for the reported bug: Sim Week used to silently
+    no-op forever once the Super Bowl was decided. It should now always
+    make forward progress, landing on /staff for Staff Decisions first."""
+    for _ in range(4):
+        season_state.simulate_next_preseason_round()
+    for _ in range(N_WEEKS):
+        season_state.simulate_current_week()
+    for _ in range(4):
+        season_state.simulate_playoff_round()
+    season = season_state.get_season()
+    assert season.playoffs.is_complete
+
+    resp = client.post("/season/simulate-week", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/staff"
+    assert season_state.get_season().offseason_stage == "staff"
+
+    # Clicking it again doesn't error or regress -- still parked on /staff.
+    resp = client.post("/season/simulate-week", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/staff"
+    assert season_state.get_season().season_number == 0
 
 
 def test_season_page_shows_preseason_button_before_played():

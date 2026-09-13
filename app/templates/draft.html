@@ -1,18 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Draft — Franchise Football{% endblock %}
 {% block content %}
+
+{% if mode == "review" %}
+{% if just_completed %}
+<div class="card">
+  <h3>Offseason: Draft</h3>
+  <p class="muted">Free agency has settled -- here's the real, just-simulated draft for this season. Sim Week will pick back up with next season's preseason whenever you're ready.</p>
+</div>
+{% endif %}
 <div class="card">
   <h2>Draft &mdash; Season {{ target_season + 1 }}</h2>
   <p class="muted">
     A real 7-round draft: deterministic per-league prospect generation, a real worst-to-best draft order
     (record, then strength of schedule, then a seeded tiebreak), and a need-aware greedy simulation --
     every pick below is a real rostered player with a real rookie-scale contract, not placeholder data.
-    <strong>Disclosed scope cut:</strong> this is a review of a draft that already happened automatically at
-    your last offseason, not an interactive pre-draft scouting board -- there's no live pick-by-pick event,
-    prospect comparison, or personal draft board to build before it runs. {{ undrafted_count }} prospects went
-    undrafted this year and joined the free-agent pool (a 3-year signing window before they expire).
+    {{ undrafted_count }} prospects went undrafted this year and joined the free-agent pool (a 3-year
+    signing window before they expire).
   </p>
   <p class="row" style="gap: 1rem;">
+    <a href="/draft">&larr; Back to the current Prospects board</a>
     {% if has_prior_season %}<a href="/draft?season_param={{ target_season - 1 }}">&larr; Season {{ target_season }}</a>{% endif %}
     {% if has_next_season %}<a href="/draft?season_param={{ target_season + 1 }}">Season {{ target_season + 2 }} &rarr;</a>{% endif %}
   </p>
@@ -82,4 +89,218 @@
   </div>
   {% endfor %}
 </div>
+
+{% elif mode == "live" %}
+<div class="card">
+  <h2>Draft &mdash; Season {{ target_season + 1 }}</h2>
+  <p class="muted">Live, real, pick-by-pick -- {{ picks_made }} of {{ total_slots }} picks made.</p>
+  {% if current_slot %}
+  <p>
+    {% if your_turn %}
+    <strong>You're on the clock</strong> &mdash; Pick #{{ current_slot.overall_pick }} (Round {{ current_slot.round }}). Pick a prospect below.
+    {% else %}
+    {{ team_link(current_slot.team_abbr) }} is on the clock &mdash; Pick #{{ current_slot.overall_pick }} (Round {{ current_slot.round }}).
+    {% endif %}
+  </p>
+  {% else %}
+  <p><strong>Draft complete.</strong></p>
+  {% endif %}
+  <div class="row" style="gap: 0.6rem;">
+    <form method="post" action="/draft/sim-pick"><button type="submit" {% if your_turn %}disabled{% endif %}>Sim Pick</button></form>
+    <form method="post" action="/draft/sim-to-next-pick"><button type="submit" {% if your_turn %}disabled{% endif %}>Sim to Your Next Pick</button></form>
+    <form method="post" action="/draft/end"><button type="submit" style="background:#3a3f52; border-color:#3a3f52;">End (auto-draft the rest)</button></form>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Draft Results</h3>
+  {% if picks_so_far %}
+  <div class="dashboard-scroll">
+    <table class="boxtable">
+      <thead><tr><th>Pick</th><th>Team</th><th>Player</th><th>Pos</th><th>College</th><th>OVR</th></tr></thead>
+      <tbody>
+        {% for p in picks_so_far %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>#{{ p.overall_pick }}</td>
+          <td>{{ team_link(p.team_abbr) }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position }}</td>
+          <td>{{ p.college }}</td>
+          <td>{{ p.overall_rating }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No picks yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Team Needs ({{ user_abbr }})</h3>
+  <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+    {% for group, rating in needs %}
+    <span class="pc-badge-ovr" title="Group rating: {{ rating | round(1) }}">{{ group }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card" id="draft-prospects">
+  <h3>Prospects ({{ prospects | length }} remaining)</h3>
+  <div class="row" style="gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+    {% for g in group_tabs %}
+    <a href="/draft?group={{ g }}&sort={{ active_sort }}&dir={{ active_dir }}" class="dash-tab {% if g == active_group %}active{% endif %}" data-preserve-scroll="draft-prospects">{{ g }}</a>
+    {% endfor %}
+  </div>
+  <div class="dashboard-scroll">
+    <table class="boxtable">
+      <thead>
+        <tr>
+          <th>Player</th><th>Pos</th><th>College</th><th>Age</th><th>OVR</th><th>POT</th><th>Grade</th>
+          {% if your_turn %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in prospects %}
+        <tr>
+          <td>{{ p.first_name }} {{ p.last_name }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.college }}</td>
+          <td>{{ p.age }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.potential }}</td>
+          <td>{{ p.draft_grade }}</td>
+          {% if your_turn %}
+          <td>
+            <form method="post" action="/draft/pick">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <button type="submit">Draft</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="card">
+  <h2>Draft &mdash; Season {{ target_season + 1 }} Prospects</h2>
+  <p class="muted">
+    Next season's real draft class -- generated the moment this season began, browsable and board-able the
+    whole way through. The real 7-round draft itself (worst-to-best order, need-aware AI, a real manual pick
+    for your own team's turns) runs live once the offseason reaches it.
+    {% if has_prior_draft %}<a href="/draft?season_param={{ target_season - 1 }}">View this season's own draft results &rarr;</a>{% endif %}
+  </p>
+</div>
+
+{% if user_abbr %}
+<div class="card">
+  <h3>Team Needs ({{ user_abbr }})</h3>
+  <p class="muted" style="font-size: 0.82rem;">Your weakest position groups by real roster talent (roster_strength.py), weakest first.</p>
+  <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+    {% for group, rating in needs %}
+    <span class="pc-badge-ovr" title="Group rating: {{ rating | round(1) }}">{{ group }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h3>Your Draft Board ({{ board | length }})</h3>
+  <p class="muted" style="font-size: 0.82rem;">Your own reference ranking -- doesn't affect the real, need-aware AI picks (including your own, if you let "End" auto-draft them).</p>
+  {% if board %}
+  <div class="dashboard-scroll">
+    <table class="boxtable">
+      <thead><tr><th>#</th><th>Player</th><th>Pos</th><th>OVR</th><th>POT</th><th></th></tr></thead>
+      <tbody>
+        {% for p in board %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ p.first_name }} {{ p.last_name }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.potential }}</td>
+          <td class="row" style="gap: 0.3rem;">
+            <form method="post" action="/draft/board/move">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <input type="hidden" name="direction" value="up">
+              <button type="submit" {% if loop.first %}disabled{% endif %}>&uarr;</button>
+            </form>
+            <form method="post" action="/draft/board/move">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <input type="hidden" name="direction" value="down">
+              <button type="submit" {% if loop.last %}disabled{% endif %}>&darr;</button>
+            </form>
+            <form method="post" action="/draft/board/remove">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <button type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Nothing on your board yet -- add prospects from the list below.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Prospects ({{ prospects | length }})</h3>
+  <div class="row" style="gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+    {% for g in group_tabs %}
+    <a href="{{ group_links[g] }}" class="dash-tab {% if g == active_group %}active{% endif %}">{{ g }}</a>
+    {% endfor %}
+  </div>
+  <div class="dashboard-scroll">
+    <table class="boxtable">
+      <thead>
+        <tr>
+          <th><a href="{{ sort_links.name }}">Player</a></th>
+          <th><a href="{{ sort_links.pos }}">Pos</a></th>
+          <th><a href="{{ sort_links.college }}">College</a></th>
+          <th><a href="{{ sort_links.age }}">Age</a></th>
+          <th><a href="{{ sort_links.ovr }}">OVR</a></th>
+          <th><a href="{{ sort_links.pot }}">POT</a></th>
+          <th>Grade</th>
+          {% if user_abbr %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in prospects %}
+        <tr>
+          <td>{{ p.first_name }} {{ p.last_name }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.college }}</td>
+          <td>{{ p.age }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.potential }}</td>
+          <td>{{ p.draft_grade }}</td>
+          {% if user_abbr %}
+          <td>
+            {% if p.index in board_indexes %}
+            <form method="post" action="/draft/board/remove">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <button type="submit">On Board</button>
+            </form>
+            {% else %}
+            <form method="post" action="/draft/board/add">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <button type="submit">+ Board</button>
+            </form>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

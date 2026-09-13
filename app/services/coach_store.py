@@ -94,16 +94,20 @@ def by_id(coach_id: str) -> Coach | None:
     return None
 
 
-def search(query: str = "", role: str = "", limit: int = 50) -> list[Coach]:
+def search(query: str = "", role: str = "", available_only: bool = False, limit: int = 50) -> list[Coach]:
     """League-wide coach search for the Staff page's Find Coaches box --
     the same shape as the Roster page's own Find Player search (M11),
-    matching on name, specialty, or team."""
+    matching on name, specialty, or team. `available_only` narrows to
+    coaches with no current team (i.e. real free agents), the same
+    "available" meaning the Roster page's own free-agent listings use."""
     q = query.strip().lower()
     results = []
     for coach in all_coaches():
         if coach.retired:
             continue
         if role and coach.role.value != role:
+            continue
+        if available_only and coach.team_abbr is not None:
             continue
         if q and not (
             q in coach.full_name.lower()

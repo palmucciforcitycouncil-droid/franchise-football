@@ -132,6 +132,10 @@ def season_to_dict(season) -> dict:
         # backfill) and needs to survive a save/reload exactly like any
         # other simulated game.
         "preseason_schedule": _week_games_to_dict(getattr(season, "preseason_schedule", [])),
+        # Offseason stage (None/"staff"/"resign", Brian's ask 2026-09-13)
+        # -- must survive a save/reload same as everything else here, or
+        # a server restart mid-offseason would silently forget the pause.
+        "offseason_stage": getattr(season, "offseason_stage", None),
         "records": {
             abbr: asdict(rec) for abbr, rec in season.records.items()
         },
@@ -180,6 +184,11 @@ def season_from_dict(d: dict):
         playoffs=_bracket_from_dict(d.get("playoffs")),
         season_number=d.get("season_number", 0),
         preseason_schedule=preseason_schedule,
+        # .get(...) fallback: a save file from before this offseason
+        # staging existed won't have this key (or may still have the
+        # old boolean "awaiting_resign" key from this feature's first,
+        # single-stage cut) -- both treated as "not in the offseason".
+        offseason_stage=d.get("offseason_stage") or ("resign" if d.get("awaiting_resign") else None),
     )
 
 

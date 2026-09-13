@@ -99,6 +99,15 @@
 {% endmacro %}
 
 {% block content %}
+{% if season.offseason_stage == "staff" and team_abbr == season.user_team_abbr %}
+<div class="card">
+  <h3>Offseason: Staff Decisions</h3>
+  <p class="muted">Every other team has already settled its own coaching staff for next season. Review or change yours below (Hire/Fire) if you want to, then continue -- your staff carries into free agency and the draft either way.</p>
+  <form method="post" action="/offseason/advance-to-resign">
+    <button type="submit">Continue to Free Agency</button>
+  </form>
+</div>
+{% endif %}
 <div class="card">
   <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
     <h3 style="margin: 0;">{{ team.location }} ({{ team.abbr }})</h3>
@@ -199,8 +208,14 @@
           {% endfor %}
         </select>
       </div>
+      <div>
+        <label for="available">&nbsp;</label>
+        <label class="filter-checkbox" style="display: flex; align-items: center; gap: 4px; height: 2.2rem;">
+          <input type="checkbox" name="available" id="available" value="1" {% if available %}checked{% endif %} onchange="this.form.submit()"> Available only
+        </label>
+      </div>
       <div><button type="submit">Search</button></div>
-      {% if q or role %}<div><a href="/staff?team={{ team_abbr }}">Clear</a></div>{% endif %}
+      {% if q or role or available %}<div><a href="/staff?team={{ team_abbr }}">Clear</a></div>{% endif %}
     </div>
   </form>
 
@@ -223,7 +238,7 @@
       </tbody>
     </table>
   </div>
-  {% elif q or role %}
+  {% elif q or role or available %}
   <p class="muted">No coaches match that search.</p>
   {% endif %}
 

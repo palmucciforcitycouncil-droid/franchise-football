@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Offseason Recap — Franchise Football{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Offseason Recap &mdash; Season {{ target_season + 1 }}</h2>
+  <p class="muted">
+    What changed this offseason: real player progression deltas, real roster moves (free agency, the draft),
+    and real team roster-strength shifts -- not a fabricated summary.
+    <a href="/draft?season_param={{ target_season }}">View the full draft results &rarr;</a>
+  </p>
+  <p class="row" style="gap: 1rem;">
+    {% if has_prior_recap %}<a href="/offseason/recap?season_number={{ target_season - 1 }}">&larr; Season {{ target_season }} Recap</a>{% endif %}
+    {% if has_next_recap %}<a href="/offseason/recap?season_number={{ target_season + 1 }}">Season {{ target_season + 2 }} Recap &rarr;</a>{% endif %}
+  </p>
+</div>
+
+<div class="dash-tabs-grid cols-4">
+  <div class="card">
+    <h3>Top Players</h3>
+    {% if recap.top_players %}
+    <table class="boxtable">
+      <tbody>
+        {% for p in recap.top_players %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position }}</td>
+          <td>{{ team_link(p.team_abbr) if p.team_abbr else 'FA' }}</td>
+          <td>{{ p.overall_rating }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Improving Players</h3>
+    {% if recap.improving_players %}
+    <table class="boxtable">
+      <tbody>
+        {% for p in recap.improving_players %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position }}</td>
+          <td>{{ team_link(p.team_abbr) if p.team_abbr else 'FA' }}</td>
+          <td>{{ p.overall_rating }} <span class="muted">(+{{ p.delta }})</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Declining Players</h3>
+    {% if recap.declining_players %}
+    <table class="boxtable">
+      <tbody>
+        {% for p in recap.declining_players %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position }}</td>
+          <td>{{ team_link(p.team_abbr) if p.team_abbr else 'FA' }}</td>
+          <td>{{ p.overall_rating }} <span class="muted">({{ p.delta }})</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Top Rookies</h3>
+    {% if recap.top_rookies %}
+    <table class="boxtable">
+      <tbody>
+        {% for p in recap.top_rookies %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position }}</td>
+          <td>{{ team_link(p.team_abbr) if p.team_abbr else 'FA' }}</td>
+          <td>{{ p.overall_rating }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+</div>
+
+<div class="dash-tabs-grid cols-4">
+  <div class="card">
+    <h3>Top Teams</h3>
+    {% if recap.top_teams %}
+    <table class="boxtable">
+      <tbody>
+        {% for t in recap.top_teams %}
+        <tr class="{% if t.abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ team_link(t.abbr) }}</td>
+          <td>{{ t.rating_pctile | round(1) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Improving Teams</h3>
+    {% if recap.improving_teams %}
+    <table class="boxtable">
+      <tbody>
+        {% for t in recap.improving_teams %}
+        <tr class="{% if t.abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ team_link(t.abbr) }}</td>
+          <td><span class="muted">(+{{ t.delta | round(1) }})</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Declining Teams</h3>
+    {% if recap.declining_teams %}
+    <table class="boxtable">
+      <tbody>
+        {% for t in recap.declining_teams %}
+        <tr class="{% if t.abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ team_link(t.abbr) }}</td>
+          <td><span class="muted">({{ t.delta | round(1) }})</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No data.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Top Players on New Teams</h3>
+    {% if recap.new_team_players %}
+    <table class="boxtable">
+      <tbody>
+        {% for p in recap.new_team_players %}
+        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
+          <td>{{ loop.index }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ team_link(p.old_team_abbr) }} &rarr; {{ team_link(p.team_abbr) }}</td>
+          <td>{{ p.overall_rating }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">Nobody notable changed teams.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

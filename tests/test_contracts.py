@@ -116,3 +116,39 @@ def test_a_better_team_rating_makes_the_same_offer_more_likely_to_clear():
     weak_team = contracts.evaluate_offer(player, expected * 0.9, 3, 0, team_rating=50.0)
     strong_team = contracts.evaluate_offer(player, expected * 0.9, 3, 0, team_rating=95.0)
     assert strong_team.offer_score > weak_team.offer_score
+
+
+# --- guaranteed money's real effect on acceptance (Brian's ask, 2026-09-13) -------------
+
+def test_an_unguaranteed_offer_scores_identically_to_before_the_bonus_existed():
+    """The whole point of making the bonus additive rather than a 4th
+    weight: offered_guaranteed=0 (the default) must not silently make
+    every existing offer harder to clear than it used to be."""
+    player = _player(Position.WR, 80, "wr1")
+    expected = contracts.expected_market_value(player, 0)
+    explicit_zero = contracts.evaluate_offer(player, expected * 0.85, 3, 0, team_rating=70.0, offered_guaranteed=0.0)
+    default_omitted = contracts.evaluate_offer(player, expected * 0.85, 3, 0, team_rating=70.0)
+    assert explicit_zero.offer_score == default_omitted.offer_score
+
+
+def test_more_guaranteed_money_raises_the_offer_score():
+    player = _player(Position.WR, 80, "wr1")
+    expected = contracts.expected_market_value(player, 0)
+    aav, years = expected * 0.85, 3
+    unguaranteed = contracts.evaluate_offer(player, aav, years, 0, team_rating=70.0, offered_guaranteed=0.0)
+    fully_guaranteed = contracts.evaluate_offer(player, aav, years, 0, team_rating=70.0, offered_guaranteed=aav * years)
+    assert fully_guaranteed.offer_score > unguaranteed.offer_score
+
+
+def test_enough_guaranteed_money_can_turn_a_counter_into_an_accept():
+    """A borderline offer just short of ACCEPT_THRESHOLD on AAV/years/
+    team-quality alone -- real guaranteed money on top should be able to
+    close that real, if small, gap."""
+    player = _player(Position.WR, 80, "wr1")
+    expected = contracts.expected_market_value(player, 0)
+    aav, years = expected * 0.93, 4
+    baseline = contracts.evaluate_offer(player, aav, years, 0, team_rating=90.0)
+    assert baseline.verdict == contracts.OfferVerdict.COUNTER
+
+    guaranteed_result = contracts.evaluate_offer(player, aav, years, 0, team_rating=90.0, offered_guaranteed=aav * years)
+    assert guaranteed_result.verdict == contracts.OfferVerdict.ACCEPT

@@ -39,6 +39,7 @@ from enum import Enum
 
 from app.engine import coaching, contracts
 from app.engine.position_groups import POSITION_TO_GROUP
+from app.engine.rng import RNG, stable_seed
 from app.models.player import Player, Position
 
 
@@ -86,6 +87,15 @@ W_ROLE = 0.25
 W_TEAM = 0.15
 W_COACH = 0.15
 ACCEPT_THRESHOLD = 1.00  # Sec 8.4's own real starting threshold, held fixed (no tick-decay -- see module docstring)
+# Guaranteed money's real effect on acceptance (Brian's ask, 2026-09-13)
+# is an ADDITIVE bonus on top of the four weights above, not a 5th
+# weight carved out of their existing 1.0 total -- same reasoning as
+# contracts.py's own W_GUARANTEED_BONUS (see that constant's docstring):
+# an unguaranteed offer (offered_guaranteed=0) must score EXACTLY as it
+# did before this existed.
+W_GUARANTEED_BONUS = 0.10
+# Same real, documented anchor as contracts.py's own FULL_GUARANTEE_FRACTION.
+FULL_GUARANTEE_FRACTION = 0.5
 
 
 def fa_offer_reaction(score: float) -> str:
@@ -111,8 +121,12 @@ def fa_offer_reaction(score: float) -> str:
 def evaluate_fa_offer(
     player: Player, team_abbr: str, offered_aav: float, offered_years: int,
     season_number: int, team_rating: float, current_group_rating: float | None,
-    team_players_for_cap: list[Player],
+    team_players_for_cap: list[Player], offered_guaranteed: float = 0.0,
 ) -> FAOfferResult:
+    """offered_guaranteed (Brian's ask, 2026-09-13): scored as a fraction
+    of the total contract value against FULL_GUARANTEE_FRACTION, same
+    shape/anchor as contracts.evaluate_offer()'s own guaranteed term.
+    Defaults to 0 (an unguaranteed offer, still real and scoreable)."""
     cap_space_before = contracts.team_cap_space(team_players_for_cap, season_number)
     if offered_aav > cap_space_before:
         return FAOfferResult(FAOfferVerdict.OVER_CAP, 0.0)
@@ -126,9 +140,75 @@ def evaluate_fa_offer(
     from app.services.season_state import DEFENSIVE_POSITIONS
     coach_dev = effect.dev_multiplier_defense if player.position in DEFENSIVE_POSITIONS else effect.dev_multiplier_offense
 
-    score = W_AAV * aav_score + W_ROLE * role_fit.value + W_TEAM * team_quality + W_COACH * coach_dev
+    total_value = offered_aav * offered_years
+    guaranteed_fraction = (offered_guaranteed / total_value) if total_value else 0.0
+    guaranteed_points = min(1.0, guaranteed_fraction / FULL_GUARANTEE_FRACTION)
+
+    score = (
+        W_AAV * aav_score + W_ROLE * role_fit.value + W_TEAM * team_quality + W_COACH * coach_dev
+        + W_GUARANTEED_BONUS * guaranteed_points
+    )
     verdict = FAOfferVerdict.ACCEPT if score >= ACCEPT_THRESHOLD else FAOfferVerdict.REJECT
     return FAOfferResult(verdict, score)
+
+
+# Sec 8.4's own real 0.6-1.1 band, reused here as the resign roll's real
+# floor/ceiling -- the same "team quality" bounds evaluate_fa_offer()
+# scores an OUTSIDE offer against also bound how eager a team is to keep
+# its OWN player.
+RESIGN_CHANCE_FLOOR = 0.15
+RESIGN_CHANCE_CEILING = 0.95
+
+
+def run_ai_resign_decisions(players: list[Player], season_number: int, exclude_team_abbr: str | None = None) -> int:
+    """The offseason's contract-resigning window (Brian's ask,
+    2026-09-13): every AI team (all but `exclude_team_abbr`, the user's
+    own -- they get the real interactive GM Desk Negotiation flow
+    instead, gated by season_state's "resign" offseason_stage) makes its own
+    resign-or-release call for each of its players whose
+    contract_years_remaining just hit 0 (season_state.
+    apply_progression_to_roster's decrement, run BEFORE this -- see that
+    function's own docstring for why it no longer auto-releases).
+
+    A deterministic seeded roll per player (stable_seed/RNG, same
+    convention as the rest of the engine), not a coin flip: a team only
+    considers a re-sign it can actually afford (offered_aav <= its real
+    cap space, contracts.team_cap_space -- re-checked fresh before each
+    player since an earlier re-sign in the same team spends real cap for
+    the next one), and the chance itself scales with the player's real
+    overall_rating -- a clear starter is kept far more often than a
+    replacement-level rookie-deal afterthought. Declining simply leaves
+    the player at 0 years for release_expired_contracts() (the caller's
+    next step) to pick up -- this function never sets team_abbr = None
+    itself, and never touches the excluded team's players at all.
+
+    Returns the number of players actually re-signed."""
+    by_team: dict[str, list[Player]] = {}
+    for p in players:
+        if p.team_abbr and p.team_abbr != exclude_team_abbr and p.contract_years_remaining <= 0:
+            by_team.setdefault(p.team_abbr, []).append(p)
+
+    resigned = 0
+    for team_abbr, expiring in by_team.items():
+        team_roster = [p for p in players if p.team_abbr == team_abbr]
+        # Best players first: a cap-strapped team that can't keep
+        # everyone should spend its remaining room on its best expiring
+        # player, not whichever happens to be evaluated first.
+        for player in sorted(expiring, key=lambda p: -p.overall_rating):
+            aav = contracts.expected_market_value(player, season_number)
+            cap_space = contracts.team_cap_space(team_roster, season_number)
+            if aav <= 0 or aav > cap_space:
+                continue
+            rng = RNG.with_seed(stable_seed(season_number, team_abbr, player.player_id, "ai_resign"))
+            resign_chance = min(
+                RESIGN_CHANCE_CEILING,
+                max(RESIGN_CHANCE_FLOOR, (player.overall_rating - 55) / 60),
+            )
+            if rng.prob(resign_chance):
+                player.salary = round(aav)
+                player.contract_years_remaining = 3 if player.overall_rating >= 85 else 2
+                resigned += 1
+    return resigned
 
 
 def release_expired_contracts(players: list[Player]) -> int:

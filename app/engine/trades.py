@@ -74,6 +74,21 @@ def is_trade_window_open(current_week: int) -> bool:
     return current_week <= TRADE_DEADLINE_WEEK
 
 
+def trade_block_interest(value: float, season_number: int) -> str:
+    """"High"/"medium" label for the GM Desk Trade Block panel (Brian's
+    ask, 2026-09-13). A real, disclosed simplification: this engine has
+    no "a team explicitly made this player available" concept anywhere,
+    so the Trade Block surfaces real rostered players around the league
+    with the best real Surplus Value (player_trade_value()) -- genuinely
+    good bargains worth inquiring about, not a fabricated "on the block"
+    flag. The threshold is a FRACTION of that season's real salary cap
+    (not a fixed dollar figure) so it stays meaningful as the cap
+    compounds every season (contracts.py's own SALARY_CAP_GROWTH) rather
+    than becoming trivially true (or never true) 20 seasons in."""
+    cap = contracts.salary_cap_for_season(season_number)
+    return "high" if value >= cap * 0.01 else "medium"
+
+
 @dataclass(frozen=True)
 class TradeEvaluation:
     accepted: bool

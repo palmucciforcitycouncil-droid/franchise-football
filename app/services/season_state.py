@@ -95,6 +95,22 @@ class Season:
     # simulate_preseason()'s own docstring for what a preseason game DOES
     # feed into (progression, Week-1 scouting/stats backfill).
     preseason_schedule: list[list[WeekGame]] = field(default_factory=list)
+    # None outside the offseason; "staff" then "resign" while it's in
+    # progress (Brian's ask, 2026-09-13: distinct stops for Staff
+    # Decisions and Free Agent Decisions, not one flat pause) -- set by
+    # begin_offseason()/advance_offseason_stage(), cleared implicitly
+    # (back to None) when finish_offseason() builds the next Season.
+    # "staff": coach signing (every AI team's own hiring/firing) and
+    #   player aging/progression have already run; Sim Week (app/main.py)
+    #   stops advancing and instead sends the player to the Staff page --
+    #   a chance to review/adjust their OWN staff (the existing, always-
+    #   available /staff hire/fire routes) before continuing.
+    # "resign": the player's own expiring-contract re-signing window is
+    #   open on the GM Desk; finish_offseason() (free agency, the draft,
+    #   and the new Season) only runs once this stage ends.
+    # See season_state.begin_offseason()/advance_offseason_stage()/
+    # finish_offseason().
+    offseason_stage: str | None = None
 
     @property
     def is_complete(self) -> bool:
@@ -117,6 +133,22 @@ class Season:
     @property
     def preseason_complete(self) -> bool:
         return self.preseason_total_rounds > 0 and self.preseason_rounds_played == self.preseason_total_rounds
+
+    @property
+    def preseason_pending(self) -> bool:
+        """True only while preseason is genuinely still "the first weeks"
+        to sim -- there's an unplayed preseason AND not even Week 1 of
+        the regular season has been simulated yet. Deliberately does NOT
+        just check preseason_complete: a season that already advanced
+        past Week 1 without ever playing its preseason (every save from
+        before Sim Week drove preseason automatically, and any franchise
+        that simply never clicked the old standalone preseason button)
+        must never have Sim Week suddenly demand 4 rounds of preseason
+        retroactively once the regular season -- or even the playoffs --
+        is already well underway or done. Once current_week > 1, this is
+        permanently False for the rest of the season, regardless of
+        preseason_complete."""
+        return bool(self.preseason_schedule) and not self.preseason_complete and self.current_week == 1
 
     def standings(self) -> list[TeamRecord]:
         return sorted(
@@ -155,6 +187,16 @@ def _build_season(
     records = {
         t.abbr: TeamRecord(abbr=t.abbr, location=t.location) for t in TEAMS
     }
+    # Brian's ask, 2026-09-13: next season's draft class exists and is
+    # browsable/board-able for the ENTIRE season being built here, not
+    # just after it ends -- generated once, right now, and persisted via
+    # draft_class_store so the Draft page (and the eventual live pick-by-
+    # pick event) both read the exact same real, deterministic class.
+    # Harmless to regenerate if this ever runs twice for the same
+    # season_number+1 (generate_draft_class is a pure function of
+    # (league_seed, season_number) -- byte-identical either way).
+    from app.services import draft_class_store
+    draft_class_store.save_class(season_number + 1, draft.generate_draft_class(league_seed, season_number + 1))
     return Season(league_seed=league_seed, schedule=schedule, records=records, season_number=season_number,
                   preseason_schedule=preseason_schedule)
 
@@ -333,6 +375,38 @@ def simulate_preseason() -> int:
         from app.services import save_service
         save_service.save_season(season)
         return simulated
+
+
+def simulate_next_preseason_round() -> int:
+    """Sims exactly the next unplayed preseason round -- the Sim Week
+    button's own cadence (one click, one round/week), unlike
+    simulate_preseason()'s all-4-at-once convenience action above. This
+    is what makes preseason read as the real first weeks of the season:
+    app/main.py's Sim Week route calls this first, before
+    simulate_current_week(), whenever the preseason isn't complete yet.
+    Same "never touches season.records" rule as simulate_preseason().
+    Returns the round number (1-4) just simulated, or 0 if there's no
+    preseason schedule or it's already complete (idempotent, same
+    post-completion no-op convention as the other simulate_* functions)."""
+    with _STATE_LOCK:
+        season = get_season()
+        if not season.preseason_schedule or season.preseason_complete:
+            return 0
+
+        for round_idx, round_games in enumerate(season.preseason_schedule, start=1):
+            if all(g.result is not None for g in round_games):
+                continue
+            for game in round_games:
+                if game.result is not None:
+                    continue
+                game.result = _simulate_one_game(
+                    season, game.home_abbr, game.away_abbr, 1,
+                    (season.season_number, "preseason", round_idx, game.home_abbr, game.away_abbr),
+                )
+            from app.services import save_service
+            save_service.save_season(season)
+            return round_idx
+        return 0  # unreachable given the preseason_complete check above, but explicit
 
 
 def simulate_current_week() -> int:
@@ -603,12 +677,31 @@ def apply_progression_to_roster(season: Season) -> int:
             touches[key] = touches.get(key, 0) + round(pre_defensive_touches * PRESEASON_NUDGE_WEIGHT)
 
     updated = 0
+    # Perf (Brian's ask, 2026-09-13: Sim Week should take 5s or less):
+    # staff_effect_for() is real, cached DB-backed work -- cheap on a
+    # repeat call for a team already seen, but this loop runs it once per
+    # PLAYER (up to ~1700) instead of once per the ~32 real teams
+    # present. Hoisting it into a small per-team cache here doesn't
+    # change a single result (still the exact same cached function this
+    # is dispatching to), just how many times this loop bothers calling
+    # it. (Profiling found the REAL cost of this loop to be SQLModel's
+    # own validate-on-assignment __setattr__ plus the ORM's per-row
+    # UPDATE compilation across ~1700 players and ~70 columns each --
+    # switching to session.bulk_update_mappings() was tried and measured
+    # SLOWER, not faster, since it still compiles/binds every column per
+    # row and adds a full model_dump() per player on top, so that's not
+    # used here; a real fix needs bypassing SQLModel's per-attribute
+    # validation entirely, a larger, riskier change than this session
+    # has scoped out yet.)
+    effect_by_team: dict[str, object] = {}
     with get_session() as s:
         players = s.exec(select(Player).where(Player.team_abbr != None)).all()  # noqa: E711
         for player in players:
             key = (player.team_abbr, player.full_name)
             rng = RNG.with_seed(stable_seed(season.league_seed, season.season_number, player.player_id, "progression"))
-            effect = coaching.staff_effect_for(player.team_abbr)
+            if player.team_abbr not in effect_by_team:
+                effect_by_team[player.team_abbr] = coaching.staff_effect_for(player.team_abbr)
+            effect = effect_by_team[player.team_abbr]
             dev_mult = (effect.dev_multiplier_defense if player.position in DEFENSIVE_POSITIONS
                         else effect.dev_multiplier_offense)
             result = progression.progress_player(player, touches.get(key), season.season_number, rng,
@@ -618,38 +711,18 @@ def apply_progression_to_roster(season: Season) -> int:
             # decrementing term rather than the M8-era static 1-5
             # placeholder -- see app/engine/contracts.py's module
             # docstring. Floored at 0 (an expired deal) rather than going
-            # negative; R4b (Free Agency) is the chunk that acts on a
-            # player reaching 0, not this one.
+            # negative. Deliberately NOT released here anymore: R4b's
+            # release_expired_contracts()/fill_roster_gaps() now run
+            # later, in finish_offseason(), AFTER the offseason's real
+            # re-signing window (Brian's ask, 2026-09-13) -- a player at
+            # 0 years stays rostered (and shows up in GM Desk's Expiring
+            # Contracts table) until that window closes, so the user
+            # (and, automatically, every AI team via
+            # free_agency.run_ai_resign_decisions()) gets a real chance
+            # to keep them first.
             player.contract_years_remaining = max(0, player.contract_years_remaining - 1)
             s.add(player)
             updated += 1
-        # R4b (GDD Sec 8.4): a contract that just hit 0 really releases
-        # the player to free agency -- see app/engine/free_agency.py's
-        # own module docstring for why this is R4b's trigger, not R4a's.
-        # No re-add() needed: `players` are already session-tracked from
-        # the loop above, and SQLAlchemy picks up further attribute
-        # mutations on an already-added object automatically.
-        free_agency.release_expired_contracts(players)
-
-        # Emergency AI fill (see free_agency.fill_roster_gaps' own
-        # docstring): after enough offseasons of real contract churn, a
-        # team can be left with ZERO players at a position
-        # get_offensive_starters/get_defensive_starters index
-        # unconditionally -- a real IndexError crash, caught on this
-        # chunk's own first real two-season test run. Autoflush (the
-        # session default) means this query already reflects the
-        # releases just made above, no manual list-merging needed.
-        free_agent_pool = list(s.exec(select(Player).where(Player.team_abbr == None)).all())  # noqa: E711
-        for team in TEAMS:
-            team_roster = [p for p in players if p.team_abbr == team.abbr]
-            newly_signed = free_agency.fill_roster_gaps(team.abbr, team_roster, free_agent_pool, season.season_number)
-            # R5 (Sec 9.2): an emergency-signed free agent might be a
-            # previously-undrafted rookie -- remove() is a no-op for
-            # anyone not actually in that pool, so this is safe to call
-            # unconditionally rather than checking membership first.
-            for signed_player in newly_signed:
-                undrafted_pool.remove(signed_player.player_id)
-
         s.commit()
     return updated
 
@@ -713,55 +786,67 @@ def apply_coach_offseason(season: Season) -> int:
     return updated
 
 
-def start_new_season() -> Season:
-    """GDD Sec 4's Offseason step + Sec 7.6 (Player Progression &
-    Regression): moves a completed franchise into its next season.
-    Requires the playoffs to be fully decided -- this isn't a
-    mid-season operation.
+def begin_offseason() -> Season:
+    """GDD Sec 4's Offseason step, first stage: everything that must
+    settle BEFORE anyone's expired contract is actually released, so the
+    re-signing window has real players to act on. Requires the playoffs
+    to be fully decided -- this isn't a mid-season operation. Idempotent:
+    calling this again once `offseason_stage` is already set just
+    returns the season unchanged (same post-completion no-op convention
+    as simulate_current_week/simulate_playoff_round), so app/main.py's
+    Sim Week route can call it unconditionally once the playoffs are
+    done.
 
-    What carries forward vs. resets, and why:
-    - season_number increments, so schedule.py's 3-year intra-conference
-      / 4-year inter-conference rotations actually rotate.
-    - Real final division standings (playoffs.final_division_standings,
-      the SAME tie-break chain as playoff seeding) feed the new
-      schedule's standings-based games -- replacing schedule.py's
-      season-0-only bootstrap order.
+    What happens here, and why this stage specifically:
+    - The just-completed season's final standings, champion, awards, and
+      stat leaders are archived permanently (history_store.py) before
+      anything below mutates real state -- otherwise that season's
+      numbers would simply be lost.
     - Every real rostered player ages and develops for real
-      (apply_progression_to_roster), mutating the actual DB rows.
+      (apply_progression_to_roster), including decrementing
+      contract_years_remaining -- but no longer releases anyone at 0;
+      see that function's own docstring for why release moved to
+      finish_offseason().
     - Every employed coach has this season written into their career
       record, ages a year, progresses/regresses against their team's
-      real league ranks, and rolls Sec 8.2.3's retirement check
-      (apply_coach_offseason) -- also real DB writes.
-    - The user's chosen team (Sec 10.1) carries forward -- a new season
-      isn't a new franchise.
-    - The Score Fidelity System's weekly-feedback multiplier (Sec 6.2.4)
-      carries forward -- it's meant to self-correct over time, not
-      reset every year.
-    - Weekly Gameplan settings (gameplan_store) are untouched -- keyed
-      by team abbr, not by season.
-    - Everything else per-season (records, schedule, playoffs) is
-      fresh, same as reset_season() already does for a brand-new
-      franchise.
-    - The just-completed season's final standings, champion, awards,
-      and stat leaders are archived permanently (history_store.py)
-      BEFORE any of the above resets happen -- otherwise that season's
-      numbers would simply be lost, which is exactly the gap this
-      whole function exists to close.
-    """
+      real league ranks, rolls Sec 8.2.3's retirement check, and every
+      AI team (not the user's) makes its real hiring/firing decisions
+      for the season ahead (apply_coach_offseason).
+    - Offseason injury healing (injury_store.resolve_all_active()).
+
+    Leaves `offseason_stage` at "staff" -- the user's OWN team's staff
+    decisions (the existing, always-available /staff hire/fire routes)
+    are made here, before advance_offseason_stage() opens the re-signing
+    window and finish_offseason() runs free agency, the draft, and
+    builds the new Season."""
     with _STATE_LOCK:
         season = get_season()
         if season.playoffs is None or not season.playoffs.is_complete:
             raise ValueError("Playoffs aren't finished yet")
+        if season.offseason_stage is not None:
+            return season
 
-        prior_standings = playoffs.final_division_standings(season)
         history_store.archive_season(season)
         history_store.clear_career_stats_cache()
         season_stats.clear_current_season_cache()
+
+        # Offseason Recap (Brian's ask, 2026-09-13): a real before/after
+        # roster snapshot -- nothing else logs overall_rating or
+        # team_abbr history anywhere, so this is the ONE point where
+        # "before" can be captured: every Player row, right before
+        # apply_progression_to_roster() (next line) starts mutating
+        # ratings, and long before free agency/the draft start moving
+        # people between teams. complete_draft_and_advance_season() is
+        # what diffs this against the final state once everything lands.
+        from app.services import offseason_recap_store
+        with get_session() as s:
+            before_snapshot = {p.player_id: (p.team_abbr, p.overall_rating) for p in s.exec(select(Player)).all()}
+        offseason_recap_store.save_before_snapshot(season.season_number, before_snapshot)
+
         apply_progression_to_roster(season)
         # GDD Sec 8.2.2/8.2.3 -- runs AFTER the player pass so the
         # coaching staff that earned this season's results is the one
-        # credited with them, and before the new Season object exists so
-        # every rank it reads still refers to the season just finished.
+        # credited with them.
         apply_coach_offseason(season)
         # R1: offseason healing -- see injury_store.resolve_all_active()'s
         # own docstring for why a trailing RTP taper can still be active
@@ -770,35 +855,248 @@ def start_new_season() -> Season:
         injury_store.resolve_all_active()
         depth_chart.clear_starters_cache()
 
-        next_number = season.season_number + 1
+        season.offseason_stage = "staff"
+        from app.services import save_service, save_manager
+        save_service.save_season(season)
+        save_manager.sync_active_save_summary()
+        return season
 
-        # R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f): a
-        # real 7-round draft, generated + simulated for the upcoming
-        # season, right here in the offseason calendar (after contract
-        # renewals/coaching decisions above, before the new Season object
-        # exists so the draft order reads the season just finished's real
-        # final standings). See draft.py's own module docstring for the
-        # real, disclosed scope decisions (no new DB tables, drafted/
-        # undrafted prospects become real Player rows directly, no live
-        # draft event). Also expires any undrafted rookies that have sat
-        # unsigned for their full 3-year window (Sec 9.2, Tier-1-only).
-        draft.run_draft_for_season(season, next_number)
+
+def advance_offseason_stage() -> Season:
+    """Moves the offseason from "staff" (Staff Decisions, on /staff) to
+    "resign" (Free Agent Decisions, on the GM Desk) -- the user has
+    reviewed/adjusted their own staff (or simply chose not to) and is
+    ready to move on. Raises if the offseason hasn't begun, or has
+    already moved past "staff"."""
+    with _STATE_LOCK:
+        season = get_season()
+        if season.offseason_stage != "staff":
+            raise ValueError("Not at the Staff Decisions stage")
+        season.offseason_stage = "resign"
+        from app.services import save_service, save_manager
+        save_service.save_season(season)
+        save_manager.sync_active_save_summary()
+        return season
+
+
+def finish_offseason(season: Season | None = None) -> Season:
+    """GDD Sec 4's Offseason step, third stage (R4b Free Agency): closes
+    out the re-signing window and opens the live draft. Requires
+    `offseason_stage == "resign"` -- i.e. begin_offseason() then
+    advance_offseason_stage() have already run.
+
+    Order matters here: every AI team (all but the user's own -- they
+    got the real interactive GM Desk Negotiation flow instead while
+    `offseason_stage` was "resign") makes its own resign-or-release call
+    for its expiring contracts FIRST (free_agency.run_ai_resign_decisions),
+    then whoever -- AI or user -- still has a contract at 0 years is
+    released to free agency (free_agency.release_expired_contracts), then
+    every team's roster gets emergency-filled at any position left with
+    zero players (free_agency.fill_roster_gaps), so the draft (which
+    reads real, live roster counts for its own needs-aware AI picks) sees
+    the real, final post-free-agency rosters.
+
+    Leaves `offseason_stage` at "draft" and starts the live pick-by-pick
+    draft (draft_progress_store.start(), using next season's class --
+    already generated and persisted back when THIS season was built, see
+    _build_season()'s own comment) -- advance_draft_pick() is what moves
+    things the rest of the way; complete_draft_and_advance_season() is
+    what finally builds the new Season, once every slot resolves."""
+    with _STATE_LOCK:
+        season = season if season is not None else get_season()
+        if season.offseason_stage != "resign":
+            raise ValueError("Not at the Free Agent Decisions stage -- begin_offseason()/advance_offseason_stage() first")
+
+        with get_session() as s:
+            players = s.exec(select(Player).where(Player.team_abbr != None)).all()  # noqa: E711
+            # Brian's ask, 2026-09-13: AI teams make their own resign/
+            # release decision for their expiring contracts here, same
+            # window the user's own team just went through interactively
+            # on the GM Desk -- neither side is auto-released before this
+            # point.
+            free_agency.run_ai_resign_decisions(players, season.season_number, exclude_team_abbr=season.user_team_abbr)
+            # R4b (GDD Sec 8.4): whoever -- AI declined, or the user
+            # simply moved on without re-signing -- still has a contract
+            # at 0 years now really releases to free agency.
+            free_agency.release_expired_contracts(players)
+
+            # Emergency AI fill (see free_agency.fill_roster_gaps' own
+            # docstring): after enough offseasons of real contract churn,
+            # a team can be left with ZERO players at a position
+            # get_offensive_starters/get_defensive_starters index
+            # unconditionally. Autoflush (the session default) means this
+            # query already reflects the releases just made above.
+            free_agent_pool = list(s.exec(select(Player).where(Player.team_abbr == None)).all())  # noqa: E711
+            for team in TEAMS:
+                team_roster = [p for p in players if p.team_abbr == team.abbr]
+                newly_signed = free_agency.fill_roster_gaps(team.abbr, team_roster, free_agent_pool, season.season_number)
+                # R5 (Sec 9.2): an emergency-signed free agent might be a
+                # previously-undrafted rookie -- remove() is a no-op for
+                # anyone not actually in that pool, so this is safe to
+                # call unconditionally rather than checking membership
+                # first.
+                for signed_player in newly_signed:
+                    undrafted_pool.remove(signed_player.player_id)
+
+            s.commit()
+        depth_chart.clear_starters_cache()
+
+        next_number = season.season_number + 1
+        from app.services import draft_progress_store
+        order = draft.compute_draft_order(season, season.league_seed, next_number)
+        draft_progress_store.start(next_number, order)
+
+        season.offseason_stage = "draft"
+        from app.services import save_service, save_manager
+        save_service.save_season(season)
+        save_manager.sync_active_save_summary()
+        return season
+
+
+def current_draft_slot():
+    """The live draft's current slot (draft.DraftSlot: round/overall_
+    pick/team_abbr), or None if there's no live draft in progress right
+    now, or it's already fully resolved. Read-only -- app/main.py's
+    routes use this to decide whether "Sim Pick" should actually resolve
+    a pick (an AI team is on the clock) or just no-op (the user's own
+    team is on the clock and must act via a manual pick or "End"),
+    without mutating anything themselves."""
+    season = get_season()
+    if season.offseason_stage != "draft":
+        return None
+    next_number = season.season_number + 1
+    from app.services import draft_progress_store
+    progress = draft_progress_store.get(next_number)
+    if progress is None:
+        return None
+    slots = draft.draft_slots(progress["order"])
+    idx = progress["current_pick_index"]
+    if idx >= len(slots):
+        return None
+    return slots[idx]
+
+
+def advance_draft_pick(chosen_prospect_index: int | None = None) -> dict:
+    """Resolves exactly the current live-draft slot (Brian's ask,
+    2026-09-13: Sim Pick / Sim to Your Next Pick / End, never auto-
+    running the user's own picks except via "End"). If
+    `chosen_prospect_index` is given, it's the user's own real, manual
+    choice -- only valid when the current slot's team IS
+    season.user_team_abbr. Otherwise the exact same needs-aware AI logic
+    simulate_draft() uses picks for whichever team is on the clock
+    (including the user's own team, when called from the "End"
+    bail-out -- app/main.py's routes are what decide when that's
+    appropriate, this function itself has no opinion). Automatically
+    calls complete_draft_and_advance_season() once the resolved pick was
+    the draft's very last slot. Returns the resolved pick dict (same
+    shape draft_store.py's `picks` entries use). Raises if there's no
+    live draft in progress, it's already fully resolved, or a manual
+    pick is attempted out of turn / on an already-drafted prospect."""
+    with _STATE_LOCK:
+        season = get_season()
+        if season.offseason_stage != "draft":
+            raise ValueError("No live draft in progress")
+        next_number = season.season_number + 1
+        from app.services import draft_progress_store, draft_class_store
+        progress = draft_progress_store.get(next_number)
+        if progress is None:
+            raise ValueError("No live draft in progress")
+        slots = draft.draft_slots(progress["order"])
+        idx = progress["current_pick_index"]
+        if idx >= len(slots):
+            raise ValueError("The draft is already fully resolved")
+        slot = slots[idx]
+
+        prospects = draft_class_store.get_class(next_number)
+        if prospects is None:
+            # Defensive fallback only -- every real season's class is
+            # persisted the moment that season is built (_build_season);
+            # this only matters for a save from before that existed.
+            # generate_draft_class is deterministic, so this reproduces
+            # the exact same class byte-for-byte, not a different one.
+            prospects = draft.generate_draft_class(season.league_seed, next_number)
+        prospects_by_index = {p.index: p for p in prospects}
+        drafted_indexes = set(progress["drafted_indexes"])
+
+        if chosen_prospect_index is not None:
+            if slot.team_abbr != season.user_team_abbr:
+                raise ValueError("It isn't your team's turn to pick")
+            if chosen_prospect_index in drafted_indexes:
+                raise ValueError("That prospect has already been drafted")
+            prospect = prospects_by_index[chosen_prospect_index]
+        else:
+            # Real, live roster counts (one query) -- cheap and correct,
+            # since apply_single_pick_to_db() already wrote every prior
+            # pick to the DB for real as it resolved (see draft.py's own
+            # docstring for why this store never needs to track counts
+            # itself as extra persisted state).
+            group_counts = draft._all_teams_group_counts()
+            prospect = draft.resolve_one_pick(prospects_by_index, drafted_indexes, slot.team_abbr, group_counts)
+
+        pick = draft.apply_single_pick_to_db(
+            prospect, slot.team_abbr, slot.overall_pick, slot.round, season.league_seed, next_number,
+        )
+        draft_progress_store.record_pick(next_number, pick, prospect.index)
+
+        if idx + 1 >= len(slots):
+            complete_draft_and_advance_season(season)
+        return pick
+
+
+def complete_draft_and_advance_season(season: Season | None = None) -> Season:
+    """Runs once the live draft's last slot resolves -- called
+    automatically by advance_draft_pick(), not normally called directly.
+    Finalizes whoever's left in the class as real free agents
+    (draft.finalize_undrafted_to_db), folds the live progress record
+    into draft_store.py's permanent per-season record (the exact same
+    shape draft.apply_draft_to_db() already produces, so the read-only
+    Draft Results review works unchanged for a past season), clears the
+    now-resolved class/progress/board stores, and builds the new Season
+    -- the second half of what finish_offseason() used to do in one
+    shot, before the live draft existed. Same carries-forward-vs-resets
+    rules as before (season_number increments, real final standings feed
+    the new schedule, user_team_abbr/sfs carry forward, everything else
+    per-season is fresh)."""
+    with _STATE_LOCK:
+        season = season if season is not None else get_season()
+        if season.offseason_stage != "draft":
+            raise ValueError("No live draft to complete")
+        next_number = season.season_number + 1
+        from app.services import draft_progress_store, draft_class_store, draft_board_store, draft_store
+        progress = draft_progress_store.get(next_number)
+        if progress is None:
+            raise ValueError("No live draft to complete")
+        slots = draft.draft_slots(progress["order"])
+        if progress["current_pick_index"] < len(slots):
+            raise ValueError("The draft isn't fully resolved yet")
+
+        prospects = draft_class_store.get_class(next_number) or draft.generate_draft_class(season.league_seed, next_number)
+        prospects_by_index = {p.index: p for p in prospects}
+        drafted_indexes = set(progress["drafted_indexes"])
+        undrafted_count = draft.finalize_undrafted_to_db(prospects_by_index, drafted_indexes, season.league_seed, next_number)
+        draft_store.record_draft(next_number, progress["order"], progress["picks"], undrafted_count)
+        draft_progress_store.clear(next_number)
+        draft_class_store.clear_class(next_number)
+        draft_board_store.clear_season(next_number)
+
         undrafted_pool.decrement_and_expire()
         depth_chart.clear_starters_cache()
 
-
+        prior_standings = playoffs.final_division_standings(season)
         new_season = _build_season(season.league_seed, season_number=next_number, prior_standings=prior_standings)
         new_season.user_team_abbr = season.user_team_abbr
         new_season.sfs = season.sfs
 
         # R3d Sec 3.3: this season's PerformanceExpectation, frozen now
-        # -- after apply_coach_offseason()'s AI hiring/firing above has
-        # already settled who's coaching, before any game of the new
-        # season has been played. OwnerWinPressure is untouched here on
-        # purpose (Sec 3.2: it persists across seasons, only
-        # apply_coach_offseason()'s own end-of-season roll changes it).
+        # -- after begin_offseason()'s AI hiring/firing has already
+        # settled who's coaching, before any game of the new season has
+        # been played. OwnerWinPressure is untouched here on purpose
+        # (Sec 3.2: it persists across seasons, only apply_coach_
+        # offseason()'s own end-of-season roll changes it).
         from app.services import team_expectations
         team_expectations.compute_and_store(new_season.season_number)
+
+        _compute_and_save_offseason_recap(season, next_number)
 
         global _season
         _season = new_season
@@ -806,3 +1104,118 @@ def start_new_season() -> Season:
         save_service.save_season(new_season)
         save_manager.sync_active_save_summary()
         return new_season
+
+
+def _recap_player_row(p: Player) -> dict:
+    return {
+        "player_id": p.player_id, "name": p.full_name, "position": p.position.value,
+        "team_abbr": p.team_abbr, "overall_rating": p.overall_rating, "age": p.age,
+    }
+
+
+def _compute_and_save_offseason_recap(season: Season, next_number: int) -> None:
+    """Football-GM-style recap (Brian's ask, 2026-09-13), computed once
+    right here -- the one moment every offseason move (progression, free
+    agency, the draft) has already landed but the OLD season object
+    (real final standings/records) still exists to compare against.
+    Saved via offseason_recap_store so /offseason/recap never has to
+    recompute or guess at "before" data that's gone by the time anyone
+    loads that page. A player who existed before but not after (an
+    expired undrafted rookie hard-deleted by undrafted_pool.decrement_
+    and_expire(), say) is simply skipped from the delta/new-team lists --
+    not a real ongoing player to report on anymore."""
+    from app.services import offseason_recap_store, draft_store, undrafted_pool, history_store, team_expectations
+
+    before = offseason_recap_store.get_before_snapshot(season.season_number) or {}
+    with get_session() as s:
+        after_players = s.exec(select(Player)).all()
+        after_rows = {p.player_id: _recap_player_row(p) for p in after_players}
+
+    top_players = sorted(after_rows.values(), key=lambda r: -r["overall_rating"])[:10]
+
+    improving: list[dict] = []
+    declining: list[dict] = []
+    new_team: list[dict] = []
+    for pid, (old_team, old_ovr) in before.items():
+        row = after_rows.get(pid)
+        if row is None:
+            continue  # released/expired/deleted since -- not a real ongoing player anymore
+        delta = row["overall_rating"] - old_ovr
+        if delta != 0:
+            entry = {**row, "delta": delta}
+            (improving if delta > 0 else declining).append(entry)
+        if old_team and row["team_abbr"] and old_team != row["team_abbr"]:
+            new_team.append({**row, "old_team_abbr": old_team})
+    improving.sort(key=lambda r: -r["delta"])
+    declining.sort(key=lambda r: r["delta"])
+    new_team.sort(key=lambda r: -r["overall_rating"])
+
+    # Top Rookies: this year's real draft picks (draft_store, already
+    # sorted-by-nothing -- resort by overall_rating) plus any undrafted
+    # signee still on a roster (an emergency fill_roster_gaps() pickup) --
+    # both real, zero new computation.
+    draft_data = draft_store.get_draft(next_number)
+    rookies: list[dict] = []
+    if draft_data:
+        drafted_ids = {pick["player_id"] for pick in draft_data["picks"]}
+        for pick in draft_data["picks"]:
+            rookies.append({
+                "name": pick["name"], "team_abbr": pick["team_abbr"], "position": pick["position"],
+                "college": pick["college"], "overall_rating": pick["overall_rating"],
+            })
+        for pid, row in after_rows.items():
+            if pid.startswith(f"draft_{next_number}_") and pid not in drafted_ids and row["team_abbr"]:
+                rookies.append({
+                    "name": row["name"], "team_abbr": row["team_abbr"], "position": row["position"],
+                    "college": None, "overall_rating": row["overall_rating"],
+                })
+    rookies.sort(key=lambda r: -r["overall_rating"])
+    rookies = rookies[:10]
+
+    # Top/Improving/Declining Teams: team_expectations' real roster-
+    # strength percentile, frozen once per season (this season's own
+    # entry was computed by the PRIOR cycle's call to this same
+    # function/compute_and_store, so it already exists) -- a cleaner
+    # signal than raw win totals since it isolates roster strength from
+    # a lucky/unlucky won-loss record.
+    old_expectations = team_expectations.for_season(season.season_number)
+    new_expectations = team_expectations.for_season(next_number)
+    top_teams = sorted(
+        ({"abbr": abbr, "rating_pctile": exp.team_rating_pctile} for abbr, exp in new_expectations.items()),
+        key=lambda r: -r["rating_pctile"],
+    )[:10]
+    team_deltas = []
+    for abbr, new_exp in new_expectations.items():
+        old_exp = old_expectations.get(abbr)
+        if old_exp is None:
+            continue
+        team_deltas.append({"abbr": abbr, "delta": new_exp.team_rating_pctile - old_exp.team_rating_pctile})
+    improving_teams = sorted((t for t in team_deltas if t["delta"] > 0), key=lambda t: -t["delta"])[:10]
+    declining_teams = sorted((t for t in team_deltas if t["delta"] < 0), key=lambda t: t["delta"])[:10]
+
+    offseason_recap_store.save_recap(season.season_number, {
+        "season_number": season.season_number,
+        "top_players": top_players, "improving_players": improving[:10], "declining_players": declining[:10],
+        "top_rookies": rookies, "new_team_players": new_team[:10],
+        "top_teams": top_teams, "improving_teams": improving_teams, "declining_teams": declining_teams,
+    })
+
+
+def start_new_season() -> Season:
+    """Convenience one-shot: begin_offseason() -> advance_offseason_stage()
+    -> finish_offseason() -> auto-resolve every live-draft slot (the same
+    real AI logic "End" uses, applied here to a draft nobody's watched
+    at all -- a legitimate path, not a special case) -> complete_draft_
+    and_advance_season(), with no interactive Staff/GM-Desk/Draft pause
+    anywhere in between. This is exactly what a caller that doesn't need
+    the interactive pauses (tests, or anyone who just wants the whole
+    offseason resolved in one call) should use. app/main.py's routes use
+    the pieces above separately instead, so the real Staff, GM Desk, and
+    Draft screens each get a chance to run between them."""
+    with _STATE_LOCK:
+        season = begin_offseason()
+        advance_offseason_stage()
+        finish_offseason(season)
+        while current_draft_slot() is not None:
+            advance_draft_pick()
+        return get_season()

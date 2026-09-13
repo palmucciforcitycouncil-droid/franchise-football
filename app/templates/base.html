@@ -142,6 +142,12 @@
       cursor: pointer;
     }
     button:hover { filter: brightness(1.08); }
+    .button-like {
+      display: inline-block; background: var(--gold); border: 1px solid var(--gold); border-radius: 6px;
+      padding: 0.5rem 0.75rem; font-size: 1rem; font-weight: 600; color: #1a1200; text-decoration: none;
+      cursor: pointer;
+    }
+    .button-like:hover { filter: brightness(1.08); }
     label { display: block; margin-bottom: 0.35rem; color: var(--muted); font-size: 0.9rem; }
     .row { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
     .scoreboard {
@@ -963,10 +969,14 @@
     </div>
     <div class="header-actions">
       <button type="button" id="menu-btn">Menu</button>
+      {% if hc.offseason_stage_url %}
+      <a href="{{ hc.offseason_stage_url }}" class="button-like">{{ hc.sim_week_label }}</a>
+      {% else %}
       <form method="post" action="/season/simulate-week" class="sim-week-form">
         <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
-        <button type="submit">Sim Week</button>
+        <button type="submit">{{ hc.sim_week_label }}</button>
       </form>
+      {% endif %}
     </div>
     {% else %}
     <h1>Franchise <span>Football</span></h1>
@@ -1174,6 +1184,7 @@
           <div class="pc-badges">
             <span class="pc-badge-ovr" id="neg-ovr"></span>
             <span class="pc-badge-team" id="neg-team"></span>
+            <span id="neg-age" class="muted"></span>
           </div>
         </div>
       </div>
@@ -1185,7 +1196,7 @@
       <h4 style="margin: 1rem 0 0.5rem;">Your Offer</h4>
       <div class="neg-slider-row">
         <div class="neg-slider-label"><span>Contract Length</span><span id="neg-years-value"></span></div>
-        <input type="range" id="neg-years" min="1" max="7" step="1">
+        <input type="range" id="neg-years" min="1" max="10" step="1">
       </div>
       <div class="neg-slider-row">
         <div class="neg-slider-label"><span>Annual Salary</span><span id="neg-aav-value"></span></div>
@@ -1276,7 +1287,7 @@
       // real for any player who's actually been through a negotiation;
       // for everyone else it's still the original disclosed, seeded 1-5
       // placeholder. The grid renders exactly `years` columns (real max
-      // is 7, the same cap GM Desk's own offer form enforces) instead of
+      // is 10, the same cap GM Desk's own offer form enforces) instead of
       // a fixed 20 -- no fabricated empty years past what's on the books.
       function contractPanel(card) {
         // A free agent has no current team and no active contract --
@@ -1325,7 +1336,7 @@
       function negotiateSectionHtml(card) {
         if (card.team === 'FA') {
           var faOpts = {
-            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team, age: card.age,
             actionUrl: '/free-agency/offer', previewUrl: '/free-agency/offer/preview',
             expectedValue: card.expected_salary, defaultAav: card.expected_salary, defaultYears: 3,
           };
@@ -1333,7 +1344,7 @@
         }
         if (card.team === USER_TEAM_ABBR && (card.contract_years_remaining || 0) <= 1) {
           var resignOpts = {
-            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team, age: card.age,
             actionUrl: '/gm-desk/offer', previewUrl: '/gm-desk/offer/preview',
             expectedValue: card.expected_salary, defaultAav: card.salary, defaultYears: 2,
           };
@@ -1355,6 +1366,7 @@
       var negNameEl = document.getElementById('neg-name');
       var negOvrEl = document.getElementById('neg-ovr');
       var negTeamEl = document.getElementById('neg-team');
+      var negAgeEl = document.getElementById('neg-age');
       var negMarketValueEl = document.getElementById('neg-market-value');
       var negYearsInput = document.getElementById('neg-years');
       var negYearsValueEl = document.getElementById('neg-years-value');
@@ -1404,8 +1416,9 @@
         if (!negCurrentOpts) { return; }
         var years = Number(negYearsInput.value);
         var aav = Math.round(Number(negAavInput.value));
+        var guaranteed = Math.round(negGuaranteedDollar());
         var url = negCurrentOpts.previewUrl + '?player_id=' + encodeURIComponent(negCurrentOpts.playerId) +
-          '&aav=' + aav + '&years=' + years;
+          '&aav=' + aav + '&years=' + years + '&guaranteed=' + guaranteed;
         negReactionEl.textContent = 'Checking…';
         negReactionEl.className = '';
         fetch(url).then(function (r) {
@@ -1434,10 +1447,10 @@
       if (negYearsInput) {
         negYearsInput.addEventListener('input', negScheduleFetch);
         negAavInput.addEventListener('input', negScheduleFetch);
-        // Guaranteed % doesn't affect the real verdict (see
-        // negGuaranteedDollar()'s own comment), so only refresh the
-        // display -- no need to re-fetch a fresh Player Reaction.
-        negGuaranteedInput.addEventListener('input', negUpdateDisplay);
+        // Guaranteed money now feeds the real verdict too (Brian's ask,
+        // 2026-09-13) -- moving this slider needs a fresh Player
+        // Reaction, same as AAV/years.
+        negGuaranteedInput.addEventListener('input', negScheduleFetch);
       }
 
       function negShowResult(kind, text) {
@@ -1459,6 +1472,7 @@
         negNameEl.textContent = opts.name;
         negOvrEl.textContent = opts.ovr + ' OVR';
         negTeamEl.textContent = opts.team;
+        negAgeEl.textContent = opts.age != null ? ('Age ' + opts.age) : '';
         negMarketValueEl.textContent = money(opts.expectedValue) + '/yr';
 
         negYearsInput.value = opts.defaultYears;
@@ -1509,6 +1523,17 @@
             .then(function (data) {
               if (data.verdict === 'ACCEPT') {
                 negShowResult('accept', 'We have a deal!');
+                // Brian's report, 2026-09-13: the page's own Expiring
+                // Contracts table (and the Cap/Committed/Cap Space
+                // figures above it) were rendered server-side at page
+                // load and never told to refresh -- an accepted offer
+                // just re-signed this exact player, so without this
+                // reload the table kept showing them as still expiring
+                // (0 Yrs Left, a live Negotiate button) until the user
+                // manually reloaded. Delayed just long enough for "We
+                // have a deal!" to actually be seen before the page
+                // changes out from under it.
+                setTimeout(function () { window.location.reload(); }, 1200);
               } else if (data.verdict === 'COUNTER') {
                 negShowResult('counter', 'How about this?');
                 // Round UP to the slider's own $50k step, never to
@@ -1665,7 +1690,7 @@
         if (card.team === USER_TEAM_ABBR) { return ''; }
         if (card.team === 'FA') {
           var faOpts = {
-            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+            playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team, age: card.age,
             actionUrl: '/free-agency/offer', previewUrl: '/free-agency/offer/preview',
             expectedValue: card.expected_salary, defaultAav: card.expected_salary, defaultYears: 3,
           };
@@ -1706,7 +1731,7 @@
       // form, not the R11-era stub (no negotiation system existed then).
       function contractSoughtPanel(card) {
         var faOpts = {
-          playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team,
+          playerId: card.player_id, name: card.name, pos: card.pos, ovr: card.ovr, team: card.team, age: card.age,
           actionUrl: '/free-agency/offer', previewUrl: '/free-agency/offer/preview',
           expectedValue: card.expected_salary, defaultAav: card.expected_salary, defaultYears: 3,
         };
@@ -1964,7 +1989,7 @@
             var resignCard = JSON.parse(negotiateResignBtn.dataset.card);
             openNegotiation({
               playerId: resignCard.player_id, name: resignCard.name, pos: resignCard.pos,
-              ovr: resignCard.ovr, team: resignCard.team,
+              ovr: resignCard.ovr, team: resignCard.team, age: resignCard.age,
               actionUrl: '/gm-desk/offer', previewUrl: '/gm-desk/offer/preview',
               expectedValue: resignCard.expected_salary, defaultAav: resignCard.salary, defaultYears: 2,
             });

@@ -13,6 +13,16 @@
   </div>
 </div>
 
+{% if season.offseason_stage == "resign" %}
+<div class="card">
+  <h3>Offseason: Free Agent Decisions</h3>
+  <p class="muted">Coach signing has settled. Re-sign anyone in your Expiring Contracts list below that you want to keep -- anyone left unsigned goes to free agency, along with every AI team's own releases, before the draft runs. When you're ready, continue.</p>
+  <form method="post" action="/offseason/continue">
+    <button type="submit">Continue to Free Agency &amp; Draft</button>
+  </form>
+</div>
+{% endif %}
+
 {% if offer_feedback %}
 <div class="card">
   {% if offer_feedback.verdict == 'ACCEPT' %}
@@ -21,6 +31,16 @@
   <p><strong>{{ offer_feedback.player_name }}</strong> countered: {{ offer_feedback.counter_aav | money }}/yr for {{ offer_feedback.counter_years }} years.</p>
   {% else %}
   <p><strong>{{ offer_feedback.player_name }}</strong> rejected your offer.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if trade_result %}
+<div class="card">
+  {% if trade_result == 'ACCEPT' %}
+  <p><strong>{{ team_b }}</strong> accepted your trade.</p>
+  {% else %}
+  <p><strong>{{ team_b }}</strong> rejected your trade — the value they'd receive isn't close enough to what they'd give up.</p>
   {% endif %}
 </div>
 {% endif %}
@@ -75,15 +95,35 @@
   </div>
 </div>
 
-{% if trade_result %}
 <div class="card">
-  {% if trade_result == 'ACCEPT' %}
-  <p><strong>{{ team_b }}</strong> accepted your trade.</p>
+  <h3>Trade Block</h3>
+  <p class="muted" style="font-size: 0.82rem;">
+    Real bargains around the league right now (highest Surplus Value -- on-field worth vs. real salary,
+    app/engine/trades.py) -- not teams that have literally put someone up for trade (this engine doesn't
+    model that), just genuinely good value worth going after.
+  </p>
+  {% if trade_block %}
+  <div class="dashboard-scroll">
+    <table class="boxtable">
+      <thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>OVR</th><th>Interest</th><th></th></tr></thead>
+      <tbody>
+        {% for row in trade_block %}
+        <tr>
+          <td>{{ row.player.full_name }}</td>
+          <td>{{ team_link(row.player.team_abbr) }}</td>
+          <td>{{ row.player.position.value }}</td>
+          <td>{{ row.player.overall_rating }}</td>
+          <td>{{ row.interest | capitalize }}</td>
+          <td><a href="/gm-desk?team_b={{ row.player.team_abbr }}&amp;acquire={{ row.player.player_id }}#propose-trade-card">Trade For</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-  <p><strong>{{ team_b }}</strong> rejected your trade — the value they'd receive isn't close enough to what they'd give up.</p>
+  <p class="muted">Nobody stands out around the league right now.</p>
   {% endif %}
 </div>
-{% endif %}
 
 <div class="card" id="propose-trade-card">
   <h3>Propose Trade</h3>

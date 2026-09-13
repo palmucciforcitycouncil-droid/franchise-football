@@ -44,8 +44,9 @@ from app.engine.progression import PROGRESSED_ATTRIBUTES
 from app.services import (
     season_state, depth_chart, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
     coach_store, coach_records, injury_store, coach_pool, award_race_history, save_manager, headlines_history,
-    undrafted_pool, draft_store,
+    undrafted_pool, draft_store, draft_class_store, draft_board_store, draft_progress_store, offseason_recap_store,
 )
+from app.engine import draft as draft_engine
 from app.engine import coach_hiring, coach_replacement
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
@@ -306,6 +307,7 @@ def roster_view(
     find_min_spd: str | None = None, find_max_spd: str | None = None,
     find_min_cth: str | None = None, find_max_cth: str | None = None,
     find_min_tck: str | None = None, find_max_tck: str | None = None,
+    find_min_age: str | None = None, find_max_age: str | None = None,
     find_rookie: bool = False,
     find_sort: str = "ovr", find_dir: str = "desc",
     fa_offer_result: str | None = None, fa_offer_player: str | None = None,
@@ -348,6 +350,7 @@ def roster_view(
     find_min_spd = _int_or_none(find_min_spd); find_max_spd = _int_or_none(find_max_spd)
     find_min_cth = _int_or_none(find_min_cth); find_max_cth = _int_or_none(find_max_cth)
     find_min_tck = _int_or_none(find_min_tck); find_max_tck = _int_or_none(find_max_tck)
+    find_min_age = _int_or_none(find_min_age); find_max_age = _int_or_none(find_max_age)
 
     if view not in ("attributes", "stats"):
         view = "attributes"
@@ -559,6 +562,7 @@ def roster_view(
         or find_min_spd is not None or find_max_spd is not None
         or find_min_cth is not None or find_max_cth is not None
         or find_min_tck is not None or find_max_tck is not None
+        or find_min_age is not None or find_max_age is not None
     )
     if find_active:
         with get_session() as s:
@@ -586,6 +590,10 @@ def roster_view(
             find_results = [p for p in find_results if p.tackle >= find_min_tck]
         if find_max_tck is not None:
             find_results = [p for p in find_results if p.tackle <= find_max_tck]
+        if find_min_age is not None:
+            find_results = [p for p in find_results if p.age >= find_min_age]
+        if find_max_age is not None:
+            find_results = [p for p in find_results if p.age <= find_max_age]
         if find_rookie:
             find_results = [p for p in find_results if p.age <= 23]
 
@@ -632,7 +640,8 @@ def roster_view(
             "find_min_ovr": find_min_ovr, "find_max_ovr": find_max_ovr,
             "find_min_spd": find_min_spd, "find_max_spd": find_max_spd,
             "find_min_cth": find_min_cth, "find_max_cth": find_max_cth,
-            "find_min_tck": find_min_tck, "find_max_tck": find_max_tck, "find_rookie": find_rookie,
+            "find_min_tck": find_min_tck, "find_max_tck": find_max_tck,
+            "find_min_age": find_min_age, "find_max_age": find_max_age, "find_rookie": find_rookie,
             "find_sort": effective_find_sort, "find_dir": find_direction,
             "find_sort_columns": ROSTER_SORT_COLUMN_LABELS,
             "all_positions": list(Position),
@@ -2070,7 +2079,11 @@ def _header_context() -> dict:
     active_save_id = save_manager.get_active_save_id()
     season = season_state.get_season()
     if season.user_team_abbr is None:
-        return {"user_team": None, "saves_list": saves_list, "active_save_id": active_save_id, "default_save_name": None}
+        return {
+            "user_team": None, "saves_list": saves_list, "active_save_id": active_save_id, "default_save_name": None,
+            "offseason_stage": season.offseason_stage, "offseason_stage_url": _offseason_stage_url(season),
+            "sim_week_label": _sim_week_label(season),
+        }
     team = TEAMS_BY_ABBR[season.user_team_abbr]
     record = season.records[season.user_team_abbr]
     rank = next((i for i, r in enumerate(season.standings(), start=1) if r.abbr == team.abbr), None)
@@ -2080,7 +2093,47 @@ def _header_context() -> dict:
         "user_record": record,
         "user_rank_ordinal": _ordinal(rank) if rank is not None else None,
         "saves_list": saves_list, "active_save_id": active_save_id, "default_save_name": default_save_name,
+        "offseason_stage": season.offseason_stage, "offseason_stage_url": _offseason_stage_url(season),
+        "sim_week_label": _sim_week_label(season),
     }
+
+
+def _offseason_stage_url(season) -> str | None:
+    """Which page the header's control should link straight to while an
+    offseason stage is in progress (Brian's ask, 2026-09-13: Staff
+    Decisions on /staff, Free Agent Decisions on the GM Desk, the live
+    Draft on /draft) -- None outside the offseason, where the control is
+    the real Sim Week form instead (see base.html)."""
+    if season.offseason_stage == "staff":
+        return "/staff"
+    if season.offseason_stage == "resign":
+        return "/gm-desk"
+    if season.offseason_stage == "draft":
+        return "/draft"
+    return None
+
+
+def _sim_week_label(season) -> str:
+    """What the persistent header's Sim Week button says it's about to
+    do (Brian's ask, 2026-09-13, alongside making that button always
+    make forward progress -- see /season/simulate-week's own
+    docstring). Keeps "Sim Week" as a stable substring for every
+    in-season stage (GDD Sec 10.3 names it that) -- only the offseason's
+    interactive stages swap the control for a differently labeled link
+    entirely (see base.html)."""
+    if season.preseason_pending:
+        return f"Sim Week (Preseason {season.preseason_rounds_played + 1}/{season.preseason_total_rounds})"
+    if not season.is_complete:
+        return f"Sim Week {season.current_week}"
+    if season.playoffs is None or not season.playoffs.is_complete:
+        return "Sim Week (Playoffs)"
+    if season.offseason_stage is None:
+        return "Sim Week (Begin Offseason)"
+    if season.offseason_stage == "staff":
+        return "Staff Decisions"
+    if season.offseason_stage == "resign":
+        return "Free Agent Decisions"
+    return "The Draft"
 
 
 templates.env.globals["header_context"] = _header_context
@@ -2835,7 +2888,7 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
 
 
 @app.get("/staff", response_class=HTMLResponse)
-def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
+def staff_view(request: Request, q: str = "", role: str = "", team: str = "", available: bool = False):
     """Real Staff page. `team` lets any team's staff be viewed (the
     Scouting Panel's Head Coach link and Find Coaches results both point
     here); it defaults to the user's own team, same convention /roster
@@ -2882,10 +2935,10 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
 
     effect = coaching.staff_effect_for(team_abbr)
     search_results = []
-    if q or role:
+    if q or role or available:
         search_results = [
             {"coach": c, "card": _coach_card_json(c)}
-            for c in coach_store.search(q, role=role, limit=40)
+            for c in coach_store.search(q, role=role, available_only=available, limit=40)
         ]
 
     from app.services import owner_pressure_store
@@ -2902,6 +2955,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
         "search_results": search_results,
         "q": q,
         "role": role,
+        "available": available,
         "role_options": [(r.value, ROLE_TITLES[r]) for r in
                           (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC)],
         "free_agent_count": len(coach_store.free_agents()),
@@ -3047,6 +3101,23 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
                 key=lambda p: -p.overall_rating,
             )
 
+    # Trade Block (Brian's ask, 2026-09-13): the league's real best
+    # bargains (highest Surplus Value, app.engine.trades.player_trade_
+    # value) worth going after -- see trade_block_interest()'s own
+    # docstring for why this, not a fabricated "on the block" flag.
+    # Real starters only (overall_rating >= 70, matching this module's
+    # own bar for "worth inquiring about" elsewhere), excluding the
+    # user's own team.
+    with get_session() as s:
+        trade_block_candidates = list(s.exec(
+            select(Player).where(Player.team_abbr != None, Player.team_abbr != user_abbr, Player.overall_rating >= 70)  # noqa: E711
+        ))
+    def _trade_block_row(p: Player) -> dict:
+        value = trades.player_trade_value(p, season.season_number)
+        return {"player": p, "value": value, "interest": trades.trade_block_interest(value, season.season_number)}
+
+    trade_block = sorted((_trade_block_row(p) for p in trade_block_candidates), key=lambda row: -row["value"])[:20]
+
     return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
         "season": season, "user_info": TEAMS_BY_ABBR[user_abbr],
@@ -3060,11 +3131,12 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         "team_b": team_b, "trade_partner_roster": trade_partner_roster,
         "trade_window_open": trades.is_trade_window_open(season.current_week),
         "trade_result": trade_result,
+        "trade_block": trade_block,
     })
 
 
 @app.get("/gm-desk/offer/preview")
-def gm_desk_offer_preview(player_id: str, aav: int, years: int):
+def gm_desk_offer_preview(player_id: str, aav: int, years: int, guaranteed: int = 0):
     """Read-only twin of gm_desk_offer() below, for the slider-based
     Negotiation modal's live "Player Reaction" feedback (Brian's ask,
     2026-09-13) -- calls the exact same contracts.evaluate_offer() so the
@@ -3074,7 +3146,7 @@ def gm_desk_offer_preview(player_id: str, aav: int, years: int):
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
-    if years < 1 or years > 7 or aav < 0:
+    if years < 1 or years > 10 or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
 
     with get_session() as s:
@@ -3082,7 +3154,7 @@ def gm_desk_offer_preview(player_id: str, aav: int, years: int):
         if player is None or player.team_abbr != season.user_team_abbr:
             raise HTTPException(404, "Player not found on your roster")
         team_rating = roster_strength.compute_roster_strength(season.user_team_abbr).team_rating
-        result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating)
+        result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating, float(guaranteed))
 
     return {
         "verdict": result.verdict.value, "reaction": contracts.offer_reaction(result.offer_score),
@@ -3099,12 +3171,12 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
     8.3.3's stateful Mood Meter. An ACCEPT really updates the player's
     real salary/contract_years_remaining/guaranteed_money in the DB;
     REJECT/COUNTER change nothing. `guaranteed` (the Negotiation modal's
-    own Guaranteed slider, 2026-09-13) is a real, user-chosen contract
-    term that gets persisted on ACCEPT, but does NOT feed into the
-    ACCEPT/REJECT/COUNTER verdict itself -- Sec 8.3.3's Offer Score
-    formula (contracts.evaluate_offer()) has no guarantee term to begin
-    with, so omitting it from the score isn't a deviation from a real
-    GDD term, just not inventing one that was never specified.
+    own Guaranteed slider) is persisted on ACCEPT and, as of Brian's
+    2026-09-13 follow-up, also feeds the real ACCEPT/REJECT/COUNTER
+    verdict itself via contracts.evaluate_offer()'s own guaranteed-money
+    term (a higher guaranteed fraction of the deal raises the score,
+    same shape as the years term) -- real money now genuinely reads as
+    more attractive than the same total value spread out unguaranteed.
 
     Returns JSON, not a redirect (changed 2026-09-13, Brian's report):
     the Negotiation modal now submits this via fetch() and renders the
@@ -3117,7 +3189,7 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
-    if years < 1 or years > 7 or aav < 0:
+    if years < 1 or years > 10 or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
     if guaranteed < 0 or guaranteed > aav * years:
         raise HTTPException(422, "Guaranteed amount can't exceed the total contract value")
@@ -3128,7 +3200,7 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
             raise HTTPException(404, "Player not found on your roster")
 
         team_rating = roster_strength.compute_roster_strength(season.user_team_abbr).team_rating
-        result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating)
+        result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating, float(guaranteed))
 
         if result.verdict == contracts.OfferVerdict.ACCEPT:
             player.salary = aav
@@ -3144,13 +3216,13 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
 
 
 @app.get("/free-agency/offer/preview")
-def free_agency_offer_preview(player_id: str, aav: int, years: int):
+def free_agency_offer_preview(player_id: str, aav: int, years: int, guaranteed: int = 0):
     """Read-only twin of free_agency_offer() below, same purpose/shape as
     gm_desk_offer_preview() above -- see that route's docstring."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
-    if years < 1 or years > 7 or aav < 0:
+    if years < 1 or years > 10 or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
     user_abbr = season.user_team_abbr
 
@@ -3165,7 +3237,7 @@ def free_agency_offer_preview(player_id: str, aav: int, years: int):
 
         result = free_agency.evaluate_fa_offer(
             player, user_abbr, float(aav), years, season.season_number,
-            team_rating, current_group_rating, team_players,
+            team_rating, current_group_rating, team_players, float(guaranteed),
         )
 
     return {"verdict": result.verdict.value, "reaction": free_agency.fa_offer_reaction(result.score)}
@@ -3181,14 +3253,15 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
     real salary/years/guaranteed_money written) and clears depth_chart's
     starter cache so the new signing is immediately selectable.
     `guaranteed` (the Negotiation modal's own slider) is persisted on
-    ACCEPT but doesn't affect the verdict -- see gm_desk_offer()'s own
-    docstring for why (Sec 8.4's Offer Score formula has no guarantee
-    term either). Returns JSON, not a redirect -- see gm_desk_offer()'s
-    own docstring for why (the modal renders the verdict in place)."""
+    ACCEPT and, as of Brian's 2026-09-13 follow-up, also feeds the real
+    ACCEPT/REJECT verdict via free_agency.evaluate_fa_offer()'s own
+    guaranteed-money term. Returns JSON, not a redirect -- see
+    gm_desk_offer()'s own docstring for why (the modal renders the
+    verdict in place)."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
-    if years < 1 or years > 7 or aav < 0:
+    if years < 1 or years > 10 or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
     if guaranteed < 0 or guaranteed > aav * years:
         raise HTTPException(422, "Guaranteed amount can't exceed the total contract value")
@@ -3206,7 +3279,7 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
 
         result = free_agency.evaluate_fa_offer(
             player, user_abbr, float(aav), years, season.season_number,
-            team_rating, current_group_rating, team_players,
+            team_rating, current_group_rating, team_players, float(guaranteed),
         )
 
         if result.verdict == free_agency.FAOfferVerdict.ACCEPT:
@@ -3267,34 +3340,47 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
     )
 
 
-@app.get("/draft", response_class=HTMLResponse)
-def draft_view(request: Request, season_param: int | None = None):
-    """R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f): a
-    real, read-only review of a completed draft -- NOT the spec's fuller
-    interactive pre-draft scouting-board vision (Prospects grid, Draft
-    Board, live pick-by-pick sim). See app/engine/draft.py's own module
-    docstring for why: this implementation runs generation + simulation
-    as one atomic step inside start_new_season(), so by the time a user
-    could browse prospects the draft has already happened -- a real,
-    disclosed scope cut, not a hidden one (the page says so).
+PROSPECT_SORT_KEYS = ("ovr", "pot", "name", "pos", "age", "college")
+# Position-group tabs the Prospects grid and live Draft Results both
+# filter by -- ALL/OFFENSE/DEFENSE are convenience buckets over
+# app.engine.draft.GROUP_POSITIONS' own 11 real groups.
+PROSPECT_GROUP_TABS = ["ALL", "OFFENSE", "DEFENSE"] + list(draft_engine.GROUP_POSITIONS.keys())
+_OFFENSE_GROUPS = ("QB", "RB", "WR", "TE", "OL")
+_DEFENSE_GROUPS = ("DL", "LB", "CB", "S")
 
-    `season_param` (default: most recently completed draft, i.e. the
-    season currently in progress) lets the page show an older draft too,
-    since draft_store.py keeps every season's results."""
-    season = season_state.get_season()
-    target_season = season_param if season_param is not None else season.season_number
+
+def _prospect_sort_value(p, key: str):
+    return {
+        "ovr": p.overall_rating, "pot": p.potential,
+        "name": f"{p.first_name} {p.last_name}".lower(),
+        "pos": p.position.value, "age": p.age, "college": p.college.lower(),
+    }.get(key, p.overall_rating)
+
+
+def _prospect_matches_group(p, group: str) -> bool:
+    if group == "ALL":
+        return True
+    if group == "OFFENSE":
+        return p.group in _OFFENSE_GROUPS
+    if group == "DEFENSE":
+        return p.group in _DEFENSE_GROUPS
+    return p.group == group
+
+
+def _draft_review_response(request: Request, season, target_season: int, just_completed: bool):
+    """The original (pre-2026-09-13) read-only review of one season's
+    ALREADY COMPLETED draft -- unchanged, still how a past season's
+    results are browsed (season_param), and still what a completed
+    live draft looks like immediately afterward."""
     draft_data = draft_store.get_draft(target_season)
-
-    # Coming-soon shell (Global MVP pattern, GDD Sec9.2.8) for a fresh
-    # franchise that hasn't reached its first offseason yet -- real
-    # players don't exist to show, so don't pretend a draft happened.
     if draft_data is None:
         return templates.TemplateResponse(request, "coming_soon.html", {
             "title": "Draft",
             "gdd_section": "GDD §10.4.5 / R5",
-            "summary": "No draft has run yet -- the first one happens automatically at the end of your first "
-                       "season (see the Playoffs page's \"Start Next Season\"). Real 7-round draft, real rookie "
-                       "contracts, no fabricated data.",
+            "summary": "No draft has run yet -- the first one happens automatically once your first season's "
+                       "offseason wraps up (keep pressing Sim Week through the playoffs, then resolve your "
+                       "expiring contracts on the GM Desk). Real 7-round draft, real rookie contracts, no "
+                       "fabricated data.",
         })
 
     picks_by_round: dict[int, list[dict]] = {}
@@ -3305,6 +3391,7 @@ def draft_view(request: Request, season_param: int | None = None):
     user_picks = [p for p in draft_data["picks"] if p["team_abbr"] == user_abbr] if user_abbr else []
 
     return templates.TemplateResponse(request, "draft.html", {
+        "mode": "review",
         "target_season": target_season,
         "draft_order": draft_data["order"],
         "picks_by_round": picks_by_round,
@@ -3313,6 +3400,239 @@ def draft_view(request: Request, season_param: int | None = None):
         "user_picks": user_picks,
         "has_prior_season": draft_store.get_draft(target_season - 1) is not None,
         "has_next_season": draft_store.get_draft(target_season + 1) is not None,
+        "just_completed": just_completed,
+    })
+
+
+@app.get("/draft", response_class=HTMLResponse)
+def draft_view(
+    request: Request, season_param: int | None = None, just_completed: int | None = None,
+    group: str = "ALL", sort: str | None = None, dir: str = "desc",
+):
+    """R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f),
+    rebuilt 2026-09-13 (Brian's ask) into three real modes:
+
+    1. `season_param` given -- the original read-only REVIEW of a past,
+       already-completed draft (unchanged).
+    2. No `season_param`, and the live draft is in progress
+       (`season.offseason_stage == "draft"`) -- the live pick-by-pick
+       event: Sim Pick / Sim to Your Next Pick / End, plus a real manual
+       "Draft" action on each prospect row whenever it's genuinely the
+       user's own team's turn (never auto-picked except via End).
+    3. No `season_param`, no live draft -- the PROSPECTS view: next
+       season's real class (generated the moment the CURRENT season was
+       built, app/services/draft_class_store.py), sortable/filterable
+       (same GET-param convention as the Roster page's own
+       ROSTER_SORT_KEYS/_roster_sort_value), with the user's own
+       reorderable personal board and a Team Needs panel -- browsable
+       for the entire season, not just after the draft resolves."""
+    season = season_state.get_season()
+
+    if season_param is not None:
+        return _draft_review_response(request, season, season_param, just_completed=False)
+
+    if season.offseason_stage == "draft":
+        next_number = season.season_number + 1
+        progress = draft_progress_store.get(next_number)
+        prospects = draft_class_store.get_class(next_number) or draft_engine.generate_draft_class(season.league_seed, next_number)
+        prospects_by_index = {p.index: p for p in prospects}
+        drafted_indexes = set(progress["drafted_indexes"]) if progress else set()
+        slots = draft_engine.draft_slots(progress["order"]) if progress else []
+        idx = progress["current_pick_index"] if progress else 0
+        current_slot = slots[idx] if idx < len(slots) else None
+        remaining = sorted(
+            (p for p in prospects_by_index.values() if p.index not in drafted_indexes and _prospect_matches_group(p, group)),
+            key=lambda p: _prospect_sort_value(p, sort if sort in PROSPECT_SORT_KEYS else "ovr"),
+            reverse=(dir != "asc"),
+        )
+        needs = []
+        if season.user_team_abbr:
+            strength = roster_strength.compute_roster_strength(season.user_team_abbr)
+            needs = sorted(strength.group_ratings.items(), key=lambda kv: kv[1])[:6]
+
+        return templates.TemplateResponse(request, "draft.html", {
+            "mode": "live",
+            "target_season": next_number,
+            "user_abbr": season.user_team_abbr,
+            "your_turn": current_slot is not None and current_slot.team_abbr == season.user_team_abbr,
+            "current_slot": current_slot,
+            "picks_so_far": list(reversed(progress["picks"])) if progress else [],
+            "total_slots": len(slots),
+            "picks_made": idx,
+            "prospects": remaining,
+            "group_tabs": PROSPECT_GROUP_TABS, "active_group": group,
+            "sort_keys": PROSPECT_SORT_KEYS, "active_sort": sort if sort in PROSPECT_SORT_KEYS else "ovr",
+            "active_dir": dir if dir in ("asc", "desc") else "desc",
+            "needs": needs,
+        })
+
+    if just_completed:
+        # The live draft (or "End") just finished -- the season whose
+        # rookies were just picked is season.season_number itself (the
+        # NEW season this redirect landed on), not next_number's still-
+        # pending class. Show that real, just-resolved result once.
+        return _draft_review_response(request, season, season.season_number, just_completed=True)
+
+    next_number = season.season_number + 1
+    prospects = draft_class_store.get_class(next_number)
+    if prospects is None:
+        return _draft_review_response(request, season, season.season_number, just_completed=False)
+
+    effective_sort = sort if sort in PROSPECT_SORT_KEYS else "ovr"
+    effective_dir = dir if dir in ("asc", "desc") else "desc"
+    filtered = [p for p in prospects if _prospect_matches_group(p, group)]
+    filtered.sort(key=lambda p: _prospect_sort_value(p, effective_sort), reverse=(effective_dir == "desc"))
+
+    board_indexes = draft_board_store.get_board(next_number)
+    prospects_by_index = {p.index: p for p in prospects}
+    board = [prospects_by_index[i] for i in board_indexes if i in prospects_by_index]
+
+    needs = []
+    if season.user_team_abbr:
+        strength = roster_strength.compute_roster_strength(season.user_team_abbr)
+        needs = sorted(strength.group_ratings.items(), key=lambda kv: kv[1])[:6]
+
+    def draft_query(overrides: dict) -> str:
+        base = {"group": group, "sort": sort, "dir": dir}
+        base.update(overrides)
+        return "/draft?" + urlencode({k: v for k, v in base.items() if v not in (None, "")})
+
+    sort_links = {}
+    for key in PROSPECT_SORT_KEYS:
+        next_dir = "asc" if (effective_sort == key and effective_dir == "desc") else "desc"
+        sort_links[key] = draft_query({"sort": key, "dir": next_dir})
+
+    return templates.TemplateResponse(request, "draft.html", {
+        "mode": "prospects",
+        "target_season": next_number,
+        "user_abbr": season.user_team_abbr,
+        "prospects": filtered,
+        "board": board,
+        "board_indexes": set(board_indexes),
+        "needs": needs,
+        "group_tabs": PROSPECT_GROUP_TABS, "active_group": group,
+        "sort_keys": PROSPECT_SORT_KEYS, "active_sort": effective_sort, "active_dir": effective_dir,
+        "sort_links": sort_links,
+        "group_links": {g: draft_query({"group": g}) for g in PROSPECT_GROUP_TABS},
+        "has_prior_draft": draft_store.get_draft(season.season_number) is not None,
+    })
+
+
+@app.post("/draft/board/add")
+def draft_board_add(prospect_index: int = Form(...)):
+    season = season_state.get_season()
+    draft_board_store.add(season.season_number + 1, prospect_index)
+    return RedirectResponse(url="/draft", status_code=303)
+
+
+@app.post("/draft/board/remove")
+def draft_board_remove(prospect_index: int = Form(...)):
+    season = season_state.get_season()
+    draft_board_store.remove(season.season_number + 1, prospect_index)
+    return RedirectResponse(url="/draft", status_code=303)
+
+
+@app.post("/draft/board/move")
+def draft_board_move(prospect_index: int = Form(...), direction: str = Form(...)):
+    if direction not in ("up", "down"):
+        raise HTTPException(422, "Invalid direction")
+    season = season_state.get_season()
+    draft_board_store.move(season.season_number + 1, prospect_index, direction)
+    return RedirectResponse(url="/draft", status_code=303)
+
+
+@app.post("/draft/sim-pick")
+def draft_sim_pick():
+    """Resolves exactly the current slot -- but only if an AI team is on
+    the clock. The user's own team's turn is a deliberate no-op here
+    (Brian: "the draft itself should not auto start") -- they act via
+    the manual Draft button (POST /draft/pick) or bail out with End."""
+    season = season_state.get_season()
+    season_number_before = season.season_number
+    slot = season_state.current_draft_slot()
+    if slot is not None and slot.team_abbr != season.user_team_abbr:
+        season_state.advance_draft_pick()
+    return RedirectResponse(url=_draft_redirect_target(season_number_before), status_code=303)
+
+
+@app.post("/draft/sim-to-next-pick")
+def draft_sim_to_next_pick():
+    """Resolves every AI-only slot until the user's own team is next on
+    the clock (or the draft ends), never touching the user's own pick."""
+    season = season_state.get_season()
+    season_number_before = season.season_number
+    while True:
+        slot = season_state.current_draft_slot()
+        if slot is None or slot.team_abbr == season.user_team_abbr:
+            break
+        season_state.advance_draft_pick()
+    return RedirectResponse(url=_draft_redirect_target(season_number_before), status_code=303)
+
+
+@app.post("/draft/end")
+def draft_end():
+    """Auto-resolves every remaining slot, including the user's own
+    (Brian's own wording: "End will auto draft any remaining user
+    picks") -- a real, explicit bail-out, not a silent one."""
+    season_number_before = season_state.get_season().season_number
+    while season_state.current_draft_slot() is not None:
+        season_state.advance_draft_pick()
+    return RedirectResponse(url=_draft_redirect_target(season_number_before), status_code=303)
+
+
+@app.post("/draft/pick")
+def draft_manual_pick(prospect_index: int = Form(...)):
+    """The user's own real, manual selection -- only valid when it's
+    genuinely their team's turn (season_state.advance_draft_pick raises
+    otherwise)."""
+    season_number_before = season_state.get_season().season_number
+    try:
+        season_state.advance_draft_pick(chosen_prospect_index=prospect_index)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return RedirectResponse(url=_draft_redirect_target(season_number_before), status_code=303)
+
+
+def _draft_redirect_target(season_number_before: int) -> str:
+    """Whichever draft control just ran, land on the Offseason Recap
+    (Brian's ask, 2026-09-13) the moment the draft's real last slot
+    resolves and the franchise actually advances into its next season --
+    not just when "End" happens to be the control that triggered it."""
+    if season_state.get_season().season_number != season_number_before:
+        return "/offseason/recap"
+    return "/draft"
+
+
+@app.get("/offseason/recap", response_class=HTMLResponse)
+def offseason_recap_view(request: Request, season_number: int | None = None):
+    """Football-GM-style offseason summary (Brian's ask, 2026-09-13):
+    Top/Improving/Declining Players, Top Rookies, Top/Improving/
+    Declining Teams, Top Players on New Teams -- computed once, right
+    when the offseason actually finishes (season_state._compute_and_
+    save_offseason_recap(), called from complete_draft_and_advance_
+    season()), so this route only ever reads a real, already-persisted
+    result -- no live recomputation, and nothing here is "calculated new"
+    beyond the one real before/after roster snapshot that genuinely
+    didn't exist anywhere else (see offseason_recap_store's own
+    docstring). Defaults to the season whose offseason JUST finished
+    (current season_number - 1, since the franchise has already moved
+    into its next season by the time this page is reachable)."""
+    season = season_state.get_season()
+    target_season = season_number if season_number is not None else season.season_number - 1
+    recap = offseason_recap_store.get_recap(target_season) if target_season >= 0 else None
+
+    if recap is None:
+        return templates.TemplateResponse(request, "coming_soon.html", {
+            "title": "Offseason Recap",
+            "gdd_section": "Brian's ask, 2026-09-13",
+            "summary": "No offseason recap yet -- the first one is saved automatically the first time a live "
+                       "draft finishes and the franchise moves into its next season.",
+        })
+
+    return templates.TemplateResponse(request, "offseason_recap.html", {
+        "recap": recap, "target_season": target_season, "user_abbr": season.user_team_abbr,
+        "has_prior_recap": offseason_recap_store.get_recap(target_season - 1) is not None,
+        "has_next_recap": offseason_recap_store.get_recap(target_season + 1) is not None,
     })
 
 
@@ -3650,23 +3970,45 @@ def _safe_internal_redirect(path: str | None, default: str) -> str:
 
 @app.post("/season/simulate-week")
 def season_simulate_week(redirect_to: str | None = Form(None)):
-    """GDD Sec 4's game loop (Regular Season -> Playoffs -> Championship)
-    is one continuous cycle from the player's perspective -- a single
-    "Sim Week" control, matching the Figma header's one sim button
-    (Sec 10.3), now persistent across every page (base.html's header,
-    via _header_context()) rather than living only on /season. Once the
-    regular season is done, the same button just starts simulating
-    playoff rounds instead. `redirect_to` (the page the button was
-    clicked from, a hidden field in the header's own form) sends the
-    player back to where they were rather than always yanking them to
-    /season/-/playoffs -- the whole point of a persistent control is
-    that using it doesn't lose your place."""
+    """GDD Sec 4's whole game loop (Preseason -> Regular Season ->
+    Playoffs -> Offseason -> next Preseason) is one continuous cycle from
+    the player's perspective -- a single "Sim Week" control, matching the
+    Figma header's one sim button (Sec 10.3), persistent across every
+    page (base.html's header, via _header_context()) rather than living
+    only on /season. This one route now dispatches to whichever stage the
+    franchise is actually in, always making forward progress (Brian's
+    report, 2026-09-13: it used to silently no-op forever once the Super
+    Bowl was decided, since simulating playoffs past a complete bracket
+    is a no-op and nothing else ever called season_state.begin_offseason/
+    finish_offseason -- the only way forward used to be a separate
+    button hidden on the Playoffs page).
+
+    `redirect_to` (the page the button was clicked from, a hidden field
+    in the header's own form) sends the player back to where they were
+    for the in-season stages (preseason/regular season/playoffs) -- the
+    whole point of a persistent control is that using it doesn't lose
+    your place. Once the playoffs are decided, the offseason instead
+    always lands the player on that stage's OWN screen -- Staff, then
+    GM Desk, then the live Draft (Brian's ask, 2026-09-13: distinct
+    stops, not one flat pause) -- ignoring redirect_to: begin_offseason()
+    runs automatically on the first such click, and every click after
+    that is just a reminder to finish the CURRENT stage there (via POST
+    /offseason/advance-to-resign, /offseason/continue, or the Draft
+    page's own Sim Pick/Sim to Your Next Pick/End controls) rather than
+    redirect_to's normal "go back to where you were" behavior."""
     season = season_state.get_season()
-    if season.is_complete:
+    if season.preseason_pending:
+        season_state.simulate_next_preseason_round()
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    if not season.is_complete:
+        season_state.simulate_current_week()
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    if season.playoffs is None or not season.playoffs.is_complete:
         season_state.simulate_playoff_round()
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/playoffs"), status_code=303)
-    season_state.simulate_current_week()
-    return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    if season.offseason_stage is None:
+        season_state.begin_offseason()
+    return RedirectResponse(url=_offseason_stage_url(season_state.get_season()), status_code=303)
 
 
 @app.post("/season/simulate-preseason")
@@ -3685,17 +4027,37 @@ def season_reset():
     return RedirectResponse(url="/season", status_code=303)
 
 
-@app.post("/season/new-season")
-def season_new_season():
-    """GDD Sec 4's Offseason step + Sec 7.6 (Player Progression &
-    Regression): moves the franchise into its next season once the
-    playoffs are fully decided. 404s rather than silently no-op'ing if
-    called too early."""
-    try:
-        season_state.start_new_season()
-    except ValueError as e:
-        raise HTTPException(404, str(e))
-    return RedirectResponse(url="/dashboard", status_code=303)
+@app.post("/offseason/advance-to-resign")
+def offseason_advance_to_resign():
+    """Moves the offseason from Staff Decisions (/staff) to Free Agent
+    Decisions (the GM Desk) -- the user has reviewed/adjusted their own
+    staff, or chose not to, and is ready to move on (Brian's ask,
+    2026-09-13). 404s rather than silently no-op'ing if the offseason
+    isn't at that stage."""
+    season = season_state.get_season()
+    if season.offseason_stage != "staff":
+        raise HTTPException(404, "Not at the Staff Decisions stage")
+    season_state.advance_offseason_stage()
+    return RedirectResponse(url="/gm-desk", status_code=303)
+
+
+@app.post("/offseason/continue")
+def offseason_continue():
+    """Resolves the offseason's Free Agent Decisions stage (Brian's ask,
+    2026-09-13): the user is done negotiating on the GM Desk (or is
+    choosing to let whoever's left hit free agency -- "anyone not signed
+    will go to FA" is a real, intended outcome, not a failure state), so
+    this runs every AI team's own resign/release decisions, releases
+    everyone still expired, fills any emergency roster gaps, and opens
+    the live draft (season_state.finish_offseason()) -- landing on the
+    Draft page, where the user drives it via Sim Pick/Sim to Your Next
+    Pick/End (the draft itself never auto-starts). 404s rather than
+    silently no-op'ing if there's no offseason in progress to continue."""
+    season = season_state.get_season()
+    if season.offseason_stage != "resign":
+        raise HTTPException(404, "No offseason in progress")
+    season_state.finish_offseason(season)
+    return RedirectResponse(url="/draft", status_code=303)
 
 
 @app.post("/simulate", response_class=HTMLResponse)

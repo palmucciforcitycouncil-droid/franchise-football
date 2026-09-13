@@ -77,7 +77,7 @@ from pathlib import Path
 import pytest
 
 from app.core import db as db_module
-from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool
+from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool, draft_class_store, draft_board_store, draft_progress_store, offseason_recap_store
 
 # Captured once, at collection time, before any fixture below ever
 # reassigns `db_module.DB_PATH` -- the one stable reference point
@@ -113,6 +113,20 @@ def _isolate_season_save_path():
     # simulated offseason by season_state.start_new_season().
     real_draft_path = draft_store.DEFAULT_PATH
     real_undrafted_path = undrafted_pool.DEFAULT_PATH
+    # Live, interactive draft rebuild (Brian's ask, 2026-09-13): season_
+    # state._build_season() now generates + persists next season's real
+    # prospect class (draft_class_store) every time it runs -- including
+    # from reset_season(), i.e. every single test in this whole suite
+    # that builds a fresh season at all -- plus the live pick-by-pick
+    # engine's own in-progress state and the user's personal board.
+    # Same session-scoped throwaway-path treatment as every store above.
+    real_draft_class_path = draft_class_store.DEFAULT_PATH
+    real_draft_board_path = draft_board_store.DEFAULT_PATH
+    real_draft_progress_path = draft_progress_store.DEFAULT_PATH
+    # Offseason Recap (Brian's ask, 2026-09-13): begin_offseason() now
+    # ALSO snapshots the whole real roster every time it runs -- same
+    # session-scoped throwaway-path treatment as every store above.
+    real_offseason_recap_path = offseason_recap_store.DEFAULT_PATH
     # Multi-save games (save_manager.py): defense in depth -- no existing
     # test creates/loads/deletes a save (see that module's own docstring
     # for why its registry-existence check already makes it a no-op in
@@ -132,7 +146,11 @@ def _isolate_season_save_path():
     test_undrafted_path = Path("data/saves/_test_isolated_undrafted_pool.json")
     test_registry_path = Path("data/saves/_test_isolated_registry.json")
     test_saves_root = Path("data/saves/_test_isolated_games")
-    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path):
+    test_draft_class_path = Path("data/saves/_test_isolated_draft_classes.json")
+    test_draft_board_path = Path("data/saves/_test_isolated_draft_board.json")
+    test_draft_progress_path = Path("data/saves/_test_isolated_draft_progress.json")
+    test_offseason_recap_path = Path("data/saves/_test_isolated_offseason_recap.json")
+    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path, test_draft_class_path, test_draft_board_path, test_draft_progress_path, test_offseason_recap_path):
         p.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
     shutil.rmtree(test_saves_root, ignore_errors=True)
     save_service.DEFAULT_SAVE_PATH = test_path
@@ -145,6 +163,10 @@ def _isolate_season_save_path():
     undrafted_pool.DEFAULT_PATH = test_undrafted_path
     save_manager.REGISTRY_PATH = test_registry_path
     save_manager.SAVES_ROOT = test_saves_root
+    draft_class_store.DEFAULT_PATH = test_draft_class_path
+    draft_board_store.DEFAULT_PATH = test_draft_board_path
+    draft_progress_store.DEFAULT_PATH = test_draft_progress_path
+    offseason_recap_store.DEFAULT_PATH = test_offseason_recap_path
     owner_pressure_store.clear_cache()
     team_expectations.clear_cache()
     try:
@@ -160,9 +182,13 @@ def _isolate_season_save_path():
         undrafted_pool.DEFAULT_PATH = real_undrafted_path
         save_manager.REGISTRY_PATH = real_registry_path
         save_manager.SAVES_ROOT = real_saves_root
+        draft_class_store.DEFAULT_PATH = real_draft_class_path
+        draft_board_store.DEFAULT_PATH = real_draft_board_path
+        draft_progress_store.DEFAULT_PATH = real_draft_progress_path
+        offseason_recap_store.DEFAULT_PATH = real_offseason_recap_path
         owner_pressure_store.clear_cache()
         team_expectations.clear_cache()
-        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path):
+        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_registry_path, test_draft_class_path, test_draft_board_path, test_draft_progress_path, test_offseason_recap_path):
             p.unlink(missing_ok=True)
         shutil.rmtree(test_saves_root, ignore_errors=True)
 

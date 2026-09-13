@@ -164,6 +164,24 @@ W_YEARS = 0.15
 W_TEAM = 0.20
 ACCEPT_THRESHOLD = 0.97
 COUNTER_THRESHOLD = 0.80  # below this, the player just walks (REJECT) rather than countering
+# Guaranteed money's real effect on acceptance (Brian's ask, 2026-09-13)
+# is an ADDITIVE bonus on top of the AAV/Years/Team score above, not a
+# 4th weight carved out of those three's existing 1.0 total -- an
+# unguaranteed offer (offered_guaranteed=0) must score EXACTLY as it did
+# before this existed (real players who already cleared ACCEPT on pure
+# cash/years/team-quality terms shouldn't suddenly need guaranteed money
+# too just because the option now exists), while a real guarantee gives
+# a real, additional reason to say yes. Scores can now exceed 1.0 by up
+# to this much, which is fine -- ACCEPT_THRESHOLD is a fixed bar, not a
+# ceiling (aav_points alone can already reach 1.3).
+W_GUARANTEED_BONUS = 0.10
+# What guaranteed-money fraction (guaranteed / total contract value)
+# reads as "full security" and earns the full bonus, same "real number
+# picked here, not in the GDD" spirit as years_points' own 4-years-is-
+# full-security anchor below -- half the contract fully guaranteed is
+# already a strong, real-world-plausible term, not a threshold no
+# realistic offer ever reaches.
+FULL_GUARANTEE_FRACTION = 0.5
 
 
 def offer_reaction(score: float) -> str:
@@ -188,31 +206,48 @@ def offer_reaction(score: float) -> str:
 
 def evaluate_offer(
     player: Player, offered_aav: float, offered_years: int,
-    season_number: int, team_rating: float,
+    season_number: int, team_rating: float, offered_guaranteed: float = 0.0,
 ) -> OfferResult:
     """Sec 8.3.3: Final_Offer_Score = [(w_AAV*AAV_Points) + (w_Years*Years_Points)
-    + (w_Team*Team_Quality_Points)] -- Starter_Multiplier is skipped (no
-    real starter/depth distinction feeds this yet outside roster_strength's
-    own snap-share weighting, which already shapes team_rating itself).
+    + (w_Team*Team_Quality_Points)] + a guaranteed-money bonus on top --
+    Starter_Multiplier is skipped (no real starter/depth distinction feeds
+    this yet outside roster_strength's own snap-share weighting, which
+    already shapes team_rating itself).
 
     team_rating: the offering team's app.engine.roster_strength.team_rating
     (0-99ish) -- this module's real substitute for Sec 8.4's own
     "TeamQuality from prior-year power ranking," since roster_strength
-    already IS a real, tuned team-quality number this engine trusts."""
+    already IS a real, tuned team-quality number this engine trusts.
+
+    offered_guaranteed (Brian's ask, 2026-09-13): real money now, not
+    money a player could still lose to a release -- scored as a fraction
+    of the total contract value against FULL_GUARANTEE_FRACTION, same
+    shape as years_points, and added on TOP of the AAV/Years/Team score
+    via W_GUARANTEED_BONUS (see that constant's own docstring for why
+    this is additive, not a 4th weight carved out of the other three).
+    Defaults to 0 (an unguaranteed offer, still real and scoreable, and
+    scored EXACTLY as it was before this bonus existed) rather than
+    requiring every caller to pass it."""
     expected = expected_market_value(player, season_number)
     aav_points = min(1.3, offered_aav / expected) if expected else 1.0
     years_points = min(1.0, offered_years / 4.0)  # 4+ years reads as full security
     team_points = team_rating / 99.0
+    total_value = offered_aav * offered_years
+    guaranteed_fraction = (offered_guaranteed / total_value) if total_value else 0.0
+    guaranteed_points = min(1.0, guaranteed_fraction / FULL_GUARANTEE_FRACTION)
 
-    score = W_AAV * aav_points + W_YEARS * years_points + W_TEAM * team_points
+    score = W_AAV * aav_points + W_YEARS * years_points + W_TEAM * team_points + W_GUARANTEED_BONUS * guaranteed_points
 
     if score >= ACCEPT_THRESHOLD:
         return OfferResult(OfferVerdict.ACCEPT, score)
     if score >= COUNTER_THRESHOLD:
         # Counters toward the AAV that WOULD clear ACCEPT_THRESHOLD, all
-        # else held equal -- solved from the offer-score formula itself,
-        # not a second guess.
-        needed_aav_points = (ACCEPT_THRESHOLD - W_YEARS * years_points - W_TEAM * team_points) / W_AAV
+        # else (years, team quality, AND the guaranteed money actually
+        # offered) held equal -- solved from the offer-score formula
+        # itself, not a second guess.
+        needed_aav_points = (
+            ACCEPT_THRESHOLD - W_YEARS * years_points - W_TEAM * team_points - W_GUARANTEED_BONUS * guaranteed_points
+        ) / W_AAV
         # Rounded UP, not to nearest -- resubmitting these exact terms
         # must clear ACCEPT_THRESHOLD, not land a rounding hair below it.
         counter_aav = math.ceil(max(offered_aav, needed_aav_points * expected))

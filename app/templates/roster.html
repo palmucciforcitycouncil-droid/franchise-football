@@ -62,7 +62,8 @@
   </div>
   {% endif %}
 
-  <details class="roster-filter-panel" id="roster-filter-panel" {% if generated_query %}open{% endif %}>
+  {% set advanced_filters_active = min_ovr is not none or max_ovr is not none or min_spd is not none or max_spd is not none or min_cth is not none or max_cth is not none or min_tck is not none or max_tck is not none or rookie %}
+  <details class="roster-filter-panel" id="roster-filter-panel" {% if advanced_filters_active %}open{% endif %}>
     <summary>🔍 Filter Roster{% if generated_query %} (active){% endif %}</summary>
     <div class="roster-filter-body">
       <form method="get" action="/roster" data-preserve-scroll="roster-filter-panel">
@@ -320,7 +321,7 @@
         </div>
       </div>
       <details class="roster-filter-panel">
-        <summary>Attribute Filters{% if find_min_ovr is not none or find_max_ovr is not none or find_min_spd is not none or find_max_spd is not none or find_min_cth is not none or find_max_cth is not none or find_min_tck is not none or find_max_tck is not none or find_rookie %} (active){% endif %}</summary>
+        <summary>Attribute Filters{% if find_min_ovr is not none or find_max_ovr is not none or find_min_spd is not none or find_max_spd is not none or find_min_cth is not none or find_max_cth is not none or find_min_tck is not none or find_max_tck is not none or find_min_age is not none or find_max_age is not none or find_rookie %} (active){% endif %}</summary>
         <div class="roster-filter-body">
           <div class="filter-range-grid">
             <div>
@@ -353,6 +354,14 @@
                 <input type="number" name="find_min_tck" placeholder="Min" min="0" max="99" value="{{ find_min_tck if find_min_tck is not none else '' }}">
                 <span class="muted">&ndash;</span>
                 <input type="number" name="find_max_tck" placeholder="Max" min="0" max="99" value="{{ find_max_tck if find_max_tck is not none else '' }}">
+              </div>
+            </div>
+            <div>
+              <label>Age</label>
+              <div class="range-inputs">
+                <input type="number" name="find_min_age" placeholder="Min" min="18" max="50" value="{{ find_min_age if find_min_age is not none else '' }}">
+                <span class="muted">&ndash;</span>
+                <input type="number" name="find_max_age" placeholder="Max" min="18" max="50" value="{{ find_max_age if find_max_age is not none else '' }}">
               </div>
             </div>
           </div>
