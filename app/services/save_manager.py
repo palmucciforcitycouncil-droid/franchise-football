@@ -39,6 +39,27 @@ REGISTRY_PATH = Path("data/saves/registry.json")
 # lives -- see create_save().
 TEMPLATE_DB_PATH = Path("data/franchise_template.db")
 
+# The real 2002-2025 NFL-history-imported League History (scripts/
+# import_nfl_history.py) every NEW save's own history.json is seeded
+# from -- built by scripts/build_franchise_template_history.py. NOT the
+# same file as history_store.DEFAULT_PATH, which (once _redirect_globals
+# below points it at the active save's own directory) is wherever that
+# save's own history -- the real imported seasons PLUS whatever seasons
+# that franchise has since actually played -- lives.
+#
+# Without this, a brand-new save's history.json never existed at all,
+# so history_store.get_history() returned [] and season_state.py's
+# _bootstrap_season_number() (len(history_store.get_history())) started
+# every new franchise at season_number 0 -- app/config.py's season_year(0)
+# = FIRST_SEASON = 2002, even though the real league timeline is already
+# sitting at 2026+. Seeding the real 24 imported seasons here means a
+# fresh save's own history.json already has them, so _bootstrap_season_
+# number() naturally continues chronologically after them, exactly like
+# it already does for a second franchise created after a first one has
+# played real seasons -- there was never anything special-casing "a
+# save's FIRST franchise" other than this file not existing yet.
+TEMPLATE_HISTORY_PATH = Path("data/franchise_template_history.json")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -159,19 +180,31 @@ def create_save(name: str) -> str:
     (never itself mutated by play) rather than whatever the currently
     active save's own roster looks like after real games/trades/
     progression -- every new save starts from the same real, unplayed
-    roster. Becomes the active save immediately; the caller still needs
-    to send the user to /team-select (GDD Sec 10.1 -- team choice is a
-    separate step, unchanged)."""
+    roster. Also seeded from TEMPLATE_HISTORY_PATH's real 2002-2025
+    League History, the same way and for the same reason -- see that
+    constant's own docstring for the season_number bug this fixes.
+    Becomes the active save immediately; the caller still needs to send
+    the user to /team-select (GDD Sec 10.1 -- team choice is a separate
+    step, unchanged)."""
     if not TEMPLATE_DB_PATH.exists():
         raise RuntimeError(
             f"No template roster DB at {TEMPLATE_DB_PATH} -- run "
             "scripts/import_players.py + scripts/import_coaches.py, then "
             "copy the resulting data/franchise_football.db to this path."
         )
+    if not TEMPLATE_HISTORY_PATH.exists():
+        raise RuntimeError(
+            f"No template League History at {TEMPLATE_HISTORY_PATH} -- run "
+            "scripts/import_nfl_history.py (if data/saves/history.json doesn't "
+            "already have the real 2002-2025 seasons archived), then "
+            "scripts/build_franchise_template_history.py to extract them."
+        )
     save_id = uuid.uuid4().hex[:12]
     save_dir = _save_dir(save_id)
     save_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy(TEMPLATE_DB_PATH, _paths_for(save_dir)["db"])
+    paths = _paths_for(save_dir)
+    shutil.copy(TEMPLATE_DB_PATH, paths["db"])
+    shutil.copy(TEMPLATE_HISTORY_PATH, paths["history"])
 
     now = _now()
     reg = _load_registry()

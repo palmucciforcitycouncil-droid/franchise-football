@@ -167,6 +167,21 @@
           </tbody>
         </table>
       </div>
+      {% if user_picks %}
+      <div class="trade-roster-wrap" style="margin-top: 0.5rem;">
+        <table class="trade-roster-table">
+          <thead><tr><th colspan="2">Draft Picks</th></tr></thead>
+          <tbody>
+            {% for pk in user_picks %}
+            <tr>
+              <td><label><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label></td>
+              <td class="muted">est. {{ pk.est_value | money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
     </div>
     <div class="trade-roster-col">
       <h4>{{ team_b_info.location }} ({{ team_b_info.abbr }})</h4>
@@ -192,6 +207,21 @@
           </tbody>
         </table>
       </div>
+      {% if trade_partner_picks %}
+      <div class="trade-roster-wrap" style="margin-top: 0.5rem;">
+        <table class="trade-roster-table">
+          <thead><tr><th colspan="2">Draft Picks</th></tr></thead>
+          <tbody>
+            {% for pk in trade_partner_picks %}
+            <tr>
+              <td><label><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label></td>
+              <td class="muted">est. {{ pk.est_value | money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
     </div>
     <div class="trade-offer-panel">
       <h4>Current Offer</h4>
@@ -208,6 +238,6 @@
   </form>
   {% endif %}
 
-  <p class="muted trade-offer-note" style="margin-top: 0.75rem;">Trades are player(s)-for-player(s) only. Draft picks aren't a tradeable asset here -- the Draft runs automatically from that season's standings and doesn't track pick ownership as a standing, transferable asset.</p>
+  <p class="muted trade-offer-note" style="margin-top: 0.75rem;">Draft picks are real, tradeable assets too (GDD &sect;8.5): the current season's picks plus the next two drafts, listed above alongside each side's roster. A future pick's value is estimated from live current-season standings (the real order isn't final until that season ends) using the same real pick-value chart (&sect;4.1) the Draft itself uses.</p>
 </div>
 {% endblock %}

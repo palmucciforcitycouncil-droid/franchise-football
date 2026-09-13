@@ -79,6 +79,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.engine.rng import RNG, stable_seed
+from app.models.coach import CoachRole, FOCUS_SCOUTING
 from app.models.player import Player, Position
 
 # ---------------------------------------------------------------------------
@@ -336,7 +337,11 @@ def compute_draft_order(season, league_seed: int, season_number: int) -> list[st
     """Worst-to-best (Sec 3.1): win% ascending, then SOS ascending (a
     weaker schedule means the team's record overstates them, so they
     pick earlier -- the real, standard tiebreak direction), then a
-    seeded coin flip for anything still tied."""
+    seeded coin flip for anything still tied. UNCHANGED by Draft-Pick
+    Trading (Sec 8.5) -- this is still the real, pure ORIGINAL-team slot
+    order; app/services/draft_pick_store.py's ownership layer sits on
+    top of it, never inside it (a traded pick is still "the original
+    team's slot," just picked by whoever traded for it)."""
     abbrs = list(season.records.keys())
     sos = {a: _strength_of_schedule(season, a) for a in abbrs}
 
@@ -345,6 +350,52 @@ def compute_draft_order(season, league_seed: int, season_number: int) -> list[st
         return (season.records[a].win_pct, sos[a], tie)
 
     return sorted(abbrs, key=sort_key)
+
+
+def estimated_pick_order_rank(season, original_team_abbr: str) -> int:
+    """Sec 8.5's trades can include a pick from a season that HASN'T
+    happened yet (this year's own draft resolves only once the season
+    ends; next year's and the year after's are even further out) -- so
+    there is no real final slot to price a future pick by. This is the
+    best REAL signal available before that: this team's rank (1 = worst)
+    by the CURRENT season's live win_pct, the exact same real, computed
+    ordering compute_draft_order() itself uses once a season is actually
+    over, just read mid-season as an estimate. A disclosed simplification
+    (a real front office can't know a future pick's exact slot before the
+    season that earns it ends either) -- not a fabricated placeholder."""
+    abbrs = sorted(season.records.keys(), key=lambda a: season.records[a].win_pct)
+    return abbrs.index(original_team_abbr) + 1 if original_team_abbr in abbrs else 16
+
+
+# Sec 8.5's own pick-value chart (R5_DRAFT_SYSTEM_SPECIFICATION.md Sec
+# 4.1) -- "disclosed as a game-balance simplification, not a real NFL
+# claim," that spec's own words. Used as-is: it's the only real number
+# this project has for pick value, so it's the real default rather than
+# a fabricated alternative. round -> [(pick_order_rank upper bound
+# within that round, value), ...], banded in quarters of 8 (this
+# engine's real 32-team league).
+PICK_VALUE_TABLE: dict[int, list[tuple[int, float]]] = {
+    1: [(8, 3000), (16, 2200), (24, 1800), (32, 1400)],
+    2: [(8, 1000), (16, 800), (24, 600), (32, 500)],
+    3: [(8, 400), (16, 300), (24, 250), (32, 200)],
+    4: [(8, 150), (16, 120), (24, 100), (32, 80)],
+    5: [(8, 60), (16, 50), (24, 40), (32, 30)],
+    6: [(8, 25), (16, 20), (24, 15), (32, 10)],
+    7: [(8, 8), (16, 6), (24, 4), (32, 2)],
+}
+
+
+def pick_value(round: int, pick_order_rank: int) -> float:
+    """PICK_VALUE_TABLE's real lookup. `pick_order_rank` is this pick's
+    1-32 position WITHIN its round (1 = the first team to pick that
+    round, i.e. the worst record) -- not the overall 1-224 pick number."""
+    bands = PICK_VALUE_TABLE.get(round)
+    if not bands:
+        return 0.0
+    for upper, value in bands:
+        if pick_order_rank <= upper:
+            return value
+    return bands[-1][1]
 
 
 def _all_teams_group_counts() -> dict[str, dict[str, int]]:
@@ -375,30 +426,107 @@ def _needs_from_counts(counts: dict[str, int]) -> list[str]:
     return sorted(GROUP_POSITIONS, key=lambda g: counts.get(g, 0))
 
 
-def simulate_draft(prospects: list[ProspectDraft], order: list[str], rounds: int = ROUNDS) -> DraftResult:
+# ---------------------------------------------------------------------------
+# R13 Sec 5.3: Scouting focus -> per-team draft-evaluation noise. The real
+# prospect (generated above) is NEVER touched -- only what a team's OWN pick
+# decision is made FROM. A team with no Scouting-focused staff evaluates
+# every prospect through MAX_SCOUTING_NOISE of random error; investing
+# Scouting-focused coaches (role-tiered, more coaches stacking with
+# diminishing returns -- Brian's own explicit design) shrinks that toward
+# MIN_SCOUTING_NOISE, never all the way to zero (real NFL scouting is never
+# perfect either).
+# ---------------------------------------------------------------------------
+MAX_SCOUTING_NOISE = 12.0   # stddev, overall_rating units -- nobody focused on Scouting
+MIN_SCOUTING_NOISE = 3.0    # stddev floor -- scouting uncertainty never fully disappears
+SCOUTING_STRENGTH_K = 40.0  # saturating-curve constant: strength / (strength + K) -> noise-reduction fraction
+
+def _scouting_role_weight(role: CoachRole) -> float:
+    """Role-tier weight, reusing coaching.py's own R13 three-tier scheme
+    (HC > coordinator > assistant) rather than inventing a second one."""
+    from app.engine import coaching
+    if role is CoachRole.HC:
+        return coaching.HC_TIER_WEIGHT
+    if role is CoachRole.AC:
+        return coaching.ASSISTANT_TIER_WEIGHT
+    return coaching.COORDINATOR_TIER_WEIGHT
+
+
+def team_scouting_strength(team_abbr: str) -> float:
+    """Role-tiered SUM (not average -- more coaches focusing on Scouting
+    keeps helping, with diminishing returns applied downstream by
+    perceived_overall()'s saturating curve) of `overall` across every coach
+    on `team_abbr` whose focus_area is Scouting. 0.0 if nobody is (the
+    common case, day one -- R13 Sec 4 has no real default assignee for
+    Scouting) or if this database has no coach system at all."""
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        return 0.0
+    return sum(
+        _scouting_role_weight(CoachRole(c.role)) * c.overall
+        for c in coach_store.staff_for(team_abbr) if c.focus_area == FOCUS_SCOUTING
+    )
+
+
+def perceived_overall(prospect: ProspectDraft, team_abbr: str, league_seed: int, season_number: int) -> float:
+    """This team's OWN noisy evaluation of `prospect`, used ONLY to decide
+    who they draft -- the real prospect (and the Player row it becomes once
+    drafted) always keeps its true, real attributes. Deterministic: the same
+    (league_seed, season_number, team_abbr, prospect.index) always produces
+    the same perceived value, so re-running simulate_draft() with the same
+    inputs reproduces the same picks."""
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        # No coach system in this database at all -- simulate exactly as
+        # this engine did before R13, same backward-compatibility guarantee
+        # every other coaching hook here already has.
+        return float(prospect.overall_rating)
+
+    strength = team_scouting_strength(team_abbr)
+    reduction = strength / (strength + SCOUTING_STRENGTH_K)
+    noise_stddev = MAX_SCOUTING_NOISE - reduction * (MAX_SCOUTING_NOISE - MIN_SCOUTING_NOISE)
+    seed = stable_seed(league_seed, season_number, "scouting_noise", team_abbr, prospect.index)
+    rng = RNG.with_seed(seed)
+    return prospect.overall_rating + rng.gauss(0, noise_stddev)
+
+
+def simulate_draft(prospects: list[ProspectDraft], order: list[str], league_seed: int, season_number: int,
+                   rounds: int = ROUNDS) -> DraftResult:
     """Greedy, deterministic, need-aware: on the clock, a team drafts the
-    best-overall-rating prospect remaining at one of its 3 scarcest
+    best-PERCEIVED-overall prospect remaining at one of its 3 scarcest
     position groups (using a real live roster count, fetched once up
     front and updated in memory as this function's own picks land --
     see _all_teams_group_counts()'s docstring for why), falling back to
-    best-overall-remaining if none of its needs have anyone left. The
-    only DB access is that one up-front query; everything else here is
-    a pure computation over `prospects`/`order`, so determinism is
-    exhaustively unit-testable without needing to mock the database."""
+    best-perceived-remaining if none of its needs have anyone left.
+    "Perceived" (R13 Sec 5.3) is the prospect's true overall_rating plus
+    that team's own Scouting-investment-scaled noise -- the drafted
+    Player row itself still gets the prospect's real, true attributes;
+    only the DECISION of who to take was made off noisy information. The
+    only DB access is the up-front roster-count query, one coach-staff
+    lookup per team (cached by coach_store), and one up-front pick-
+    ownership read for the whole season (app/services/draft_pick_store.py,
+    Sec 8.5 -- a traded pick's CURRENT OWNER makes the pick, not the
+    original team `order` names; that original team's real record still
+    earned the SLOT, unchanged); everything else here is a pure
+    computation over `prospects`/`order`, so determinism is exhaustively
+    unit-testable without needing to mock the database."""
+    from app.services import draft_pick_store
+
     remaining = {p.index: p for p in prospects}
     counts = _all_teams_group_counts()
+    owners = draft_pick_store.owners_for_season(season_number)
     picks: list[DraftPickResult] = []
     overall_pick = 1
     for rnd in range(1, rounds + 1):
-        for team_abbr in order:
+        for original_team_abbr in order:
             if not remaining:
                 break
-            team_counts = counts.setdefault(team_abbr, {group: 0 for group in GROUP_POSITIONS})
+            picking_team = owners.get((rnd, original_team_abbr), original_team_abbr)
+            team_counts = counts.setdefault(picking_team, {group: 0 for group in GROUP_POSITIONS})
             needs = _needs_from_counts(team_counts)[:3]
             candidates = [p for p in remaining.values() if p.group in needs]
             pool = candidates or list(remaining.values())
-            best = max(pool, key=lambda p: (p.overall_rating, -p.index))
-            picks.append(DraftPickResult(round=rnd, overall_pick=overall_pick, team_abbr=team_abbr, prospect_index=best.index))
+            best = max(pool, key=lambda p: (perceived_overall(p, picking_team, league_seed, season_number), -p.index))
+            picks.append(DraftPickResult(round=rnd, overall_pick=overall_pick, team_abbr=picking_team, prospect_index=best.index))
             del remaining[best.index]
             team_counts[best.group] += 1
             overall_pick += 1
@@ -616,10 +744,18 @@ def apply_draft_to_db(prospects: list[ProspectDraft], result: DraftResult, leagu
 def run_draft_for_season(season, season_number: int) -> dict:
     """Orchestrates the whole real pipeline for one season's draft --
     generate the class, compute the real order, simulate every pick
-    need-aware, write real Player rows. Called from season_state.
-    start_new_season() (see that function's own call site comment for
-    exactly where in the offseason calendar this runs)."""
+    need-aware (ownership-aware since Draft-Pick Trading, Sec 8.5 --
+    simulate_draft() itself resolves each slot's CURRENT owner), write
+    real Player rows. Called from season_state.start_new_season() (see
+    that function's own call site comment for exactly where in the
+    offseason calendar this runs)."""
+    from app.services import draft_pick_store
+
     prospects = generate_draft_class(season.league_seed, season_number)
     order = compute_draft_order(season, season.league_seed, season_number)
-    result = simulate_draft(prospects, order)
-    return apply_draft_to_db(prospects, result, season.league_seed, season_number)
+    result = simulate_draft(prospects, order, season.league_seed, season_number)
+    summary = apply_draft_to_db(prospects, result, season.league_seed, season_number)
+    # This season's picks are now resolved -- no longer a tradeable
+    # future asset (Sec 8.5's "current draft" window has just closed).
+    draft_pick_store.consume_season(season_number)
+    return summary

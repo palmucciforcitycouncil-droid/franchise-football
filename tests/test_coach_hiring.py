@@ -25,10 +25,10 @@ import math
 
 import pytest
 
-from app.engine import coach_hiring, coach_progression, coach_replacement
+from app.engine import coach_contracts, coach_hiring, coach_progression, coach_replacement
 from app.models.coach import (
     Coach, CoachRole, APPOINTMENT_PERMANENT, APPOINTMENT_INTERIM, APPOINTMENT_ACTING,
-    POOL_TIER_COLLEGE, POOL_TIER_FORMER_NFL,
+    POOL_TIER_COLLEGE, POOL_TIER_FORMER_NFL, FOCUS_TRAINING, FOCUS_SCOUTING,
 )
 from app.services import coach_ai, coach_pool, coach_store, owner_pressure_store, season_state, team_expectations
 
@@ -366,6 +366,23 @@ def test_execute_hire_gives_a_blank_slate_jss_and_records_tenure():
     assert hired.team_abbr == "KC"
 
 
+def test_execute_hire_gives_a_real_fresh_contract_not_a_stale_or_zero_one():
+    """Coach Contract Realism: previously execute_hire() never touched
+    contract_years/salary_aav at all, silently leaving an external pool
+    candidate stuck at salary_aav=0 forever. Now both are set for real."""
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    hc = coach_store.head_coach("KC")
+    if hc is None:
+        pytest.skip("KC has no HC")
+    coach_replacement.execute_fire(hc.coach_id)
+
+    hired = coach_replacement.execute_hire("KC", CoachRole.HC, hc.coach_id, season_number=9,
+                                            appointment_type=APPOINTMENT_PERMANENT, league_seed=2025)
+    assert hired.contract_years == coach_contracts.DEFAULT_CONTRACT_YEARS[CoachRole.HC]
+    assert hired.salary_aav > 0
+
+
 def test_decide_replacement_falls_back_to_external_when_no_internal_candidate():
     decision = coach_replacement.decide_replacement("ZZZ", CoachRole.HC, "nobody", season_number=5, in_season=False)
     assert decision.source in ("external", "none")
@@ -422,6 +439,159 @@ def test_evaluate_team_leaves_staff_alone_when_probability_never_rolls_true(monk
     after = {c.coach_id for c in coach_store.staff_for("KC")}
     assert before == after
     assert log == []
+
+
+# --------------------------------------------------------------------
+# R13 Sec 7: AI Focus Autonomy (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md)
+# --------------------------------------------------------------------
+
+def test_run_focus_autonomy_only_moves_assistants_never_coordinators():
+    """R13 Sec 7: HC/OC/DC/ST stay pinned to their natural lane forever --
+    only ASSISTANT coaches are ever reassigned by this pass."""
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season = season_state.reset_season()
+    for abbr in season.records:
+        season.records[abbr].wins, season.records[abbr].losses = 8, 9
+    before = {c.coach_id: c.focus_area for c in coach_store.staff_for("KC")
+              if CoachRole(c.role) is not CoachRole.AC}
+    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+    after = {c.coach_id: c.focus_area for c in coach_store.staff_for("KC")
+             if CoachRole(c.role) is not CoachRole.AC}
+    assert before == after
+
+
+def test_run_focus_autonomy_excludes_the_users_own_team():
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season = season_state.reset_season()
+    season.records["KC"].wins, season.records["KC"].losses = 2, 15  # a real rebuilding signal
+    before = {c.coach_id: c.focus_area for c in coach_store.staff_for("KC")}
+    coach_ai.run_focus_autonomy(season, exclude_team_abbr="KC")
+    after = {c.coach_id: c.focus_area for c in coach_store.staff_for("KC")}
+    assert before == after
+
+
+def test_run_focus_autonomy_is_idempotent_for_the_same_seed():
+    """Re-running against the now-already-reassigned staff must reproduce
+    the SAME seeded draw for every coach -- so a second call changes
+    nothing further (real determinism, not just "doesn't crash twice")."""
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season = season_state.reset_season()
+    for abbr in season.records:
+        season.records[abbr].wins, season.records[abbr].losses = 8, 9
+    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+    log_second_pass = coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+    assert log_second_pass == []
+
+
+def test_run_focus_autonomy_biases_toward_training_for_an_injury_heavy_team(monkeypatch):
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    from app.services import injury_store as injury_store_module
+    monkeypatch.setattr(
+        injury_store_module, "team_season_injury_count",
+        lambda season_number, team_abbr: 50 if team_abbr == "KC" else 0,
+    )
+    season = season_state.reset_season()
+    for abbr in season.records:
+        season.records[abbr].wins, season.records[abbr].losses = 8, 9
+    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+    kc_assistants = [c for c in coach_store.staff_for("KC") if CoachRole(c.role) is CoachRole.AC]
+    assert any(c.focus_area == FOCUS_TRAINING for c in kc_assistants)
+
+
+def test_run_focus_autonomy_biases_toward_scouting_for_a_rebuilding_team(monkeypatch):
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    from app.services import team_expectations as team_expectations_module
+    from types import SimpleNamespace
+    monkeypatch.setattr(
+        team_expectations_module, "for_team",
+        lambda season_number, team_abbr: SimpleNamespace(expected_win_pct=0.75) if team_abbr == "KC" else None,
+    )
+    season = season_state.reset_season()
+    for abbr in season.records:
+        season.records[abbr].wins, season.records[abbr].losses = 8, 9
+    season.records["KC"].wins, season.records["KC"].losses = 2, 15  # far below the fake 0.75 expectation
+    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+    kc_assistants = [c for c in coach_store.staff_for("KC") if CoachRole(c.role) is CoachRole.AC]
+    assert any(c.focus_area == FOCUS_SCOUTING for c in kc_assistants)
+
+
+# --------------------------------------------------------------------
+# Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md Sec 11)
+# --------------------------------------------------------------------
+
+def test_renew_contract_gives_a_fresh_term_at_real_market_value():
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    hc = coach_store.head_coach("KC")
+    if hc is None:
+        pytest.skip("KC has no HC")
+
+    renewed = coach_contracts.renew_contract(hc.coach_id)
+    assert renewed.contract_years == coach_contracts.DEFAULT_CONTRACT_YEARS[CoachRole.HC]
+    assert renewed.salary_aav > 0
+
+
+def test_evaluate_team_renews_an_expired_contract_on_survival(monkeypatch):
+    """An AI coach whose contract already expired (contract_years == 0)
+    but who SURVIVES the offseason firing roll gets a fresh contract --
+    not left a permanent lame duck."""
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    hc = coach_store.head_coach("KC")
+    if hc is None:
+        pytest.skip("KC has no HC")
+
+    from app.core.db import get_session
+    from app.models.coach import Coach as CoachModel
+    with get_session() as s:
+        row = s.get(CoachModel, hc.coach_id)
+        row.contract_years = 0
+        s.add(row)
+        s.commit()
+    coach_store.clear_cache()
+
+    monkeypatch.setattr(coach_hiring, "firing_probability", lambda *a, **k: 0.0)  # always survives
+    season = season_state.reset_season()
+    log: list[str] = []
+    coach_ai._evaluate_team(season, "KC", coach_progression.TeamRanks(), week=0, log=log)
+
+    renewed = coach_store.by_id(hc.coach_id)
+    assert renewed.contract_years > 0
+    assert any("contract_renewed" in entry for entry in log)
+
+
+def test_evaluate_team_does_not_renew_mid_season():
+    """Contract renewal is an offseason decision -- the weekly in-season
+    pass (week > 0) must never touch an expired contract, even if the
+    coach survives that week's firing roll."""
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    hc = coach_store.head_coach("KC")
+    if hc is None:
+        pytest.skip("KC has no HC")
+
+    from app.core.db import get_session
+    from app.models.coach import Coach as CoachModel
+    with get_session() as s:
+        row = s.get(CoachModel, hc.coach_id)
+        row.contract_years = 0
+        s.add(row)
+        s.commit()
+    coach_store.clear_cache()
+
+    season = season_state.reset_season()
+    log: list[str] = []
+    coach_ai._evaluate_team(season, "KC", coach_progression.TeamRanks(), week=5, log=log)
+
+    still_expired = coach_store.by_id(hc.coach_id)
+    # Either fired (real risk from the lame-duck contract_modifier) or
+    # still sitting at 0 -- never silently renewed mid-season.
+    assert still_expired.team_abbr is None or still_expired.contract_years == 0
 
 
 def test_interim_appointment_becomes_permanent_after_a_strong_finish():

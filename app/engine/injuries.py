@@ -55,6 +55,7 @@ from __future__ import annotations
 import copy
 from collections import defaultdict
 
+from app.engine import coaching
 from app.engine.box_score import build_box_score
 from app.engine.defensive_box_score import build_defensive_box_score
 from app.engine.position_groups import POSITION_TO_GROUP
@@ -150,6 +151,15 @@ def _proneness_multiplier(player: Player) -> float:
     proneness = 99 - durability."""
     proneness = 99 - player.durability
     return 1.0 + (proneness / 100.0) * (PRONENESS_MAX_MULT - 1.0)
+
+
+def _team_injury_risk_multiplier(team_abbr: str) -> float:
+    """R13 Sec 5.2: this team's Training-focused staff (via
+    motivation_chemistry) raises or lowers every one of its players'
+    injury probability this week -- 1.0 for a league-average Training
+    investment (or no coaches at all), same neutral-degradation guarantee
+    every other coaching hook in this engine already has."""
+    return coaching.injury_risk_multiplier(coaching.staff_effect_for(team_abbr))
 
 
 def _no_injury_probability(exposure: dict[str, int], proneness_mult: float) -> float:
@@ -258,13 +268,14 @@ def roll_injuries_for_week(season, week_num: int) -> list[Injury]:
             continue
         for abbr in (game.home_abbr, game.away_abbr):
             exposures = _compute_game_exposures(game.result.plays, abbr)
+            team_injury_risk = _team_injury_risk_multiplier(abbr)
             for name, events in exposures.items():
                 player = with_session_players.get((abbr, name))
                 if player is None or player.player_id in already_hurt:
                     continue
                 seed = stable_seed("injury", season.league_seed, season.season_number, week_num, player.player_id)
                 rng = RNG.with_seed(seed)
-                proneness_mult = _proneness_multiplier(player)
+                proneness_mult = _proneness_multiplier(player) * team_injury_risk
                 p_no_injury = _no_injury_probability(events, proneness_mult)
                 if rng.prob(1.0 - p_no_injury):
                     injury = _generate_injury(rng, player, abbr, season.season_number, week_num)

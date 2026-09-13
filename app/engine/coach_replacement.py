@@ -17,12 +17,12 @@ from sqlalchemy.exc import OperationalError
 from sqlmodel import select
 
 from app.core.db import get_session
-from app.engine import coach_hiring
+from app.engine import coach_contracts, coach_hiring
 from app.engine.rng import RNG, stable_seed
 from app.models.coach import (
     Coach, CoachRole, CoachSeasonStats,
     APPOINTMENT_PERMANENT, APPOINTMENT_INTERIM,
-    OFFENSIVE_PROFILES, DEFENSIVE_PROFILES,
+    OFFENSIVE_PROFILES, DEFENSIVE_PROFILES, default_focus_area_for,
 )
 from app.services import coach_store, coach_pool
 
@@ -181,6 +181,21 @@ def execute_hire(team_abbr: str, role: CoachRole, coach_id: str, season_number: 
         coach.job_security_score = 50.0  # blank slate, Sec 6
         if role is not CoachRole.AC:
             coach.specialty = None
+        # R13: a promoted/hired coach's Focus Area resets to their NEW
+        # role's real default (same table default_focus_area_for() already
+        # applies at import/migration time) -- otherwise a promoted
+        # assistant would keep a stale AC-era focus (e.g. Training) after
+        # becoming, say, the Offensive Coordinator, same class of gap
+        # specialty/offensive_profile/defensive_profile already close below.
+        coach.focus_area = default_focus_area_for(role, coach.specialty)
+        # Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
+        # Sec 11): a fresh real contract for the NEW role -- previously this
+        # never set contract_years/salary_aav at all, silently leaving an
+        # external pool candidate (salary_aav=0 at seed, coach_pool.py) or
+        # an internally promoted assistant (their old AC-tier pay) stuck at
+        # the wrong numbers forever after a hire.
+        coach.contract_years = coach_contracts.DEFAULT_CONTRACT_YEARS[role]
+        coach.salary_aav = round(coach_contracts.coach_market_value(coach))
         offensive, defensive = _draw_profile(role, coach_id, league_seed, season_number)
         if role in (CoachRole.HC, CoachRole.OC):
             coach.offensive_profile = offensive

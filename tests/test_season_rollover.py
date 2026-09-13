@@ -336,6 +336,48 @@ def test_begin_offseason_pauses_at_staff_then_resign_then_draft_then_finish_comp
     assert all(r.wins == 0 and r.losses == 0 for r in new_season.records.values())
 
 
+def test_apply_coach_offseason_decrements_real_contract_years():
+    """Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
+    Sec 11): contract_years now really counts down at rollover, the same
+    spot Player.contract_years_remaining already does (R4a)."""
+    from app.services import coach_store
+
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+
+    _play_full_season_and_playoffs()
+    season = season_state.get_season()
+
+    # Only coaches with >=2 years remaining BEFORE rollover, so the
+    # decrement can't hit 0 and trigger this same pass's AI-renewal
+    # branch (app/services/coach_ai.py) -- isolates the decrement itself.
+    # Firing doesn't touch contract_years (coach_replacement.execute_fire()
+    # only clears team_abbr), so this holds even for a coach let go this
+    # same offseason.
+    before = {c.coach_id: (c.contract_years, c.role, c.team_abbr) for c in coach_store.all_coaches()
+              if c.team_abbr is not None and c.contract_years >= 2}
+    assert before  # sanity: the real seed has real coaches with real years left
+
+    season_state.apply_coach_offseason(season)
+
+    after_by_id = {c.coach_id: (c.contract_years, c.role, c.team_abbr) for c in coach_store.all_coaches()}
+    checked = 0
+    for coach_id, (years_before, role_before, team_before) in before.items():
+        years_after, role_after, team_after = after_by_id[coach_id]
+        if role_after != role_before or team_after != team_before:
+            # Hired (by ANY team, including a lateral move into the SAME
+            # role elsewhere -- confirmed live: a real fired ST/DC this
+            # same pass landing on a different team) this same offseason
+            # -- coach_replacement.execute_hire() correctly resets their
+            # contract to a fresh default in that case, a real and
+            # intended interaction with the decrement, not a violation
+            # of it.
+            continue
+        assert years_after == years_before - 1
+        checked += 1
+    assert checked > 0  # sanity: at least one real coach was actually isolated and checked
+
+
 def test_start_new_season_route_dispatches_correctly():
     """/season/simulate-week now dispatches all the way from Super Bowl
     into the offseason automatically, landing on /staff (Staff

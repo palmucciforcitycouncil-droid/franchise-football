@@ -16,8 +16,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import season_year, FIRST_SEASON
 from app.core.db import DB_PATH
 from app.core import db as db_module
+from app.data.teams import TEAMS
+from app.engine.awards import AwardsRace
 from app.main import app
 from app.services import (
     save_manager, save_service, season_state, history_store, power_rank_history,
@@ -50,8 +53,19 @@ def _isolated_template(tmp_path):
     template_path = tmp_path / "template.db"
     shutil.copy(db_module.DB_PATH, template_path)
 
+    # An empty (not missing) template history: satisfies create_save()'s
+    # new TEMPLATE_HISTORY_PATH requirement without seeding any real
+    # seasons, so every OTHER test in this file (written before that
+    # requirement existed) keeps its existing season_number == 0
+    # assumption. test_create_save_seeds_real_history_into_new_save
+    # below overrides this per-test with a real, non-empty template to
+    # exercise the actual seeding behavior.
+    template_history_path = tmp_path / "template_history.json"
+    template_history_path.write_text("[]", encoding="utf-8")
+
     originals = {
         "TEMPLATE_DB_PATH": save_manager.TEMPLATE_DB_PATH,
+        "TEMPLATE_HISTORY_PATH": save_manager.TEMPLATE_HISTORY_PATH,
         "REGISTRY_PATH": save_manager.REGISTRY_PATH,
         "SAVES_ROOT": save_manager.SAVES_ROOT,
         "db_path": db_module.DB_PATH,
@@ -65,12 +79,14 @@ def _isolated_template(tmp_path):
         "depth_chart_overrides": depth_chart_overrides.DEFAULT_PATH,
     }
     save_manager.TEMPLATE_DB_PATH = template_path
+    save_manager.TEMPLATE_HISTORY_PATH = template_history_path
     save_manager.REGISTRY_PATH = tmp_path / "registry.json"
     save_manager.SAVES_ROOT = tmp_path / "games"
     try:
         yield
     finally:
         save_manager.TEMPLATE_DB_PATH = originals["TEMPLATE_DB_PATH"]
+        save_manager.TEMPLATE_HISTORY_PATH = originals["TEMPLATE_HISTORY_PATH"]
         save_manager.REGISTRY_PATH = originals["REGISTRY_PATH"]
         save_manager.SAVES_ROOT = originals["SAVES_ROOT"]
         if db_module._engine is not None:
@@ -121,6 +137,75 @@ def test_create_save_raises_without_a_template():
     save_manager.TEMPLATE_DB_PATH = Path("nonexistent_template.db")
     with pytest.raises(RuntimeError):
         save_manager.create_save("Should Fail")
+
+
+def test_create_save_raises_without_a_template_history():
+    save_manager.TEMPLATE_HISTORY_PATH = Path("nonexistent_template_history.json")
+    with pytest.raises(RuntimeError):
+        save_manager.create_save("Should Fail")
+
+
+def _write_synthetic_template_history(path: Path, num_seasons: int) -> None:
+    """A minimal but real-shaped League History file for testing the
+    TEMPLATE_HISTORY_PATH seeding behavior -- every team shares one flat
+    power_rating, same as the real 2002-2025 NFL-history import (no real
+    historical Power Rating exists, scripts/import_nfl_history.py's own
+    disclosed docstring). 24 seasons mirrors that real import's actual
+    current length (verified via a one-off inspection of the real
+    data/saves/history.json, not assumed), so season_year() below lands
+    on the real 2026 the production template currently produces -- not a
+    requirement future template rebuilds must preserve."""
+    empty_awards = AwardsRace(mvp=[], opoy=[], dpoy=[], roy=[])
+    path.unlink(missing_ok=True)
+    for season_number in range(num_seasons):
+        record = history_store.SeasonRecord(
+            season_number=season_number,
+            team_results=[
+                history_store.TeamSeasonResult(
+                    abbr=t.abbr, location=t.location, wins=8, losses=8,
+                    points_for=300, points_against=300, power_rating=1500.0,
+                )
+                for t in TEAMS
+            ],
+            champion_abbr=None, afc_seeds=None, nfc_seeds=None,
+            awards=empty_awards,
+            passing_leaders=[], rushing_leaders=[], receiving_leaders=[], defensive_leaders=[],
+        )
+        history_store.append_season_record(record, path=path)
+
+
+def test_create_save_seeds_real_history_into_new_save(tmp_path):
+    template_history_path = tmp_path / "real_template_history.json"
+    _write_synthetic_template_history(template_history_path, 24)
+    save_manager.TEMPLATE_HISTORY_PATH = template_history_path
+
+    save_manager.create_save("History Test")
+
+    seeded = history_store.get_history()
+    assert len(seeded) == 24
+    assert [r.season_number for r in seeded] == list(range(24))
+
+
+def test_fresh_save_season_year_continues_after_real_history_not_2002(tmp_path):
+    """Regression test for the real bug this feature fixes: a brand-new
+    save used to always start at season_number 0 (season_year() ==
+    FIRST_SEASON == 2002) because its history.json never existed, no
+    matter how much real history had already been archived. Once
+    create_save() seeds TEMPLATE_HISTORY_PATH's real seasons,
+    season_state._bootstrap_season_number() (len(history_store.
+    get_history())) naturally continues chronologically after them."""
+    template_history_path = tmp_path / "real_template_history.json"
+    _write_synthetic_template_history(template_history_path, 24)
+    save_manager.TEMPLATE_HISTORY_PATH = template_history_path
+
+    save_manager.create_save("Fresh Franchise")
+    season_state.reset_season()
+    season = season_state.get_season()
+
+    assert season.season_number == 24
+    assert season_year(season.season_number) == 2026
+    assert season_year(season.season_number) > 2025
+    assert season_year(season.season_number) != FIRST_SEASON
 
 
 def test_two_saves_are_fully_independent():

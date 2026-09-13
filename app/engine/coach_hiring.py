@@ -434,6 +434,22 @@ def tenure_years(coach: Coach, season_number: int) -> int:
     return max(0, season_number - coach.tenure_start_season)
 
 
+def contract_modifier(contract_years: int) -> float:
+    """Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
+    Sec 11: "Extend Contract... to reduce JSS volatility") made concrete:
+    a coach sitting on real years of a fresh deal is protected -- the
+    owner just invested in them, a real "won't eat a fresh buyout"
+    dynamic. An expired contract (0 years, a lame duck) carries no such
+    protection and is slightly MORE likely to be moved on from. Same
+    documented-choice category as tenure_modifier()/recent_success_
+    modifier() above -- no GDD formula for this either."""
+    if contract_years <= 0:
+        return 1.15
+    if contract_years == 1:
+        return 1.0
+    return max(0.6, 1.0 - (contract_years - 1) * 0.1)
+
+
 def firing_probability(jss: float, week: int, role: CoachRole, coach: Coach, season_number: int, team_abbr: str) -> float:
     """Sec 3.4's full model. `week` is 1-18 in-season, or 0 for an
     offseason evaluation (falls through week_modifier() to a full 1.0 --
@@ -445,6 +461,7 @@ def firing_probability(jss: float, week: int, role: CoachRole, coach: Coach, sea
         * week_modifier(week, role)
         * tenure_modifier(tenure_years(coach, season_number))
         * recent_success_modifier(team_abbr)
+        * contract_modifier(coach.contract_years)
     )
     return max(0.0, min(1.0, prob))
 

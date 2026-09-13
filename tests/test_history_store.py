@@ -103,11 +103,22 @@ def test_start_new_season_archives_the_completed_season_for_real():
     import shutil
     from pathlib import Path
     from app.core import db as db_module
-    from app.services import season_state, save_service, gameplan_store
+    from app.services import (
+        season_state, save_service, gameplan_store, power_rank_history,
+        award_race_history, headlines_history, team_expectations,
+        draft_store, undrafted_pool, owner_pressure_store,
+    )
     from app.engine.schedule import N_WEEKS
 
     real_db_path = db_module.DB_PATH
     real_history_path = history_store.DEFAULT_PATH
+    real_power_rank_path = power_rank_history.DEFAULT_PATH
+    real_award_race_path = award_race_history.DEFAULT_PATH
+    real_headlines_path = headlines_history.DEFAULT_PATH
+    real_team_expectations_path = team_expectations.DEFAULT_PATH
+    real_draft_path = draft_store.DEFAULT_PATH
+    real_undrafted_path = undrafted_pool.DEFAULT_PATH
+    real_owner_pressure_path = owner_pressure_store.DEFAULT_PATH
     temp_db_path = Path("data/_test_history_roster.db")
     shutil.copyfile(real_db_path, temp_db_path)
     db_module.DB_PATH = temp_db_path
@@ -116,6 +127,15 @@ def test_start_new_season_archives_the_completed_season_for_real():
     gameplan_store.DEFAULT_PATH = Path("data/saves/_test_history_gameplans.json")
     history_store.DEFAULT_PATH = Path("data/saves/_test_history.json")
     history_store.DEFAULT_PATH.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
+    power_rank_history.DEFAULT_PATH = Path("data/saves/_test_history_power_rank.json")
+    award_race_history.DEFAULT_PATH = Path("data/saves/_test_history_award_race.json")
+    headlines_history.DEFAULT_PATH = Path("data/saves/_test_history_headlines.json")
+    team_expectations.DEFAULT_PATH = Path("data/saves/_test_history_team_expectations.json")
+    draft_store.DEFAULT_PATH = Path("data/saves/_test_history_draft_history.json")
+    undrafted_pool.DEFAULT_PATH = Path("data/saves/_test_history_undrafted_pool.json")
+    owner_pressure_store.DEFAULT_PATH = Path("data/saves/_test_history_owner_pressure.json")
+    team_expectations.clear_cache()
+    owner_pressure_store.clear_cache()
 
     try:
         season_state.reset_season()
@@ -143,7 +163,23 @@ def test_start_new_season_archives_the_completed_season_for_real():
         Path("data/saves/_test_history_season.json").unlink(missing_ok=True)
         Path("data/saves/_test_history_gameplans.json").unlink(missing_ok=True)
         Path("data/saves/_test_history.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_power_rank.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_award_race.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_headlines.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_team_expectations.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_draft_history.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_undrafted_pool.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_owner_pressure.json").unlink(missing_ok=True)
         history_store.DEFAULT_PATH = real_history_path
+        power_rank_history.DEFAULT_PATH = real_power_rank_path
+        award_race_history.DEFAULT_PATH = real_award_race_path
+        headlines_history.DEFAULT_PATH = real_headlines_path
+        team_expectations.DEFAULT_PATH = real_team_expectations_path
+        draft_store.DEFAULT_PATH = real_draft_path
+        undrafted_pool.DEFAULT_PATH = real_undrafted_path
+        owner_pressure_store.DEFAULT_PATH = real_owner_pressure_path
+        team_expectations.clear_cache()
+        owner_pressure_store.clear_cache()
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
@@ -151,13 +187,24 @@ def test_history_route_renders_empty_and_populated_states():
     import shutil
     from pathlib import Path
     from app.core import db as db_module
-    from app.services import season_state, save_service, gameplan_store
+    from app.services import (
+        season_state, save_service, gameplan_store, power_rank_history,
+        award_race_history, headlines_history, team_expectations,
+        draft_store, undrafted_pool, owner_pressure_store,
+    )
     from app.engine.schedule import N_WEEKS
     from fastapi.testclient import TestClient
     from app.main import app
 
     real_db_path = db_module.DB_PATH
     real_history_path = history_store.DEFAULT_PATH
+    real_power_rank_path = power_rank_history.DEFAULT_PATH
+    real_award_race_path = award_race_history.DEFAULT_PATH
+    real_headlines_path = headlines_history.DEFAULT_PATH
+    real_team_expectations_path = team_expectations.DEFAULT_PATH
+    real_draft_path = draft_store.DEFAULT_PATH
+    real_undrafted_path = undrafted_pool.DEFAULT_PATH
+    real_owner_pressure_path = owner_pressure_store.DEFAULT_PATH
     temp_db_path = Path("data/_test_history_route_roster.db")
     shutil.copyfile(real_db_path, temp_db_path)
     db_module.DB_PATH = temp_db_path
@@ -166,6 +213,15 @@ def test_history_route_renders_empty_and_populated_states():
     gameplan_store.DEFAULT_PATH = Path("data/saves/_test_history_route_gameplans.json")
     history_store.DEFAULT_PATH = Path("data/saves/_test_history_route.json")
     history_store.DEFAULT_PATH.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
+    power_rank_history.DEFAULT_PATH = Path("data/saves/_test_history_route_power_rank.json")
+    award_race_history.DEFAULT_PATH = Path("data/saves/_test_history_route_award_race.json")
+    headlines_history.DEFAULT_PATH = Path("data/saves/_test_history_route_headlines.json")
+    team_expectations.DEFAULT_PATH = Path("data/saves/_test_history_route_team_expectations.json")
+    draft_store.DEFAULT_PATH = Path("data/saves/_test_history_route_draft_history.json")
+    undrafted_pool.DEFAULT_PATH = Path("data/saves/_test_history_route_undrafted_pool.json")
+    owner_pressure_store.DEFAULT_PATH = Path("data/saves/_test_history_route_owner_pressure.json")
+    team_expectations.clear_cache()
+    owner_pressure_store.clear_cache()
 
     try:
         client = TestClient(app)
@@ -193,7 +249,23 @@ def test_history_route_renders_empty_and_populated_states():
         Path("data/saves/_test_history_route_season.json").unlink(missing_ok=True)
         Path("data/saves/_test_history_route_gameplans.json").unlink(missing_ok=True)
         Path("data/saves/_test_history_route.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_power_rank.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_award_race.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_headlines.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_team_expectations.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_draft_history.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_undrafted_pool.json").unlink(missing_ok=True)
+        Path("data/saves/_test_history_route_owner_pressure.json").unlink(missing_ok=True)
         history_store.DEFAULT_PATH = real_history_path
+        power_rank_history.DEFAULT_PATH = real_power_rank_path
+        award_race_history.DEFAULT_PATH = real_award_race_path
+        headlines_history.DEFAULT_PATH = real_headlines_path
+        team_expectations.DEFAULT_PATH = real_team_expectations_path
+        draft_store.DEFAULT_PATH = real_draft_path
+        undrafted_pool.DEFAULT_PATH = real_undrafted_path
+        owner_pressure_store.DEFAULT_PATH = real_owner_pressure_path
+        team_expectations.clear_cache()
+        owner_pressure_store.clear_cache()
 
 
 # --- Career-cumulative stats and Hall of Fame induction ---
@@ -365,13 +437,24 @@ def test_hof_route_renders_through_real_multi_season_rollover():
     import shutil
     from pathlib import Path
     from app.core import db as db_module
-    from app.services import season_state, save_service, gameplan_store
+    from app.services import (
+        season_state, save_service, gameplan_store, power_rank_history,
+        award_race_history, headlines_history, team_expectations,
+        draft_store, undrafted_pool, owner_pressure_store,
+    )
     from app.engine.schedule import N_WEEKS
     from fastapi.testclient import TestClient
     from app.main import app
 
     real_db_path = db_module.DB_PATH
     real_history_path = history_store.DEFAULT_PATH
+    real_power_rank_path = power_rank_history.DEFAULT_PATH
+    real_award_race_path = award_race_history.DEFAULT_PATH
+    real_headlines_path = headlines_history.DEFAULT_PATH
+    real_team_expectations_path = team_expectations.DEFAULT_PATH
+    real_draft_path = draft_store.DEFAULT_PATH
+    real_undrafted_path = undrafted_pool.DEFAULT_PATH
+    real_owner_pressure_path = owner_pressure_store.DEFAULT_PATH
     temp_db_path = Path("data/_test_hof_route_roster.db")
     shutil.copyfile(real_db_path, temp_db_path)
     db_module.DB_PATH = temp_db_path
@@ -380,6 +463,15 @@ def test_hof_route_renders_through_real_multi_season_rollover():
     gameplan_store.DEFAULT_PATH = Path("data/saves/_test_hof_route_gameplans.json")
     history_store.DEFAULT_PATH = Path("data/saves/_test_hof_route.json")
     history_store.DEFAULT_PATH.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
+    power_rank_history.DEFAULT_PATH = Path("data/saves/_test_hof_route_power_rank.json")
+    award_race_history.DEFAULT_PATH = Path("data/saves/_test_hof_route_award_race.json")
+    headlines_history.DEFAULT_PATH = Path("data/saves/_test_hof_route_headlines.json")
+    team_expectations.DEFAULT_PATH = Path("data/saves/_test_hof_route_team_expectations.json")
+    draft_store.DEFAULT_PATH = Path("data/saves/_test_hof_route_draft_history.json")
+    undrafted_pool.DEFAULT_PATH = Path("data/saves/_test_hof_route_undrafted_pool.json")
+    owner_pressure_store.DEFAULT_PATH = Path("data/saves/_test_hof_route_owner_pressure.json")
+    team_expectations.clear_cache()
+    owner_pressure_store.clear_cache()
 
     try:
         client = TestClient(app)
@@ -419,7 +511,23 @@ def test_hof_route_renders_through_real_multi_season_rollover():
         Path("data/saves/_test_hof_route_season.json").unlink(missing_ok=True)
         Path("data/saves/_test_hof_route_gameplans.json").unlink(missing_ok=True)
         Path("data/saves/_test_hof_route.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_power_rank.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_award_race.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_headlines.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_team_expectations.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_draft_history.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_undrafted_pool.json").unlink(missing_ok=True)
+        Path("data/saves/_test_hof_route_owner_pressure.json").unlink(missing_ok=True)
         history_store.DEFAULT_PATH = real_history_path
+        power_rank_history.DEFAULT_PATH = real_power_rank_path
+        award_race_history.DEFAULT_PATH = real_award_race_path
+        headlines_history.DEFAULT_PATH = real_headlines_path
+        team_expectations.DEFAULT_PATH = real_team_expectations_path
+        draft_store.DEFAULT_PATH = real_draft_path
+        undrafted_pool.DEFAULT_PATH = real_undrafted_path
+        owner_pressure_store.DEFAULT_PATH = real_owner_pressure_path
+        team_expectations.clear_cache()
+        owner_pressure_store.clear_cache()
 
 
 # --- HOF page redesign (ROADMAP.md M5, GDD Sec 10.4.8): new helper
