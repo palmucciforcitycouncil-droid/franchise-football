@@ -46,14 +46,54 @@
     <span>{{ entry.coach.super_bowl_wins }} SB &middot; {{ entry.coach.conference_titles }} conf</span>
   </div>
   {% endif %}
+  <div class="pc-row"><span class="pc-row-label">Job Security</span><span>{{ "%.0f"|format(entry.coach.job_security_score) }}/100</span></div>
+  {% if entry.coach.appointment_type != "Permanent" %}
+  <div class="pc-row"><span class="pc-row-label">Status</span><span>{{ entry.coach.appointment_type }}</span></div>
+  {% endif %}
+  {% if is_user_team and entry.role in fireable_roles %}
+  <form method="post" action="/staff/{{ team_abbr }}/fire" style="margin-top: 8px;"
+        onsubmit="return confirm('Fire {{ entry.coach.full_name }} ({{ entry.coach.title }})? This opens the seat immediately.');">
+    <input type="hidden" name="role" value="{{ entry.role }}">
+    <button type="submit" style="background: #b23b3b; border-color: #b23b3b;">Fire</button>
+  </form>
+  {% endif %}
   {% else %}
   <h3 style="margin: 0 0 2px;" class="coach-vacant">VACANT</h3>
   <p class="coach-role">{{ entry.title }}</p>
-  <p class="muted">
-    This position is currently vacant &mdash; its previous holder retired (GDD &sect;8.2.3).
-    Hiring a replacement needs the coach offer/negotiation market, which isn't built yet,
-    so the seat stays visibly empty rather than being auto-filled.
+  {% if is_user_team and entry.candidates %}
+  <p class="muted" style="font-size: 0.85rem;">
+    Fill Vacancy &mdash; real candidates, ranked by InterimPromotionScore (internal) or
+    HiringMerit (external), R3d &sect;4:
   </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Candidate</th><th>Source</th><th>Score</th><th></th></tr></thead>
+      <tbody>
+        {% for c in entry.candidates %}
+        <tr>
+          <td>{{ c.name }}{% if c.background %}<br><span class="muted" style="font-size: 0.75rem;">{{ c.background }}</span>{% endif %}</td>
+          <td>{{ c.source }}</td>
+          <td>{{ c.score }}</td>
+          <td>
+            <form method="post" action="/staff/{{ team_abbr }}/hire">
+              <input type="hidden" name="role" value="{{ entry.role }}">
+              <input type="hidden" name="coach_id" value="{{ c.coach_id }}">
+              <button type="submit">Hire</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif is_user_team %}
+  <p class="muted">No willing candidates for this role right now.</p>
+  {% else %}
+  <p class="muted">
+    This position is currently vacant. AI teams fill a vacancy autonomously
+    (R3d &sect;10); the user's own team fills it manually from the Staff page.
+  </p>
+  {% endif %}
   {% endif %}
 </div>
 {% endmacro %}
@@ -65,7 +105,9 @@
     {{ team.location }} ({{ team.abbr }}) &mdash; {{ staff_size }} coaches, {{ payroll }} total staff payroll.
     Names, titles and salaries are real (2026 staff directory, GDD &sect;3.6.1); every rating and
     tendency is deterministically generated from this league's seed &mdash; open any coach's card for the
-    full breakdown and disclosure.
+    full breakdown and disclosure. Owner Win Pressure: <strong>{{ owner_pressure }}/90</strong>
+    (R3d &sect;3.2 &mdash; franchise-level, persists across coaching changes; higher means the
+    owner's patience for a rebuild is running out).
   </p>
   <form method="get" action="/staff">
     <div class="row">
@@ -197,12 +239,12 @@
   {% endif %}
 
   <p class="coach-generated-note">
-    Hire / Fire / Re-sign and contract negotiation aren't built. GDD &sect;8.2.3's hiring process
-    runs on a multi-round offer market with a Coach_Offer_Score weighting salary, team prestige
-    and scheme fit &mdash; the same negotiation machinery R4a builds for player contracts, which
-    doesn't exist yet. Job Security Score (&sect;8.2.3's real formula) IS computed every offseason
-    and shown on each coach's card; age-based retirement (&sect;8.2.3) is live and does open real
-    vacancies.
+    Hire/Fire/Promote are real (R3d &sect;11) for your own team &mdash; use the Fire button on any
+    HC/OC/DC/ST box and the Fill Vacancy panel that appears once a seat opens. Every AI team runs
+    the identical firing-probability/replacement math autonomously every offseason, and lightly
+    in-season (&sect;10). Not built: Extend Contract (&sect;11's JSS-volatility-reducing
+    re-negotiation) and coach salary negotiation (&sect;15 &mdash; disclosed out of scope, same as
+    the player Hiring Merit search's flat scheme-fit/org-philosophy terms).
   </p>
 </div>
 {% endblock %}

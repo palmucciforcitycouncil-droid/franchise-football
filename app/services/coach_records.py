@@ -213,17 +213,26 @@ def record_season_results(season) -> SeasonCredit:
     """Rolls one completed season into every employed coach's career
     record (GDD Sec 7.9.1's career rollups + Sec 7.7.2.4's lifecycle
     counters). Idempotent: a CoachSeasonStats row that already carries
-    this season's W/L is not counted into the career totals twice."""
+    this season's W/L is not counted into the career totals twice.
+
+    `job_security_score` is R3d's Enhanced JSS (app/engine/coach_hiring.
+    compute_jss(), per role -- HC/OC/DC/ST each get their own real
+    formula, AC a simplified real-fields proxy), computed per coach
+    rather than the old flat per-team job_security_score() above (kept
+    only for test_coaching.py's own literal-math test, otherwise dead).
+    team_ranks is computed once for the whole league, not once per
+    coach -- the numbers are identical for every coach on the same
+    staff, and O(32) coaches x a fresh 32-team rank scan each would be
+    real, avoidable waste (same reasoning coach_progression.py's own
+    compute_team_ranks() docstring already gives)."""
+    from app.engine import coach_hiring, coach_progression
+
     credit = SeasonCredit()
+    team_ranks = coach_progression.compute_team_ranks(season)
     try:
         with get_session() as session:
             for team_abbr, record in season.records.items():
                 outcome = _playoff_outcome_for(season, team_abbr)
-                jss = job_security_score(
-                    win_pct=record.win_pct,
-                    playoff_result_score=PLAYOFF_RESULT_SCORES.get(outcome, 0.0),
-                    owner_patience=NEUTRAL_OWNER_PATIENCE,
-                )
                 for coach in _staff_rows(session, team_abbr):
                     row = _get_or_create(session, coach, season.season_number)
                     already_recorded = (row.wins, row.losses) == (record.wins, record.losses) and row.wins + row.losses > 0
@@ -240,6 +249,7 @@ def record_season_results(season) -> SeasonCredit:
                             # separate counter that could drift from it.
                             coach.playoff_wins += {"DIV": 1, "CONF": 2, "SB_LOSS": 3, "SB_WIN": 4}[outcome]
                         credit.seasons_recorded += 1
+                    jss, _ = coach_hiring.compute_jss(season, team_abbr, coach, team_ranks.get(team_abbr))
                     coach.job_security_score = jss
                     session.add(coach)
                     session.add(row)

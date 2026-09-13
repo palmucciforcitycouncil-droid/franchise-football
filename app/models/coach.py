@@ -75,6 +75,27 @@ SUPER_BOWL_NONE = "NONE"
 SUPER_BOWL_LOSS = "LOSS"
 SUPER_BOWL_WIN = "WIN"
 
+# R3d (Coach Hiring/Firing/Promotion Market) appointment designations --
+# Sec 5 of docs/R3d_COACHING_SYSTEM_SPECIFICATION.md.
+APPOINTMENT_PERMANENT = "Permanent"
+APPOINTMENT_INTERIM = "Interim"
+APPOINTMENT_ACTING = "Acting"
+APPOINTMENT_TEMPORARY_PROMOTION = "TemporaryPromotion"
+APPOINTMENT_TYPES = [
+    APPOINTMENT_PERMANENT, APPOINTMENT_INTERIM, APPOINTMENT_ACTING, APPOINTMENT_TEMPORARY_PROMOTION,
+]
+
+# R3d's Tier 3 candidate pool (app/services/coach_pool.py) -- real named
+# college/former-NFL candidates seeded from data/raw/coaches/
+# Top_100_Football_Coaching_Candidates.md, who never held one of the
+# real 433 seeded staff jobs. `None` means "not a pool-seeded
+# candidate" (every real current/former NFL coach already in this
+# table, including one who gets fired in-game and becomes a free
+# agent, carries no tier tag -- only scripts/seed_coach_pool.py's
+# candidates do).
+POOL_TIER_COLLEGE = "college"
+POOL_TIER_FORMER_NFL = "former_nfl_candidate"
+
 
 class Coach(SQLModel, table=True):
     coach_id: str = Field(primary_key=True)
@@ -139,6 +160,28 @@ class Coach(SQLModel, table=True):
     # page can show the same number the firing logic used.
     job_security_score: float = 50.0
     retired: bool = False
+
+    # --- R3d: Hiring/Firing/Promotion Market lifecycle fields ---
+    # Sec 5: what kind of appointment this coach currently holds. Every
+    # real-seeded coach starts Permanent (they were already the real
+    # incumbent); only R3d's hiring logic ever sets the other three.
+    appointment_type: str = APPOINTMENT_PERMANENT
+    # The season_number this coach started in their CURRENT role on
+    # their CURRENT team -- Sec 3.4's Tenure Modifier needs tenure WITH
+    # THIS TEAM, not total career seasons_coached (which keeps
+    # accumulating across a firing-and-rehire-elsewhere). Real-seeded
+    # coaches start at season 0 (an assumed, not literally-tracked,
+    # start -- see coach_hiring.py's tenure_years()).
+    tenure_start_season: int = 0
+    # Sec 8's Tier 3 pool tag -- None for every real 433-seed coach
+    # (including ones later fired into free agency). See POOL_TIER_*
+    # above.
+    pool_tier: Optional[str] = None
+    # Short real background blurb, only ever populated for pool_tier
+    # candidates (their real "Key Distinction" column from the seed
+    # file) -- None for the 433 real staff, which has no such text to
+    # import and none is fabricated for them.
+    background: Optional[str] = None
 
     # --- Career championship rollups by role held (GDD Sec 7.9.1) ---
     hc_afc_championships: int = 0

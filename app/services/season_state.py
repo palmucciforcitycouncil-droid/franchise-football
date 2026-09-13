@@ -23,21 +23,26 @@ _STATE_LOCK below fixes -- every mutating call now fully serializes."""
 from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 from app.config import get_league_seed
 from app.data.teams import TEAMS, TEAMS_BY_ABBR
-from app.engine.schedule import generate_season_schedule, N_WEEKS
+from app.engine.schedule import generate_season_schedule, generate_preseason_schedule, N_WEEKS
 from app.engine.placeholder_ratings import ratings_for
 from app.engine.rng import RNG, stable_seed
 from app.engine.game_sim import simulate_game, TeamSim
 from app.engine.game_state import GameResult
+from app.engine.weather import generate_weather
 from app.engine import (
     power_rating, score_fidelity, playoffs, progression, season_stats, coaching, coach_progression, injuries,
-    free_agency,
+    free_agency, awards,
 )
 from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
-from app.services import gameplan_store, history_store, power_rank_history, coach_store, coach_records, depth_chart, injury_store
+from app.services import (
+    gameplan_store, history_store, power_rank_history, coach_store, coach_records, depth_chart, injury_store,
+    award_race_history,
+)
 from app.core.db import get_session
 from app.models.player import Player, Position
 from sqlmodel import select
@@ -84,10 +89,34 @@ class Season:
     user_team_abbr: str | None = None  # GDD Sec 10.1: the team the player runs as GM/Coach, chosen once at franchise creation
     playoffs: PlayoffBracket | None = None  # GDD Sec 7.3 -- None until the regular season completes and Sim Week is pressed once more
     season_number: int = 0  # 0-indexed; feeds schedule.py's 3-/4-year rotation formulas and is incremented by start_new_season()
+    # R10 (GDD preseason): 4 real, user-triggered games per team, generated
+    # up front (same as the regular schedule) but never touching
+    # TeamRecord.wins/losses or the regular schedule -- see
+    # simulate_preseason()'s own docstring for what a preseason game DOES
+    # feed into (progression, Week-1 scouting/stats backfill).
+    preseason_schedule: list[list[WeekGame]] = field(default_factory=list)
 
     @property
     def is_complete(self) -> bool:
         return self.current_week > N_WEEKS
+
+    @property
+    def preseason_rounds_played(self) -> int:
+        """0-4: how many of the 4 preseason rounds have been simulated.
+        simulate_preseason() always plays every round in one action, so
+        in practice this only ever reads 0 (the "Preseason (0/4
+        simulated)" button state) or 4 (all played, button disabled) --
+        computed generally rather than as a bare bool for a truthful
+        progress count if that ever changes."""
+        return sum(1 for week in self.preseason_schedule if week and all(g.result is not None for g in week))
+
+    @property
+    def preseason_total_rounds(self) -> int:
+        return len(self.preseason_schedule)
+
+    @property
+    def preseason_complete(self) -> bool:
+        return self.preseason_total_rounds > 0 and self.preseason_rounds_played == self.preseason_total_rounds
 
     def standings(self) -> list[TeamRecord]:
         return sorted(
@@ -118,10 +147,16 @@ def _build_season(
         [WeekGame(home_abbr=h, away_abbr=a) for h, a in week]
         for week in raw_schedule
     ]
+    raw_preseason = generate_preseason_schedule(league_seed, season_number=season_number)
+    preseason_schedule = [
+        [WeekGame(home_abbr=h, away_abbr=a) for h, a in week]
+        for week in raw_preseason
+    ]
     records = {
         t.abbr: TeamRecord(abbr=t.abbr, location=t.location) for t in TEAMS
     }
-    return Season(league_seed=league_seed, schedule=schedule, records=records, season_number=season_number)
+    return Season(league_seed=league_seed, schedule=schedule, records=records, season_number=season_number,
+                  preseason_schedule=preseason_schedule)
 
 
 _season: Season | None = None
@@ -143,7 +178,7 @@ def get_season() -> Season:
 def reset_season() -> Season:
     global _season
     with _STATE_LOCK:
-        from app.services import save_service
+        from app.services import save_service, owner_pressure_store, team_expectations
         _season = _build_season(get_league_seed())
         season_stats.clear_current_season_cache()
         # R1: a brand-new franchise starts with a clean bill of health --
@@ -151,6 +186,13 @@ def reset_season() -> Season:
         # simulation run against this same database.
         injury_store.resolve_all_active()
         depth_chart.clear_starters_cache()
+        # R3d: a brand-new franchise starts every owner at neutral (Sec
+        # 3.2 -- OwnerWinPressure is franchise history, and a reset IS a
+        # new franchise) and gets a fresh preseason expectation snapshot
+        # for its own season 0 (Sec 3.3), computed from the real,
+        # freshly-reset rosters/coaches.
+        owner_pressure_store.reset_all()
+        team_expectations.compute_and_store(_season.season_number)
         save_service.save_season(_season)
         return _season
 
@@ -170,17 +212,20 @@ def set_user_team(team_abbr: str) -> Season:
         return season
 
 
-def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple) -> GameResult:
-    """The per-game simulation core shared by simulate_current_week
-    (regular season) and simulate_playoff_round (postseason): real
-    starters/ratings, the Score Fidelity System's EP-anchoring
-    multiplier, the Weekly Gameplan lookup, the real coaching-staff
-    lookup (app/engine/coaching.py -- for BOTH teams, unlike the
-    gameplan, which only the user's team ever has), and the resulting
-    points/Power Rating updates. Deliberately does NOT touch
-    TeamRecord.wins/losses -- those are a regular-season-only concept;
-    playoff wins/losses live in the bracket itself
-    (PlayoffMatchup.winner_abbr), not in TeamRecord."""
+def _simulate_one_game(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple) -> GameResult:
+    """The real per-game simulation core shared by simulate_current_week
+    (regular season), simulate_playoff_round (postseason), AND
+    simulate_preseason (R10): real starters/ratings, the Score Fidelity
+    System's EP-anchoring multiplier (read from season.records as they
+    stand right now -- for preseason that's always the fresh 0-0/
+    INITIAL_RATING state, since it runs before Week 1), the Weekly
+    Gameplan lookup, the real coaching-staff lookup, and real per-game
+    weather (R7). Deliberately touches NOTHING on season.records itself
+    -- every caller decides for itself what a game's result should
+    update: _simulate_matchup (below) applies the regular-season/playoff
+    points+Power-Rating side effects; simulate_preseason applies none at
+    all, per GDD preseason's own scope (not shown in Standings/Power
+    Rankings/Awards anywhere)."""
     home_info = TEAMS_BY_ABBR[home_abbr]
     away_info = TEAMS_BY_ABBR[away_abbr]
     home = TeamSim(name=home_info.location, abbr=home_info.abbr,
@@ -212,8 +257,31 @@ def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_p
     home_staff = coaching.staff_effect_for(home_abbr)
     away_staff = coaching.staff_effect_for(away_abbr)
 
-    result = simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan,
-                            home_staff=home_staff, away_staff=away_staff)
+    # R7 (GDD Sec 6.9.2): deterministic per-game weather, keyed off the
+    # same real (league_seed, season_number, week) inputs every other
+    # per-week seeded system in this engine uses, plus the home team
+    # (weather is a property of ITS stadium/climate). week_for_parity is
+    # the real week number for a regular-season game and the pseudo-week
+    # (N_WEEKS + round offset) for a playoff round -- both are stable,
+    # real per-(season, matchup) inputs, so this is deterministic and
+    # regenerable on demand (app/main.py recomputes the identical Weather
+    # for display without needing to persist it on GameResult).
+    weather = generate_weather(season.league_seed, season.season_number, week_for_parity, home_abbr)
+
+    return simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan,
+                          home_staff=home_staff, away_staff=away_staff, weather=weather)
+
+
+def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple) -> GameResult:
+    """_simulate_one_game() plus the regular-season/playoff side effects:
+    points_for/against and Power Rating updates. Deliberately does NOT
+    touch TeamRecord.wins/losses -- those are a regular-season-only
+    concept; playoff wins/losses live in the bracket itself
+    (PlayoffMatchup.winner_abbr), not in TeamRecord."""
+    home_rec = season.records[home_abbr]
+    away_rec = season.records[away_abbr]
+
+    result = _simulate_one_game(season, home_abbr, away_abbr, week_for_parity, seed_parts)
 
     home_rec.points_for += result.home_score
     home_rec.points_against += result.away_score
@@ -224,6 +292,44 @@ def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_p
         home_rec.power_rating, away_rec.power_rating, result.home_score, result.away_score,
     )
     return result
+
+
+def simulate_preseason() -> int:
+    """R10 (GDD preseason): user-triggered, all 4 rounds simulated in one
+    action (unlike the regular season's one-week-at-a-time Sim Week) --
+    the /season page's "Preseason (0/4 simulated)" button calls this
+    once and it becomes "Preseason (4/4 complete)", disabled, forever
+    after (idempotent: calling this again once preseason_complete is
+    already True is a safe no-op, same convention as simulate_current_
+    week/simulate_playoff_round post-completion). Returns the number of
+    preseason games actually simulated by THIS call (0 on a no-op).
+
+    Deliberately touches NOTHING on season.records (wins/losses/points/
+    Power Rating) or season_stats' current-season cache -- a preseason
+    game is real and its box score IS queried (progression's usage
+    nudge, and scouting.py's/the Dashboard's Week-1-only backfill), but
+    it does not count as a regular-season result anywhere records/
+    standings/Power Rankings/Awards read from, per this feature's own
+    GDD scope."""
+    with _STATE_LOCK:
+        season = get_season()
+        if season.preseason_complete or not season.preseason_schedule:
+            return 0
+
+        simulated = 0
+        for round_idx, round_games in enumerate(season.preseason_schedule, start=1):
+            for game in round_games:
+                if game.result is not None:
+                    continue
+                game.result = _simulate_one_game(
+                    season, game.home_abbr, game.away_abbr, 1,
+                    (season.season_number, "preseason", round_idx, game.home_abbr, game.away_abbr),
+                )
+                simulated += 1
+
+        from app.services import save_service
+        save_service.save_season(season)
+        return simulated
 
 
 def simulate_current_week() -> int:
@@ -289,6 +395,26 @@ def simulate_current_week() -> int:
         power_rank_history.record_snapshot(season.season_number, week_num, ranks)
         season_stats.clear_current_season_cache()
 
+        # R8 (Awards Page): a real weekly snapshot of the Top-5 per award
+        # plus Pro Bowl starters -- the one place this week's exact
+        # awards-race state is known, same "right after this week's own
+        # Power Rank snapshot" timing as that store. awards.py's own
+        # functions always compute fresh from real game stats; this is
+        # what remembers what THIS week's computation looked like for the
+        # Weekly Race Archive tab to show later, since nothing else does.
+        award_race_history.record_week_awards(season.season_number, week_num, {
+            "mvp": awards.most_valuable_player(season),
+            "opoy": awards.offensive_player_of_the_year(season),
+            "dpoy": awards.defensive_player_of_the_year(season),
+            "oroy": awards.offensive_rookie_of_the_year(season),
+            "droy": awards.defensive_rookie_of_the_year(season),
+            "coty": awards.coach_of_the_year(season),
+            "pro_bowl": {
+                "AFC": awards.pro_bowl_starters(season, "AFC"),
+                "NFC": awards.pro_bowl_starters(season, "NFC"),
+            },
+        })
+
         # R1 (GDD Sec 6.10.1): roll new injuries from what just happened
         # this week, from each player's real accumulated exposure in
         # their own game's box score -- see injuries.py's module
@@ -299,6 +425,17 @@ def simulate_current_week() -> int:
         # brand-new injuries immediately.
         injuries.roll_injuries_for_week(season, week_num)
         depth_chart.clear_starters_cache()
+
+        # R3d Sec 10: "after each game, if JSS threshold triggers" --
+        # every AI team's HC/OC/DC/ST gets a real (seeded) firing-
+        # probability roll for the week just played. Sec 3.4's own
+        # in-season week modifiers (as low as 0.05 through week 3-4) are
+        # what keep this rare early, not a separate gate here. The
+        # user's own team is excluded -- Sec 11's manual Staff-page
+        # controls are the user's equivalent.
+        from app.services import coach_ai
+        coach_ai.run_inseason_autonomy(season, week_num, season.user_team_abbr)
+        coach_store.clear_cache()
 
         season.current_week += 1
 
@@ -375,6 +512,12 @@ DEFENSIVE_POSITIONS = {
     Position.CB, Position.FS, Position.SS,
 }
 
+# R10 (GDD preseason): a preseason snap counts toward progression.py's
+# F_use touches input at this fraction of a real regular-season snap --
+# "as if the player had ~25% of a regular-season game's usage" per this
+# feature's own locked-in spec, not a full extra game's worth.
+PRESEASON_NUDGE_WEIGHT = 0.25
+
 
 def apply_progression_to_roster(season: Season) -> int:
     """GDD Sec 7.6: ages and develops every real, rostered player
@@ -412,6 +555,27 @@ def apply_progression_to_roster(season: Season) -> int:
         touches[key] = touches.get(key, 0) + line.targets
     for key, line in season_stats.aggregate_season_defensive_stats(season).items():
         touches[key] = touches.get(key, 0) + line.solo_tackles + line.interceptions + line.forced_fumbles + line.passes_defended
+
+    # R10 (GDD preseason): preseason usage counts toward the SAME F_use
+    # touches input, at PRESEASON_NUDGE_WEIGHT (25%) -- "as if the player
+    # had ~25% of a regular-season game's usage" per this feature's own
+    # spec, not a full extra game's worth. Added on top of (not replacing)
+    # the regular-season touches above, so a player who also played real
+    # regular-season snaps gets both; a franchise with no preseason games
+    # simulated yet (preseason_schedule empty, or none of its games have
+    # a result) contributes exactly 0, unchanged from before this existed.
+    if season.preseason_schedule:
+        pre_season_view = SimpleNamespace(schedule=season.preseason_schedule)
+        pre_passing, pre_rushing, pre_receiving = season_stats.aggregate_season_stats(pre_season_view)
+        for key, line in pre_passing.items():
+            touches[key] = touches.get(key, 0) + round(line.attempts * PRESEASON_NUDGE_WEIGHT)
+        for key, line in pre_rushing.items():
+            touches[key] = touches.get(key, 0) + round(line.carries * PRESEASON_NUDGE_WEIGHT)
+        for key, line in pre_receiving.items():
+            touches[key] = touches.get(key, 0) + round(line.targets * PRESEASON_NUDGE_WEIGHT)
+        for key, line in season_stats.aggregate_season_defensive_stats(pre_season_view).items():
+            pre_defensive_touches = line.solo_tackles + line.interceptions + line.forced_fumbles + line.passes_defended
+            touches[key] = touches.get(key, 0) + round(pre_defensive_touches * PRESEASON_NUDGE_WEIGHT)
 
     updated = 0
     with get_session() as s:
@@ -502,6 +666,19 @@ def apply_coach_offseason(season: Season) -> int:
 
     coach_store.clear_cache()
     coaching.clear_cache()
+
+    # R3d Sec 10: AI autonomy runs AFTER progression/retirement so it
+    # evaluates this season's real, final ratings/ranks -- and BEFORE
+    # the new Season object exists (team_expectations' preseason
+    # snapshot, computed once start_new_season()/reset_season() finishes
+    # building next season, needs to see any coach hired here already).
+    # The user's own team is excluded; Sec 11's Staff-page controls are
+    # its manual equivalent.
+    from app.services import coach_ai
+    coach_ai.run_offseason_autonomy(season, exclude_team_abbr=season.user_team_abbr)
+    coach_store.clear_cache()
+    coaching.clear_cache()
+
     return updated
 
 
@@ -566,6 +743,15 @@ def start_new_season() -> Season:
         new_season = _build_season(season.league_seed, season_number=next_number, prior_standings=prior_standings)
         new_season.user_team_abbr = season.user_team_abbr
         new_season.sfs = season.sfs
+
+        # R3d Sec 3.3: this season's PerformanceExpectation, frozen now
+        # -- after apply_coach_offseason()'s AI hiring/firing above has
+        # already settled who's coaching, before any game of the new
+        # season has been played. OwnerWinPressure is untouched here on
+        # purpose (Sec 3.2: it persists across seasons, only
+        # apply_coach_offseason()'s own end-of-season roll changes it).
+        from app.services import team_expectations
+        team_expectations.compute_and_store(new_season.season_number)
 
         global _season
         _season = new_season

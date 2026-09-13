@@ -5,6 +5,7 @@ import tempfile
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
@@ -31,6 +32,7 @@ from app.engine import season_stats
 from app.engine import score_fidelity, awards
 from app.engine.playoffs import bubble_teams, build_wild_card_round, final_division_standings, seed_conference
 from app.engine.scouting import find_next_opponent, build_scouting_report
+from app.engine.weather import generate_weather
 from app.engine.gameplan import (
     Gameplan, OFFENSIVE_AGGRESSIVENESS, DEFENSIVE_AGGRESSIVENESS,
     COVERAGE_SCHEMES, BLITZ_STRATEGIES, RZ_OFFENSE_STYLES, RZ_DEFENSE_STYLES,
@@ -38,12 +40,13 @@ from app.engine.gameplan import (
 from app.engine.progression import PROGRESSED_ATTRIBUTES
 from app.services import (
     season_state, depth_chart, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
-    coach_store, coach_records, injury_store,
+    coach_store, coach_records, injury_store, coach_pool, award_race_history,
 )
+from app.engine import coach_hiring, coach_replacement
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
-from app.models.coach import Coach, CoachRole, ROLE_TITLES
+from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT
 from sqlmodel import select
 
 app = FastAPI(title="Franchise Football")
@@ -839,6 +842,8 @@ def _coach_card_json(coach: Coach) -> str:
         "offensive_profile": coach.offensive_profile,
         "defensive_profile": coach.defensive_profile,
         "job_security": f"{coach.job_security_score:.0f}",
+        "appointment_type": coach.appointment_type,
+        "background": coach.background,
         "salary": _money(coach.salary_aav),
         "contract_years": coach.contract_years,
         "career_record": f"{coach.career_wins}-{coach.career_losses}",
@@ -1446,8 +1451,20 @@ def _stats_page_aggregates_uncached(season) -> tuple[list[dict], list[dict]]:
     as "-"/None if no live match exists (shouldn't happen for a
     currently-simulated season, but a real name/team mismatch should
     show as unknown, not fabricate a player)."""
-    passing, rushing, receiving = aggregate_season_stats(season)
-    defense = aggregate_season_defensive_stats(season)
+    # R10 (GDD preseason): same Week-1-only backfill as scouting.py's
+    # _played_games -- this is what the Dashboard's Top Performers box
+    # (and the Stats page) reads, and both would otherwise be entirely
+    # empty for the whole of Week 1. A plain SimpleNamespace stand-in
+    # (aggregate_season_stats/aggregate_season_defensive_stats only ever
+    # read `.schedule`) rather than mutating the real season -- reverts
+    # to regular-season-only the moment Week 1 is actually simulated.
+    weeks = season.schedule
+    if season.current_week == 1 and getattr(season, "preseason_schedule", None):
+        weeks = season.preseason_schedule + season.schedule
+    agg_season = season if weeks is season.schedule else SimpleNamespace(schedule=weeks)
+
+    passing, rushing, receiving = aggregate_season_stats(agg_season)
+    defense = aggregate_season_defensive_stats(agg_season)
 
     games_played: dict[tuple[str, str], int] = defaultdict(int)
     team_off: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -1461,7 +1478,7 @@ def _stats_page_aggregates_uncached(season) -> tuple[list[dict], list[dict]]:
     punting: dict[tuple[str, str], dict] = {}
     team_st: dict[str, dict] = defaultdict(lambda: {"fg_made": 0, "fg_att": 0, "punts": 0, "punt_net_yds": 0})
 
-    for week in season.schedule:
+    for week in weeks:
         for g in week:
             if g.result is None:
                 continue
@@ -1803,6 +1820,58 @@ def season_view(request: Request):
     )
 
 
+@app.get("/season/preseason/game/{home_abbr}/{away_abbr}", response_class=HTMLResponse)
+def season_preseason_game_view(request: Request, home_abbr: str, away_abbr: str):
+    """R10 (GDD preseason): reuses result.html exactly like
+    season_game_view does for a regular-season game -- a preseason game
+    is real and fully simulated, just not part of season.schedule."""
+    season = season_state.get_season()
+    game = next(
+        (g for round_games in season.preseason_schedule for g in round_games
+         if g.home_abbr == home_abbr and g.away_abbr == away_abbr),
+        None,
+    )
+    if game is None or game.result is None:
+        raise HTTPException(404, "That preseason game hasn't been played yet")
+
+    home_info = TEAMS_BY_ABBR[home_abbr]
+    away_info = TEAMS_BY_ABBR[away_abbr]
+    home = TeamSim(name=home_info.location, abbr=home_info.abbr, ratings=None)
+    away = TeamSim(name=away_info.location, abbr=away_info.abbr, ratings=None)
+
+    result = game.result
+    home_box = build_box_score(result.plays, home_info.abbr)
+    away_box = build_box_score(result.plays, away_info.abbr)
+    home_defense = build_defensive_box_score(result.plays, home_info.abbr)
+    away_defense = build_defensive_box_score(result.plays, away_info.abbr)
+    round_idx = next(
+        i for i, round_games in enumerate(season.preseason_schedule, start=1)
+        if game in round_games
+    )
+    game_seed = stable_seed(season.league_seed, "preseason", round_idx, home_abbr, away_abbr)
+    weather = generate_weather(season.league_seed, season.season_number, 1, home_abbr)
+
+    return templates.TemplateResponse(
+        request,
+        "result.html",
+        {
+            "home": home,
+            "away": away,
+            "result": result,
+            "quarters": quarter_scores(result.events),
+            "league_seed": season.league_seed,
+            "game_seed": game_seed,
+            "home_box": home_box,
+            "away_box": away_box,
+            "home_defense": home_defense,
+            "away_defense": away_defense,
+            "weather": weather,
+            "back_url": "/season",
+            "back_label": "Back to season",
+        },
+    )
+
+
 @app.get("/season/week/{week_num}/game/{home_abbr}/{away_abbr}", response_class=HTMLResponse)
 def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr: str):
     """Reuses result.html (the single-game simulator's play-by-play +
@@ -1833,6 +1902,11 @@ def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr:
     home_defense = build_defensive_box_score(result.plays, home_info.abbr)
     away_defense = build_defensive_box_score(result.plays, away_info.abbr)
     game_seed = stable_seed(season.league_seed, week_num, home_abbr, away_abbr)
+    # R7: recomputed on demand rather than persisted -- generate_weather()
+    # is deterministic in (league_seed, season_number, week, home_abbr),
+    # the exact real inputs _simulate_matchup() seeded THIS game's weather
+    # from, so replaying them here always reproduces the same forecast.
+    weather = generate_weather(season.league_seed, season.season_number, week_num, home_abbr)
 
     return templates.TemplateResponse(
         request,
@@ -1848,6 +1922,7 @@ def season_game_view(request: Request, week_num: int, home_abbr: str, away_abbr:
             "away_box": away_box,
             "home_defense": home_defense,
             "away_defense": away_defense,
+            "weather": weather,
             "back_url": "/season",
             "back_label": "Back to season",
         },
@@ -2357,6 +2432,49 @@ def _team_history_for(team_abbr: str, full_history: list) -> list[dict]:
     return rows
 
 
+@app.get("/awards", response_class=HTMLResponse)
+def awards_view(request: Request, tab: str = "season"):
+    """R8: Awards & Honors, 3 tabs -- Season Leaderboards (real-time,
+    reuses awards.py exactly like the Dashboard/Stats page's own Awards
+    Race sections already do, no new computation), Weekly Race Archive
+    (real per-week snapshots recorded by season_state.simulate_current_
+    week() into app/services/award_race_history.py), and Pro Bowl
+    Preview (awards.pro_bowl_starters(), a real but disclosed
+    overall_rating-based simplification -- see that function's own
+    docstring). GMOTY is dropped per this feature's own locked-in scope."""
+    if tab not in ("season", "archive", "pro-bowl"):
+        tab = "season"
+
+    season = season_state.get_season()
+    season_awards = awards.season_awards(season)
+    oroy = awards.offensive_rookie_of_the_year(season)
+    droy = awards.defensive_rookie_of_the_year(season)
+
+    weeks_recorded = award_race_history.get_all_weeks(season.season_number)
+    weekly_races = [
+        weeks_recorded[str(w)] for w in range(1, season.current_week) if str(w) in weeks_recorded
+    ]
+
+    pro_bowl_preview = {
+        "AFC": awards.pro_bowl_starters(season, "AFC"),
+        "NFC": awards.pro_bowl_starters(season, "NFC"),
+    }
+
+    return templates.TemplateResponse(
+        request,
+        "awards.html",
+        {
+            "season": season,
+            "tab": tab,
+            "season_awards": season_awards,
+            "oroy": oroy,
+            "droy": droy,
+            "weekly_races": weekly_races,
+            "pro_bowl_preview": pro_bowl_preview,
+        },
+    )
+
+
 @app.get("/history", response_class=HTMLResponse)
 def history_view(request: Request, tab: str = "league", pos: str = "all", q: str = ""):
     """League History + Hall of Fame, combined into one page with two
@@ -2560,6 +2678,39 @@ def _coach_stat_rows(season, sort: str, direction: str, query: str = "") -> list
     return rows
 
 
+def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list[dict]:
+    """R3d Sec 11's Fill Vacancy panel: internal candidates (real
+    InterimPromotionScore, Sec 4.1) plus willing external pool
+    candidates (real HiringMerit, Sec 4.3) -- the exact same functions
+    the AI autonomy loop scores every other team's vacancy with."""
+    rows = []
+    for candidate, score in (
+        (c, coach_hiring.interim_promotion_score(c, season.season_number))
+        for c in coach_replacement.internal_candidates(team_abbr, coach_role, exclude_coach_id="")
+    ):
+        rows.append({
+            "coach_id": candidate.coach_id, "name": candidate.full_name,
+            "source": "Internal promotion", "detail": candidate.title,
+            "score": round(score), "background": candidate.background,
+        })
+    turnover = coach_replacement.recent_hc_turnover_count(team_abbr, season.season_number)
+    for candidate in coach_pool.candidates_for_role(coach_role):
+        if not coach_hiring.will_consider(candidate, team_abbr, season.season_number,
+                                           APPOINTMENT_PERMANENT, turnover):
+            continue
+        interest = coach_hiring.interest_score(candidate, team_abbr, season.season_number)
+        merit = coach_hiring.hiring_merit(candidate, coach_role, team_abbr, season.season_number, interest)
+        rows.append({
+            "coach_id": candidate.coach_id, "name": candidate.full_name,
+            "source": "College" if candidate.pool_tier == "college" else
+                      ("Former NFL" if candidate.pool_tier else "Free agent"),
+            "detail": candidate.background or candidate.title,
+            "score": round(merit), "background": candidate.background,
+        })
+    rows.sort(key=lambda r: -r["score"])
+    return rows[:8]
+
+
 @app.get("/staff", response_class=HTMLResponse)
 def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
     """Real Staff page. `team` lets any team's staff be viewed (the
@@ -2582,6 +2733,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
         })
 
     team_abbr = team or season.user_team_abbr or TEAMS[0].abbr
+    is_user_team = team_abbr == season.user_team_abbr
     staff = coach_store.staff_for(team_abbr)
     by_role = {}
     for coach in staff:
@@ -2595,6 +2747,11 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
             "title": ROLE_TITLES[r],
             "coach": holder,
             "card": _coach_card_json(holder) if holder else None,
+            # R3d Sec 11: the Fill Vacancy candidate list only ever
+            # computed for the user's own team's own vacant seat --
+            # every AI team's vacancy is filled autonomously the same
+            # offseason/in-season it opens (app/services/coach_ai.py).
+            "candidates": _staff_candidate_rows(team_abbr, r, season) if (holder is None and is_user_team) else [],
         })
     assistant_rows = [
         {"coach": c, "card": _coach_card_json(c)} for c in by_role.get(CoachRole.AC, [])
@@ -2608,6 +2765,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
             for c in coach_store.search(q, role=role, limit=40)
         ]
 
+    from app.services import owner_pressure_store
     return templates.TemplateResponse(request, "staff.html", {
         "season": season,
         "team_abbr": team_abbr,
@@ -2624,7 +2782,64 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = ""):
         "role_options": [(r.value, ROLE_TITLES[r]) for r in
                           (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC)],
         "free_agent_count": len(coach_store.free_agents()),
+        "is_user_team": is_user_team,
+        "owner_pressure": round(owner_pressure_store.pressure_for(team_abbr)),
+        # HC/OC/DC/ST only -- R3d Sec 8 doesn't model AC firing.
+        "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value, CoachRole.ST.value],
     })
+
+
+@app.post("/staff/{team_abbr}/fire")
+def staff_fire_coach(request: Request, team_abbr: str, role: str = Form(...)):
+    """R3d Sec 11: Fire button, user's own team only (the Staff page's
+    button confirms via a native browser confirm() before submitting --
+    no server-side confirmation step). Vacates the seat immediately and
+    redirects back to a Staff page showing the real Fill Vacancy panel
+    (coach_replacement's own internal/external candidate search -- the
+    identical math the AI autonomy loop uses for every other team)."""
+    season = season_state.get_season()
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    try:
+        coach_role = CoachRole(role)
+    except ValueError:
+        raise HTTPException(422, "Invalid role")
+    if coach_role is CoachRole.AC:
+        raise HTTPException(422, "Firing an individual assistant coach isn't a modeled control")
+    coach = coach_store.coach_in_role(team_abbr, coach_role)
+    if coach is None:
+        raise HTTPException(404, "No coach currently in that role")
+    coach_replacement.execute_fire(coach.coach_id)
+    return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
+
+
+@app.post("/staff/{team_abbr}/hire")
+def staff_hire_coach(request: Request, team_abbr: str, role: str = Form(...), coach_id: str = Form(...)):
+    """R3d Sec 11: Hire button on the Fill Vacancy panel -- covers both
+    "Promote AC -> OC/DC/ST" (an internal candidate) and "Hire External"
+    (a pool candidate) with one route, since both are the exact same
+    mutation (coach_replacement.execute_hire), just a different source
+    list on the page. Always Permanent -- the user is acting in the
+    offseason-equivalent full-market mode Sec 9.2 describes; there's no
+    separate in-season "interim-only" UI path for the user's own team."""
+    season = season_state.get_season()
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    try:
+        coach_role = CoachRole(role)
+    except ValueError:
+        raise HTTPException(422, "Invalid role")
+    if coach_store.coach_in_role(team_abbr, coach_role) is not None:
+        raise HTTPException(409, "That role isn't vacant")
+    candidate = coach_store.by_id(coach_id)
+    if candidate is None or candidate.team_abbr is not None:
+        raise HTTPException(404, "Candidate is not available to hire")
+
+    coach_replacement.execute_hire(team_abbr, coach_role, coach_id, season.season_number,
+                                    APPOINTMENT_PERMANENT, season.league_seed)
+    if coach_role is CoachRole.HC:
+        coach_replacement.apply_new_hc_effect(team_abbr, coach_id, season.season_number, season.league_seed)
+    return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
 
 
 @app.get("/gm-desk", response_class=HTMLResponse)
@@ -3104,6 +3319,16 @@ def season_simulate_week(redirect_to: str | None = Form(None)):
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/playoffs"), status_code=303)
     season_state.simulate_current_week()
     return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+
+
+@app.post("/season/simulate-preseason")
+def season_simulate_preseason():
+    """R10 (GDD preseason): one user-triggered click simulates every
+    remaining preseason game at once (unlike the regular season's
+    one-week-at-a-time Sim Week) -- see season_state.simulate_preseason()'s
+    own docstring for exactly what it does and doesn't touch."""
+    season_state.simulate_preseason()
+    return RedirectResponse(url="/season", status_code=303)
 
 
 @app.post("/season/reset")

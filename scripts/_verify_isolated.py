@@ -21,7 +21,10 @@ _SCRATCH_DB_PATH = Path("data/_verify_scratch.db")
 
 
 def setup(tag: str = "verify") -> None:
-    from app.services import gameplan_store, history_store, power_rank_history, save_service
+    from app.services import (
+        gameplan_store, history_store, power_rank_history, save_service,
+        owner_pressure_store, team_expectations,
+    )
 
     shutil.copy(REAL_DB_PATH, _SCRATCH_DB_PATH)
     db_module.DB_PATH = _SCRATCH_DB_PATH
@@ -32,9 +35,12 @@ def setup(tag: str = "verify") -> None:
         Path(f"data/saves/_{tag}_history.json"),
         Path(f"data/saves/_{tag}_gameplans.json"),
         Path(f"data/saves/_{tag}_power_rank.json"),
+        Path(f"data/saves/_{tag}_owner_pressure.json"),
+        Path(f"data/saves/_{tag}_team_expectations.json"),
     ]
     save_service.DEFAULT_SAVE_PATH, history_store.DEFAULT_PATH, \
-        gameplan_store.DEFAULT_PATH, power_rank_history.DEFAULT_PATH = paths
+        gameplan_store.DEFAULT_PATH, power_rank_history.DEFAULT_PATH, \
+        owner_pressure_store.DEFAULT_PATH, team_expectations.DEFAULT_PATH = paths
     for p in paths:
         p.unlink(missing_ok=True)
 
@@ -42,10 +48,15 @@ def setup(tag: str = "verify") -> None:
     depth_chart.clear_starters_cache()
     coach_store.clear_cache()
     injury_store.clear_cache()
+    owner_pressure_store.clear_cache()
+    team_expectations.clear_cache()
 
 
 def teardown(tag: str = "verify") -> None:
-    from app.services import gameplan_store, history_store, power_rank_history, save_service
+    from app.services import (
+        gameplan_store, history_store, power_rank_history, save_service,
+        owner_pressure_store, team_expectations,
+    )
 
     if db_module._engine is not None:
         db_module._engine.dispose()
@@ -57,12 +68,16 @@ def teardown(tag: str = "verify") -> None:
     depth_chart.clear_starters_cache()
     coach_store.clear_cache()
     injury_store.clear_cache()
+    owner_pressure_store.clear_cache()
+    team_expectations.clear_cache()
 
     for p in [
         Path(f"data/saves/_{tag}_season.json"),
         Path(f"data/saves/_{tag}_history.json"),
         Path(f"data/saves/_{tag}_gameplans.json"),
         Path(f"data/saves/_{tag}_power_rank.json"),
+        Path(f"data/saves/_{tag}_owner_pressure.json"),
+        Path(f"data/saves/_{tag}_team_expectations.json"),
     ]:
         p.unlink(missing_ok=True)
     # These module-level attrs stay pointed at the throwaway paths in
