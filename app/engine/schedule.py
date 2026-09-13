@@ -327,6 +327,33 @@ def _place_games_into_weeks(games: list[ScheduledGame], seed: int) -> list[list[
     )
 
 
+def generate_preseason_schedule(league_seed: int, season_number: int = 0) -> list[list[tuple[str, str]]]:
+    """R10 (GDD preseason): 4 games per team, standard NFL preseason
+    length. No inter-divisional weighting -- just real round-robin
+    pairings, reusing the exact same circle-method algorithm the regular
+    season's own rotation games use (_circle_method_rounds), just over
+    all 32 teams directly (a 32-team round-robin runs 31 rounds; taking
+    only the first 4 gives every team 4 distinct, real opponents with no
+    repeats and no double-booking in a round, deterministically). Home/
+    away is decided the same seeded-hash-parity trick _generate_games'
+    own add_game() uses, keyed by (season_number, the two abbrs) so it's
+    stable across a save/reload and distinct from the regular season's
+    own home/away assignment for the same pair."""
+    all_teams = [t.abbr for t in TEAMS]
+    random.Random(f"preseason_order:{league_seed}:{season_number}").shuffle(all_teams)
+    rounds = _circle_method_rounds(len(all_teams))[:4]
+    weeks: list[list[tuple[str, str]]] = []
+    for round_pairs in rounds:
+        week: list[tuple[str, str]] = []
+        for i, j in round_pairs:
+            a, b = all_teams[i], all_teams[j]
+            seed_key = f"preseason:{season_number}:{a}:{b}"
+            h = hashlib.sha256(seed_key.encode()).digest()
+            week.append((a, b) if h[0] % 2 == 0 else (b, a))
+        weeks.append(week)
+    return weeks
+
+
 def generate_season_schedule(
     league_seed: int, season_number: int = 0,
     prior_standings: dict[tuple[str, str], list[str]] | None = None,

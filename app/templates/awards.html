@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Awards — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Awards &amp; Honors</h2>
+  <p class="muted">Real-time leaderboards computed from this season's actual games (app/engine/awards.py) -- there's no "season complete" gate, so this doubles as an in-season Awards Race and a season-end result once the season finishes. Coach of the Year (GDD Sec 7.4.6) is included; General Manager of the Year is out of scope for now.</p>
+</div>
+
+<div class="dash-tabs-grid cols-3" data-tabgroup="awards-main" style="margin-bottom: 1rem;">
+  <button type="button" class="dash-tab {% if tab != 'archive' and tab != 'pro-bowl' %}active{% endif %}" data-tab="season">Season Leaderboards</button>
+  <button type="button" class="dash-tab {% if tab == 'archive' %}active{% endif %}" data-tab="archive">Weekly Race Archive</button>
+  <button type="button" class="dash-tab {% if tab == 'pro-bowl' %}active{% endif %}" data-tab="pro-bowl">Pro Bowl Preview</button>
+</div>
+
+<div class="dash-panel" data-panel="season" data-tabgroup-panel="awards-main" {% if tab in ('archive', 'pro-bowl') %}hidden{% endif %}>
+  <div class="card">
+    <h3>Season Awards (through Week {{ season.current_week - 1 if season.current_week > 1 else 0 }})</h3>
+    <div class="division-standings-grid">
+      {% for label, candidates in [
+        ("MVP", season_awards.mvp), ("OPOY", season_awards.opoy), ("DPOY", season_awards.dpoy),
+        ("OROY", oroy), ("DROY", droy),
+      ] %}
+      <div>
+        <h4 style="margin-bottom: 0.4rem;">{{ label }}</h4>
+        {% if candidates %}
+        <table class="boxtable">
+          <tbody>
+            {% for c in candidates %}
+            <tr class="{% if loop.index == 1 %}winner{% endif %}">
+              <td>{{ loop.index }}</td>
+              <td>{{ player_link_or_name(c.name, c.team_abbr) }}</td>
+              <td class="muted">{{ c.team_abbr }}</td>
+              <td class="muted">{{ c.position }}</td>
+              <td class="muted">{{ "%.3f"|format(c.score) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No qualifying candidates yet.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      <div>
+        <h4 style="margin-bottom: 0.4rem;">Coach of the Year</h4>
+        {% if season_awards.coty %}
+        <table class="boxtable">
+          <tbody>
+            {% for c in season_awards.coty %}
+            <tr class="{% if loop.index == 1 %}winner{% endif %}">
+              <td>{{ loop.index }}</td>
+              <td>{{ c.name }}</td>
+              <td class="muted">{{ c.team_abbr }}</td>
+              <td class="muted">{{ c.record }}</td>
+              <td class="muted">{{ "%.3f"|format(c.score) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No qualifying candidates yet{% if not season_awards.coty %} -- this database may have no coaches imported{% endif %}.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="dash-panel" data-panel="archive" data-tabgroup-panel="awards-main" {% if tab != 'archive' %}hidden{% endif %}>
+  <div class="card">
+    <h3>Weekly Awards Race (Week 1{% if season.current_week > 1 %}-{{ season.current_week - 1 }}{% endif %})</h3>
+    {% if not weekly_races %}
+    <p class="muted">No weeks simulated yet -- a real snapshot is recorded here after every simulated week.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table class="weekly-archive">
+        <thead>
+          <tr>
+            <th>Week</th>
+            <th>MVP</th><th>OPOY</th><th>DPOY</th><th>OROY</th><th>DROY</th><th>COTY</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for race in weekly_races %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            {% for award_key in ["mvp", "opoy", "dpoy", "oroy", "droy"] %}
+            {% set leaders = race.get(award_key, []) %}
+            <td>
+              {% if leaders %}
+              <strong>{{ player_link_or_name(leaders[0].name, leaders[0].team_abbr) }}</strong>
+              <br><small class="muted">{{ "%.3f"|format(leaders[0].score) }}</small>
+              {% else %}&mdash;{% endif %}
+            </td>
+            {% endfor %}
+            {% set coty_leaders = race.get("coty", []) %}
+            <td>
+              {% if coty_leaders %}
+              <strong>{{ coty_leaders[0].name }}</strong>
+              <br><small class="muted">{{ "%.3f"|format(coty_leaders[0].score) }}</small>
+              {% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="dash-panel" data-panel="pro-bowl" data-tabgroup-panel="awards-main" {% if tab != 'pro-bowl' %}hidden{% endif %}>
+  <div class="card">
+    <h3>Pro Bowl Preview</h3>
+    <p class="muted">Disclosed simplification (app/engine/awards.py's pro_bowl_starters): no real Pro Bowl ballot exists in this engine, so "starters" here are simply each conference's own top real overall_rating at every position -- a genuine preview, since overall_rating only changes at the next Player Progression rollover, not mid-season.</p>
+  </div>
+  <div class="dashboard-grid">
+    {% for conf in ["AFC", "NFC"] %}
+    <div class="card">
+      <h3><span class="conf-badge {{ conf|lower }}">{{ conf }}</span></h3>
+      {% for side_label, side_key in [("Offense", "offense"), ("Defense", "defense"), ("Special Teams", "special")] %}
+      <div class="dash-subhead">{{ side_label }}</div>
+      {% for p in pro_bowl_preview[conf][side_key] %}
+      <div class="dash-stat-row"><span>{{ p.position }} &mdash; {{ player_link_or_name(p.name, p.team_abbr) }} ({{ p.team_abbr }})</span><span class="muted">{{ p.ovr }} OVR</span></div>
+      {% endfor %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -32,6 +32,7 @@ from . import coaching
 from .coaching import StaffEffect
 from . import rotation
 from . import special_teams
+from .weather import Weather
 from app.models.player import Player
 from app.services.depth_chart import DefensiveStarters
 
@@ -156,6 +157,7 @@ def _resolve_run(
     rng: RNG, ctx: MatchupContext, rb: Player, defcall: DefensiveCall,
     field_pos: int = 0, defense_gameplan: Gameplan | None = None,
     defense_staff: StaffEffect | None = None, down: int = 1, distance: int = 10,
+    weather_mods: dict | None = None,
 ) -> Tuple[int, str, str, str, str]:
     """GDD Sec 6.6.2 (run) + Sec 6.6.7: point-of-attack chosen from real
     zone blocking advantages, yardage shaped by the winning zone's
@@ -200,12 +202,19 @@ def _resolve_run(
     elif defcall.primary == "pass_defense":
         mean += 1.0
     mean *= ctx.ep_multiplier  # Score Fidelity System (app/engine/score_fidelity.py)
+    # R7 (GDD Sec 6.9.2): weather's "run" modifier is a fractional bump
+    # to the mean (e.g. Snow's 0.05 -> +5%), not a flat yardage add --
+    # keeps the effect proportional to how good the run-blocking matchup
+    # already was, rather than a fixed bonus regardless of context.
+    weather_run = (weather_mods or {}).get("run", 0.0)
+    mean *= (1.0 + weather_run)
     yards = int(round(rng.gauss(mean, 3.8)))
 
     if advantage > 8 and rng.prob(0.05 + max(0, rb.juke_move - 70) * 0.001):
         yards += int(abs(rng.gauss(6, 4)))  # explosive run
 
-    fumble_rate = max(0.002, PARAMS["turnover"]["fumble_per_rush"] - (rb.carrying - 70) * 0.0002)
+    fumble_rate = max(0.002, PARAMS["turnover"]["fumble_per_rush"] - (rb.carrying - 70) * 0.0002
+                       + (weather_mods or {}).get("fumble", 0.0))
     if rng.prob(fumble_rate):
         yards = max(yards, -2)
         forced_by = _run_tackler(rng, ctx.defense, choice.point_of_attack, yards)
@@ -230,7 +239,8 @@ def _sack_defender(rng: RNG, ctx: MatchupContext, defcall: DefensiveCall) -> str
     return _resolve_defensive_slot(ctx.defense, slot, rotation.DL_DECAY, rotation.DL_MAX_DEPTH, rng).full_name
 
 
-def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10) -> Tuple[int, str, str, str, str, bool]:
+def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveCall, distance: int = 10,
+                  weather_mods: dict | None = None) -> Tuple[int, str, str, str, str, bool]:
     """GDD Sec 6.6.2 (pass) + Sec 6.6.6: target chosen from real
     route-running-vs-coverage mismatches, pressure from real OL-vs-DL
     protection, completion from real QB accuracy (by depth) + receiver
@@ -259,10 +269,18 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     coverage (not just an inaccurate throw) is judged to have caused the
     incompletion -- see the PD roll below for the disclosed heuristic."""
     target = choose_pass_target(ctx, rng, distance)
+    wmods = weather_mods or {}
 
     pressure_prob = max(0.05, min(0.6, 0.30 - target.protection_score * 0.01))
     if defcall.blitz.called:
         pressure_prob = max(0.05, min(0.85, pressure_prob + 0.15 + defcall.blitz.advantage * 0.01))
+    # R7 (GDD Sec 6.9.2): weather's "fatigue" modifier (Hot/Humid) has no
+    # dedicated per-play stamina-decay model to hook into in this engine
+    # -- folded into pass-rush pressure instead (a tiring O-line gives up
+    # more pressure), a disclosed, GDD-underspecified stand-in, scaled
+    # down since fatigue's own 0.10 value is meant as a broad conditioning
+    # penalty, not a full 10-point swing in a single-play probability.
+    pressure_prob = max(0.05, min(0.9, pressure_prob + wmods.get("fatigue", 0.0) * 0.2))
     # SACK_CONVERSION_RATE: real NFL sack rate is ~2.4-2.6 team sacks/game
     # (~6.5-7% of dropbacks); the un-scaled 0.35 here (kept as SACK_
     # CONVERSION_RATE's baseline reference in the comment below) produced
@@ -295,6 +313,7 @@ def _resolve_pass(rng: RNG, ctx: MatchupContext, qb: Player, defcall: DefensiveC
     elif defcall.primary == "run_defense":
         completion_pct += 0.05
     completion_pct *= ctx.ep_multiplier  # Score Fidelity System (app/engine/score_fidelity.py)
+    completion_pct += wmods.get("pass_acc", 0.0)  # R7: weather's real completion-% penalty (rain/snow/wind/cold)
     completion_pct = max(0.20, min(0.88, completion_pct))
 
     if rng.prob(1 - completion_pct):
@@ -328,16 +347,20 @@ def _fg_distance_bucket(attempt_yards: int) -> str:
     return "50+"
 
 
-def _kicker_adjusted_prob(base_prob: float, kicker: Player | None) -> float:
+def _kicker_adjusted_prob(base_prob: float, kicker: Player | None, weather_mods: dict | None = None) -> float:
     """A real kicker's rating nudges a league-average bucket probability
     up or down rather than replacing it outright -- used for both field
-    goals and PATs (a PAT is functionally a ~33-yard field goal)."""
+    goals and PATs (a PAT is functionally a ~33-yard field goal).
+    weather_mods' "fg" modifier (R7, GDD Sec 6.9.2) applies here too, for
+    the same reason -- rain/wind/cold hurts a PAT try exactly as it hurts
+    a short field goal."""
+    prob = base_prob + (weather_mods or {}).get("fg", 0.0)
     if kicker is None:
-        return base_prob
-    return max(0.35, min(0.99, base_prob + (kicker.kick_accuracy - 80) * 0.004))
+        return max(0.05, min(0.99, prob))
+    return max(0.35, min(0.99, prob + (kicker.kick_accuracy - 80) * 0.004))
 
 
-def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool, int, bool]:
+def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None, weather_mods: dict | None = None) -> Tuple[bool, int, bool]:
     """Returns (made, attempt_yards, blocked). A block is rolled BEFORE
     the make/miss roll (tuning.py's PARAMS["special"]["fg_block"], already
     present but unused before this) -- a blocked kick is never "made"
@@ -347,7 +370,7 @@ def _attempt_field_goal(rng: RNG, pos: int, kicker: Player | None) -> Tuple[bool
     if rng.prob(PARAMS["special"]["fg_block"]):
         return False, attempt_yards, True
     base_prob = PARAMS["special"]["fg_make_prob"][_fg_distance_bucket(attempt_yards)]
-    return rng.prob(_kicker_adjusted_prob(base_prob, kicker)), attempt_yards, False
+    return rng.prob(_kicker_adjusted_prob(base_prob, kicker, weather_mods)), attempt_yards, False
 
 
 # GDD Sec 6.9 Penalty System -- a real weighted type table + attribution +
@@ -571,6 +594,7 @@ def simulate_drive(
     defense_gameplan: Gameplan | None = None,
     offense_staff: StaffEffect | None = None,
     defense_staff: StaffEffect | None = None,
+    weather: Weather | None = None,
 ) -> Tuple[int, str, int, int, int, int, List[PlayEvent]]:
     """
     Simulates one drive down-by-down using real starters (ctx). Returns:
@@ -623,6 +647,9 @@ def simulate_drive(
     def_penalty_mult = coaching.penalty_rate_multiplier(defense_staff)
     qb = ctx.offense.qb
     kicker = ctx.offense.k
+    # R7 (GDD Sec 6.9.2): resolved once per drive, like the penalty
+    # multipliers above -- weather doesn't change mid-drive either.
+    weather_mods = weather.get_modifiers() if weather is not None else {}
 
     while total_plays < MAX_PLAYS_PER_DRIVE:
         total_plays += 1
@@ -636,7 +663,7 @@ def simulate_drive(
                 play_events.append(PlayEvent(down, distance, pos, "punt", punt_yards, punt_desc, punt_outcome))
                 return 0, punt_desc if punt_blocked else "Punt", next_pos, total_plays, total_yards, turnovers, play_events
             if decision == "field_goal":
-                made, attempt_yards, blocked = _attempt_field_goal(rng, pos, kicker)
+                made, attempt_yards, blocked = _attempt_field_goal(rng, pos, kicker, weather_mods)
                 if made:
                     play_events.append(PlayEvent(down, distance, pos, "field_goal", 0,
                                                   f"{attempt_yards}-yard field goal is GOOD", "field_goal"))
@@ -686,7 +713,7 @@ def simulate_drive(
 
         fumble_recovered_by = ""
         if is_pass:
-            yards, outcome, who, receiver_name, defender_name, pass_defended = _resolve_pass(rng, ctx, qb, defcall, distance)
+            yards, outcome, who, receiver_name, defender_name, pass_defended = _resolve_pass(rng, ctx, qb, defcall, distance, weather_mods)
             play_type = "pass"
         else:
             # Real committee backfield (app/engine/rotation.py): drawn
@@ -696,6 +723,7 @@ def simulate_drive(
             yards, outcome, who, defender_name, fumble_recovered_by = _resolve_run(
                 rng, ctx, rb, defcall, field_pos=pos, defense_gameplan=defense_gameplan,
                 defense_staff=defense_staff, down=play_down, distance=play_distance,
+                weather_mods=weather_mods,
             )
             play_type = "run"
             receiver_name = ""
@@ -800,7 +828,7 @@ def simulate_drive(
             # this by play_type, not outcome text. Also block-checked
             # (tuning.py's fg_block, same real cause as an FG block).
             xp_blocked = rng.prob(PARAMS["special"]["fg_block"])
-            made_pat = False if xp_blocked else rng.prob(_kicker_adjusted_prob(P.pat_make, kicker))
+            made_pat = False if xp_blocked else rng.prob(_kicker_adjusted_prob(P.pat_make, kicker, weather_mods))
             pts = 7 if made_pat else 6
             if xp_blocked:
                 xp_desc, xp_outcome = "Extra point is BLOCKED!", "blocked"

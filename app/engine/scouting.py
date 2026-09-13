@@ -14,8 +14,6 @@ Deliberate scope cuts, since the underlying systems don't exist yet:
 - No return-game averages -- the special-teams engine (drive_sim.py's
   _punt_result) computes a net field position, not a tracked return
   yardage stat.
-- No weather forecast -- no weather system exists yet (GDD Sec 6.11 /
-  Part 2, an existing documented Known Gap).
 - No Coach entity -- ROADMAP.md's R3 (Coaching Staff) hasn't been built,
   so the Overview tab's coach info is a disclosed placeholder wired in
   by app/main.py (`_placeholder_coach()`), not real data from this module.
@@ -50,6 +48,24 @@ def _complement(pct_value: float | None) -> float | None:
     return None if pct_value is None else round(100 - pct_value, 1)
 
 
+def next_opponent_weather(season, team_abbr: str):
+    """R7 (GDD Sec 6.9.2): real, deterministic weather forecast
+    (app/engine/weather.py) for team_abbr's next unplayed game -- the
+    same forward scan find_next_opponent() does, just also keeping the
+    week number and home team (generate_weather()'s own real inputs)
+    that function's simpler (opponent, is_home) return doesn't carry.
+    None once the season has no more games left for team_abbr."""
+    from app.engine.weather import generate_weather
+    for offset, week in enumerate(season.schedule[season.current_week - 1:]):
+        week_num = season.current_week + offset
+        for g in week:
+            if g.result is not None:
+                continue
+            if team_abbr in (g.home_abbr, g.away_abbr):
+                return generate_weather(season.league_seed, season.season_number, week_num, g.home_abbr)
+    return None
+
+
 def find_next_opponent(season, team_abbr: str) -> tuple[str, bool] | None:
     """Scans forward from season.current_week (skipping over a bye week
     if team_abbr doesn't play that week) for team_abbr's next unplayed
@@ -68,9 +84,23 @@ def find_next_opponent(season, team_abbr: str) -> tuple[str, bool] | None:
 
 def _played_games(season, team_abbr: str) -> list[tuple[object, bool]]:
     """(WeekGame, team_is_home) for every game team_abbr has actually
-    played this season, in week order."""
+    played this season, in week order.
+
+    R10 (GDD preseason): a real Week 1 has NOTHING to show here yet --
+    every scouting/situational split would render as an empty "—" sample
+    the moment a franchise starts. So while season.current_week == 1 (no
+    regular-season game has been played yet), this backfills with the
+    real preseason games instead -- 4 real, played games with real box
+    scores, just not ones that count toward the regular season. The
+    moment Week 1 is actually simulated (current_week advances past 1),
+    this reverts to regular-season-only and preseason is never queried
+    again, matching the GDD's "preseason isn't the regular season"
+    scoping."""
     out = []
-    for week in season.schedule:
+    weeks = season.schedule
+    if season.current_week == 1 and getattr(season, "preseason_schedule", None):
+        weeks = season.preseason_schedule + season.schedule
+    for week in weeks:
         for g in week:
             if g.result is None:
                 continue
@@ -401,4 +431,5 @@ def build_scouting_report(season, opponent_abbr: str) -> dict:
         "field_goals": field_goal_accuracy_3bucket(season, opponent_abbr),
         "discipline": penalty_discipline(season, opponent_abbr),
         "league_ranks": league_ranks(season, opponent_abbr),
+        "weather": next_opponent_weather(season, opponent_abbr),
     }

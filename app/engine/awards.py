@@ -360,6 +360,20 @@ def rookie_of_the_year(season, top_n: int = 5) -> list[AwardCandidate]:
     return sorted(candidates, key=lambda c: -c.score)[:top_n]
 
 
+def offensive_rookie_of_the_year(season, top_n: int = 5) -> list[AwardCandidate]:
+    """R8 (Awards Page): the real NFL splits Rookie of the Year into an
+    offensive and a defensive award (OROY/DROY) rather than ROY's single
+    combined ranking above -- this is exactly ROY's own offensive-rookie
+    HALF, surfaced on its own rather than merged, no new scoring."""
+    return sorted(_offensive_candidates(season, rookies_only=True), key=lambda c: -c.score)[:top_n]
+
+
+def defensive_rookie_of_the_year(season, top_n: int = 5) -> list[AwardCandidate]:
+    """DROY: ROY's defensive-rookie half, surfaced on its own -- see
+    offensive_rookie_of_the_year()'s docstring."""
+    return sorted(_defensive_candidates(season, rookies_only=True), key=lambda c: -c.score)[:top_n]
+
+
 def most_valuable_player(season, top_n: int = 5) -> list[AwardCandidate]:
     """MVP = the same normalized offensive-production score OPOY uses,
     blended with the player's own team's win% (Sec 7.4's "team wins"
@@ -458,3 +472,68 @@ def season_awards(season, top_n: int = 5) -> AwardsRace:
         roy=rookie_of_the_year(season, top_n),
         coty=coach_of_the_year(season, top_n),
     )
+
+
+@dataclass
+class ProBowlStarter:
+    name: str
+    team_abbr: str
+    position: str  # generic position-group label (position_groups.py's QUOTA_GROUPS)
+    ovr: int
+
+
+# R8 (Awards Page): a real, disclosed simplification -- there's no
+# GDD-literal Pro Bowl vote formula (or ballot data) anywhere in this
+# project, so "starters" here means the real, live roster's own top
+# overall_rating at each position, one bucket per position_groups.py's
+# generic group (the same grouping the Roster page's Team Quota pills
+# use) rather than Madden's granular per-slot positions. Real starter
+# COUNTS per side loosely match a real Pro Bowl roster's own shape (2 WR/
+# T/G/DE/DT/CB/S, 3 LB, 1 everything else) -- this module's own choice,
+# not a GDD value. K/P are their own "special" bucket rather than folded
+# into "offense", matching how the Awards page's own 3-tab shape
+# (Season Leaderboards / Weekly Race Archive / Pro Bowl Preview) treats
+# them. A player's overall_rating doesn't change mid-season in this
+# engine (only at the next Player Progression rollover), so this is
+# genuinely a "preview" -- the same players all season until then.
+PRO_BOWL_OFFENSE_STARTER_COUNTS: dict[str, int] = {"QB": 1, "RB": 1, "WR": 2, "TE": 1, "C": 1, "G": 2, "T": 2}
+PRO_BOWL_DEFENSE_STARTER_COUNTS: dict[str, int] = {"DE": 2, "DT": 2, "LB": 3, "CB": 2, "S": 2}
+PRO_BOWL_SPECIAL_STARTER_COUNTS: dict[str, int] = {"K": 1, "P": 1}
+
+
+def _pro_bowl_side(conf_players: list, counts: dict[str, int]) -> list[ProBowlStarter]:
+    from app.engine.position_groups import POSITION_TO_GROUP
+
+    by_group: dict[str, list] = {}
+    for p in conf_players:
+        by_group.setdefault(POSITION_TO_GROUP[p.position], []).append(p)
+
+    starters: list[ProBowlStarter] = []
+    for group, n in counts.items():
+        ranked = sorted(by_group.get(group, []), key=lambda p: -p.overall_rating)[:n]
+        starters.extend(
+            ProBowlStarter(name=p.full_name, team_abbr=p.team_abbr, position=group, ovr=p.overall_rating)
+            for p in ranked
+        )
+    return starters
+
+
+def pro_bowl_starters(season, conf: str) -> dict[str, list[ProBowlStarter]]:
+    """{"offense": [...], "defense": [...], "special": [...]} of real
+    ProBowlStarter rows for the given conference ("AFC"/"NFC"). `season`
+    is accepted (unused) for the same call shape as this module's other
+    *_of_the_year functions -- overall_rating is a roster-DB property,
+    not something derived from season play, so nothing here actually
+    needs it yet."""
+    from app.data.teams import TEAMS_BY_ABBR
+    from sqlmodel import select
+
+    conf_team_abbrs = {abbr for abbr, info in TEAMS_BY_ABBR.items() if info.conference == conf}
+    with get_session() as s:
+        conf_players = list(s.exec(select(Player).where(Player.team_abbr.in_(conf_team_abbrs))))  # type: ignore[union-attr]
+
+    return {
+        "offense": _pro_bowl_side(conf_players, PRO_BOWL_OFFENSE_STARTER_COUNTS),
+        "defense": _pro_bowl_side(conf_players, PRO_BOWL_DEFENSE_STARTER_COUNTS),
+        "special": _pro_bowl_side(conf_players, PRO_BOWL_SPECIAL_STARTER_COUNTS),
+    }

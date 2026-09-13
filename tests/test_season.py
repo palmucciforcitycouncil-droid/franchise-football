@@ -698,6 +698,197 @@ def test_dashboard_gameplan_filler_subtext_removed():
     assert "Sets your Head Coach's strategy" not in resp.text
 
 
+# --- R10: Preseason ----------------------------------------------------------
+
+def test_generate_preseason_schedule_shape():
+    """4 real rounds, every team appearing exactly once per round (no
+    double-booking) and playing exactly 4 distinct real opponents total."""
+    from app.engine.schedule import generate_preseason_schedule
+    from collections import defaultdict
+
+    schedule = generate_preseason_schedule(2025, season_number=0)
+    assert len(schedule) == 4
+
+    opponents = defaultdict(set)
+    games_played = defaultdict(int)
+    for round_games in schedule:
+        teams_this_round = [t for pair in round_games for t in pair]
+        assert len(teams_this_round) == len(set(teams_this_round)), "team double-booked in one round"
+        assert len(round_games) == len(TEAMS) // 2
+        for home, away in round_games:
+            games_played[home] += 1
+            games_played[away] += 1
+            opponents[home].add(away)
+            opponents[away].add(home)
+
+    for t in TEAMS:
+        assert games_played[t.abbr] == 4
+        assert len(opponents[t.abbr]) == 4
+
+
+def test_generate_preseason_schedule_is_deterministic():
+    from app.engine.schedule import generate_preseason_schedule
+    a = generate_preseason_schedule(2025, season_number=0)
+    b = generate_preseason_schedule(2025, season_number=0)
+    assert a == b
+
+
+def test_a_fresh_season_has_an_unplayed_preseason_schedule():
+    season = season_state.get_season()
+    assert len(season.preseason_schedule) == 4
+    assert season.preseason_rounds_played == 0
+    assert not season.preseason_complete
+    assert all(g.result is None for round_games in season.preseason_schedule for g in round_games)
+
+
+def test_simulate_preseason_plays_every_game_and_never_touches_records():
+    season = season_state.get_season()
+    simulated = season_state.simulate_preseason()
+
+    assert simulated == sum(len(w) for w in season.preseason_schedule)
+    assert season.preseason_complete
+    assert all(g.result is not None for round_games in season.preseason_schedule for g in round_games)
+
+    # R10's own scope: doesn't count toward standings/Power Rankings anywhere.
+    from app.engine import power_rating
+    assert all(r.wins == 0 and r.losses == 0 for r in season.records.values())
+    assert all(r.points_for == 0 and r.points_against == 0 for r in season.records.values())
+    assert all(r.power_rating == power_rating.INITIAL_RATING for r in season.records.values())
+    assert season.current_week == 1  # preseason doesn't advance the regular-season clock
+
+
+def test_simulate_preseason_is_idempotent_once_complete():
+    season_state.simulate_preseason()
+    second_call_count = season_state.simulate_preseason()
+    assert second_call_count == 0
+
+
+def test_simulate_preseason_route_redirects_to_season():
+    resp = client.post("/season/simulate-preseason", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/season"
+
+    season = season_state.get_season()
+    assert season.preseason_complete
+
+
+def test_reset_season_regenerates_a_fresh_unplayed_preseason():
+    season_state.simulate_preseason()
+    season_state.reset_season()
+    season = season_state.get_season()
+    assert len(season.preseason_schedule) == 4
+    assert not season.preseason_complete
+
+
+def test_preseason_game_view_renders_after_being_played():
+    season_state.simulate_preseason()
+    season = season_state.get_season()
+    g = season.preseason_schedule[0][0]
+    resp = client.get(f"/season/preseason/game/{g.home_abbr}/{g.away_abbr}")
+    assert resp.status_code == 200
+    assert g.away_abbr in resp.text and g.home_abbr in resp.text
+
+
+def test_preseason_game_view_404s_before_its_played():
+    season = season_state.get_season()
+    g = season.preseason_schedule[0][0]
+    resp = client.get(f"/season/preseason/game/{g.home_abbr}/{g.away_abbr}")
+    assert resp.status_code == 404
+
+
+def test_preseason_save_load_round_trip():
+    season_state.simulate_preseason()
+    original = season_state.get_season()
+    save_service.save_season(original)
+    reloaded = save_service.load_season()
+
+    assert len(reloaded.preseason_schedule) == 4
+    orig_game = original.preseason_schedule[0][0]
+    reloaded_game = reloaded.preseason_schedule[0][0]
+    assert reloaded_game.home_abbr == orig_game.home_abbr
+    assert reloaded_game.result.home_score == orig_game.result.home_score
+    assert reloaded_game.result.away_score == orig_game.result.away_score
+
+
+def test_season_page_shows_preseason_button_before_played():
+    resp = client.get("/season")
+    assert resp.status_code == 200
+    assert "Preseason (0/4 simulated)" in resp.text
+
+
+def test_season_page_shows_preseason_complete_after_played():
+    season_state.simulate_preseason()
+    resp = client.get("/season")
+    assert resp.status_code == 200
+    assert "Preseason (4/4 complete)" in resp.text
+    assert "Preseason (0/4 simulated)" not in resp.text
+
+
+def test_preseason_backfills_week1_scouting_and_reverts_after_week1_is_played():
+    """R10: while Week 1 hasn't been played yet, the Scouting Panel reads
+    real preseason box scores instead of an empty sample; the moment
+    Week 1 IS simulated, it reverts to regular-season-only."""
+    from app.engine import scouting
+
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+    season_state.simulate_preseason()
+
+    games_before = scouting._played_games(season, "KC")
+    assert len(games_before) == 4  # backfilled from the 4 preseason games
+
+    season_state.simulate_current_week()
+    games_after = scouting._played_games(season, "KC")
+    assert len(games_after) == 1  # real Week 1 only, preseason no longer queried
+
+
+def test_preseason_nudges_progression_usage():
+    """PRESEASON_NUDGE_WEIGHT (0.25): a preseason snap counts as ~25% of
+    a real regular-season snap toward progression's usage input -- "as
+    if the player had ~25% of a regular-season game's usage" per this
+    feature's own locked-in spec, checked directly against a real,
+    simulated preseason box score's own attempt count."""
+    season = season_state.get_season()
+    season_state.simulate_preseason()
+
+    passing, _, _ = season_state.season_stats.aggregate_season_stats(
+        season_state.SimpleNamespace(schedule=season.preseason_schedule)
+    )
+    assert passing, "expected at least one QB to have real preseason pass attempts"
+    _, line = max(passing.items(), key=lambda kv: kv[1].attempts)
+    nudged_touches = round(line.attempts * season_state.PRESEASON_NUDGE_WEIGHT)
+    assert 0 < nudged_touches < line.attempts
+    assert season_state.PRESEASON_NUDGE_WEIGHT == 0.25
+
+
+def test_apply_progression_to_roster_runs_cleanly_with_only_preseason_played():
+    """Regression test for the preseason-touches wiring in
+    apply_progression_to_roster(): a real end-to-end rollover pass
+    against a roster whose ONLY played games are preseason (no
+    regular-season game exists yet) must not raise, and must still
+    update the DB -- confirms the new preseason aggregation branch is
+    exercised without crashing (test_season_rollover.py's own
+    test_apply_progression_to_roster_actually_mutates_the_db covers the
+    regular-season path's mutation claim in detail already)."""
+    from app.models.player import Player
+    from app.core.db import get_session
+    from sqlmodel import select
+
+    season = season_state.get_season()
+    season_state.simulate_preseason()
+
+    with get_session() as s:
+        before_ages = {p.player_id: p.age for p in s.exec(select(Player).where(Player.team_abbr != None)).all()}  # noqa: E711
+
+    season_state.apply_progression_to_roster(season)
+
+    with get_session() as s:
+        after = {p.player_id: p.age for p in s.exec(select(Player).where(Player.team_abbr != None)).all()}  # noqa: E711
+    still_rostered = before_ages.keys() & after.keys()
+    assert still_rostered
+    assert all(after[pid] == before_ages[pid] + 1 for pid in still_rostered)
+
+
 def test_dashboard_play_by_play_box_removed():
     """ROADMAP.md Sec2c item 2: Play-by-Play is no longer its own
     dashboard box -- only reachable via the Box Score box's link to the

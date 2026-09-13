@@ -23,6 +23,9 @@
     </tbody>
   </table>
   <p class="muted">LEAGUE_SEED={{ league_seed }} &middot; game_seed={{ game_seed }} &middot; deterministic: replaying these two teams with this seed always produces this result.</p>
+  {% if weather %}
+  <p class="muted">Weather: {{ weather.summary() }}{% if not weather.is_indoors %} &middot; {{ weather.preset }}{% endif %}</p>
+  {% endif %}
 </div>
 
 <div class="card">

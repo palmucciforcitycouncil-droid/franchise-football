@@ -103,6 +103,20 @@ def _bracket_from_dict(d: dict | None) -> PlayoffBracket | None:
     )
 
 
+def _week_games_to_dict(schedule) -> list:
+    return [
+        [
+            {
+                "home_abbr": g.home_abbr,
+                "away_abbr": g.away_abbr,
+                "result": _result_to_dict(g.result),
+            }
+            for g in week
+        ]
+        for week in schedule
+    ]
+
+
 def season_to_dict(season) -> dict:
     return {
         "league_seed": season.league_seed,
@@ -111,29 +125,21 @@ def season_to_dict(season) -> dict:
         "user_team_abbr": season.user_team_abbr,
         "season_number": season.season_number,
         "playoffs": _bracket_to_dict(season.playoffs),
-        "schedule": [
-            [
-                {
-                    "home_abbr": g.home_abbr,
-                    "away_abbr": g.away_abbr,
-                    "result": _result_to_dict(g.result),
-                }
-                for g in week
-            ]
-            for week in season.schedule
-        ],
+        "schedule": _week_games_to_dict(season.schedule),
+        # R10 (GDD preseason): same real WeekGame/GameResult shape as the
+        # regular schedule above -- a preseason game's box score is real
+        # data (progression's usage nudge, Week-1 scouting/stats
+        # backfill) and needs to survive a save/reload exactly like any
+        # other simulated game.
+        "preseason_schedule": _week_games_to_dict(getattr(season, "preseason_schedule", [])),
         "records": {
             abbr: asdict(rec) for abbr, rec in season.records.items()
         },
     }
 
 
-def season_from_dict(d: dict):
-    # Imported lazily to avoid a circular import (season_state imports this module).
-    from app.services.season_state import Season, WeekGame, TeamRecord
-    from app.engine.score_fidelity import SFSState
-
-    schedule = [
+def _week_games_from_dict(raw_schedule, WeekGame) -> list:
+    return [
         [
             WeekGame(
                 home_abbr=g["home_abbr"],
@@ -142,8 +148,20 @@ def season_from_dict(d: dict):
             )
             for g in week
         ]
-        for week in d["schedule"]
+        for week in raw_schedule
     ]
+
+
+def season_from_dict(d: dict):
+    # Imported lazily to avoid a circular import (season_state imports this module).
+    from app.services.season_state import Season, WeekGame, TeamRecord
+    from app.engine.score_fidelity import SFSState
+
+    schedule = _week_games_from_dict(d["schedule"], WeekGame)
+    # .get(...) fallback: a save file from before R10 (preseason) won't
+    # have this key -- an existing franchise just has no preseason games
+    # on record, not an error.
+    preseason_schedule = _week_games_from_dict(d.get("preseason_schedule", []), WeekGame)
     records = {abbr: TeamRecord(**rec) for abbr, rec in d["records"].items()}
     # .get(...) with a fresh-default fallback: a save file from before the
     # Score Fidelity System existed won't have "sfs" (or "power_rating" on
@@ -161,6 +179,7 @@ def season_from_dict(d: dict):
         user_team_abbr=d.get("user_team_abbr"),
         playoffs=_bracket_from_dict(d.get("playoffs")),
         season_number=d.get("season_number", 0),
+        preseason_schedule=preseason_schedule,
     )
 
 

@@ -11,6 +11,7 @@ from .gameplan import Gameplan
 from . import coaching
 from .coaching import StaffEffect
 from . import special_teams
+from .weather import Weather
 from app.services.depth_chart import get_offensive_starters, get_defensive_starters, OffensiveStarters
 
 @dataclass
@@ -106,6 +107,7 @@ def simulate_game(
     home_ep_multiplier: float = 1.0, away_ep_multiplier: float = 1.0,
     home_gameplan: Gameplan | None = None, away_gameplan: Gameplan | None = None,
     home_staff: StaffEffect | None = None, away_staff: StaffEffect | None = None,
+    weather: Weather | None = None,
 ) -> GameResult:
     """home_ep_multiplier/away_ep_multiplier: the Score Fidelity System's
     (app/engine/score_fidelity.py) per-game scoring nudge, computed from
@@ -128,7 +130,16 @@ def simulate_game(
     callers without a staff (tests, a database with no coaches
     imported) are unaffected. Resolved once here and held for the whole
     game, matching GDD Sec 7.7.3's "Weekly strategy profile (Off + Def +
-    ST) locked at kickoff"."""
+    ST) locked at kickoff".
+
+    weather (app/engine/weather.py's Weather, GDD Sec 6.9.2, R7): the
+    SAME conditions for both offenses, since it's a property of the
+    home team's stadium/climate this one game -- passed straight through
+    to every simulate_drive() call below. None (the default) for every
+    caller with no real season/week context to seed it from -- the
+    standalone single-game simulator (app/main.py's /simulate route) --
+    in which case drive_sim.py applies exactly zero weather modifiers,
+    unchanged from before this system existed."""
     drives_total = int((home.ratings.pace_drives() + away.ratings.pace_drives()) / 2)
     home_first = rng.prob(0.5)
     events: List[DriveEvent] = []
@@ -186,6 +197,7 @@ def simulate_game(
             off_ypc=off_tot.ypc(), off_ypa=off_tot.ypa(),
             offense_gameplan=offense_gameplan, defense_gameplan=defense_gameplan,
             offense_staff=offense_staff, defense_staff=defense_staff,
+            weather=weather,
         )
 
         # The PREVIOUS iteration's kickoff (or the opening kickoff, before

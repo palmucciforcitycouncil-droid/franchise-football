@@ -8,6 +8,9 @@
     <p><strong>Season complete</strong> — all {{ n_weeks }} weeks simulated.</p>
   {% else %}
     <p class="muted">Week {{ season.current_week }} of {{ n_weeks }}</p>
+    {% if season.current_week == 1 and season.preseason_schedule and not season.preseason_complete %}
+    <p class="muted">Preseason isn't simulated yet -- optional, but its box scores feed a small progression nudge and back-fill the Scouting Panel/Top Performers until Week 1 is played.</p>
+    {% endif %}
     <form method="post" action="/season/simulate-week">
       <button type="submit">Simulate Week {{ season.current_week }}</button>
     </form>
@@ -15,6 +18,48 @@
   <form method="post" action="/season/reset" style="margin-top: 0.75rem;">
     <button type="submit" style="background:#3a3f52; border-color:#3a3f52;">Reset Season</button>
   </form>
+</div>
+
+<!-- R10 (GDD preseason): 4 real games per team, simulated all at once,
+     user-triggered, before Week 1 -- disclosed as not counting toward
+     Standings/Power Rankings/Awards anywhere (its own module docstring
+     in app/services/season_state.py). Collapsed by default once complete
+     so it doesn't compete with the real regular season below it. -->
+<div class="card">
+  <h3>Preseason</h3>
+  {% if not season.preseason_schedule %}
+  <p class="muted">No preseason scheduled for this franchise.</p>
+  {% else %}
+  <p class="muted">Doesn't count toward standings, Power Rankings, or Awards -- results feed a small Player Progression usage nudge, and back-fill the Scouting Panel/Top Performers for Week 1 only.</p>
+  {% if season.preseason_complete %}
+  <p><strong>Preseason ({{ season.preseason_rounds_played }}/{{ season.preseason_total_rounds }} complete)</strong></p>
+  {% else %}
+  <form method="post" action="/season/simulate-preseason">
+    <button type="submit">Preseason ({{ season.preseason_rounds_played }}/{{ season.preseason_total_rounds }} simulated)</button>
+  </form>
+  {% endif %}
+  <details class="drive" {% if not season.preseason_complete %}open{% endif %}>
+    <summary>Preseason Games</summary>
+    {% for round_games in season.preseason_schedule %}
+    <table>
+      <thead><tr><th>Away</th><th>Home</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for g in round_games %}
+        <tr>
+          <td>{{ g.away_abbr }}</td>
+          <td>{{ g.home_abbr }}</td>
+          <td>
+            {% if g.result %}
+            <a href="/season/preseason/game/{{ g.home_abbr }}/{{ g.away_abbr }}">{{ g.result.away_score }}&ndash;{{ g.result.home_score }}</a>
+            {% else %}&mdash;{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </details>
+  {% endif %}
 </div>
 
 <div class="card">

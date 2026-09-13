@@ -208,9 +208,8 @@
 
   <!-- Row 2, Column 2: Scouting Panel, real tabbed view (ScoutingPanel.tsx) --
        Overview/Offense/Defense/Special/Discipline/Stats, driven entirely by
-       app/engine/scouting.py's real per-category data. Weather is
-       deliberately omitted (no weather system exists -- see
-       scouting.py's own docstring). -->
+       app/engine/scouting.py's real per-category data. R7: real weather
+       forecast added to the Overview tab (app/engine/weather.py). -->
   <div class="card">
     <h3>Scouting &mdash; Next Opponent</h3>
     {% if scouting %}
@@ -219,6 +218,7 @@
       Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
       {%- if scouting.summary.streak != "-" %} &middot; {{ scouting.summary.streak }}{% endif %}
       {%- if scouting.summary.power_rank %} &middot; Power Rank: {{ scouting.summary.power_rank }}{% endif %}
+      {%- if scouting.weather %} &middot; {{ scouting.weather.summary() }}{% endif %}
     </p>
 
     <div class="dash-tabs-grid cols-3">
