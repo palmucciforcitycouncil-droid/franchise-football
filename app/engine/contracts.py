@@ -52,24 +52,32 @@ from app.engine.position_groups import POSITION_TO_GROUP
 from app.engine.roster_strength import POSITION_WEIGHTS
 from app.models.player import Player
 
-# Sec 8.3 gives a real 2025 number ($279.2M) for a real-world-scale AAV
-# cap. This project's imported Madden salary data does NOT run on that
-# scale -- confirmed against the real DB, not assumed: real team salary
-# totals span $262M-$695M (league avg ~$437M), and a single real player
-# (M8's own verified example, Patrick Mahomes) is $190.4M alone, more
-# than half of Sec 8.3's literal cap by itself. Madden's "Total Salary"
-# column was never validated against real-world NFL cap compliance --
-# it's real, imported data, just not on a cap-compatible scale. Rather
-# than leave every real team permanently, unfixably over an
-# incompatible cap (which would make every free-agency/re-sign offer
-# reject with OVER_CAP regardless of merit -- caught via exactly that on
-# this chunk's own first live signing attempt), SALARY_CAP_BASE is
-# rescaled to this project's OWN real salary distribution instead of
-# Sec 8.3's numerically incompatible external anchor: comfortably above
-# the current real league-wide max team total, so every team starts
-# cap-compliant with real room to operate.
+# Sec 8.3 gives a real-world-scale AAV cap anchor (updated 2026-09-12:
+# the real 2026 NFL cap is $301.2M, not the stale $279.2M/2025 figure
+# this comment used to cite). This project's imported Madden salary data
+# does NOT run on that scale -- confirmed against the real DB, not
+# assumed: real team salary totals span $262M-$695M (league avg ~$437M),
+# and a single real player (M8's own verified example, Patrick Mahomes)
+# is $190.4M alone, more than half of even the CURRENT real cap by
+# itself. Madden's "Total Salary" column was never validated against
+# real-world NFL cap compliance -- it's real, imported data, just not on
+# a cap-compatible scale. Rather than leave every real team permanently,
+# unfixably over an incompatible cap (which would make every free-
+# agency/re-sign offer reject with OVER_CAP regardless of merit --
+# caught via exactly that on this chunk's own first live signing
+# attempt), SALARY_CAP_BASE stays rescaled to this project's OWN real
+# salary distribution instead of Sec 8.3's numerically incompatible
+# dollar anchor -- comfortably above the current real league-wide max
+# team total, so every team starts cap-compliant with real room to
+# operate. Applying $301.2M directly would reproduce the exact bug this
+# rescale exists to prevent; ask before changing SALARY_CAP_BASE itself.
 SALARY_CAP_BASE = 720_000_000
-SALARY_CAP_GROWTH = 0.112  # +11.2%/year, compounded -- Sec 8.3's real growth rate, kept as-is
+# +7.5%/year, compounded -- Sec 8.3's real growth RATE (updated
+# 2026-09-12 from 11.2%). Unlike the base dollar figure above, a growth
+# RATE has no Madden-scale incompatibility -- it applies identically
+# regardless of the underlying dollar scale, so this one tracks the
+# real-world number directly.
+SALARY_CAP_GROWTH = 0.075
 
 # This engine's season_number 0 is real-world 2026 (one year after the
 # GDD's 2025 baseline) -- see roster_strength.py's decision 2 precedent

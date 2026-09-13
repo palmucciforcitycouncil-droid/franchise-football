@@ -448,11 +448,15 @@ def test_championship_credit_lands_on_every_role_and_is_idempotent(completed_sea
     for coach in staff:
         assert coach.super_bowl_wins == 1, coach.full_name
         assert coach.conference_titles == 1, coach.full_name
-    # Every role tier is represented, not just the head coach (Sec
-    # 7.9.2's "for each of HC, OC, DC, ST, and all ACs").
-    assert {CoachRole(c.role) for c in staff} >= {
-        CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC
-    }
+    # Every role tier CURRENTLY STAFFED is represented (Sec 7.9.2's "for
+    # each of HC, OC, DC, ST, and all ACs") -- HC is required (the game
+    # can't simulate without one), but R3d's real firing/replacement
+    # market (ROADMAP.md Sec 4d) can leave a coordinator seat genuinely
+    # vacant if a fired coach's replacement search comes up empty, so a
+    # missing OC/DC/ST isn't itself a bug to assert against here.
+    roles_present = {CoachRole(c.role) for c in staff}
+    assert CoachRole.HC in roles_present
+    assert roles_present <= {CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC}
     # ...and each ring is recorded against the role actually held.
     hc = coach_store.head_coach(champion)
     assert hc.hc_super_bowl_wins == 1

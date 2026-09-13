@@ -77,26 +77,58 @@ from pathlib import Path
 import pytest
 
 from app.core import db as db_module
-from app.services import save_service, power_rank_history
+from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history
+
+# Captured once, at collection time, before any fixture below ever
+# reassigns `db_module.DB_PATH` -- the one stable reference point
+# `_isolate_db_path` needs to tell "nothing else has touched DB_PATH
+# yet" apart from "a broader-scoped fixture already redirected it"
+# (see that fixture's own docstring for the real bug this fixes).
+_REAL_DB_PATH = db_module.DB_PATH
 
 
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_season_save_path():
     real_save_path = save_service.DEFAULT_SAVE_PATH
     real_power_rank_path = power_rank_history.DEFAULT_PATH
+    # R3d's two new persistent stores get the exact same session-scoped
+    # throwaway-path treatment power_rank_history already has -- both
+    # are, like it, a plain JSON dict keyed by season_number (and, for
+    # owner_pressure_store, team_abbr), never the real save the live
+    # server reads.
+    real_owner_pressure_path = owner_pressure_store.DEFAULT_PATH
+    real_team_expectations_path = team_expectations.DEFAULT_PATH
+    # R8 (Awards Page): same session-scoped throwaway-path treatment as
+    # power_rank_history above -- a plain JSON dict keyed by season_number,
+    # written once per simulated week by season_state.simulate_current_
+    # week(), never the real save the live server reads.
+    real_award_race_path = award_race_history.DEFAULT_PATH
     test_path = Path("data/saves/_test_isolated_current_season.json")
     test_power_rank_path = Path("data/saves/_test_isolated_power_rank_history.json")
-    test_path.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
-    test_power_rank_path.unlink(missing_ok=True)
+    test_owner_pressure_path = Path("data/saves/_test_isolated_owner_pressure.json")
+    test_team_expectations_path = Path("data/saves/_test_isolated_team_expectations.json")
+    test_award_race_path = Path("data/saves/_test_isolated_award_race_history.json")
+    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path):
+        p.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
     save_service.DEFAULT_SAVE_PATH = test_path
     power_rank_history.DEFAULT_PATH = test_power_rank_path
+    owner_pressure_store.DEFAULT_PATH = test_owner_pressure_path
+    team_expectations.DEFAULT_PATH = test_team_expectations_path
+    award_race_history.DEFAULT_PATH = test_award_race_path
+    owner_pressure_store.clear_cache()
+    team_expectations.clear_cache()
     try:
         yield
     finally:
         save_service.DEFAULT_SAVE_PATH = real_save_path
         power_rank_history.DEFAULT_PATH = real_power_rank_path
-        test_path.unlink(missing_ok=True)
-        test_power_rank_path.unlink(missing_ok=True)
+        owner_pressure_store.DEFAULT_PATH = real_owner_pressure_path
+        team_expectations.DEFAULT_PATH = real_team_expectations_path
+        award_race_history.DEFAULT_PATH = real_award_race_path
+        owner_pressure_store.clear_cache()
+        team_expectations.clear_cache()
+        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path):
+            p.unlink(missing_ok=True)
 
 
 @pytest.fixture(scope="session")
@@ -119,11 +151,32 @@ def _isolate_db_path(_golden_db_path):
     """Function-scoped (not session-scoped, see module docstring for the
     real bug that distinction fixes): every single test gets its OWN
     fresh copy of the golden reference DB, so no test can ever see
-    another test's writes, and the real file is never touched at all."""
+    another test's writes, and the real file is never touched at all.
+
+    **A second real bug, found and fixed 2026-09-12**: a module-scoped
+    fixture that does its OWN `db_module.DB_PATH` redirect before this
+    one runs (test_coaching.py's `completed_season`, which simulates a
+    full season + playoffs against its own throwaway DB, entirely
+    BEFORE any test function body executes) sets up FIRST -- pytest
+    instantiates broader-scoped fixtures before narrower-scoped ones,
+    regardless of declaration order. This fixture used to always copy
+    from the untouched session-level `_golden_db_path` regardless,
+    silently discarding whatever `completed_season` had just
+    populated (its real, fully-simulated championship credits included)
+    and running the actual test body against a pristine, pre-simulation
+    database instead. Confirmed via instrumentation: `credit_championship_
+    round()` was writing `hc_super_bowl_wins` correctly to
+    `completed_season`'s own DB; the failing assertion was reading it
+    back from a DIFFERENT, wrong file this fixture had substituted in.
+    Fixed by sourcing the per-test copy from whatever `db_module.DB_PATH`
+    CURRENTLY is when it differs from `_REAL_DB_PATH` (i.e. a broader
+    fixture already redirected it) -- and from the golden copy otherwise,
+    unchanged from before for every test that doesn't nest like this."""
     real_db_path = db_module.DB_PATH
     per_test_path = Path("data/_test_isolated_franchise.db")
     per_test_path.unlink(missing_ok=True)
-    shutil.copy(_golden_db_path, per_test_path)
+    source = real_db_path if real_db_path != _REAL_DB_PATH else _golden_db_path
+    shutil.copy(source, per_test_path)
     db_module.DB_PATH = per_test_path
     db_module._engine = None
     _clear_db_backed_caches()
