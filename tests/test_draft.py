@@ -235,9 +235,12 @@ def test_simulate_draft_respects_a_real_traded_pick(monkeypatch):
     to BUF, BUF -- not KC -- actually makes that pick."""
     from app.services import draft_pick_store
 
-    monkeypatch.setattr(draft_pick_store, "owner_of",
-                         lambda season_number, round, original_team_abbr, path=None:
-                             "BUF" if (round, original_team_abbr) == (1, "KC") else original_team_abbr)
+    # simulate_draft() reads the whole season's ownership once up front via
+    # owners_for_season() (the same "fetch once" precedent as this file's
+    # own _all_teams_group_counts()), not a per-pick owner_of() call --
+    # mock that bulk entry point instead.
+    monkeypatch.setattr(draft_pick_store, "owners_for_season",
+                         lambda season_number, path=None: {(1, "KC"): "BUF"})
 
     prospects = draft.generate_draft_class(2025, 1)
     order = ["KC", "BUF", "SF"]

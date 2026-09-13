@@ -493,24 +493,25 @@ def simulate_draft(prospects: list[ProspectDraft], order: list[str], league_seed
     Player row itself still gets the prospect's real, true attributes;
     only the DECISION of who to take was made off noisy information. The
     only DB access is the up-front roster-count query, one coach-staff
-    lookup per team (cached by coach_store), and one pick-ownership
-    lookup per slot (app/services/draft_pick_store.py, Sec 8.5 -- a
-    traded pick's CURRENT OWNER makes the pick, not the original team
-    `order` names; that original team's real record still earned the
-    SLOT, unchanged); everything else here is a pure computation over
-    `prospects`/`order`, so determinism is exhaustively unit-testable
-    without needing to mock the database."""
+    lookup per team (cached by coach_store), and one up-front pick-
+    ownership read for the whole season (app/services/draft_pick_store.py,
+    Sec 8.5 -- a traded pick's CURRENT OWNER makes the pick, not the
+    original team `order` names; that original team's real record still
+    earned the SLOT, unchanged); everything else here is a pure
+    computation over `prospects`/`order`, so determinism is exhaustively
+    unit-testable without needing to mock the database."""
     from app.services import draft_pick_store
 
     remaining = {p.index: p for p in prospects}
     counts = _all_teams_group_counts()
+    owners = draft_pick_store.owners_for_season(season_number)
     picks: list[DraftPickResult] = []
     overall_pick = 1
     for rnd in range(1, rounds + 1):
         for original_team_abbr in order:
             if not remaining:
                 break
-            picking_team = draft_pick_store.owner_of(season_number, rnd, original_team_abbr)
+            picking_team = owners.get((rnd, original_team_abbr), original_team_abbr)
             team_counts = counts.setdefault(picking_team, {group: 0 for group in GROUP_POSITIONS})
             needs = _needs_from_counts(team_counts)[:3]
             candidates = [p for p in remaining.values() if p.group in needs]

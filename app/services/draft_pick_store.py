@@ -98,11 +98,32 @@ def owner_of(season_number: int, round: int, original_team_abbr: str, path: Path
     slot was never explicitly seeded (a genuinely fresh save/test that
     skipped ensure_lookahead_seeded()), so a missing inventory never
     breaks the draft -- same graceful-degradation guarantee every other
-    coaching/focus hook in this engine already has for an absent store."""
+    coaching/focus hook in this engine already has for an absent store.
+
+    A single-slot lookup -- fine for one-off callers (the GM Desk trade
+    route), but re-reads and re-parses the ENTIRE inventory file from
+    disk every call. app/engine/draft.py's simulate_draft() asks this
+    once per (round, team) -- 224 times for a full 7-round/32-team draft
+    -- so it uses owners_for_season() below instead, the same
+    "fetch once up front" precedent this module's own docstring already
+    follows for _all_teams_group_counts()."""
     for p in all_picks(path):
         if (p.season_number, p.round, p.original_team_abbr) == (season_number, round, original_team_abbr):
             return p.current_owner_abbr
     return original_team_abbr
+
+
+def owners_for_season(season_number: int, path: Path | None = None) -> dict[tuple[int, str], str]:
+    """Every (round, original_team_abbr) -> current_owner_abbr mapping for
+    one draft season, in a single file read -- the bulk equivalent of
+    calling owner_of() in a loop. A slot missing from the returned dict
+    means untraded (still owned by the original team), matching
+    owner_of()'s own default -- callers should look up with
+    `.get((round, original_team_abbr), original_team_abbr)`."""
+    return {
+        (p.round, p.original_team_abbr): p.current_owner_abbr
+        for p in all_picks(path) if p.season_number == season_number
+    }
 
 
 def ensure_lookahead_seeded(current_season_number: int, path: Path | None = None) -> None:
