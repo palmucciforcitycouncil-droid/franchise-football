@@ -105,7 +105,7 @@
   {% if trade_block %}
   <div class="dashboard-scroll">
     <table class="boxtable">
-      <thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>OVR</th><th>Interest</th><th></th></tr></thead>
+      <thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>OVR</th><th>Interest</th><th>Why available</th><th></th></tr></thead>
       <tbody>
         {% for row in trade_block %}
         <tr>
@@ -114,6 +114,7 @@
           <td>{{ row.player.position.value }}</td>
           <td>{{ row.player.overall_rating }}</td>
           <td>{{ row.interest | capitalize }}</td>
+          <td class="muted">{{ row.reason }}</td>
           <td><a href="/gm-desk?team_b={{ row.player.team_abbr }}&amp;acquire={{ row.player.player_id }}#propose-trade-card">Trade For</a></td>
         </tr>
         {% endfor %}
@@ -141,7 +142,7 @@
   </form>
 
   {% if trade_partner_roster %}
-  <form method="post" action="/gm-desk/trade" id="trade-form" class="trade-board" data-preselect="{{ preselect_player_id or '' }}">
+  <form method="post" action="/gm-desk/trade" id="trade-form" class="trade-board" data-preselect="{{ preselect_player_id or '' }}" data-team-b="{{ team_b }}">
     <input type="hidden" name="team_b" value="{{ team_b }}">
     <div class="trade-roster-col">
       <h4>{{ user_info.location }} ({{ user_info.abbr }})</h4>
@@ -229,6 +230,7 @@
       <ul class="trade-offer-list" data-offer-list="give"><li class="muted trade-offer-empty">Click a player to add them</li></ul>
       <div class="trade-offer-label">{{ team_b_info.abbr }} sends</div>
       <ul class="trade-offer-list" data-offer-list="get"><li class="muted trade-offer-empty">Click a player to add them</li></ul>
+      <div class="pc-row" style="margin-top: 0.5rem;"><span class="pc-row-label">Trade Interest</span><span id="trade-reaction">&mdash;</span></div>
       <div class="trade-offer-actions">
         <button type="submit" {% if not trade_window_open %}disabled{% endif %}>Submit Offer</button>
         <button type="button" id="trade-clear-btn">Clear Offer</button>

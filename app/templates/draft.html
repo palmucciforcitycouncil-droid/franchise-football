@@ -112,6 +112,29 @@
   </div>
 </div>
 
+{% if trade_result %}
+<div class="card">
+  {% if trade_result == 'ACCEPT' %}
+  <p><strong>{{ team_b }}</strong> accepted your trade.</p>
+  {% else %}
+  <p><strong>{{ team_b }}</strong> rejected your trade &mdash; the value they'd receive isn't close enough to what they'd give up.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Team Picks ({{ team_picks | length }})</h3>
+  {% if team_picks %}
+  <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
+    {% for slot in team_picks %}
+    <span class="pc-badge-ovr">Round {{ slot.round }}<br>Pick #{{ slot.overall_pick }}</span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No picks left in this draft.</p>
+  {% endif %}
+</div>
+
 <div class="card">
   <h3>Draft Results</h3>
   {% if picks_so_far %}
@@ -145,6 +168,117 @@
     {% endfor %}
   </div>
 </div>
+
+<div class="card">
+  <h3>Your Draft Board ({{ board | length }})</h3>
+  <p class="muted" style="font-size: 0.82rem;">Your own reference ranking -- doesn't affect the real, need-aware AI picks (including your own, if you let "End" auto-draft them).</p>
+  {% if board %}
+  <div class="dashboard-scroll">
+    <table class="boxtable">
+      <thead><tr><th>#</th><th>Player</th><th>Pos</th><th>OVR</th><th>POT</th><th></th></tr></thead>
+      <tbody>
+        {% for p in board %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ p.first_name }} {{ p.last_name }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.potential }}</td>
+          <td class="row" style="gap: 0.3rem;">
+            {% if your_turn %}
+            <form method="post" action="/draft/pick">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <button type="submit">Draft</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/draft/board/move">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <input type="hidden" name="direction" value="up">
+              <button type="submit" {% if loop.first %}disabled{% endif %}>&uarr;</button>
+            </form>
+            <form method="post" action="/draft/board/move">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <input type="hidden" name="direction" value="down">
+              <button type="submit" {% if loop.last %}disabled{% endif %}>&darr;</button>
+            </form>
+            <form method="post" action="/draft/board/remove">
+              <input type="hidden" name="prospect_index" value="{{ p.index }}">
+              <button type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Nothing on your board yet -- add prospects from the Prospects list below.</p>
+  {% endif %}
+</div>
+
+{% if user_abbr %}
+<div class="card">
+  <h3>Your Roster ({{ roster | length }})</h3>
+  <div class="dashboard-scroll" style="max-height: 320px;">
+    <table class="boxtable">
+      <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Age</th></tr></thead>
+      <tbody>
+        {% for p in roster %}
+        <tr>
+          <td>{{ p.first_name }} {{ p.last_name }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.age }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" id="draft-trade-card">
+  <h3>Trade Picks</h3>
+  <p class="muted" style="font-size: 0.82rem;">Real draft-pick trading (GDD &sect;8.5), right on the draft screen -- posts through the exact same evaluation GM Desk's own Propose Trade panel uses.</p>
+  <form method="get" action="/draft" data-preserve-scroll="draft-trade-card">
+    <label for="draft-team-b">Trade with</label>
+    <select name="team_b" id="draft-team-b" onchange="this.form.submit()">
+      <option value="">Choose a team&hellip;</option>
+      {% for t in other_teams %}
+      <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if team_b_info %}
+  <form method="post" action="/gm-desk/trade">
+    <input type="hidden" name="team_b" value="{{ team_b }}">
+    <input type="hidden" name="return_to" value="draft">
+    <div class="row" style="gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin-top: 0.5rem;">
+      <div>
+        <h4>{{ user_abbr }} sends</h4>
+        {% if user_tradeable_picks %}
+        {% for pk in user_tradeable_picks %}
+        <label class="filter-checkbox" style="display: block;"><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
+        {% endfor %}
+        {% else %}
+        <p class="muted">No tradeable picks.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h4>{{ team_b_info.abbr }} sends</h4>
+        {% if trade_partner_picks %}
+        {% for pk in trade_partner_picks %}
+        <label class="filter-checkbox" style="display: block;"><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
+        {% endfor %}
+        {% else %}
+        <p class="muted">No tradeable picks.</p>
+        {% endif %}
+      </div>
+    </div>
+    <button type="submit" style="margin-top: 0.75rem;">Submit Offer</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="card" id="draft-prospects">
   <h3>Prospects ({{ prospects | length }} remaining)</h3>

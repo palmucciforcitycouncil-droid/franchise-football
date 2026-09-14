@@ -997,7 +997,7 @@ def current_draft_slot():
     progress = draft_progress_store.get(next_number)
     if progress is None:
         return None
-    slots = draft.draft_slots(progress["order"])
+    slots = draft.draft_slots(progress["order"], season_number=next_number)
     idx = progress["current_pick_index"]
     if idx >= len(slots):
         return None
@@ -1029,7 +1029,7 @@ def advance_draft_pick(chosen_prospect_index: int | None = None) -> dict:
         progress = draft_progress_store.get(next_number)
         if progress is None:
             raise ValueError("No live draft in progress")
-        slots = draft.draft_slots(progress["order"])
+        slots = draft.draft_slots(progress["order"], season_number=next_number)
         idx = progress["current_pick_index"]
         if idx >= len(slots):
             raise ValueError("The draft is already fully resolved")

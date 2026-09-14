@@ -549,17 +549,35 @@ class DraftSlot:
     team_abbr: str
 
 
-def draft_slots(order: list[str], rounds: int = ROUNDS) -> list[DraftSlot]:
+def draft_slots(order: list[str], season_number: int | None = None, rounds: int = ROUNDS) -> list[DraftSlot]:
     """The fixed, real sequence of (round, overall_pick, team) slots a
     draft resolves in -- a pure function of `order` (compute_draft_
-    order()'s real standings-based result) and `rounds`, identical
-    whether computed once atomically (simulate_draft) or read fresh on
-    every request by the live pick-by-pick engine."""
+    order()'s real standings-based result) and `rounds`.
+
+    **Bug fix, 2026-09-14**: this function used to hand back `order`'s
+    ORIGINAL teams unconditionally, exactly like simulate_draft() did
+    before R15 -- but simulate_draft() itself was fixed to resolve real
+    pick ownership (app/services/draft_pick_store.py) when R15 shipped,
+    and this live, pick-by-pick sibling (added the same day, "rebuilt
+    2026-09-13") never got the same fix. Result: a real GM Desk pick
+    trade had zero effect on who actually went on the clock in the live
+    draft -- season_state.py's advance_draft_pick() credits `slot.
+    team_abbr` straight to the drafted Player row, so this wasn't a
+    display-only bug. `season_number` (the draft's own season number,
+    e.g. draft_progress_store/draft_class_store's `next_number`) now
+    resolves each slot's CURRENT owner the exact same way simulate_
+    draft() already does -- omitted only by this function's own existing
+    unit tests that predate trading and don't care about it."""
+    owners: dict[tuple[int, str], str] = {}
+    if season_number is not None:
+        from app.services import draft_pick_store
+        owners = draft_pick_store.owners_for_season(season_number)
     slots: list[DraftSlot] = []
     overall_pick = 1
     for rnd in range(1, rounds + 1):
-        for team_abbr in order:
-            slots.append(DraftSlot(round=rnd, overall_pick=overall_pick, team_abbr=team_abbr))
+        for original_team_abbr in order:
+            picking_team = owners.get((rnd, original_team_abbr), original_team_abbr)
+            slots.append(DraftSlot(round=rnd, overall_pick=overall_pick, team_abbr=picking_team))
             overall_pick += 1
     return slots
 

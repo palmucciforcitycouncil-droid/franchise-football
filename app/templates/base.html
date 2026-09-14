@@ -1890,7 +1890,8 @@
             var g = card.schedule[i];
             var vsAt = g.is_home ? 'vs' : '@';
             var resultText = g.result ? (g.result.won ? 'W' : 'L') + ' ' + g.result.user_score + '-' + g.result.opp_score : '--';
-            rows += '<div class="pc-row"><span class="pc-row-label">Wk ' + g.week + ' ' + vsAt + ' ' + g.opponent_name + '</span><span>' + resultText + '</span></div>';
+            var weekLabel = g.is_preseason ? 'PRE ' + g.week : 'Wk ' + g.week;
+            rows += '<div class="pc-row"><span class="pc-row-label">' + weekLabel + ' ' + vsAt + ' ' + g.opponent_name + '</span><span>' + resultText + '</span></div>';
           }
           tcSchedulePanel.innerHTML = rows;
         } else {
@@ -2237,6 +2238,52 @@
       // dblclick reserved for the card.
       var tradeForm = document.getElementById('trade-form');
       if (tradeForm) {
+        // Live "Trade Interest" meter (Brian's ask, 2026-09-14): same
+        // debounced-fetch-to-a-read-only-preview-endpoint shape as the
+        // Negotiation modal's own Player Reaction above (negFetchReaction/
+        // negScheduleFetch) -- calls /gm-desk/trade/preview, which runs
+        // the exact same need-weighted trades.evaluate_trade() the real
+        // submit uses, so this reading and the eventual ACCEPT/REJECT
+        // never disagree. Reuses negReactionClass() for the same 5-band
+        // color coding as the contract modal.
+        var tradeReactionEl = document.getElementById('trade-reaction');
+        var tradePreviewTimer = null;
+        function fetchTradeReaction() {
+          if (!tradeReactionEl) { return; }
+          var teamB = tradeForm.dataset.teamB;
+          if (!teamB) { return; }
+          var params = new URLSearchParams();
+          params.set('team_b', teamB);
+          tradeForm.querySelectorAll('.trade-checkbox[data-side="give"]:checked').forEach(function (cb) { params.append('give', cb.value); });
+          tradeForm.querySelectorAll('.trade-checkbox[data-side="get"]:checked').forEach(function (cb) { params.append('get', cb.value); });
+          tradeForm.querySelectorAll('input[name="give_picks"]:checked').forEach(function (cb) { params.append('give_picks', cb.value); });
+          tradeForm.querySelectorAll('input[name="get_picks"]:checked').forEach(function (cb) { params.append('get_picks', cb.value); });
+          tradeReactionEl.textContent = 'Checking…';
+          tradeReactionEl.className = '';
+          fetch('/gm-desk/trade/preview?' + params.toString()).then(function (r) {
+            if (!r.ok) { throw new Error('preview failed'); }
+            return r.json();
+          }).then(function (data) {
+            if (!data.reaction) {
+              tradeReactionEl.textContent = '--';
+              tradeReactionEl.className = '';
+              return;
+            }
+            tradeReactionEl.textContent = data.reaction;
+            tradeReactionEl.className = negReactionClass(data.reaction);
+          }).catch(function () {
+            tradeReactionEl.textContent = '--';
+            tradeReactionEl.className = '';
+          });
+        }
+        function scheduleTradeReaction() {
+          if (tradePreviewTimer) { clearTimeout(tradePreviewTimer); }
+          tradePreviewTimer = setTimeout(fetchTradeReaction, 250);
+        }
+        tradeForm.querySelectorAll('input[name="give_picks"], input[name="get_picks"]').forEach(function (cb) {
+          cb.addEventListener('change', scheduleTradeReaction);
+        });
+
         function renderTradeOffer() {
           ['give', 'get'].forEach(function (side) {
             var list = tradeForm.querySelector('.trade-offer-list[data-offer-list="' + side + '"]');
@@ -2252,6 +2299,7 @@
             });
             list.innerHTML = html;
           });
+          scheduleTradeReaction();
         }
 
         tradeForm.querySelectorAll('.trade-row').forEach(function (row) {

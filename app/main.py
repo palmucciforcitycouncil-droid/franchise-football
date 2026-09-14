@@ -723,8 +723,29 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
     simulated -- the real per-team view the Figma source's TeamSchedule
     component shows, as opposed to the league-wide "latest results"
     the pre-M9 dashboard had. Built from season.schedule, the same data
-    every other schedule view (e.g. /season) already reads."""
+    every other schedule view (e.g. /season) already reads.
+
+    The 4 real preseason games (R10) are prepended, each flagged
+    `is_preseason=True` and numbered by their own round instead of
+    sharing the real Week 1-18 numbering -- Brian's ask, 2026-09-13: this
+    schedule previously omitted preseason entirely, and reusing "week"
+    numbering for both would have shown a "Wk 1" preseason game next to
+    the real "Wk 1" of the regular season with no way to tell them apart."""
     rows = []
+    for round_num, week in enumerate(getattr(season, "preseason_schedule", None) or [], start=1):
+        game = next((g for g in week if team_abbr in (g.home_abbr, g.away_abbr)), None)
+        if game is None:
+            continue
+        is_home = game.home_abbr == team_abbr
+        opponent_abbr = game.away_abbr if is_home else game.home_abbr
+        result = None
+        if game.result is not None:
+            user_score = game.result.home_score if is_home else game.result.away_score
+            opp_score = game.result.away_score if is_home else game.result.home_score
+            won = user_score > opp_score
+            tied = user_score == opp_score
+            result = {"won": won, "tied": tied, "user_score": user_score, "opp_score": opp_score}
+        rows.append({"week": round_num, "is_preseason": True, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
     for week_num, week in enumerate(season.schedule, start=1):
         game = next((g for g in week if team_abbr in (g.home_abbr, g.away_abbr)), None)
         if game is None:
@@ -743,7 +764,7 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
             won = user_score > opp_score
             tied = user_score == opp_score
             result = {"won": won, "tied": tied, "user_score": user_score, "opp_score": opp_score}
-        rows.append({"week": week_num, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
+        rows.append({"week": week_num, "is_preseason": False, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
     return rows
 
 
@@ -3221,22 +3242,29 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
             )
         trade_partner_picks = _pick_rows(team_b)
 
-    # Trade Block (Brian's ask, 2026-09-13): the league's real best
-    # bargains (highest Surplus Value, app.engine.trades.player_trade_
-    # value) worth going after -- see trade_block_interest()'s own
-    # docstring for why this, not a fabricated "on the block" flag.
-    # Real starters only (overall_rating >= 70, matching this module's
-    # own bar for "worth inquiring about" elsewhere), excluding the
-    # user's own team.
+    # Trade Block (Brian's ask, 2026-09-13; reworked 2026-09-14 -- see
+    # trades.trade_block_availability()'s own docstring): a player only
+    # shows up here if his OWN team has a real, disclosed reason to
+    # listen -- positional surplus (a ready replacement sits behind him)
+    # or an expiring deal they're unlikely to renew -- not simply "high
+    # Surplus Value league-wide," which put literal untouchable stars up
+    # for grabs. Most rostered players return None and never appear; not
+    # every team is guaranteed a listing. Real starters only
+    # (overall_rating >= 70, matching this module's own bar for "worth
+    # inquiring about" elsewhere), excluding the user's own team.
     with get_session() as s:
-        trade_block_candidates = list(s.exec(
+        trade_block_pool = list(s.exec(
             select(Player).where(Player.team_abbr != None, Player.team_abbr != user_abbr, Player.overall_rating >= 70)  # noqa: E711
         ))
-    def _trade_block_row(p: Player) -> dict:
+    def _trade_block_row(p: Player) -> dict | None:
+        reason = trades.trade_block_availability(p, season.season_number)
+        if reason is None:
+            return None
         value = trades.player_trade_value(p, season.season_number)
-        return {"player": p, "value": value, "interest": trades.trade_block_interest(value, season.season_number)}
+        return {"player": p, "value": value, "interest": trades.trade_block_interest(value, season.season_number), "reason": reason}
 
-    trade_block = sorted((_trade_block_row(p) for p in trade_block_candidates), key=lambda row: -row["value"])[:20]
+    trade_block_rows = [r for r in (_trade_block_row(p) for p in trade_block_pool) if r is not None]
+    trade_block = sorted(trade_block_rows, key=lambda row: -row["value"])[:20]
 
     return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
@@ -3421,7 +3449,8 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
 @app.post("/gm-desk/trade")
 def gm_desk_trade(request: Request, team_b: str = Form(...),
                    give: list[str] = Form(default=[]), get: list[str] = Form(default=[]),
-                   give_picks: list[str] = Form(default=[]), get_picks: list[str] = Form(default=[])):
+                   give_picks: list[str] = Form(default=[]), get_picks: list[str] = Form(default=[]),
+                   return_to: str = Form("gm-desk")):
     """R4c's real trade flow (GDD Sec 8.5): players AND real draft picks
     (app/services/draft_pick_store.py), evaluated from the AI team's own
     side via a real Surplus Value + pick-value formula. An ACCEPT really
@@ -3463,6 +3492,7 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
         result = trades.evaluate_trade(
             get_players, give_players, season.season_number,
             ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
+            ai_team_abbr=team_b,
         )
 
         if result.accepted:
@@ -3473,10 +3503,67 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
             s.commit()
             depth_chart.clear_starters_cache()
 
+    # Draft page's own compact pick-trading panel (Brian's ask, 2026-09-14)
+    # posts here too rather than duplicating evaluate_trade()/execute_trade()
+    # -- `return_to` just picks which page shows the real ACCEPT/REJECT
+    # result, same mutation either way.
+    target = "draft" if return_to == "draft" else "gm-desk"
     return RedirectResponse(
-        url="/gm-desk?" + urlencode({"team_b": team_b, "trade_result": "ACCEPT" if result.accepted else "REJECT"}),
+        url=f"/{target}?" + urlencode({"team_b": team_b, "trade_result": "ACCEPT" if result.accepted else "REJECT"}),
         status_code=303,
     )
+
+
+@app.get("/gm-desk/trade/preview")
+def gm_desk_trade_preview(team_b: str, give: list[str] = Query(default=[]), get: list[str] = Query(default=[]),
+                           give_picks: list[str] = Query(default=[]), get_picks: list[str] = Query(default=[])):
+    """Read-only twin of gm_desk_trade() above, for the Propose Trade
+    panel's live "Trade Interest" feedback (Brian's ask, 2026-09-14) --
+    calls the exact same need-weighted trades.evaluate_trade() so the
+    live preview and the real submit always agree, but never touches
+    the DB. Called on every add/remove (client-side debounced), so it's
+    deliberately cheap: no commit, silently ignores an asset id that
+    doesn't (or no longer) resolves rather than erroring out mid-typing."""
+    from app.services import draft_pick_store
+
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    user_abbr = season.user_team_abbr
+    if team_b not in TEAMS_BY_ABBR or team_b == user_abbr:
+        raise HTTPException(422, "Invalid trade partner")
+    if not (give or give_picks or get or get_picks):
+        return {"reaction": None, "value_sent": 0, "value_received": 0}
+
+    user_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(user_abbr)}
+    team_b_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(team_b)}
+    give_pick_refs = [trades.PickRef(user_owned_picks[pid].season_number, user_owned_picks[pid].round,
+                                      user_owned_picks[pid].original_team_abbr)
+                       for pid in give_picks if pid in user_owned_picks]
+    get_pick_refs = [trades.PickRef(team_b_owned_picks[pid].season_number, team_b_owned_picks[pid].round,
+                                     team_b_owned_picks[pid].original_team_abbr)
+                      for pid in get_picks if pid in team_b_owned_picks]
+
+    with get_session() as s:
+        give_players = [p for pid in give if (p := s.get(Player, pid)) is not None and p.team_abbr == user_abbr]
+        get_players = [p for pid in get if (p := s.get(Player, pid)) is not None and p.team_abbr == team_b]
+
+        result = trades.evaluate_trade(
+            get_players, give_players, season.season_number,
+            ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
+            ai_team_abbr=team_b,
+        )
+
+    if result.value_sent > 0:
+        score = result.value_received / result.value_sent
+    elif result.value_received > 0:
+        score = 2.0  # the AI gives up nothing of real dollar value and gets something real -- an easy real ACCEPT
+    else:
+        score = 1.0  # both sides price at ~0 (e.g. picks-only, or two expiring/overpaid players) -- a neutral read, not a fabricated verdict
+    return {
+        "reaction": trades.trade_reaction(score),
+        "value_sent": round(result.value_sent), "value_received": round(result.value_received),
+    }
 
 
 PROSPECT_SORT_KEYS = ("ovr", "pot", "name", "pos", "age", "college")
@@ -3547,6 +3634,7 @@ def _draft_review_response(request: Request, season, target_season: int, just_co
 def draft_view(
     request: Request, season_param: int | None = None, just_completed: int | None = None,
     group: str = "ALL", sort: str | None = None, dir: str = "desc",
+    team_b: str | None = None, trade_result: str | None = None,
 ):
     """R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f),
     rebuilt 2026-09-13 (Brian's ask) into three real modes:
@@ -3571,12 +3659,14 @@ def draft_view(
         return _draft_review_response(request, season, season_param, just_completed=False)
 
     if season.offseason_stage == "draft":
+        from app.services import draft_pick_store
+
         next_number = season.season_number + 1
         progress = draft_progress_store.get(next_number)
         prospects = draft_class_store.get_class(next_number) or draft_engine.generate_draft_class(season.league_seed, next_number)
         prospects_by_index = {p.index: p for p in prospects}
         drafted_indexes = set(progress["drafted_indexes"]) if progress else set()
-        slots = draft_engine.draft_slots(progress["order"]) if progress else []
+        slots = draft_engine.draft_slots(progress["order"], season_number=next_number) if progress else []
         idx = progress["current_pick_index"] if progress else 0
         current_slot = slots[idx] if idx < len(slots) else None
         remaining = sorted(
@@ -3588,6 +3678,56 @@ def draft_view(
         if season.user_team_abbr:
             strength = roster_strength.compute_roster_strength(season.user_team_abbr)
             needs = sorted(strength.group_ratings.items(), key=lambda kv: kv[1])[:6]
+
+        # Team Picks (Brian's ask, 2026-09-14): the user's own remaining
+        # picks in THIS draft, in order -- real ownership-resolved slots
+        # (draft_slots()'s own 2026-09-14 fix), so a pick traded away no
+        # longer shows here and one traded FOR does.
+        user_abbr = season.user_team_abbr
+        team_picks = [s for s in slots[idx:] if s.team_abbr == user_abbr] if user_abbr else []
+
+        # Draft Board, now usable DURING the live draft too (previously
+        # only the pre-draft "prospects" mode below rendered it) -- the
+        # same personal ranking, with a real "Draft" button per row on
+        # your own turn instead of just "+Board"/"Remove".
+        board_indexes = draft_board_store.get_board(next_number)
+        board = [prospects_by_index[i] for i in board_indexes if i in prospects_by_index and i not in drafted_indexes]
+
+        # Roster (Brian's ask, 2026-09-14): a compact, position-sorted
+        # view of the user's own CURRENT roster, so a real need is one
+        # glance away while picking -- no new query shape, same Player
+        # rows the Roster page itself reads.
+        roster = []
+        if user_abbr:
+            with get_session() as s:
+                roster = sorted(
+                    s.exec(select(Player).where(Player.team_abbr == user_abbr)).all(),
+                    key=lambda p: (p.position.value, -p.overall_rating),
+                )
+
+        # Trade panel (Brian's ask, 2026-09-14): picks-only trading right
+        # on the draft page -- posts to the SAME /gm-desk/trade route GM
+        # Desk's own Propose Trade panel uses (return_to=draft just picks
+        # which page shows the real ACCEPT/REJECT result), so there's no
+        # second trade-evaluation implementation to keep in sync.
+        team_b_info = None
+        trade_partner_picks = []
+        user_tradeable_picks = []
+        if user_abbr:
+            user_tradeable_picks = [
+                {"pick_id": pk.pick_id,
+                 "label": f"{season_year(pk.season_number)} Round {pk.round}"
+                          + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != user_abbr else "")}
+                for pk in draft_pick_store.picks_owned_by(user_abbr)
+            ]
+        if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
+            trade_partner_picks = [
+                {"pick_id": pk.pick_id,
+                 "label": f"{season_year(pk.season_number)} Round {pk.round}"
+                          + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != team_b else "")}
+                for pk in draft_pick_store.picks_owned_by(team_b)
+            ]
+            team_b_info = TEAMS_BY_ABBR[team_b]
 
         return templates.TemplateResponse(request, "draft.html", {
             "mode": "live",
@@ -3603,6 +3743,13 @@ def draft_view(
             "sort_keys": PROSPECT_SORT_KEYS, "active_sort": sort if sort in PROSPECT_SORT_KEYS else "ovr",
             "active_dir": dir if dir in ("asc", "desc") else "desc",
             "needs": needs,
+            "team_picks": team_picks,
+            "board": board, "board_indexes": set(board_indexes),
+            "roster": roster,
+            "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
+            "team_b": team_b, "team_b_info": team_b_info,
+            "user_tradeable_picks": user_tradeable_picks, "trade_partner_picks": trade_partner_picks,
+            "trade_result": trade_result,
         })
 
     if just_completed:
