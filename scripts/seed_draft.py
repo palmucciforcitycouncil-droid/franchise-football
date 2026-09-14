@@ -25,8 +25,8 @@ def seed_draft_data():
         session.commit()
         
         # Create prospects
-        positions = ["QB", "RB", "WR", "TE", "LT", "LG", "C", "RG", "RT",
-                    "DE", "DT", "LB", "CB", "S", "K", "P"]
+        positions = ["QB", "RB", "WR", "TE", "T", "G", "C",
+                    "EDGE", "DT", "LB", "CB", "S", "K", "P"]
         colleges = ["Alabama", "Ohio State", "Georgia", "Michigan", "Texas", 
                    "USC", "Notre Dame", "LSU", "Clemson", "Florida State"]
         first_names = ["John", "Mike", "David", "Chris", "Ryan", "Matt", "Josh", "Nick", "Tom", "Ben"]

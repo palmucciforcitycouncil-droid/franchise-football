@@ -44,7 +44,7 @@ from app.engine import roster_strength
 DEFAULT_PATH = Path("data/saves/team_expectations.json")
 
 OFFENSE_GROUPS = ["QB", "RB", "WR", "TE", "C", "G", "T"]
-DEFENSE_GROUPS = ["DE", "DT", "LB", "CB", "S"]
+DEFENSE_GROUPS = ["EDGE", "DT", "LB", "CB", "S"]
 
 EXPECTED_WINS_FLOOR = 4.0
 EXPECTED_WINS_CEIL = 13.0

@@ -5,11 +5,11 @@ The attribute set here matches the real roster data source (a Madden-derived
 CSV: local use only, real player names/attributes kept as-is per project
 decision) and, not by coincidence, matches what the GDD's play-calling AI
 (Part 1 Sec 6.6) actually references by name -- Avg_OL_RunBlock_Rating,
-DL_RunStop_Rating, Man/Zone Coverage, Route Running by depth, etc. Madden's
-granular position scheme (LT/LG/C/RG/RT, LE/RE/DT, LOLB/MLB/ROLB, CB/FS/SS)
-is kept as-is rather than collapsed to generic OL/DL/LB/DB groups, because
-Sec 6.6.2's zone-based blocking-advantage formula ("Left Zone: LT & LG vs.
-opponent RDE & RDT") needs exactly this side-specific granularity to work.
+DL_RunStop_Rating, Man/Zone Coverage, Route Running by depth, etc. Positions
+are side-agnostic (T/G/C, EDGE/DT, LB, CB/S -- unified 2026-09-14); Sec
+6.6.2's zone-based blocking formula still gets a left and right side from
+depth order (the 1st and 2nd starter at T/G/EDGE), see
+app/services/depth_chart.py.
 
 Two intentional naming notes:
 - `durability`: Madden's "Injury" attribute (higher = tougher, less likely
@@ -34,22 +34,36 @@ class Position(str, Enum):
     FB = "FB"
     WR = "WR"
     TE = "TE"
-    LT = "LT"
-    LG = "LG"
+    T = "T"
+    G = "G"
     C = "C"
-    RG = "RG"
-    RT = "RT"
-    LE = "LE"
-    RE = "RE"
+    EDGE = "EDGE"
     DT = "DT"
-    LOLB = "LOLB"
-    MLB = "MLB"
-    ROLB = "ROLB"
+    LB = "LB"
     CB = "CB"
-    FS = "FS"
-    SS = "SS"
+    S = "S"
     K = "K"
     P = "P"
+
+
+# 2026-09-14 position unification (Brian's ask): no left/right (or
+# strong/free, inside/outside) distinction anywhere in the game. Legacy
+# Madden codes still arrive from the raw roster CSV, old JSON stores and
+# pre-migration databases -- every one of those entry points normalizes
+# through here.
+LEGACY_POSITION_MAP: dict[str, str] = {
+    "LT": "T", "RT": "T",
+    "LG": "G", "RG": "G",
+    "LE": "EDGE", "RE": "EDGE", "DE": "EDGE",
+    "LOLB": "LB", "MLB": "LB", "ROLB": "LB", "OLB": "LB", "ILB": "LB",
+    "FS": "S", "SS": "S",
+    "RB": "HB",
+}
+
+
+def normalize_position(code: str) -> Position:
+    code = (code or "").strip().upper()
+    return Position(LEGACY_POSITION_MAP.get(code, code))
 
 
 class Player(SQLModel, table=True):
@@ -89,6 +103,16 @@ class Player(SQLModel, table=True):
     # something real to key off, disclosed as synthetic until R4a
     # (Contracts/Cap, GDD Sec 8.3) replaces it with a real negotiated term.
     contract_years_remaining: int = 1
+
+    # How this player joined his current team (2026-09-14, Player Card).
+    # "Draft" | "Free Agent" | "Undrafted FA" | "Trade" | "Re-signed" |
+    # None (= on the roster before the game's own timeline began -- the
+    # imported real roster, to be back-filled later).
+    acquisition_type: Optional[str] = None
+    acquisition_season: Optional[int] = None  # calendar year
+    acquisition_round: Optional[int] = None   # draft only
+    acquisition_pick: Optional[int] = None    # draft only, overall pick
+    acquisition_team: Optional[str] = None    # trade: team he came from
 
     # Physical
     speed: int

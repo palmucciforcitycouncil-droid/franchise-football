@@ -25,7 +25,7 @@ import json
 from pathlib import Path
 
 from app.engine.draft import ProspectDraft
-from app.models.player import Position
+from app.models.player import Position, normalize_position
 
 DEFAULT_PATH = Path("data/saves/draft_classes.json")
 
@@ -54,7 +54,7 @@ def _prospect_to_dict(p: ProspectDraft) -> dict:
 def _prospect_from_dict(d: dict) -> ProspectDraft:
     return ProspectDraft(
         index=d["index"], first_name=d["first_name"], last_name=d["last_name"],
-        position=Position(d["position"]), college=d["college"], age=d["age"],
+        position=normalize_position(d["position"]), college=d["college"], age=d["age"],
         height_inches=d["height_inches"], weight_lbs=d["weight_lbs"],
         overall_rating=d["overall_rating"], potential=d["potential"],
         attrs=d["attrs"], draft_grade=d["draft_grade"], group=d.get("group", ""),

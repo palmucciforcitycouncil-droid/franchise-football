@@ -417,9 +417,9 @@ def _known_non_defensive_position_keys() -> set[tuple[str, str]]:
     _prior_season_wins()."""
     from app.models.player import Position
     defensive_positions = {
-        Position.LE, Position.RE, Position.DT,
-        Position.LOLB, Position.MLB, Position.ROLB,
-        Position.CB, Position.FS, Position.SS,
+        Position.EDGE, Position.DT,
+        Position.LB,
+        Position.CB, Position.S,
     }
     try:
         with get_session() as s:
@@ -528,7 +528,7 @@ class ProBowlStarter:
 # generic group (the same grouping the Roster page's Team Quota pills
 # use) rather than Madden's granular per-slot positions. Real starter
 # COUNTS per side loosely match a real Pro Bowl roster's own shape (2 WR/
-# T/G/DE/DT/CB/S, 3 LB, 1 everything else) -- this module's own choice,
+# T/G/EDGE/DT/CB/S, 3 LB, 1 everything else) -- this module's own choice,
 # not a GDD value. K/P are their own "special" bucket rather than folded
 # into "offense", matching how the Awards page's own 3-tab shape
 # (Season Leaderboards / Weekly Race Archive / Pro Bowl Preview) treats
@@ -536,7 +536,7 @@ class ProBowlStarter:
 # engine (only at the next Player Progression rollover), so this is
 # genuinely a "preview" -- the same players all season until then.
 PRO_BOWL_OFFENSE_STARTER_COUNTS: dict[str, int] = {"QB": 1, "RB": 1, "WR": 2, "TE": 1, "C": 1, "G": 2, "T": 2}
-PRO_BOWL_DEFENSE_STARTER_COUNTS: dict[str, int] = {"DE": 2, "DT": 2, "LB": 3, "CB": 2, "S": 2}
+PRO_BOWL_DEFENSE_STARTER_COUNTS: dict[str, int] = {"EDGE": 2, "DT": 2, "LB": 3, "CB": 2, "S": 2}
 PRO_BOWL_SPECIAL_STARTER_COUNTS: dict[str, int] = {"K": 1, "P": 1}
 
 

@@ -81,24 +81,22 @@ FREE_AGENTS_TEAM = TeamInfo(abbr="FA", location="Free Agents", conference="", di
 # every other position starts exactly one. Used to highlight the right
 # NUMBER of starters on /roster and /depth-chart, not just the top player
 # at every position regardless of how many the engine actually plays.
-STARTER_COUNTS: dict[Position, int] = {Position.WR: 3, Position.DT: 2, Position.CB: 2}
+STARTER_COUNTS: dict[Position, int] = {
+    Position.WR: 3, Position.DT: 2, Position.CB: 2,
+    Position.T: 2, Position.G: 2, Position.EDGE: 2, Position.LB: 3, Position.S: 2,
+}
 
 # Position roster minimums for Team Quota badges (M4: Figma RosterPage.tsx)
 _ROSTER_POSITION_MINIMUMS: dict[str, int] = {
     "QB": 2, "RB": 3, "WR": 5, "TE": 2, "C": 1, "G": 2, "T": 2,
-    "DE": 2, "DT": 1, "LB": 6, "CB": 4, "S": 4, "K": 1, "P": 1,
+    "EDGE": 2, "DT": 1, "LB": 6, "CB": 4, "S": 4, "K": 1, "P": 1,
 }
 
 # M11 correction: Team Quota pills need a GENERIC group per player --
 # `_ROSTER_POSITION_MINIMUMS` above was always keyed by these generic
 # labels, but the original M4 build counted players by their RAW
-# Position enum value (QB/HB/FB/WR/TE/LT/LG/C/RG/RT/LE/RE/DT/LOLB/MLB/
-# ROLB/CB/FS/SS/K/P -- Madden's granular scheme, see player.py's own
-# docstring for why it's kept that granular). Since the minimums dict
-# has no "HB"/"LT"/"LOLB"/etc keys, 6 of 14 pills (RB/G/T/DE/LB/S) never
-# matched anything and silently never rendered -- a real, previously-
-# unnoticed bug, not a stale-doc issue like M9's. This mapping is what
-# was actually missing. Now shared with app/engine/roster_strength.py
+# Position enum value, so pills whose group label differed from the
+# position code never rendered. This mapping is what was missing. Now shared with app/engine/roster_strength.py
 # via app/engine/position_groups.py rather than defined here alone.
 _QUOTA_GROUP_FOR_POSITION = POSITION_TO_GROUP
 
@@ -108,7 +106,7 @@ _QUOTA_GROUP_FOR_POSITION = POSITION_TO_GROUP
 # UI doesn't offer, same "don't add a filter option nothing asked for"
 # discipline as everywhere else on this page.
 FA_OFFENSE_GROUPS = {"QB", "RB", "WR", "TE", "C", "G", "T", "K", "P"}
-FA_DEFENSE_GROUPS = {"DE", "DT", "LB", "CB", "S"}
+FA_DEFENSE_GROUPS = {"EDGE", "DT", "LB", "CB", "S"}
 
 # The real Figma source uses a SECOND, coarser 10-group breakdown for the
 # Filter panel's position checkboxes and the Top Free Agents pager

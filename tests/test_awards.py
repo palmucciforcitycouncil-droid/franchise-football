@@ -258,7 +258,7 @@ def test_roy_can_be_won_by_a_real_rookie_defender():
     from app.models.player import Player, Position
     from sqlmodel import select
 
-    defensive_positions = [Position.CB, Position.SS, Position.FS, Position.MLB, Position.LOLB, Position.ROLB, Position.DT, Position.LE, Position.RE]
+    defensive_positions = [Position.CB, Position.S, Position.LB, Position.DT, Position.EDGE]
     with get_session() as s:
         rookie = s.exec(
             select(Player).where(Player.years_pro == 0, Player.team_abbr == "MIA", Player.position.in_(defensive_positions))

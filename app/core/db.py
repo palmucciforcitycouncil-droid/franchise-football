@@ -22,6 +22,13 @@ def get_engine():
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         _engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
         _engine_path = DB_PATH
+        # Every DB this process opens (the template, the legacy file, each
+        # save's own franchise.db, test copies) is brought up to the
+        # current schema here, once per engine -- the hand-maintained
+        # per-file migration scripts kept missing save databases (see
+        # HANDOFF 2026-09-14's focus_area incident).
+        if DB_PATH.exists():
+            _migrate_schema(_engine)
     return _engine
 
 
@@ -45,9 +52,36 @@ def _migrate_schema(engine) -> None:
     schema and every insert referencing the new column fails."""
     with engine.connect() as conn:
         existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(player)")}
+        if not existing:
+            return  # empty DB -- create_all() builds the current schema
         if "guaranteed_money" not in existing:
             conn.exec_driver_sql("ALTER TABLE player ADD COLUMN guaranteed_money INTEGER DEFAULT 0")
             conn.commit()
+        for column, ddl in _PLAYER_COLUMNS_ADDED_2026_09_14:
+            if column not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE player ADD COLUMN {column} {ddl}")
+                conn.commit()
+        coach_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(coach)")}
+        if coach_cols and "focus_area" not in coach_cols:
+            conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN focus_area TEXT NOT NULL DEFAULT 'Development'")
+            conn.commit()
+        # 2026-09-14 position unification: idempotent -- a no-op once no
+        # legacy left/right codes remain. SQLModel stores the Enum NAME,
+        # which equals the value for every Position member.
+        from app.models.player import LEGACY_POSITION_MAP
+        for old, new in LEGACY_POSITION_MAP.items():
+            conn.exec_driver_sql("UPDATE player SET position = ? WHERE position = ?", (new, old))
+        conn.commit()
+
+
+# (column, SQL type/default) -- see app/models/player.py for each field.
+_PLAYER_COLUMNS_ADDED_2026_09_14: list[tuple[str, str]] = [
+    ("acquisition_type", "TEXT"),
+    ("acquisition_season", "INTEGER"),
+    ("acquisition_round", "INTEGER"),
+    ("acquisition_pick", "INTEGER"),
+    ("acquisition_team", "TEXT"),
+]
 
 
 def get_session() -> Session:

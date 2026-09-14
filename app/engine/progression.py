@@ -52,11 +52,10 @@ PEAK_WINDOWS: dict[Position, tuple[int, int]] = {
     Position.FB: (25, 28),
     Position.WR: (26, 29),
     Position.TE: (26, 29),
-    Position.LT: (27, 30), Position.LG: (27, 30), Position.C: (27, 30),
-    Position.RG: (27, 30), Position.RT: (27, 30),
-    Position.LE: (26, 29), Position.RE: (26, 29), Position.DT: (26, 29),
-    Position.LOLB: (25, 28), Position.MLB: (25, 28), Position.ROLB: (25, 28),
-    Position.CB: (25, 28), Position.FS: (25, 28), Position.SS: (25, 28),
+    Position.T: (27, 30), Position.G: (27, 30), Position.C: (27, 30),
+    Position.EDGE: (26, 29), Position.DT: (26, 29),
+    Position.LB: (25, 28),
+    Position.CB: (25, 28), Position.S: (25, 28),
     Position.K: (28, 32), Position.P: (28, 32),
 }
 

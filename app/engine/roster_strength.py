@@ -113,20 +113,14 @@ _DECAY_MAX_DEPTH: dict[Position, tuple[float, int]] = {
     Position.FB: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
     Position.WR: (rotation.WR_DECAY, rotation.WR_MAX_DEPTH),
     Position.TE: (rotation.TE_DECAY, rotation.TE_MAX_DEPTH),
-    Position.LT: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
-    Position.LG: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
+    Position.T: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
+    Position.G: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
     Position.C: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
-    Position.RG: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
-    Position.RT: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
-    Position.LE: (rotation.DL_DECAY, rotation.DL_MAX_DEPTH),
-    Position.RE: (rotation.DL_DECAY, rotation.DL_MAX_DEPTH),
+    Position.EDGE: (rotation.DL_DECAY, rotation.DL_MAX_DEPTH),
     Position.DT: (rotation.DL_DECAY, rotation.DL_MAX_DEPTH),
-    Position.LOLB: (rotation.LB_DECAY, rotation.LB_MAX_DEPTH),
-    Position.MLB: (rotation.LB_DECAY, rotation.LB_MAX_DEPTH),
-    Position.ROLB: (rotation.LB_DECAY, rotation.LB_MAX_DEPTH),
+    Position.LB: (rotation.LB_DECAY, rotation.LB_MAX_DEPTH),
     Position.CB: (rotation.DB_DECAY, rotation.DB_MAX_DEPTH),
-    Position.FS: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
-    Position.SS: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
+    Position.S: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
     Position.K: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
     Position.P: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
 }
@@ -143,7 +137,7 @@ POSITION_WEIGHTS: dict[str, float] = {
     "C": 0.75,    # inferred from T (was 0.50) -- interior OL, same blocking-matchup family
     "G": 1.25,    # inferred from T (was 0.75) -- same formula pairs G with T directly
     "T": 3.00,    # measured: essentially tied with QB (was 1.00) -- the single biggest correction
-    "DE": 1.50,   # measured: statistically indistinguishable from WR (was 1.25)
+    "EDGE": 1.50,   # measured: statistically indistinguishable from WR (was 1.25)
     "DT": 1.00,   # untested placeholder
     "LB": 0.75,   # measured: well below its old weight (was 1.25)
     "CB": 1.25,   # untested placeholder

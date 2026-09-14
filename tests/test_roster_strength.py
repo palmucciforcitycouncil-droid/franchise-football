@@ -68,13 +68,13 @@ def test_a_third_stringer_beyond_max_depth_never_counts():
     assert with_third["QB"] == without_third["QB"]
 
 
-def test_multi_position_group_averages_its_constituent_slots_equally():
-    """"G" = LG + RG. With one lone player at each slot, the group
-    rating is a plain average of the two -- not weighted by anything
-    else, since each slot only has its own one starter."""
-    roster = [_player(Position.LG, 80, "lg1"), _player(Position.RG, 60, "rg1")]
+def test_two_starter_group_blends_both_starters():
+    """"G" is one side-agnostic position (2026-09-14 unification) with two
+    starters -- the group rating lands between them, weighted toward the
+    first on the depth chart."""
+    roster = [_player(Position.G, 80, "g1"), _player(Position.G, 60, "g2")]
     ratings = roster_strength.compute_group_ratings("ZZ", roster)
-    assert ratings["G"] == 70.0
+    assert 60.0 < ratings["G"] <= 80.0
 
 
 def test_a_group_with_no_players_at_any_constituent_position_is_omitted():

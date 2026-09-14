@@ -52,39 +52,46 @@ from app.engine.position_groups import POSITION_TO_GROUP
 from app.engine.roster_strength import POSITION_WEIGHTS
 from app.models.player import Player
 
-# Sec 8.3 gives a real-world-scale AAV cap anchor (updated 2026-09-12:
-# the real 2026 NFL cap is $301.2M, not the stale $279.2M/2025 figure
-# this comment used to cite). This project's imported Madden salary data
-# does NOT run on that scale -- confirmed against the real DB, not
-# assumed: real team salary totals span $262M-$695M (league avg ~$437M),
-# and a single real player (M8's own verified example, Patrick Mahomes)
-# is $190.4M alone, more than half of even the CURRENT real cap by
-# itself. Madden's "Total Salary" column was never validated against
-# real-world NFL cap compliance -- it's real, imported data, just not on
-# a cap-compatible scale. Rather than leave every real team permanently,
-# unfixably over an incompatible cap (which would make every free-
-# agency/re-sign offer reject with OVER_CAP regardless of merit --
-# caught via exactly that on this chunk's own first live signing
-# attempt), SALARY_CAP_BASE stays rescaled to this project's OWN real
-# salary distribution instead of Sec 8.3's numerically incompatible
-# dollar anchor -- comfortably above the current real league-wide max
-# team total, so every team starts cap-compliant with real room to
-# operate. Applying $301.2M directly would reproduce the exact bug this
-# rescale exists to prevent; ask before changing SALARY_CAP_BASE itself.
-SALARY_CAP_BASE = 720_000_000
-# +7.5%/year, compounded -- Sec 8.3's real growth RATE (updated
-# 2026-09-12 from 11.2%). Unlike the base dollar figure above, a growth
-# RATE has no Madden-scale incompatibility -- it applies identically
-# regardless of the underlying dollar scale, so this one tracks the
-# real-world number directly.
+# Salary cap, re-anchored 2026-09-14 (Brian: GM Desk "still showing $700M").
+#
+# History: the cap was once rescaled to $720M because the ORIGINAL Madden
+# salary column ran on a non-NFL scale (single players at $190M). The
+# 2026-09-13 real-salary import replaced that data with real AAVs
+# (Mahomes $64M; team payrolls $199M-$441M, top-53 max $434M), so the
+# $720M figure no longer described anything. It was ALSO applied with the
+# wrong year anchor: `season_number` 0 is 2002 (app/config.py), so a new
+# save's first season (season_number 24 = 2026) was compounding 25 years
+# of growth -- a ~$4.4B cap and quarterback "market values" near $900M.
+#
+# Now: the cap is anchored to a real calendar year via season_year().
+# SALARY_CAP_2026 is the smallest round number every imported roster fits
+# under (real rosters carry 54-68 players here, not 53, and real AAVs
+# ignore bonus proration, so the real $301.2M cap would leave 29 of 32
+# teams permanently over). Player *market value* stays on the real-world
+# $301.2M scale so demands track real contracts. Both grow at the same
+# real +7.5%/year, so every salary demand escalates with the cap.
+CAP_ANCHOR_YEAR = 2026
+SALARY_CAP_2026 = 450_000_000
+REAL_WORLD_CAP_2026 = 301_200_000
+# Kept as a name for callers that measure growth as cap / SALARY_CAP_BASE.
+SALARY_CAP_BASE = SALARY_CAP_2026
 SALARY_CAP_GROWTH = 0.075
+# Coaching staff cap (Brian's ask, 2026-09-14): all coach salaries
+# combined, $15M in 2026, growing at the player cap's own rate.
+COACH_SALARY_CAP_2026 = 15_000_000
 
-# This engine's season_number 0 is real-world 2026 (one year after the
-# GDD's 2025 baseline) -- see roster_strength.py's decision 2 precedent
-# for this same season_number<->real-year anchoring. season_number N is
-# therefore N+1 years of growth past the 2025 baseline.
+
+def cap_growth_factor(season_number: int) -> float:
+    from app.config import season_year
+    return (1.0 + SALARY_CAP_GROWTH) ** (season_year(season_number) - CAP_ANCHOR_YEAR)
+
+
 def salary_cap_for_season(season_number: int) -> float:
-    return SALARY_CAP_BASE * (1.0 + SALARY_CAP_GROWTH) ** (season_number + 1)
+    return SALARY_CAP_2026 * cap_growth_factor(season_number)
+
+
+def coach_salary_cap_for_season(season_number: int) -> float:
+    return COACH_SALARY_CAP_2026 * cap_growth_factor(season_number)
 
 
 VETERAN_MIN_BASE = 840_000  # Sec 8.3.2: $0.84M at 0 years of service, 2025 -- kept at the GDD's literal
@@ -100,7 +107,7 @@ VETERAN_MIN_YEAR_CAP = 10
 
 
 def veteran_minimum(years_pro: int, season_number: int) -> float:
-    season_growth = (1.0 + SALARY_CAP_GROWTH) ** (season_number + 1)
+    season_growth = cap_growth_factor(season_number) * (1.0 + SALARY_CAP_GROWTH)  # anchor is 2025
     service_mult = 1.0 + VETERAN_MIN_PER_YEAR * min(years_pro, VETERAN_MIN_YEAR_CAP)
     return VETERAN_MIN_BASE * season_growth * service_mult
 
@@ -138,7 +145,7 @@ def expected_market_value(player: Player, season_number: int) -> float:
     group = POSITION_TO_GROUP[player.position]
     position_mult = POSITION_WEIGHTS[group] / POSITION_WEIGHTS["QB"]  # 0..1, QB = 1.0
     ovr_frac = max(0.0, (player.overall_rating - 40) / 59.0)  # 40 OVR floor -> 0, 99 -> 1
-    base_value = salary_cap_for_season(season_number) * 0.20  # a QB1 at 99 OVR, prime age, caps near 20% of the cap -- real NFL's actual top-of-market QB share
+    base_value = REAL_WORLD_CAP_2026 * cap_growth_factor(season_number) * 0.20  # a QB1 at 99 OVR, prime age, caps near 20% of the cap -- real NFL's actual top-of-market QB share
     value = base_value * (ovr_frac ** 1.6) * position_mult * _age_value_multiplier(player.age)
     return max(value, veteran_minimum(player.years_pro, season_number))
 

@@ -230,11 +230,11 @@ def release_expired_contracts(players: list[Player]) -> int:
 # zero players at one of these, not a GDD-specified roster-minimum rule.
 MIN_ROSTER_COUNTS: dict[Position, int] = {
     Position.QB: 1, Position.HB: 1, Position.WR: 2, Position.TE: 1,
-    Position.LT: 1, Position.LG: 1, Position.C: 1, Position.RG: 1, Position.RT: 1,
+    Position.T: 2, Position.G: 2, Position.C: 1,
     Position.K: 1, Position.P: 1,
-    Position.DT: 2, Position.LE: 1, Position.RE: 1,
-    Position.LOLB: 1, Position.MLB: 1, Position.ROLB: 1,
-    Position.CB: 2, Position.FS: 1, Position.SS: 1,
+    Position.DT: 2, Position.EDGE: 2,
+    Position.LB: 3,
+    Position.CB: 2, Position.S: 2,
 }
 
 

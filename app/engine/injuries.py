@@ -109,7 +109,7 @@ _ST_TYPES = {InjuryType.BACK: 0.35, InjuryType.OTHER: 0.35, InjuryType.KNEE: 0.2
 TYPE_WEIGHTS_BY_GROUP: dict[str, dict[InjuryType, float]] = {
     "QB": _QB_TYPES, "RB": _SKILL_TYPES, "WR": _SKILL_TYPES, "TE": _SKILL_TYPES,
     "C": _OL_TYPES, "G": _OL_TYPES, "T": _OL_TYPES,
-    "DE": _DL_TYPES, "DT": _DL_TYPES, "LB": _LB_TYPES,
+    "EDGE": _DL_TYPES, "DT": _DL_TYPES, "LB": _LB_TYPES,
     "CB": _DB_TYPES, "S": _DB_TYPES, "K": _ST_TYPES, "P": _ST_TYPES,
 }
 

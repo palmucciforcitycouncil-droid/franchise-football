@@ -157,22 +157,22 @@ def test_pass_target_favors_the_biggest_real_mismatch_but_varies():
     te = _synthetic_player(player_id="te")
     cb1 = _synthetic_player(player_id="cb1", position="CB", man_coverage=68, zone_coverage=68)  # a real but moderate mismatch, not an extreme one
     cb2 = _synthetic_player(player_id="cb2", position="CB")
-    ss = _synthetic_player(player_id="ss", position="SS")
+    ss = _synthetic_player(player_id="ss", position="S")
 
     off = OffensiveStarters(
         qb=_synthetic_player(player_id="qb", position="QB"), hb=_synthetic_player(player_id="hb", position="HB"),
         wr1=wr1, wr2=wr2, wr3=None, te=te,
-        lt=_synthetic_player(player_id="lt", position="LT"), lg=_synthetic_player(player_id="lg", position="LG"),
-        c=_synthetic_player(player_id="c", position="C"), rg=_synthetic_player(player_id="rg", position="RG"),
-        rt=_synthetic_player(player_id="rt", position="RT"), k=_synthetic_player(player_id="k", position="K"),
+        lt=_synthetic_player(player_id="lt", position="T"), lg=_synthetic_player(player_id="lg", position="G"),
+        c=_synthetic_player(player_id="c", position="C"), rg=_synthetic_player(player_id="rg", position="G"),
+        rt=_synthetic_player(player_id="rt", position="T"), k=_synthetic_player(player_id="k", position="K"),
         p=_synthetic_player(player_id="p", position="P"),
     )
     defn = DefensiveStarters(
         dt1=_synthetic_player(player_id="dt1", position="DT"), dt2=_synthetic_player(player_id="dt2", position="DT"),
-        le=_synthetic_player(player_id="le", position="LE"), re=_synthetic_player(player_id="re", position="RE"),
-        lolb=_synthetic_player(player_id="lolb", position="LOLB"), mlb=_synthetic_player(player_id="mlb", position="MLB"),
-        rolb=_synthetic_player(player_id="rolb", position="ROLB"),
-        cb1=cb1, cb2=cb2, fs=_synthetic_player(player_id="fs", position="FS"), ss=ss,
+        le=_synthetic_player(player_id="le", position="EDGE"), re=_synthetic_player(player_id="re", position="EDGE"),
+        lolb=_synthetic_player(player_id="lolb", position="LB"), mlb=_synthetic_player(player_id="mlb", position="LB"),
+        rolb=_synthetic_player(player_id="rolb", position="LB"),
+        cb1=cb1, cb2=cb2, fs=_synthetic_player(player_id="fs", position="S"), ss=ss,
     )
     ctx = build_matchup_context(off, defn)
 

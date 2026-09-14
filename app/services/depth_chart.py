@@ -2,8 +2,11 @@
 Starting lineup selection.
 
 The GDD's play-calling AI (Part 1 Sec 6.6) references specific matchups --
-"LT & LG vs. opponent RDE & RDT", "WR1 vs. CB1" -- which requires knowing
-which specific players are on the field, not just team-level aggregates.
+"Left Zone vs. opponent's right side", "WR1 vs. CB1" -- which requires
+knowing which specific players are on the field, not just team-level
+aggregates. Positions carry no side (2026-09-14 unification): the 1st
+starter at T/G/EDGE plays the left side, the 2nd the right, and the three
+LB/two S starters fill the lolb/mlb/rolb and fs/ss slots in depth order.
 Starters are chosen by highest overall_rating per position by default,
 overridable per (team, position) via depth_chart_overrides.py (the real
 coach-settable depth chart, GET/POST /depth-chart in app/main.py) -- see
@@ -122,6 +125,15 @@ def _top(players: list[Player], position: Position, n: int, team_abbr: str) -> l
     return candidates[:n]
 
 
+def _pair(players: list[Player]) -> list[Player]:
+    """A 2-starter slot (T/G/EDGE/S) on a roster holding only ONE player
+    at that position fields the same body on both sides rather than
+    crashing -- same disclosed "field an available body" simplification
+    as _top()'s own OUT-player backfill. The preseason roster gate keeps
+    this from happening for any team in practice."""
+    return players if len(players) >= 2 else players * 2
+
+
 def _load_roster(team_abbr: str) -> list[Player]:
     """A player currently in RTP taper (available, but weakened --
     weeks_out == 0, rtp_penalty > 0 -- R1, GDD Sec 6.10.4) has their
@@ -151,16 +163,16 @@ def get_offensive_starters(team_abbr: str) -> OffensiveStarters:
     wrs = _top(roster, Position.WR, 5, team_abbr)
     hbs = _top(roster, Position.HB, 3, team_abbr)
     tes = _top(roster, Position.TE, 2, team_abbr)
+    ts = _pair(_top(roster, Position.T, 2, team_abbr))
+    gs = _pair(_top(roster, Position.G, 2, team_abbr))
     return OffensiveStarters(
         qb=_top(roster, Position.QB, 1, team_abbr)[0],
         hb=hbs[0],
         wr1=wrs[0], wr2=wrs[1], wr3=wrs[2] if len(wrs) > 2 else None,
         te=tes[0],
-        lt=_top(roster, Position.LT, 1, team_abbr)[0],
-        lg=_top(roster, Position.LG, 1, team_abbr)[0],
+        lt=ts[0], lg=gs[0],
         c=_top(roster, Position.C, 1, team_abbr)[0],
-        rg=_top(roster, Position.RG, 1, team_abbr)[0],
-        rt=_top(roster, Position.RT, 1, team_abbr)[0],
+        rg=gs[1], rt=ts[1],
         k=_top(roster, Position.K, 1, team_abbr)[0],
         p=_top(roster, Position.P, 1, team_abbr)[0],
         hb_depth=hbs, wr_depth=wrs, te_depth=tes,
@@ -177,19 +189,16 @@ def _slot_backups(roster: list[Player], team_abbr: str) -> dict[str, list[Player
     disclosed simplification, not positionally exact."""
     dts = _top(roster, Position.DT, 6, team_abbr)
     cbs = _top(roster, Position.CB, 6, team_abbr)
-    les = _top(roster, Position.LE, 3, team_abbr)
-    res = _top(roster, Position.RE, 3, team_abbr)
-    lolbs = _top(roster, Position.LOLB, 3, team_abbr)
-    mlbs = _top(roster, Position.MLB, 3, team_abbr)
-    rolbs = _top(roster, Position.ROLB, 3, team_abbr)
+    edges = _top(roster, Position.EDGE, 6, team_abbr)
+    lbs = _top(roster, Position.LB, 9, team_abbr)
     return {
         "dt1": dts[2::2][:2],   # 3rd, 5th-best DT
         "dt2": dts[3::2][:2],   # 4th, 6th-best DT
-        "le": les[1:],
-        "re": res[1:],
-        "lolb": lolbs[1:],
-        "mlb": mlbs[1:],
-        "rolb": rolbs[1:],
+        "le": edges[2::2][:2],
+        "re": edges[3::2][:2],
+        "lolb": lbs[3::3][:2],
+        "mlb": lbs[4::3][:2],
+        "rolb": lbs[5::3][:2],
         "cb1": cbs[2::2][:2],
         "cb2": cbs[3::2][:2],
     }
@@ -200,16 +209,16 @@ def get_defensive_starters(team_abbr: str) -> DefensiveStarters:
     roster = _load_roster(team_abbr)
     dts = _top(roster, Position.DT, 2, team_abbr)
     cbs = _top(roster, Position.CB, 2, team_abbr)
+    edges = _pair(_top(roster, Position.EDGE, 2, team_abbr))
+    lbs = _top(roster, Position.LB, 3, team_abbr)
+    lbs = lbs + [lbs[-1]] * (3 - len(lbs))
+    ss = _pair(_top(roster, Position.S, 2, team_abbr))
     return DefensiveStarters(
         dt1=dts[0], dt2=dts[1],
-        le=_top(roster, Position.LE, 1, team_abbr)[0],
-        re=_top(roster, Position.RE, 1, team_abbr)[0],
-        lolb=_top(roster, Position.LOLB, 1, team_abbr)[0],
-        mlb=_top(roster, Position.MLB, 1, team_abbr)[0],
-        rolb=_top(roster, Position.ROLB, 1, team_abbr)[0],
+        le=edges[0], re=edges[1],
+        lolb=lbs[0], mlb=lbs[1], rolb=lbs[2],
         cb1=cbs[0], cb2=cbs[1],
-        fs=_top(roster, Position.FS, 1, team_abbr)[0],
-        ss=_top(roster, Position.SS, 1, team_abbr)[0],
+        fs=ss[0], ss=ss[1],
         backups=_slot_backups(roster, team_abbr),
     )
 

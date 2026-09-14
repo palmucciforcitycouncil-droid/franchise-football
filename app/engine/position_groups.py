@@ -20,10 +20,10 @@ from app.models.player import Position
 POSITION_TO_GROUP: dict[Position, str] = {
     Position.QB: "QB", Position.HB: "RB", Position.FB: "RB",
     Position.WR: "WR", Position.TE: "TE",
-    Position.LT: "T", Position.RT: "T", Position.LG: "G", Position.RG: "G", Position.C: "C",
-    Position.LE: "DE", Position.RE: "DE", Position.DT: "DT",
-    Position.LOLB: "LB", Position.MLB: "LB", Position.ROLB: "LB",
-    Position.CB: "CB", Position.FS: "S", Position.SS: "S",
+    Position.T: "T", Position.G: "G", Position.C: "C",
+    Position.EDGE: "EDGE", Position.DT: "DT",
+    Position.LB: "LB",
+    Position.CB: "CB", Position.S: "S",
     Position.K: "K", Position.P: "P",
 }
-QUOTA_GROUPS = ["QB", "RB", "WR", "TE", "C", "G", "T", "DE", "DT", "LB", "CB", "S", "K", "P"]
+QUOTA_GROUPS = ["QB", "RB", "WR", "TE", "C", "G", "T", "EDGE", "DT", "LB", "CB", "S", "K", "P"]

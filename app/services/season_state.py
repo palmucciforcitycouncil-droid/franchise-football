@@ -612,9 +612,9 @@ def simulate_playoff_round() -> str:
 # development rating for special teams at all), and both multipliers are
 # bounded to the same narrow band regardless.
 DEFENSIVE_POSITIONS = {
-    Position.LE, Position.RE, Position.DT,
-    Position.LOLB, Position.MLB, Position.ROLB,
-    Position.CB, Position.FS, Position.SS,
+    Position.EDGE, Position.DT,
+    Position.LB,
+    Position.CB, Position.S,
 }
 
 # R10 (GDD preseason): a preseason snap counts toward progression.py's

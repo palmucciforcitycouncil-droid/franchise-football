@@ -82,10 +82,10 @@ DEFAULT_SOURCE = Path(__file__).resolve().parent.parent / "data" / "raw" / "rost
 # skipped, same as an unmapped position always has been in this importer.
 POSITION_ID_MAP: dict[str, str] = {
     "QB": "QB", "HB": "HB", "FB": "FB", "WR": "WR", "TE": "TE",
-    "LT": "LT", "LG": "LG", "C": "C", "RG": "RG", "RT": "RT",
-    "LEDG": "LE", "REDG": "RE", "DT": "DT",
-    "WILL": "LOLB", "MIKE": "MLB", "SAM": "ROLB",
-    "CB": "CB", "FS": "FS", "SS": "SS", "K": "K", "P": "P",
+    "LT": "T", "LG": "G", "C": "C", "RG": "G", "RT": "T",
+    "LEDG": "EDGE", "REDG": "EDGE", "DT": "DT",
+    "WILL": "LB", "MIKE": "LB", "SAM": "LB",
+    "CB": "CB", "FS": "S", "SS": "S", "K": "K", "P": "P",
 }
 
 TEAM_FULL_NAME_TO_ABBR: dict[str, str] = {
@@ -249,7 +249,7 @@ def build_player(row: dict, used_ids: set[str]) -> Player | None:
     )
 
 
-LB_GROUP = ("LOLB", "MLB", "ROLB")
+LB_GROUP: tuple[str, ...] = ()  # LOLB/MLB/ROLB unified into LB (2026-09-14) -- no relabel needed
 
 
 def _fix_zero_position_gaps(players: list[Player]) -> None:
