@@ -209,6 +209,36 @@ def _bucket_weight(coach: Coach, target_focus: str) -> float:
     return 0.0
 
 
+# Staff impact audit (2026-09-14): which side of the ball a coach's
+# player-development work actually lands on. Before this, every coach
+# focused on Development fed BOTH dev multipliers -- a defensive line
+# coach's player_dev_offense rating was moving quarterbacks' growth. Keyword
+# match on the real AC specialty strings scripts/import_coaches.py's
+# _SPECIALTY_BY_TITLE produces; anything unmatched (e.g. a strength coach,
+# an unknown imported title) stays neutral and feeds both, as before.
+SIDE_OFFENSE = "offense"
+SIDE_DEFENSE = "defense"
+SIDE_NEUTRAL = "neutral"
+_OFFENSE_SPECIALTY_KEYWORDS = ("quarterback", "passing", "running back", "wide receiver", "tight end", "offensive")
+_DEFENSE_SPECIALTY_KEYWORDS = ("defensive", "linebacker", "secondary", "safet", "cornerback")
+
+
+def coach_side(coach: Coach) -> str:
+    role = CoachRole(coach.role)
+    if role is CoachRole.OC:
+        return SIDE_OFFENSE
+    if role is CoachRole.DC:
+        return SIDE_DEFENSE
+    if role is not CoachRole.AC:
+        return SIDE_NEUTRAL
+    text = (coach.specialty or "").lower()
+    if any(k in text for k in _DEFENSE_SPECIALTY_KEYWORDS):
+        return SIDE_DEFENSE
+    if any(k in text for k in _OFFENSE_SPECIALTY_KEYWORDS):
+        return SIDE_OFFENSE
+    return SIDE_NEUTRAL
+
+
 def _weighted_blend(staff, target_focus: str, attr: str, fallback: float) -> float:
     """Tier-weighted average of `attr` across every coach in `staff`
     contributing to `target_focus` (via `_bucket_weight`). Returns
@@ -283,8 +313,12 @@ def build_staff_effect(team_abbr: str, staff: list[Coach] | tuple[Coach, ...],
     df_fourth = _weighted_blend(staff, FOCUS_DF_GAMEPLAN, "fourth_down_defense", t)
     man_prob = max(0.10, min(0.75, 0.40 - _slider(df_coverage, t) * COVERAGE_SWING))
 
-    dev_off = _weighted_blend(staff, FOCUS_DEVELOPMENT, "player_dev_offense", baseline.dev_offense)
-    dev_def = _weighted_blend(staff, FOCUS_DEVELOPMENT, "player_dev_defense", baseline.dev_defense)
+    # Side-aware (see coach_side()): an offensive position coach develops
+    # the offense only, a defensive one the defense only.
+    dev_off = _weighted_blend([c for c in staff if coach_side(c) != SIDE_DEFENSE],
+                              FOCUS_DEVELOPMENT, "player_dev_offense", baseline.dev_offense)
+    dev_def = _weighted_blend([c for c in staff if coach_side(c) != SIDE_OFFENSE],
+                              FOCUS_DEVELOPMENT, "player_dev_defense", baseline.dev_defense)
     training_mc = _weighted_blend(staff, FOCUS_TRAINING, "motivation_chemistry", baseline.motivation_chemistry)
     st_focus = _weighted_blend(staff, FOCUS_SPECIAL_TEAMS, "special_teams_focus", t)
 
@@ -338,9 +372,12 @@ def league_baseline() -> LeagueBaseline:
         return _BASELINE
 
     heads = [c for c in coaches if CoachRole(c.role) is CoachRole.HC]
+    # `pace` is deliberately NOT in this pool: no sim system reads a coach's
+    # pace (staff impact audit, 2026-09-14), so it has no business shaping
+    # what "average" means for the sliders that ARE consumed.
     tendency_values = [
         v for c in coaches for v in (
-            c.run_pass_tendency, c.offensive_aggression, c.pace, c.red_zone_offense_bias,
+            c.run_pass_tendency, c.offensive_aggression, c.red_zone_offense_bias,
             c.two_point_tendency, c.blitz_rate, c.coverage_mix, c.fourth_down_defense,
             c.red_zone_defense_bias, c.special_teams_focus,
         )

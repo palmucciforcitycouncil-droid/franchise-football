@@ -8,19 +8,59 @@
 
   Layout mirrors the source: a wide Head Coach box beside the staff
   summary and the trait-effects panel, then a coordinator row, then the
-  assistants, then Find Coaches. Where the source has controls with no
-  real system behind them (Hire/Fire/Negotiate), this page says so
-  on-screen instead of rendering a button that does nothing.
+  assistants, then Find Coaches.
 
   Focus Area (R13, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md) is real: a
   per-coach dropdown, editable for the user's own team only, posting to
   /staff/{team_abbr}/{coach_id}/focus. AI teams' assistants are reassigned
   autonomously every offseason instead (app/services/coach_ai.py's
   run_focus_autonomy()) -- shown read-only for them.
+
+  2026-09-14 (Brian's fixes doc): Coach Salary vs. the staff salary cap
+  beside the team picker; Extend Contract opens the shared slider
+  Negotiation modal (base.html) instead of a raw number form; at most
+  {{ max_assistants }} assistants, with a Hire Assistant panel only while a
+  seat is open. Every staff form carries data-keep-scroll so a
+  focus/fire/hire round-trip lands back where the user was, not at the top.
 #}
 
+{% macro staff_error_box(role_value) %}
+{% if staff_error and staff_error_role == role_value %}
+<p class="staff-error">{{ staff_error }}</p>
+{% endif %}
+{% endmacro %}
+
+{% macro candidate_table(candidates, role_value, score_label="Score") %}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Candidate</th><th>Source</th><th>{{ score_label }}</th><th>Salary</th><th></th></tr></thead>
+    <tbody>
+      {% for c in candidates %}
+      <tr>
+        <td>{{ c.name }}{% if c.background %}<br><span class="muted" style="font-size: 0.75rem;">{{ c.background }}</span>{% endif %}</td>
+        <td>{{ c.source }}</td>
+        <td>{{ c.score }}</td>
+        <td>{{ c.salary | money }}</td>
+        <td>
+          {% if c.affordable %}
+          <form method="post" action="/staff/{{ team_abbr }}/hire" data-keep-scroll>
+            <input type="hidden" name="role" value="{{ role_value }}">
+            <input type="hidden" name="coach_id" value="{{ c.coach_id }}">
+            <button type="submit">Hire</button>
+          </form>
+          {% else %}
+          <button type="button" disabled title="This salary would put your staff over its salary cap">Over cap</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 {% macro coach_box(entry, wide=False) %}
-<div class="card{% if wide %} staff-span-2{% endif %}">
+<div class="card{% if wide %} staff-span-2{% endif %}" id="staff-role-{{ entry.role }}">
   {% if entry.coach %}
   <h3 style="margin: 0 0 2px;">
     <span class="coach-name-link coach-link" data-coach-card='{{ entry.card }}'>{{ entry.coach.full_name }}</span>
@@ -30,11 +70,11 @@
     <span>{{ entry.coach.age }} years old</span>
     <span>{{ entry.coach.experience_years }} yrs exp</span>
     <span>{{ entry.coach.salary_aav | money }}/yr</span>
-    <span>{{ entry.coach.contract_years }} yr(s) left</span>
+    <span{% if entry.coach.contract_years <= 0 %} class="staff-contract-expired"{% endif %}>{{ entry.contract_status }}</span>
   </div>
   <div class="pc-row"><span class="pc-row-label">Overall</span><span class="coach-ovr">{{ entry.coach.overall }}</span></div>
   <div class="pc-bar-wrap">
-    <div class="pc-bar-top"><span>Reputation</span><span>{{ entry.coach.reputation }}/99</span></div>
+    <div class="pc-bar-top"><span>Reputation</span><span>{{ entry.coach.reputation }}</span></div>
     <div class="pc-bar-track"><div class="pc-bar-fill" style="width: {{ entry.coach.reputation }}%"></div></div>
   </div>
   {% if entry.coach.role.value in ("HC", "OC") %}
@@ -57,7 +97,7 @@
   <div class="pc-row"><span class="pc-row-label">Status</span><span>{{ entry.coach.appointment_type }}</span></div>
   {% endif %}
   {% if is_user_team %}
-  <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" style="margin-top: 6px;">
+  <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" style="margin-top: 6px;" data-keep-scroll>
     <label for="focus-{{ entry.coach.coach_id }}" class="pc-row-label">Focus Area</label>
     <select name="focus_area" id="focus-{{ entry.coach.coach_id }}" onchange="this.form.submit()">
       {% for fa in focus_areas %}
@@ -69,30 +109,11 @@
   <div class="pc-row"><span class="pc-row-label">Focus Area</span><span>{{ entry.coach.focus_area }}</span></div>
   {% endif %}
   {% if is_user_team %}
-  <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/extend" style="margin-top: 6px;">
-    <label class="pc-row-label">Extend Contract</label>
-    <div class="row" style="gap: 6px;">
-      <input type="number" name="aav" min="0" step="1000" placeholder="AAV $" required
-             style="width: 45%;">
-      <input type="number" name="years" min="1" max="7" placeholder="Years" required
-             style="width: 30%;">
-      <button type="submit" style="width: 25%;">Offer</button>
-    </div>
-  </form>
-  {% if extend_feedback and extend_feedback.coach_name == entry.coach.full_name %}
-  <p class="muted" style="font-size: 0.85rem; margin-top: 4px;">
-    {% if extend_feedback.verdict == "ACCEPT" %}
-    Extension accepted.
-    {% elif extend_feedback.verdict == "COUNTER" %}
-    Countered: ${{ "{:,}".format(extend_feedback.counter_aav) }}/yr &times; {{ extend_feedback.counter_years }} yr(s).
-    {% else %}
-    Rejected -- try a higher offer.
-    {% endif %}
-  </p>
+  <button type="button" class="pc-negotiate-btn" data-negotiate='{{ entry.negotiate }}'>Extend Contract</button>
   {% endif %}
-  {% endif %}
+  {{ staff_error_box(entry.role) }}
   {% if is_user_team and entry.role in fireable_roles %}
-  <form method="post" action="/staff/{{ team_abbr }}/fire" style="margin-top: 8px;"
+  <form method="post" action="/staff/{{ team_abbr }}/fire" style="margin-top: 8px;" data-keep-scroll
         onsubmit="return confirm('Fire {{ entry.coach.full_name }} ({{ entry.coach.title }})? This opens the seat immediately.');">
     <input type="hidden" name="role" value="{{ entry.role }}">
     <button type="submit" style="background: #b23b3b; border-color: #b23b3b;">Fire</button>
@@ -101,32 +122,13 @@
   {% else %}
   <h3 style="margin: 0 0 2px;" class="coach-vacant">VACANT</h3>
   <p class="coach-role">{{ entry.title }}</p>
+  {{ staff_error_box(entry.role) }}
   {% if is_user_team and entry.candidates %}
   <p class="muted" style="font-size: 0.85rem;">
     Fill Vacancy &mdash; real candidates, ranked by InterimPromotionScore (internal) or
-    HiringMerit (external), R3d &sect;4:
+    HiringMerit (external), R3d &sect;4. Salary is what they'd cost in this role this season.
   </p>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Candidate</th><th>Source</th><th>Score</th><th></th></tr></thead>
-      <tbody>
-        {% for c in entry.candidates %}
-        <tr>
-          <td>{{ c.name }}{% if c.background %}<br><span class="muted" style="font-size: 0.75rem;">{{ c.background }}</span>{% endif %}</td>
-          <td>{{ c.source }}</td>
-          <td>{{ c.score }}</td>
-          <td>
-            <form method="post" action="/staff/{{ team_abbr }}/hire">
-              <input type="hidden" name="role" value="{{ entry.role }}">
-              <input type="hidden" name="coach_id" value="{{ c.coach_id }}">
-              <button type="submit">Hire</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {{ candidate_table(entry.candidates, entry.role) }}
   {% elif is_user_team %}
   <p class="muted">No willing candidates for this role right now.</p>
   {% else %}
@@ -160,6 +162,12 @@
       </select>
       <button type="submit">View Staff</button>
     </form>
+    {# Staff salary cap (Brian's 2026-09-14 ask: "at the top of the staff
+       page to the right of the team picker, in the current blank space"). #}
+    <div class="staff-cap-summary{% if over_staff_cap %} staff-cap-over{% endif %}" id="staff-cap-summary">
+      <span class="pc-row-label">Coach Salary</span>
+      <strong>${{ "%.1f"|format(staff_payroll / 1000000) }}M / ${{ "%.1f"|format(staff_cap / 1000000) }}M</strong>
+    </div>
   </div>
 </div>
 
@@ -193,8 +201,8 @@
   </div>
 </div>
 
-<div class="card" style="margin-top: 16px;">
-  <h3>Assistant Coaches ({{ assistants | length }})</h3>
+<div class="card" style="margin-top: 16px;" id="staff-role-AC">
+  <h3>Assistant Coaches ({{ assistants | length }} of {{ max_assistants }})</h3>
   <p class="muted" style="font-size: 0.85rem;">
     Every assistant's specialty is the real position-group title from the seed directory
     (GDD &sect;7.7.2.1a). Focus Area (R13) decides which bucket their ratings actually feed
@@ -206,7 +214,7 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Coach</th><th>Specialty</th><th>Age</th><th>Exp</th><th>OVR</th><th>Rep</th><th>Focus Area</th><th>Salary</th></tr>
+        <tr><th>Coach</th><th>Specialty</th><th>Age</th><th>Exp</th><th>OVR</th><th>Rep</th><th>Focus Area</th><th>Salary</th><th>Contract</th>{% if is_user_team %}<th></th>{% endif %}</tr>
       </thead>
       <tbody>
         {% for entry in assistants %}
@@ -219,7 +227,7 @@
           <td>{{ entry.coach.reputation }}</td>
           <td>
             {% if is_user_team %}
-            <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus">
+            <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" data-keep-scroll>
               <select name="focus_area" onchange="this.form.submit()">
                 {% for fa in focus_areas %}
                 <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
@@ -230,22 +238,34 @@
             {{ entry.coach.focus_area }}
             {% endif %}
           </td>
-          <td>${{ "{:,}".format(entry.coach.salary_aav) }}</td>
+          <td>{{ entry.coach.salary_aav | money }}</td>
+          <td{% if entry.coach.contract_years <= 0 %} class="staff-contract-expired"{% endif %}>{{ entry.contract_status }}</td>
+          {% if is_user_team %}
+          <td><button type="button" data-negotiate='{{ entry.negotiate }}'>Extend</button></td>
+          {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">No assistant coaches on this staff.</td></tr>
+        <tr><td colspan="{% if is_user_team %}10{% else %}9{% endif %}" class="muted">No assistant coaches on this staff.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {{ staff_error_box("AC") }}
+  {% if is_user_team and open_assistant_seats %}
+  <h4 style="margin: 1rem 0 0.25rem;">Hire Assistant ({{ open_assistant_seats }} seat{% if open_assistant_seats != 1 %}s{% endif %} open)</h4>
+  {% if assistant_candidates %}
+  {{ candidate_table(assistant_candidates, "AC", score_label="OVR") }}
+  {% else %}
+  <p class="muted">No assistant coaches are available right now.</p>
+  {% endif %}
+  {% endif %}
 </div>
 
 <div class="card" style="margin-top: 16px;" id="find-coaches-card">
   <h3>Find Coaches</h3>
   <p class="muted" style="font-size: 0.85rem;">
     Real league-wide search across every coach on every staff (and any free agents &mdash;
-    currently {{ free_agent_count }}, since the real seed staffs all 32 teams and only
-    retirement opens a seat). Search by name, specialty, title, or team abbreviation.
+    currently {{ free_agent_count }}). Search by name, specialty, title, or team abbreviation.
   </p>
   <form method="get" action="/staff" data-preserve-scroll="find-coaches-card">
     <input type="hidden" name="team" value="{{ team_abbr }}">
@@ -287,7 +307,7 @@
           <td>{{ entry.coach.age }}</td>
           <td><span class="coach-ovr">{{ entry.coach.overall }}</span></td>
           <td>{{ entry.coach.reputation }}</td>
-          <td>{{ entry.coach.salary_aav | money }}</td>
+          <td>{% if entry.coach.team_abbr %}{{ entry.coach.salary_aav | money }}{% else %}--{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -298,12 +318,10 @@
   {% endif %}
 
   <p class="coach-generated-note">
-    Hire/Fire/Promote are real (R3d &sect;11) for your own team &mdash; use the Fire button on any
-    HC/OC/DC/ST box and the Fill Vacancy panel that appears once a seat opens. Every AI team runs
-    the identical firing-probability/replacement math autonomously every offseason, and lightly
-    in-season (&sect;10). Not built: Extend Contract (&sect;11's JSS-volatility-reducing
-    re-negotiation) and coach salary negotiation (&sect;15 &mdash; disclosed out of scope, same as
-    the player Hiring Merit search's flat scheme-fit/org-philosophy terms).
+    Hire/Fire/Promote and Extend Contract are real (R3d &sect;11) for your own team &mdash; use the
+    Fire button on any HC/OC/DC/ST box and the Fill Vacancy panel that appears once a seat opens.
+    Every hire and extension must fit the staff salary cap. Every AI team runs the identical
+    firing-probability/replacement math autonomously every offseason, and lightly in-season (&sect;10).
   </p>
 </div>
 {% endblock %}

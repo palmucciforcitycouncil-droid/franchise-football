@@ -13,7 +13,7 @@ from __future__ import annotations
 from app.data.teams import TEAMS, TEAMS_BY_ABBR
 from app.engine import coach_contracts, coach_hiring, coach_progression, coach_replacement
 from app.engine.rng import RNG, stable_seed
-from app.models.coach import CoachRole, FOCUS_DEVELOPMENT, FOCUS_TRAINING, FOCUS_SCOUTING
+from app.models.coach import CoachRole, APPOINTMENT_PERMANENT, FOCUS_DEVELOPMENT, FOCUS_TRAINING, FOCUS_SCOUTING
 from app.services import coach_store, owner_pressure_store
 
 
@@ -52,7 +52,7 @@ def _evaluate_team(season, team_abbr: str, team_ranks, week: int, log: list[str]
             # value rather than leaving them a lame duck forever. Offseason
             # only (week == 0) -- a real contract decision, not a weekly one.
             if week == 0 and coach.contract_years <= 0:
-                coach_contracts.renew_contract(coach.coach_id)
+                coach_contracts.renew_contract(coach.coach_id, season.season_number)
                 log.append(f"{team_abbr}:{role.value}:contract_renewed")
             continue
 
@@ -107,6 +107,8 @@ def run_offseason_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
             continue
         _evaluate_team(season, team.abbr, ranks.get(team.abbr), week=0, log=log)
 
+    log.extend(backfill_assistants(season, exclude_team_abbr))
+
     for team in TEAMS:
         if team.abbr == exclude_team_abbr:
             continue
@@ -120,6 +122,41 @@ def run_offseason_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
         achievement = coach_hiring.best_achievement(playoff_outcome, _is_division_champion(season, team.abbr))
         owner_pressure_store.apply_season_end(team.abbr, outcome_bucket, achievement)
 
+    return log
+
+
+def backfill_assistants(season, exclude_team_abbr: str | None) -> list[str]:
+    """Keeps every AI team at coach_contracts.MAX_ASSISTANTS (4) assistant
+    coaches (Brian's 2026-09-14 fixes doc). Before this, nothing ever hired
+    an assistant: every internal promotion to OC/DC/ST permanently shrank
+    the AC group, so a 4-assistant cap would drain toward zero within a few
+    offseasons. Offseason only; the best-rated AC free agent whose market
+    salary fits the team's remaining staff-cap room fills each open seat
+    (execute_hire() itself refuses a 5th). The user's own team fills its
+    assistant seats manually from the Staff page instead."""
+    log: list[str] = []
+    for team in TEAMS:
+        if team.abbr == exclude_team_abbr:
+            continue
+        open_seats = coach_contracts.MAX_ASSISTANTS - len(coach_store.assistants(team.abbr))
+        while open_seats > 0:
+            room = coach_contracts.staff_cap_room(team.abbr, season.season_number)
+            affordable = [
+                c for c in coach_store.free_agents()
+                if CoachRole(c.role) is CoachRole.AC
+                and coach_contracts.coach_market_value(c, season_number=season.season_number) <= room
+            ]
+            if not affordable:
+                log.append(f"{team.abbr}:AC:no_affordable_assistant")
+                break
+            pick = max(affordable, key=lambda c: (c.overall, c.coach_id))
+            hired = coach_replacement.execute_hire(
+                team.abbr, CoachRole.AC, pick.coach_id, season.season_number,
+                APPOINTMENT_PERMANENT, season.league_seed)
+            if hired is None:
+                break
+            log.append(f"{team.abbr}:AC:assistant_hired")
+            open_seats -= 1
     return log
 
 

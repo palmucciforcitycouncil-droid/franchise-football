@@ -96,6 +96,23 @@ ACCEPT_THRESHOLD = 1.00  # Sec 8.4's own real starting threshold, held fixed (no
 W_GUARANTEED_BONUS = 0.10
 # Same real, documented anchor as contracts.py's own FULL_GUARANTEE_FRACTION.
 FULL_GUARANTEE_FRACTION = 0.5
+# Negotiation layer bands (app/engine/negotiation.py, 2026-09-14): a
+# "Considering" offer gets a seeded chance to sign; anything from the
+# Lowball band up draws a counter-offer instead of a flat rejection.
+CONSIDERING_FLOOR = 0.90
+COUNTER_THRESHOLD = 0.80
+
+
+def negotiation_model(player: Player, season_number: int):
+    """This module's thresholds/AAV weight for the mood layer, which runs
+    on top of evaluate_fa_offer()'s unchanged raw score (OVER_CAP is still
+    decided before any of it)."""
+    from app.engine.negotiation import ScoreModel
+    return ScoreModel(
+        accept_threshold=ACCEPT_THRESHOLD, counter_threshold=COUNTER_THRESHOLD,
+        considering_floor=CONSIDERING_FLOOR, w_aav=W_AAV,
+        expected_aav=contracts.expected_market_value(player, season_number), reaction=fa_offer_reaction,
+    )
 
 
 def fa_offer_reaction(score: float) -> str:
@@ -104,16 +121,16 @@ def fa_offer_reaction(score: float) -> str:
     real ACCEPT_THRESHOLD (1.00, not contracts.py's 0.97) -- reusing
     contracts.py's band offsets against a different threshold would
     silently mislabel scores near the boundary (e.g. a 0.98 here is a
-    real REJECT, not "Interested"). No COUNTER concept exists in this
-    module (see module docstring), so these bands are purely descriptive
-    feedback -- ACCEPT/REJECT/OVER_CAP is still the only real verdict."""
+    real REJECT, not "Interested"). evaluate_fa_offer() itself still only
+    says ACCEPT/REJECT/OVER_CAP; the counter-offer and the Considering
+    band's chance to sign come from app/engine/negotiation.py on top."""
     if score >= 1.10:
         return "Very Interested"
     if score >= ACCEPT_THRESHOLD:
         return "Interested"
-    if score >= 0.90:
+    if score >= CONSIDERING_FLOOR:
         return "Considering"
-    if score >= 0.80:
+    if score >= COUNTER_THRESHOLD:
         return "Lowball"
     return "Not Interested"
 

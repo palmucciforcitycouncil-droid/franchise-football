@@ -497,9 +497,16 @@ def test_run_focus_autonomy_biases_toward_training_for_an_injury_heavy_team(monk
     season = season_state.reset_season()
     for abbr in season.records:
         season.records[abbr].wins, season.records[abbr].losses = 8, 9
-    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
-    kc_assistants = [c for c in coach_store.staff_for("KC") if CoachRole(c.role) is CoachRole.AC]
-    assert any(c.focus_area == FOCUS_TRAINING for c in kc_assistants)
+    # A team carries only 4 assistants now (2026-09-14), so one seeded
+    # draw of 4 coin-flips can legitimately land zero on Training -- check
+    # the bias across several league seeds instead of betting on one.
+    seen_training = False
+    for league_seed in range(season.league_seed, season.league_seed + 6):
+        season.league_seed = league_seed
+        coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+        kc_assistants = [c for c in coach_store.staff_for("KC") if CoachRole(c.role) is CoachRole.AC]
+        seen_training = seen_training or any(c.focus_area == FOCUS_TRAINING for c in kc_assistants)
+    assert seen_training
 
 
 def test_run_focus_autonomy_biases_toward_scouting_for_a_rebuilding_team(monkeypatch):
@@ -515,9 +522,14 @@ def test_run_focus_autonomy_biases_toward_scouting_for_a_rebuilding_team(monkeyp
     for abbr in season.records:
         season.records[abbr].wins, season.records[abbr].losses = 8, 9
     season.records["KC"].wins, season.records["KC"].losses = 2, 15  # far below the fake 0.75 expectation
-    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
-    kc_assistants = [c for c in coach_store.staff_for("KC") if CoachRole(c.role) is CoachRole.AC]
-    assert any(c.focus_area == FOCUS_SCOUTING for c in kc_assistants)
+    # Several league seeds, same reason as the Training test above.
+    seen_scouting = False
+    for league_seed in range(season.league_seed, season.league_seed + 6):
+        season.league_seed = league_seed
+        coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+        kc_assistants = [c for c in coach_store.staff_for("KC") if CoachRole(c.role) is CoachRole.AC]
+        seen_scouting = seen_scouting or any(c.focus_area == FOCUS_SCOUTING for c in kc_assistants)
+    assert seen_scouting
 
 
 # --------------------------------------------------------------------
