@@ -13,7 +13,7 @@ load_dotenv()
 
 from markupsafe import Markup, escape
 from fastapi import FastAPI, Request, Form, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -30,6 +30,7 @@ from app.engine.defensive_box_score import build_defensive_box_score
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 from app.engine import season_stats
 from app.engine import score_fidelity, awards
+from app.engine import clinch, power_rating
 from app.engine.playoffs import bubble_teams, build_wild_card_round, final_division_standings, seed_conference
 from app.engine.scouting import (
     find_next_opponent, build_scouting_report,
@@ -743,7 +744,8 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
             won = user_score > opp_score
             tied = user_score == opp_score
             result = {"won": won, "tied": tied, "user_score": user_score, "opp_score": opp_score}
-        rows.append({"week": round_num, "is_preseason": True, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
+        rows.append({"week": round_num, "is_preseason": True, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result,
+                     "box_url": f"/season/preseason/game/{game.home_abbr}/{game.away_abbr}" if result else None})
     for week_num, week in enumerate(season.schedule, start=1):
         game = next((g for g in week if team_abbr in (g.home_abbr, g.away_abbr)), None)
         if game is None:
@@ -762,7 +764,8 @@ def _team_schedule_for(season, team_abbr: str) -> list[dict]:
             won = user_score > opp_score
             tied = user_score == opp_score
             result = {"won": won, "tied": tied, "user_score": user_score, "opp_score": opp_score}
-        rows.append({"week": week_num, "is_preseason": False, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result})
+        rows.append({"week": week_num, "is_preseason": False, "opponent_abbr": opponent_abbr, "is_home": is_home, "result": result,
+                     "box_url": f"/season/week/{week_num}/game/{game.home_abbr}/{game.away_abbr}" if result else None})
     return rows
 
 
@@ -845,6 +848,44 @@ def _last_played_game_for(season, team_abbr: str) -> dict | None:
             "opponent_leaders": _game_leaders(opponent_box),
             "plays": game.result.plays,
             "quarters": quarter_scores(game.result.events),
+            "is_preseason": False,
+            "box_url": f"/season/week/{week_num}/game/{game.home_abbr}/{game.away_abbr}",
+        }
+    # Brian's ask, 2026-09-14: before Week 1 is played, the Box Score shows
+    # the team's most recent PRESEASON game (clearly labeled) instead of
+    # sitting empty through all four preseason rounds.
+    preseason = getattr(season, "preseason_schedule", None) or []
+    for round_num in range(len(preseason), 0, -1):
+        game = next(
+            (g for g in preseason[round_num - 1]
+             if team_abbr in (g.home_abbr, g.away_abbr) and g.result is not None),
+            None,
+        )
+        if game is None:
+            continue
+        is_home = game.home_abbr == team_abbr
+        opponent_abbr = game.away_abbr if is_home else game.home_abbr
+        box = build_box_score(game.result.plays, team_abbr)
+        opponent_box = build_box_score(game.result.plays, opponent_abbr)
+        return {
+            "week": round_num,
+            "opponent_abbr": opponent_abbr,
+            "is_home": is_home,
+            "home_abbr": game.home_abbr,
+            "away_abbr": game.away_abbr,
+            "home_score": game.result.home_score,
+            "away_score": game.result.away_score,
+            "won": (game.result.home_score > game.result.away_score) == is_home,
+            "user_score": game.result.home_score if is_home else game.result.away_score,
+            "opp_score": game.result.away_score if is_home else game.result.home_score,
+            "box": box,
+            "defense": build_defensive_box_score(game.result.plays, team_abbr),
+            "user_leaders": _game_leaders(box),
+            "opponent_leaders": _game_leaders(opponent_box),
+            "plays": game.result.plays,
+            "quarters": quarter_scores(game.result.events),
+            "is_preseason": True,
+            "box_url": f"/season/preseason/game/{game.home_abbr}/{game.away_abbr}",
         }
     return None
 
@@ -1051,8 +1092,13 @@ def _power_rankings_with_deltas(season) -> list[dict]:
     (ROADMAP.md Sec2d-B item 10) instead of Figma's own fabricated demo
     deltas. delta is None (not a fabricated 0/dash) whenever there's no
     prior-week snapshot yet: the season's first tracked week, or an old
-    save that predates this store."""
-    ordered = sorted(season.records.values(), key=lambda r: -r.power_rating)
+    save that predates this store.
+
+    2026-09-14: ordered by power_rating.power_score_for() -- the Elo rating
+    plus a record anchor that grows with games played (see that module's
+    "Power RANKING order" section for why) -- the same key the weekly
+    snapshot is written with, so deltas stay consistent."""
+    ordered = sorted(season.records.values(), key=lambda r: -power_rating.power_score_for(r))
     week_just_played = season.current_week - 1
     prior_ranks = (
         power_rank_history.get_ranks(season.season_number, week_just_played - 1)
@@ -1307,10 +1353,10 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     # module docstring for why this isn't a live LLM call. current_week
     # points at the NEXT week to simulate, so the just-completed week
     # (if any) is current_week - 1; None before Week 1 finishes.
-    just_completed_week = season.current_week - 1
+    headlines_key, headlines_label = _latest_headlines_entry(season)
     weekly_headlines = (
-        headlines_history.get_week_headlines(season.season_number, just_completed_week)
-        if just_completed_week >= 1 else None
+        headlines_history.get_week_headlines(season.season_number, headlines_key)
+        if headlines_key is not None else None
     )
 
     return templates.TemplateResponse(
@@ -1336,6 +1382,8 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
             "awards_race": awards_race,
             "coty_cards": coty_cards,
             "weekly_headlines": weekly_headlines,
+            "headlines_label": headlines_label,
+            "clinch_marks": clinch.clinch_marks(season),
             "position_rank_rows": position_rank_rows,
             "position_rank_groups": QUOTA_GROUPS,
             "position_rank_sort_links": position_rank_sort_links,
@@ -1345,8 +1393,26 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     )
 
 
+def _latest_headlines_entry(season) -> tuple[str | int | None, str | None]:
+    """(headlines_history entry key, display label) for the most recent
+    thing simulated -- a playoff round, else the last regular-season week,
+    else the last preseason round (2026-09-14: headlines now cover all
+    three, see headlines_history.py's key scheme)."""
+    if season.playoffs is not None:
+        done = [r[0].round_name for r in season.playoffs.rounds if r and all(m.is_complete for m in r)]
+        if done:
+            return done[-1], ROUND_LABELS.get(done[-1], done[-1])
+    if season.current_week > 1:
+        return season.current_week - 1, f"Week {season.current_week - 1}"
+    played = getattr(season, "preseason_rounds_played", 0)
+    if played:
+        return f"P{played}", f"Preseason Round {played}"
+    return None, None
+
+
 @app.post("/gameplan")
 def gameplan_submit(
+    request: Request,
     offensive_aggressiveness: str = Form(...),
     defensive_aggressiveness: str = Form(...),
     coverage: str = Form(...),
@@ -1382,6 +1448,12 @@ def gameplan_submit(
         rz_offense=rz_offense,
         rz_defense=rz_defense,
     ))
+    # Brian's report, 2026-09-14: Save Gameplan jumped the Dashboard back to
+    # the top. dashboard.html now submits this form with fetch() and stays
+    # put -- that request asks for JSON; a plain (no-JS) submit still gets
+    # the redirect.
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True})
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
@@ -1953,6 +2025,7 @@ def season_view(request: Request):
         {
             "season": season,
             "standings": season.standings(),
+            "clinch_marks": clinch.clinch_marks(season),
             "n_weeks": season_state.N_WEEKS,
             "target_ppg": score_fidelity.TARGET_PPG_PER_TEAM,
         },
@@ -2428,6 +2501,10 @@ def _team_link(abbr: str | None, label: str | None = None) -> Markup:
 
 
 templates.env.globals["team_link"] = _team_link
+# 2026-09-14: the number the Power Rankings are ordered by (Elo + record
+# anchor, power_rating.power_score_for) -- shown in the Dashboard's "Power"
+# columns so the list never looks out of order against its own numbers.
+templates.env.filters["power_score"] = power_rating.power_score_for
 
 
 def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
@@ -4049,7 +4126,7 @@ def playoffs_view(request: Request, view: str = "full"):
             projected_nfc_rounds = _rounds_by_conference(projected_bracket, "NFC")
         return templates.TemplateResponse(request, "playoffs.html", {
             "season": season, "bracket": None, "round_labels": ROUND_LABELS, "view": view,
-            "preview": preview,
+            "preview": preview, "clinch_marks": clinch.clinch_marks(season),
             "projected_afc_rounds": projected_afc_rounds, "projected_nfc_rounds": projected_nfc_rounds,
         })
     if season.playoffs is None:
@@ -4066,7 +4143,7 @@ def playoffs_view(request: Request, view: str = "full"):
         "season": season, "bracket": bracket, "round_labels": ROUND_LABELS,
         "view": view, "in_the_hunt": in_the_hunt, "division_standings": division_standings,
         "afc_rounds": afc_rounds, "nfc_rounds": nfc_rounds, "sb_matchup": sb_matchup,
-        "teams_by_abbr": TEAMS_BY_ABBR,
+        "teams_by_abbr": TEAMS_BY_ABBR, "clinch_marks": clinch.clinch_marks(season),
     }
 
     if view == "full":

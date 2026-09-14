@@ -332,6 +332,15 @@ def test_simulate_playoff_round_end_to_end_reaches_a_champion():
     assert season_state.simulate_playoff_round() == "SB"
     assert season_state.get_season().playoffs.champion_abbr == champion
 
+    # 2026-09-14: headlines continue through every playoff round.
+    from app.services import headlines_history
+    labels = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Championship", "SB": "Super Bowl"}
+    for rn, label in labels.items():
+        lines = headlines_history.get_week_headlines(season.season_number, rn)
+        assert lines, rn
+        assert any(label in line or (rn == "CONF" and "Super Bowl" in line) for line in lines), (rn, lines)
+    assert any(champion in line for line in headlines_history.get_week_headlines(season.season_number, "SB"))
+
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
 def test_season_simulate_week_route_dispatches_into_playoffs_once_regular_season_ends():
@@ -402,11 +411,16 @@ def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
     # real markers to check for instead.
     assert "AFC Champ" in resp.text
     assert "NFC Champ" in resp.text
+    # Brian's ask, 2026-09-14: In The Hunt also under the main bracket view.
+    assert "In The Hunt" in resp.text
+    assert resp.text.index("AFC Champ") < resp.text.index("In The Hunt")
 
     resp = client.get("/playoffs?view=afc")
     assert resp.status_code == 200
     assert "In The Hunt" in resp.text
     assert "AFC East" in resp.text  # Division Standings
+    # Regular season is over -> exact clinch marks from the real seeding.
+    assert 'class="clinch-mark"' in resp.text and "x = Clinched playoff spot" in resp.text
 
     resp = client.get("/playoffs?view=nfc")
     assert resp.status_code == 200

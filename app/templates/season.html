@@ -109,7 +109,7 @@
       {% for r in standings %}
       <tr>
         <td>{{ loop.index }}</td>
-        <td>{{ r.location }} ({{ r.abbr }})</td>
+        <td>{{ r.location }} ({{ r.abbr }}){% if clinch_marks.get(r.abbr) %}<span class="clinch-mark" title="{{ 'Clinched first-round bye' if clinch_marks[r.abbr] == '*' else 'Clinched playoff spot' }}">{{ clinch_marks[r.abbr] }}</span>{% endif %}</td>
         <td>{{ r.wins }}</td>
         <td>{{ r.losses }}</td>
         <td>{{ "%.3f"|format(r.win_pct) }}</td>
@@ -121,6 +121,7 @@
       {% endfor %}
     </tbody>
   </table>
+  <p class="muted clinch-legend">x = Clinched playoff spot &middot; * = Clinched first-round bye</p>
 </div>
 
 <div class="card">

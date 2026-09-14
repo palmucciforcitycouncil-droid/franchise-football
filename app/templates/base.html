@@ -788,12 +788,25 @@
        template split needed) plus a height cap sized to ~3 standings
        rows, smaller title/body text, and overflow-y:auto as a safety net
        for a week with more headlines than fit. */
+    /* 2026-09-14: was CSS multi-column (column-count: 2) inside the fixed
+       max-height. Multi-column fills to that height and then creates MORE
+       columns off to the right, clipped from view -- so a headline that
+       wrapped at the bottom of column 2 was cut mid-line ("NE falls to NO
+       as the favorite, 17-"), the rest invisible. A 2-column grid keeps
+       every item whole and the overflow scrolls vertically as intended. */
     .headlines-card h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+    .headlines-card .headlines-when { font-size: 0.8rem; font-weight: 400; }
     .headlines-list {
-      margin: 0; padding-left: 1.1rem; column-count: 2; column-gap: 2rem;
-      max-height: 108px; overflow-y: auto; font-size: 0.82rem;
+      margin: 0; padding-left: 1.1rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 2rem; align-content: start; max-height: 108px; overflow-y: auto; font-size: 0.82rem;
     }
-    .headlines-list li { margin-bottom: 0.3rem; line-height: 1.35; break-inside: avoid; }
+    .headlines-list li { margin-bottom: 0.3rem; line-height: 1.35; }
+    @media (max-width: 700px) { .headlines-list { grid-template-columns: 1fr; } }
+    /* Standings clinch marks (app/engine/clinch.py). */
+    .clinch-mark { font-size: 0.72rem; font-weight: 700; margin-left: 0.25rem; color: var(--gold); vertical-align: super; }
+    .clinch-legend { font-size: 0.75rem; margin: 0.5rem 0 0; }
+    .preseason-tag { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .gameplan-status { margin-left: 0.5rem; font-size: 0.8rem; }
 
     /* Scouting Panel prose summaries (ROADMAP.md Sec4e/R12). */
     .scouting-prose { margin-bottom: 0.75rem; line-height: 1.45; }
@@ -2209,6 +2222,28 @@
           }
         }
       }
+      // Exact scroll-position restore (2026-09-14, Brian: "When I click
+      // apply to the stats page selections the page jumps to the top").
+      // data-preserve-scroll above re-anchors to an element's TOP, which
+      // still moves the page when the control lives mid-card. A form with
+      // data-keep-scroll instead restores the precise window.scrollY on the
+      // next load of the same path.
+      try {
+        var kept = JSON.parse(sessionStorage.getItem('ffg-keep-scroll') || 'null');
+        if (kept && kept.path === location.pathname) {
+          sessionStorage.removeItem('ffg-keep-scroll');
+          var restore = function () { window.scrollTo(0, kept.y); };
+          restore();
+          window.addEventListener('load', restore);
+        }
+      } catch (e) { /* storage unavailable -- plain reload behavior */ }
+      document.querySelectorAll('form[data-keep-scroll]').forEach(function (form) {
+        form.addEventListener('submit', function () {
+          try {
+            sessionStorage.setItem('ffg-keep-scroll', JSON.stringify({path: location.pathname, y: window.scrollY}));
+          } catch (e) { /* ignore */ }
+        });
+      });
       document.querySelectorAll('[data-preserve-scroll]').forEach(function (el) {
         var save = function () { sessionStorage.setItem('ffg-scroll-anchor', el.dataset.preserveScroll); };
         if (el.tagName === 'FORM') {

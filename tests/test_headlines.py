@@ -74,23 +74,139 @@ def test_detect_game_events_flags_a_real_blowout():
 
 def test_detect_game_events_flags_a_real_upset_when_the_worse_team_wins():
     schedule = [[_game("KC", "LV", 24, 21)]]
-    records = {"KC": TeamRecord(abbr="KC", location="KC", power_rating=1400),
-               "LV": TeamRecord(abbr="LV", location="LV", power_rating=1600)}
-    season = _season(schedule, records=records, current_week=2)
+    # Records are AFTER this game: KC was 2-9 going in, LV 9-2.
+    records = {"KC": TeamRecord(abbr="KC", location="KC", wins=3, losses=9, power_rating=1400),
+               "LV": TeamRecord(abbr="LV", location="LV", wins=9, losses=3, power_rating=1600)}
+    season = _season(schedule, records=records, current_week=13)
     events = headlines._detect_game_events(season, schedule[0], None)
     upsets = [e for e in events if e.category == "upset"]
-    # KC (lower/worse rating 1400) beat LV (higher/better rating 1600) -- a real upset.
     assert len(upsets) == 1
     assert upsets[0].values["winner"] == _team_name("KC")
+    # Brian: records next to the team names, "NE (1-14) upsets NYJ (14-1)".
+    line = headlines.render_headline(upsets[0], 2025, 0, 12)
+    assert "KC (3-9)" in line and "LV (9-3)" in line and "24-21" in line
 
 
 def test_detect_game_events_does_not_flag_a_favorite_winning_as_an_upset():
     schedule = [[_game("KC", "LV", 24, 21)]]
-    records = {"KC": TeamRecord(abbr="KC", location="KC", power_rating=1600),
-               "LV": TeamRecord(abbr="LV", location="LV", power_rating=1400)}
-    season = _season(schedule, records=records, current_week=2)
+    records = {"KC": TeamRecord(abbr="KC", location="KC", wins=9, losses=3, power_rating=1600),
+               "LV": TeamRecord(abbr="LV", location="LV", wins=3, losses=9, power_rating=1400)}
+    season = _season(schedule, records=records, current_week=13)
     events = headlines._detect_game_events(season, schedule[0], None)
     assert not [e for e in events if e.category == "upset"]
+
+
+def test_equal_records_are_never_an_upset_even_with_a_rating_gap():
+    schedule = [[_game("KC", "LV", 24, 21)]]
+    records = {"KC": TeamRecord(abbr="KC", location="KC", wins=7, losses=6, power_rating=1450),
+               "LV": TeamRecord(abbr="LV", location="LV", wins=7, losses=6, power_rating=1600)}
+    season = _season(schedule, records=records, current_week=14)
+    events = headlines._detect_game_events(season, schedule[0], "LV")
+    assert not [e for e in events if e.category in ("upset", "team_upset")]
+
+
+def test_early_season_upset_needs_a_wide_pregame_rating_gap():
+    schedule = [[_game("KC", "LV", 24, 21)]]
+    near = {"KC": TeamRecord(abbr="KC", location="KC", wins=1, losses=0, power_rating=1490),
+            "LV": TeamRecord(abbr="LV", location="LV", wins=0, losses=1, power_rating=1510)}
+    assert not [e for e in headlines._detect_game_events(_season(schedule, records=near, current_week=2), schedule[0], None)
+                if e.category == "upset"]
+    # Wide gap, but the printed records (KC 1-0, LV 0-1) don't show LV as the better team.
+    wide_even = {"KC": TeamRecord(abbr="KC", location="KC", wins=1, losses=0, power_rating=1420),
+                 "LV": TeamRecord(abbr="LV", location="LV", wins=0, losses=1, power_rating=1580)}
+    assert not [e for e in headlines._detect_game_events(_season(schedule, records=wide_even, current_week=2), schedule[0], None)
+                if e.category == "upset"]
+    wide = {"KC": TeamRecord(abbr="KC", location="KC", wins=1, losses=2, power_rating=1420),
+            "LV": TeamRecord(abbr="LV", location="LV", wins=3, losses=1, power_rating=1580)}
+    assert [e for e in headlines._detect_game_events(_season(schedule, records=wide, current_week=4), schedule[0], None)
+            if e.category == "upset"]
+
+
+def test_pregame_rating_inversion_recovers_the_ratings_before_the_game():
+    from app.engine.power_rating import update_ratings
+    post_h, post_a = update_ratings(1450.0, 1580.0, 31, 17)
+    pre_h, pre_a = headlines._pregame_ratings(post_h, post_a, 31, 17)
+    assert abs(pre_h - 1450.0) < 1e-6 and abs(pre_a - 1580.0) < 1e-6
+
+
+def test_a_tie_is_never_an_upset_a_win_or_a_loss():
+    # Brian: "NE shocks NYJ 17-17" / "falls to ... in a tie" must never happen.
+    schedule = [[_game("NE", "NYJ", 17, 17)]]
+    records = {"NE": TeamRecord(abbr="NE", location="NE", wins=2, losses=10, power_rating=1350),
+               "NYJ": TeamRecord(abbr="NYJ", location="NYJ", wins=10, losses=2, power_rating=1650)}
+    season = _season(schedule, records=records, current_week=13)
+    events = headlines._detect_game_events(season, schedule[0], "NYJ")
+    cats = {e.category for e in events}
+    assert "tie" in cats
+    assert not cats & {"upset", "team_upset", "close_game", "blowout"}
+    tie = next(e for e in events if e.category == "tie")
+    for tmpl in headlines.TEMPLATES["tie"]:
+        line = tmpl.format(**tie.values)
+        assert "17-17" in line and "NE (2-10)" in line and "NYJ (10-2)" in line
+        assert "falls" not in line and "upset" not in line.lower()
+
+
+def test_player_headlines_keep_the_plain_team_tag():
+    # "Name (POS, TEAM)" -- a team describing a player carries no record.
+    for key in ("stat_milestone", "single_season_record", "playoff_standout", "notable_injury"):
+        for tmpl in headlines.TEMPLATES[key]:
+            assert "_label}" not in tmpl
+
+
+def test_consecutive_weeks_do_not_reuse_the_same_phrasing():
+    ev = headlines.HeadlineEvent(tier=1, category="blowout", magnitude=1, is_user_team=False, template_key="blowout",
+                                 values={"winner_label": "KC (5-1)", "loser_label": "LV (1-5)", "w_score": 40, "l_score": 10},
+                                 event_key="blowout|KC|LV")
+    headlines_history.DEFAULT_PATH.unlink(missing_ok=True)
+    lines = [headlines._render_events([ev], 2025, 77, week)[0] for week in range(1, 7)]
+    assert all(a != b for a, b in zip(lines, lines[1:]))
+
+
+def test_same_week_events_of_one_type_get_different_phrasings():
+    evs = [headlines.HeadlineEvent(tier=1, category="blowout", magnitude=1, is_user_team=False, template_key="blowout",
+                                   values={"winner_label": w, "loser_label": "X (0-1)", "w_score": 40, "l_score": 10},
+                                   event_key=f"blowout|{w}") for w in ("A (1-0)", "B (1-0)")]
+    a, b = headlines._render_events(evs, 2025, 78, 3)
+    assert a.replace("A (1-0)", "") != b.replace("B (1-0)", "")
+
+
+def test_starter_injury_headline_only_for_starters_missing_time():
+    from types import SimpleNamespace
+    from app.core.db import get_session
+    from app.models.player import Player
+    from app.models.injury import InjuryType
+    from sqlmodel import select
+
+    with get_session() as s:
+        player = s.exec(select(Player).where(Player.team_abbr != None)).first()  # noqa: E711
+    if player is None:
+        return
+    inj = SimpleNamespace(player_id=player.player_id, team_abbr=player.team_abbr, weeks_out=3,
+                          injury_type=InjuryType.KNEE, injury_id="t1")
+    events = headlines._detect_injury_events([inj], None, starter_ids={player.player_id})
+    assert len(events) == 1
+    for tmpl in headlines.TEMPLATES["notable_injury"]:
+        line = tmpl.format(**events[0].values)
+        assert player.full_name in line and f"({player.position.value})" in line
+        assert "3 weeks" in line and "a knee injury" in line
+
+    assert headlines._detect_injury_events([inj], None, starter_ids=set()) == []  # not a starter
+    inj.weeks_out = 0
+    assert headlines._detect_injury_events([inj], None, starter_ids={player.player_id}) == []  # misses no time
+
+
+def test_playoff_round_headlines_name_the_round_and_the_result():
+    from app.engine.playoffs import PlayoffMatchup
+    records = {"KC": TeamRecord(abbr="KC", location="KC", wins=13, losses=4),
+               "BUF": TeamRecord(abbr="BUF", location="BUF", wins=11, losses=6)}
+    season = _season([[_game("KC", "BUF", 1, 0)]], records=records)
+    m = PlayoffMatchup(round_name="DIV", conference="AFC", home_abbr="KC", away_abbr="BUF", home_seed=1, away_seed=4,
+                       result=GameResult(home_score=20, away_score=27, winner="away", events=[], plays=[]))
+    headlines_history.DEFAULT_PATH.unlink(missing_ok=True)
+    lines = headlines.playoff_round_headlines(season, [m])
+    assert len(lines) == 1
+    assert "BUF (11-6)" in lines[0] and "KC (13-4)" in lines[0] and "27-20" in lines[0]
+    assert "Divisional" in lines[0]
 
 
 def test_detect_game_events_flags_a_close_game():
@@ -172,7 +288,7 @@ def test_weekly_headlines_end_to_end_through_a_real_simulated_week():
         season = season_state.get_season()
         lines = headlines_history.get_week_headlines(season.season_number, 1)
         assert lines is not None
-        assert 1 <= len(lines) <= headlines.TARGET_TOTAL
+        assert 1 <= len(lines) <= headlines.TARGET_TOTAL + headlines.MAX_INJURY_HEADLINES
         assert all(isinstance(line, str) and line for line in lines)
     finally:
         save_service.DEFAULT_SAVE_PATH = real_save
