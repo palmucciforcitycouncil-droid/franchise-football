@@ -21,9 +21,9 @@ gets to MAKE it, never which record-rank it represents -- the same real
 distinction a traded first-round pick has in the NFL (it's still "the
 Bears' natural first," just owned by whoever traded for it).
 
-**Lookahead window**: exactly 3 draft-years of inventory exist at any
-time (this season's + the next two, per Sec 8.5's own "current draft and
-the next two drafts"). `ensure_lookahead_seeded()` is called once per
+**Lookahead window**: LOOKAHEAD_SEASONS draft-years of inventory exist at
+any time (this season's + the next five since 2026-09-14; originally
+Sec 8.5's "current draft and the next two drafts"). `ensure_lookahead_seeded()` is called once per
 real rollover (app/services/season_state.py's `_build_season()`) to keep
 that window current; `consume_season()` is called once a season's real
 draft actually runs (app/engine/draft.py's `run_draft_for_season()`),
@@ -45,7 +45,14 @@ from app.data.teams import TEAMS
 DEFAULT_PATH = Path("data/saves/pick_inventory.json")
 
 ROUNDS = 7
-LOOKAHEAD_SEASONS = 3  # Sec 8.5: "the current draft and the next two drafts"
+# Brian's ask, 2026-09-14: trades show picks for the next 5 drafts (Sec
+# 8.5's original window was "the current draft and the next two"). The
+# current season's own slot is still seeded too (offset 0), so this is 6
+# draft-years of inventory: current + the next 5. The draft itself only
+# ever reads one season (owners_for_season()), so a wider window changes
+# nothing about who picks when.
+FUTURE_DRAFTS_TRADEABLE = 5
+LOOKAHEAD_SEASONS = 1 + FUTURE_DRAFTS_TRADEABLE
 
 
 @dataclass(frozen=True)
@@ -92,6 +99,16 @@ def picks_owned_by(team_abbr: str, path: Path | None = None) -> list[PickAsset]:
     )
 
 
+def tradeable_picks_owned_by(team_abbr: str, current_season_number: int, path: Path | None = None) -> list[PickAsset]:
+    """The picks a GM Desk trade can offer: the next FUTURE_DRAFTS_TRADEABLE
+    drafts that haven't run yet. A season's live draft is the NEXT season
+    number's (season_state.py's `next_number`), so the current season's
+    own slot is already spent by the time you're playing it -- it's
+    excluded here rather than offered as a phantom asset."""
+    lo, hi = current_season_number + 1, current_season_number + FUTURE_DRAFTS_TRADEABLE
+    return [p for p in picks_owned_by(team_abbr, path) if lo <= p.season_number <= hi]
+
+
 def owner_of(season_number: int, round: int, original_team_abbr: str, path: Path | None = None) -> str:
     """Who currently owns this slot -- the original team, unless a real
     trade moved it. Defaults to the original team even if this exact
@@ -128,8 +145,8 @@ def owners_for_season(season_number: int, path: Path | None = None) -> dict[tupl
 
 def ensure_lookahead_seeded(current_season_number: int, path: Path | None = None) -> None:
     """Guarantees every team owns its own real pick, every round, for
-    `current_season_number` through `current_season_number + 2` (Sec
-    8.5's 3-draft lookahead) -- called once per real rollover so the
+    `current_season_number` through `current_season_number + 5` (the
+    current season plus FUTURE_DRAFTS_TRADEABLE) -- called once per real rollover so the
     inventory always covers a full window, never left short as seasons
     advance. Existing entries (already-traded picks included) are
     untouched; only genuinely missing (season, round, team) slots get a

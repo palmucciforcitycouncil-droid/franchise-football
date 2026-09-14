@@ -167,3 +167,104 @@ def test_execute_trade_with_no_picks_never_touches_the_pick_store(monkeypatch):
     a_players = [_player(Position.WR, 80, "wr1", team_abbr="AA")]
     b_players = [_player(Position.QB, 85, "qb1", team_abbr="BB")]
     trades.execute_trade("AA", a_players, "BB", b_players)  # must not raise
+
+
+# --------------------------------------------------------------------
+# Propose Trade box rebuild (Brian, 2026-09-14)
+# --------------------------------------------------------------------
+
+def test_an_even_swap_of_two_overpaid_players_is_accepted():
+    """Regression: `received >= sent * 0.9` rejected -X vs -X."""
+    assert trades.ai_accepts(-10_000_000, -10_000_000)
+    assert trades.ai_accepts(10_000_000, 9_100_000)
+    assert not trades.ai_accepts(10_000_000, 8_900_000)
+
+
+def test_acceptance_likelihood_agrees_with_the_real_accept_line():
+    for sent, received in [(10e6, 9.0e6), (10e6, 8.99e6), (10e6, 0), (10e6, 20e6), (-5e6, -5e6), (0, 0), (30e6, 25e6)]:
+        likelihood = trades.acceptance_likelihood(sent, received)
+        assert 0 <= likelihood <= 100
+        assert (likelihood >= trades.ACCEPT_LIKELY) == trades.ai_accepts(sent, received)
+    assert trades.acceptance_likelihood(10e6, 0) == 0
+    assert trades.acceptance_likelihood(10e6, 7e6) < trades.acceptance_likelihood(10e6, 8.5e6)
+
+
+def test_far_future_picks_are_priced_at_a_league_average_slot():
+    season = _season_with_records({"AA": (0, 10), "BB": (10, 0)})
+    near = trades.PickRef(season.season_number + 1, 1, "AA")
+    far = trades.PickRef(season.season_number + 4, 1, "AA")
+    assert trades.pick_trade_value(near, season) == draft.pick_value(1, 1) * trades.DOLLARS_PER_PICK_POINT
+    assert trades.pick_trade_value(far, season) == draft.pick_value(1, 16) * trades.DOLLARS_PER_PICK_POINT
+
+
+def test_picks_before_any_games_are_played_are_priced_at_a_league_average_slot():
+    season = _season_with_records({"AA": (0, 0), "BB": (0, 0)})
+    pick = trades.PickRef(season.season_number + 1, 1, "AA")
+    assert trades.pick_trade_value(pick, season) == draft.pick_value(1, 16) * trades.DOLLARS_PER_PICK_POINT
+
+
+def test_execute_trade_records_acquisition_on_every_moved_player():
+    a_players = [_player(Position.WR, 80, "wr1", team_abbr="AA")]
+    b_players = [_player(Position.QB, 85, "qb1", team_abbr="BB")]
+    b_players[0].acquisition_type = "Draft"
+    b_players[0].acquisition_round = 1
+    trades.execute_trade("AA", a_players, "BB", b_players, acquisition_year=2027)
+    assert (a_players[0].acquisition_type, a_players[0].acquisition_team, a_players[0].acquisition_season) == ("Trade", "AA", 2027)
+    assert (b_players[0].acquisition_type, b_players[0].acquisition_team) == ("Trade", "BB")
+    assert b_players[0].acquisition_round is None
+
+
+def _flat_counter_env(monkeypatch):
+    """No DB: need multipliers neutral, a balanced profile, no starters."""
+    profile = trades.TeamTradeProfile(team_abbr="BB", mode="balanced", mode_line="")
+    monkeypatch.setattr(trades, "team_trade_profile", lambda *a, **k: profile)
+    monkeypatch.setattr(trades, "giving_up_need_multiplier", lambda p: 1.0)
+    monkeypatch.setattr(trades, "receiving_need_multiplier", lambda p, abbr: 1.0)
+    monkeypatch.setattr(trades, "_is_depth_chart_starter", lambda p: False)
+    return _season_with_records({"AA": (5, 5), "BB": (5, 5)})
+
+
+def test_counter_offer_adds_the_cheapest_single_asset_that_closes_the_gap(monkeypatch):
+    season = _flat_counter_env(monkeypatch)
+    ask = _player(Position.WR, 90, "ask", salary=1_000_000, team_abbr="BB")
+    small = _player(Position.WR, 70, "small", salary=6_000_000, team_abbr="AA", contract_years_remaining=1)
+    big = _player(Position.WR, 90, "big", salary=1_000_000, team_abbr="AA", contract_years_remaining=5)
+    huge = _player(Position.QB, 95, "huge", salary=1_000_000, team_abbr="AA", contract_years_remaining=5)
+    counter = trades.build_counter_offer("BB", [ask], [], [], [], season, candidate_players=[small, big, huge], candidate_picks=[])
+    assert counter.possible and not counter.already_acceptable
+    assert len(counter.add_players) == 1
+    added = counter.add_players[0]
+    assert trades.evaluate_trade([ask], [added], 1, ai_team_abbr="BB").accepted
+    # The cheapest sufficient single asset, not the biggest one available.
+    sufficient = [p for p in (small, big, huge) if trades.evaluate_trade([ask], [p], 1, ai_team_abbr="BB").accepted]
+    assert trades.player_trade_value(added, 1) == min(trades.player_trade_value(p, 1) for p in sufficient)
+
+
+def test_counter_offer_says_no_deal_when_nothing_is_enough(monkeypatch):
+    season = _flat_counter_env(monkeypatch)
+    ask = _player(Position.QB, 99, "ask", salary=1_000_000, team_abbr="BB", contract_years_remaining=5)
+    junk = _player(Position.P, 50, "junk", salary=900_000, team_abbr="AA", contract_years_remaining=1)
+    counter = trades.build_counter_offer("BB", [ask], [], [], [], season, candidate_players=[junk], candidate_picks=[])
+    assert not counter.possible
+    assert counter.message == "A deal is not possible with those terms."
+
+
+def test_counter_offer_recognizes_an_already_acceptable_deal(monkeypatch):
+    season = _flat_counter_env(monkeypatch)
+    ask = _player(Position.WR, 60, "ask", salary=1_000_000, team_abbr="BB", contract_years_remaining=1)
+    give = _player(Position.WR, 90, "give", salary=1_000_000, team_abbr="AA", contract_years_remaining=5)
+    counter = trades.build_counter_offer("BB", [ask], [give], [], [], season, candidate_players=[], candidate_picks=[])
+    assert counter.possible and counter.already_acceptable
+
+
+def test_a_starter_is_never_given_away_for_nothing_even_if_overpaid(monkeypatch):
+    """Starter retention floor: an overpaid AI starter still costs at least
+    one season of his market value (x need multiplier)."""
+    from app.engine import contracts
+    monkeypatch.setattr(trades, "giving_up_need_multiplier", lambda p: 1.0)
+    monkeypatch.setattr(trades, "_is_depth_chart_starter", lambda p: True)
+    star = _player(Position.WR, 86, "wr1", salary=500_000_000, team_abbr="BB")
+    assert trades.player_trade_value(star, 24) < 0
+    result = trades.evaluate_trade([star], [], 24, ai_team_abbr="BB")
+    assert abs(result.value_sent - contracts.expected_market_value(star, 24)) < 1.0
+    assert not result.accepted

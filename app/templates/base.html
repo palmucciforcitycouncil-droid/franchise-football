@@ -923,33 +923,9 @@
     .table-wrap-top-scroll { transform: rotateX(180deg); }
     .table-wrap-top-scroll > table { transform: rotateX(180deg); }
 
-    /* GM Desk Propose Trade -- Football Mogul-style layout (Brian's own
-       reference screenshot): both rosters side by side, click a row to
-       add/remove it from the deal (double-click still opens the Player
-       Card, same as everywhere else -- data-trade-card is a SEPARATE
-       attribute from the global tr[data-card] single-click-opens-card
-       convention specifically so the two don't collide on the same
-       click). A live "Current Offer" panel replaces having to scroll
-       back up to see what's already checked. No cash/picks balancing --
-       neither system exists in this engine. */
-    .trade-board { display: grid; grid-template-columns: 1fr 1fr minmax(220px, 260px); gap: 1rem; margin-top: 12px; align-items: start; }
-    .trade-board h4 { margin: 0 0 0.5rem; font-size: 0.95rem; }
-    .trade-roster-wrap { max-height: 360px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
-    .trade-roster-table { font-size: 0.85rem; }
-    .trade-roster-table th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
-    .trade-roster-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-    .trade-row { cursor: pointer; }
-    .trade-row:hover { background: rgba(45, 74, 111, 0.3); }
-    .trade-row.selected { background: rgba(212, 175, 55, 0.14); }
-    .trade-offer-panel { background: var(--bg); border-radius: 8px; padding: 0.75rem 0.9rem; }
-    .trade-offer-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin: 0.6rem 0 0.3rem; }
-    .trade-offer-label:first-of-type { margin-top: 0; }
-    .trade-offer-list { list-style: none; margin: 0 0 0.4rem; padding: 0; min-height: 1.4rem; }
-    .trade-offer-list li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.85rem; padding: 0.25rem 0; }
-    .trade-offer-list li.trade-offer-empty { color: var(--muted); font-style: italic; }
+    /* .trade-offer-actions is shared with the Negotiation modal's buttons;
+       the rest of GM Desk's Propose Trade styles live in gm_desk.html. */
     .trade-offer-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-    .trade-offer-note { font-size: 0.76rem; margin-top: 0.5rem; margin-bottom: 0; }
-    @media (max-width: 900px) { .trade-board { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -2229,120 +2205,10 @@
         }
       });
 
-      // GM Desk Propose Trade board (Football Mogul-style, Brian's own
-      // reference screenshot): click a row to add/remove it from the
-      // deal, double-click opens the real Player Card. Deliberately NOT
-      // the global tr[data-card] single-click-opens-card listener above
-      // -- these rows carry data-trade-card (a different attribute) so a
-      // single click here toggles the trade checkbox instead, with
-      // dblclick reserved for the card.
-      var tradeForm = document.getElementById('trade-form');
-      if (tradeForm) {
-        // Live "Trade Interest" meter (Brian's ask, 2026-09-14): same
-        // debounced-fetch-to-a-read-only-preview-endpoint shape as the
-        // Negotiation modal's own Player Reaction above (negFetchReaction/
-        // negScheduleFetch) -- calls /gm-desk/trade/preview, which runs
-        // the exact same need-weighted trades.evaluate_trade() the real
-        // submit uses, so this reading and the eventual ACCEPT/REJECT
-        // never disagree. Reuses negReactionClass() for the same 5-band
-        // color coding as the contract modal.
-        var tradeReactionEl = document.getElementById('trade-reaction');
-        var tradePreviewTimer = null;
-        function fetchTradeReaction() {
-          if (!tradeReactionEl) { return; }
-          var teamB = tradeForm.dataset.teamB;
-          if (!teamB) { return; }
-          var params = new URLSearchParams();
-          params.set('team_b', teamB);
-          tradeForm.querySelectorAll('.trade-checkbox[data-side="give"]:checked').forEach(function (cb) { params.append('give', cb.value); });
-          tradeForm.querySelectorAll('.trade-checkbox[data-side="get"]:checked').forEach(function (cb) { params.append('get', cb.value); });
-          tradeForm.querySelectorAll('input[name="give_picks"]:checked').forEach(function (cb) { params.append('give_picks', cb.value); });
-          tradeForm.querySelectorAll('input[name="get_picks"]:checked').forEach(function (cb) { params.append('get_picks', cb.value); });
-          tradeReactionEl.textContent = 'Checking…';
-          tradeReactionEl.className = '';
-          fetch('/gm-desk/trade/preview?' + params.toString()).then(function (r) {
-            if (!r.ok) { throw new Error('preview failed'); }
-            return r.json();
-          }).then(function (data) {
-            if (!data.reaction) {
-              tradeReactionEl.textContent = '--';
-              tradeReactionEl.className = '';
-              return;
-            }
-            tradeReactionEl.textContent = data.reaction;
-            tradeReactionEl.className = negReactionClass(data.reaction);
-          }).catch(function () {
-            tradeReactionEl.textContent = '--';
-            tradeReactionEl.className = '';
-          });
-        }
-        function scheduleTradeReaction() {
-          if (tradePreviewTimer) { clearTimeout(tradePreviewTimer); }
-          tradePreviewTimer = setTimeout(fetchTradeReaction, 250);
-        }
-        tradeForm.querySelectorAll('input[name="give_picks"], input[name="get_picks"]').forEach(function (cb) {
-          cb.addEventListener('change', scheduleTradeReaction);
-        });
-
-        function renderTradeOffer() {
-          ['give', 'get'].forEach(function (side) {
-            var list = tradeForm.querySelector('.trade-offer-list[data-offer-list="' + side + '"]');
-            var checked = tradeForm.querySelectorAll('.trade-checkbox[data-side="' + side + '"]:checked');
-            if (!checked.length) {
-              list.innerHTML = '<li class="muted trade-offer-empty">Click a player to add them</li>';
-              return;
-            }
-            var html = '';
-            checked.forEach(function (cb) {
-              html += '<li><span>' + cb.dataset.name + ' (' + cb.dataset.pos + ', ' + cb.dataset.ovr + ' OVR)</span>' +
-                '<span>' + money(cb.dataset.salary) + '/yr, ' + cb.dataset.yrs + ' yr' + (cb.dataset.yrs === '1' ? '' : 's') + '</span></li>';
-            });
-            list.innerHTML = html;
-          });
-          scheduleTradeReaction();
-        }
-
-        tradeForm.querySelectorAll('.trade-row').forEach(function (row) {
-          row.addEventListener('click', function () {
-            var cb = row.querySelector('.trade-checkbox');
-            cb.checked = !cb.checked;
-            row.classList.toggle('selected', cb.checked);
-            renderTradeOffer();
-          });
-          row.addEventListener('dblclick', function () {
-            try {
-              openCard(JSON.parse(row.dataset.tradeCard));
-            } catch (err) {
-              console.error('Failed to parse player card data', err);
-            }
-          });
-        });
-
-        var clearBtn = document.getElementById('trade-clear-btn');
-        if (clearBtn) {
-          clearBtn.addEventListener('click', function () {
-            tradeForm.querySelectorAll('.trade-checkbox:checked').forEach(function (cb) { cb.checked = false; });
-            tradeForm.querySelectorAll('.trade-row.selected').forEach(function (row) { row.classList.remove('selected'); });
-            renderTradeOffer();
-          });
-        }
-
-        // Acquire button hand-off (Brian's request): the Player Card's
-        // own Acquire button (for a player on another team) navigates
-        // here with ?team_b=<their team>&acquire=<player_id> -- pick up
-        // that player_id and pre-add them to the "get" side automatically
-        // instead of making the user find and click their row again.
-        var preselectId = tradeForm.dataset.preselect;
-        if (preselectId) {
-          var preselectCb = tradeForm.querySelector('.trade-checkbox[data-side="get"][value="' + preselectId + '"]');
-          if (preselectCb) {
-            preselectCb.checked = true;
-            preselectCb.closest('.trade-row').classList.add('selected');
-            renderTradeOffer();
-            preselectCb.closest('.trade-row').scrollIntoView({block: 'center'});
-          }
-        }
-      }
+      // GM Desk's Propose Trade box (app/templates/gm_desk.html) owns its
+      // own click/sort/fetch wiring; it only needs the Player Card opener
+      // for its double-click, which lives inside this closure.
+      window.ffgOpenCard = openCard;
 
       // Double-scrollbar fix (Brian's report): a native <dialog> opened
       // via showModal() does NOT lock the page underneath it -- the

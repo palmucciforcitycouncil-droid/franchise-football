@@ -11,14 +11,14 @@ from __future__ import annotations
 from app.services import draft_pick_store as pick_store
 
 
-def test_ensure_lookahead_seeded_covers_every_team_every_round_for_three_seasons(tmp_path):
+def test_ensure_lookahead_seeded_covers_every_team_every_round_for_current_plus_five_seasons(tmp_path):
     path = tmp_path / "picks.json"
     pick_store.ensure_lookahead_seeded(10, path=path)
     picks = pick_store.all_picks(path)
     seasons = {p.season_number for p in picks}
-    assert seasons == {10, 11, 12}
-    # 32 teams x 7 rounds x 3 seasons
-    assert len(picks) == 32 * 7 * 3
+    assert seasons == {10, 11, 12, 13, 14, 15}
+    # 32 teams x 7 rounds x (current + next 5 drafts)
+    assert len(picks) == 32 * 7 * 6
 
 
 def test_a_fresh_pick_is_owned_by_its_own_original_team(tmp_path):
@@ -65,14 +65,27 @@ def test_picks_owned_by_reflects_trades_both_ways(tmp_path):
 
 def test_consume_season_removes_only_that_seasons_picks(tmp_path):
     path = tmp_path / "picks.json"
-    pick_store.ensure_lookahead_seeded(1, path=path)  # seeds seasons 1, 2, 3
+    pick_store.ensure_lookahead_seeded(1, path=path)  # seeds seasons 1-6
     consumed = pick_store.consume_season(1, path=path)
     assert len(consumed) == 32 * 7
     remaining_seasons = {p.season_number for p in pick_store.all_picks(path)}
-    assert remaining_seasons == {2, 3}
+    assert remaining_seasons == {2, 3, 4, 5, 6}
 
 
 def test_pick_id_round_trips_through_parse_pick_id():
     pick = pick_store.PickAsset(season_number=5, round=3, original_team_abbr="KC", current_owner_abbr="BUF")
     season_number, round_, original_team_abbr = pick_store.parse_pick_id(pick.pick_id)
     assert (season_number, round_, original_team_abbr) == (5, 3, "KC")
+
+
+def test_tradeable_picks_are_the_next_five_drafts_not_the_current_season(tmp_path):
+    """The live draft run at the end of season N is season N+1's -- so
+    season N's own slot is already spent while you're playing it; trades
+    offer exactly the next 5 drafts (Brian, 2026-09-14)."""
+    path = tmp_path / "picks.json"
+    pick_store.ensure_lookahead_seeded(24, path=path)
+    picks = pick_store.tradeable_picks_owned_by("NYJ", 24, path=path)
+    assert {p.season_number for p in picks} == {25, 26, 27, 28, 29}
+    assert len(picks) == 7 * 5
+    pick_store.transfer_pick(26, 1, "NYJ", "KC", path=path)
+    assert any(p.original_team_abbr == "NYJ" for p in pick_store.tradeable_picks_owned_by("KC", 24, path=path))
