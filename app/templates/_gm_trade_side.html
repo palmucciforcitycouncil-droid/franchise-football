@@ -1,0 +1,58 @@
+{# One side of GM Desk's Propose Trade box (rebuilt 2026-09-14, Brian's
+   Football Mogul reference). Rendered server-side on /gm-desk and as a
+   fragment by /gm-desk/trade/side, so the partner picker and a post-trade
+   refresh swap it in place with no reload. `side` is main.py's
+   _trade_side_context(). Player rows sort client-side (th[data-sort]); the Player Card JSON is fetched on double-click (/gm-desk/player-card) rather than embedded per row;
+   draft picks live in their own tbody so sorting never mixes them in. #}
+{% macro trade_side(side) %}
+<div class="trade-side" data-trade-side="{{ side.side }}" data-team="{{ side.abbr }}">
+  <div class="trade-side-head">
+    <strong>{{ side.info.location }} ({{ side.abbr }})</strong>
+    <span class="muted">Payroll {{ side.payroll | money }} of {{ side.cap | money }} cap</span>
+  </div>
+  <div class="trade-roster-wrap">
+    <table class="trade-roster-table" data-sort-table>
+      <thead><tr>
+        <th data-sort="name" data-type="text">Player</th>
+        <th data-sort="pos" data-type="text">POS</th>
+        <th data-sort="ovr">OVR</th>
+        <th data-sort="pot">POT</th>
+        <th data-sort="spd">SPD</th>
+        <th data-sort="age">Age</th>
+        <th data-sort="salary">Salary</th>
+        <th data-sort="yrs">Yrs</th>
+      </tr></thead>
+      <tbody data-sort-body>
+        {% for p in side.players %}
+        <tr class="trade-row" data-asset-kind="player" data-asset-id="{{ p.player_id }}" data-side="{{ side.side }}"
+            data-label="{{ p.full_name }}" data-detail="{{ p.position.value }} &middot; {{ p.overall_rating }} OVR &middot; {{ p.salary | money }}/yr, {{ p.contract_years_remaining }} yr"
+            data-name="{{ p.full_name | lower }}" data-pos="{{ p.position.value }}" data-ovr="{{ p.overall_rating }}"
+            data-pot="{{ p.potential }}" data-spd="{{ p.speed }}" data-age="{{ p.age }}" data-salary="{{ p.salary }}"
+            data-yrs="{{ p.contract_years_remaining }}">
+          <td>{{ p.full_name }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{{ p.potential }}</td>
+          <td>{{ p.speed }}</td>
+          <td>{{ p.age }}</td>
+          <td>{{ p.salary | money }}</td>
+          <td>{{ p.contract_years_remaining }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tbody class="trade-picks-body">
+        <tr class="trade-picks-divider"><td colspan="8">Draft Picks &mdash; next 5 drafts</td></tr>
+        {% for pk in side.picks %}
+        <tr class="trade-row trade-pick-row" data-asset-kind="pick" data-asset-id="{{ pk.pick_id }}" data-side="{{ side.side }}"
+            data-label="{{ pk.label }}" data-detail="est. value {{ pk.est_value | money }}">
+          <td colspan="6">{{ pk.label }}</td>
+          <td colspan="2" class="muted">est. {{ pk.est_value | money }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">No tradeable picks.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endmacro %}

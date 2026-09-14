@@ -577,7 +577,130 @@ def test_gm_desk_trade_panel_shows_real_tradeable_picks():
     season_state.set_user_team("KC")
     resp = client.get("/gm-desk?team_b=BUF")
     assert resp.status_code == 200
-    assert "Round 1" in resp.text  # the user's own current-season 1st, at minimum
+    assert "1st Round Pick" in resp.text  # the user's own next-draft 1st, at minimum
+
+
+def test_gm_desk_cap_uses_the_reanchored_season_cap():
+    """Brian: "Salary cap is still showing as $700M." Every cap figure on
+    GM Desk comes from contracts.salary_cap_for_season() -- $450M in 2026."""
+    from app.config import season_year
+    from app.engine import contracts
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+    original_number = season.season_number
+    # A new save's first season is 2026 (season_number 24); the test
+    # fixture's reset_season() builds an earlier number, so pin it here.
+    season.season_number = 24
+    try:
+        assert season_year(season.season_number) == 2026
+        assert contracts.salary_cap_for_season(season.season_number) == 450_000_000
+        resp = client.get("/gm-desk")
+        assert resp.status_code == 200
+        assert '<div style="font-size: 1.4rem;" id="gm-cap">$450,000,000</div>' in resp.text
+        assert "Payroll" in resp.text and "of $450,000,000 cap" in resp.text
+        assert "$700,000,000" not in resp.text
+    finally:
+        season.season_number = original_number
+
+
+def test_gm_desk_trade_box_always_shows_the_user_roster_before_a_partner_is_picked():
+    from app.core.db import get_session
+    from app.models.player import Player
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        kc_player = s.exec(select(Player).where(Player.team_abbr == "KC")).first()
+    resp = client.get("/gm-desk")
+    assert resp.status_code == 200
+    assert 'id="trade-user-side"' in resp.text
+    assert f'data-asset-id="{kc_player.player_id}"' in resp.text
+    assert "Choose a team above" in resp.text
+    # Trade Block filter pills + Expiring Contracts' POT column.
+    assert 'data-tb-filter="OFF"' in resp.text and 'data-tb-filter="DEF"' in resp.text
+    assert 'data-sort="pot"' in resp.text
+
+
+def test_gm_desk_trade_side_fragment_includes_roster_picks_and_wants():
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    resp = client.get("/gm-desk/trade/side?team=BUF")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert 'data-side="get"' in data["html"]
+    assert "Round Pick" in data["html"]
+    assert data["wants"]["mode_line"]
+    assert isinstance(data["wants"]["needs"], list)
+
+
+def test_gm_desk_trade_ajax_submit_returns_a_verdict_and_records_acquisition():
+    """The rebuilt Propose Trade box submits via fetch (ajax=1) and renders
+    the verdict in place; an accepted trade stamps every moved player's
+    acquisition record."""
+    from app.config import season_year
+    from app.core.db import get_session
+    from app.engine import trades
+    from app.models.player import Player
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+    with get_session() as s:
+        kc = sorted(s.exec(select(Player).where(Player.team_abbr == "KC")).all(), key=lambda p: -p.overall_rating)
+        buf = sorted(s.exec(select(Player).where(Player.team_abbr == "BUF")).all(), key=lambda p: p.overall_rating)
+    # A lopsided deal in the AI's favor (KC's best for BUF's worst) should be accepted.
+    give, get = kc[0], buf[0]
+
+    preview = client.get("/gm-desk/trade/preview", params={"team_b": "BUF", "give": [give.player_id], "get": [get.player_id]})
+    assert preview.status_code == 200
+    pdata = preview.json()
+    assert 0 <= pdata["likelihood"] <= 100
+    assert pdata["reason"]
+
+    resp = client.post("/gm-desk/trade", data={"team_b": "BUF", "give": [give.player_id], "get": [get.player_id], "ajax": "1"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["accepted"] == pdata["accepted"]
+    assert data["reason"]
+    if data["accepted"]:
+        assert data["headline"] == "Accepted!"
+        assert data["likelihood"] >= trades.ACCEPT_LIKELY
+        with get_session() as s:
+            moved = s.get(Player, give.player_id)
+            came = s.get(Player, get.player_id)
+        assert moved.team_abbr == "BUF" and came.team_abbr == "KC"
+        assert moved.acquisition_type == "Trade" and moved.acquisition_team == "KC"
+        assert came.acquisition_team == "BUF"
+        assert moved.acquisition_season == season_year(season.season_number)
+    else:
+        assert data["headline"] in trades.REJECTION_PHRASES
+
+
+def test_gm_desk_trade_counter_offer_route():
+    from app.core.db import get_session
+    from app.models.player import Player
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        buf_best = max(s.exec(select(Player).where(Player.team_abbr == "BUF")).all(), key=lambda p: p.overall_rating)
+    resp = client.get("/gm-desk/trade/counter", params={"team_b": "BUF", "get": [buf_best.player_id]})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["message"]
+    if data["possible"] and not data["already_acceptable"]:
+        assert data["add_give"] or data["add_give_picks"]
+        follow = client.get("/gm-desk/trade/preview", params={
+            "team_b": "BUF", "get": [buf_best.player_id], "give": data["add_give"], "give_picks": data["add_give_picks"],
+        })
+        assert follow.json()["accepted"] is True
+    elif not data["possible"]:
+        assert data["message"] == "A deal is not possible with those terms."
 
 
 def test_gm_desk_trade_route_accepts_a_pick_for_pick_swap():

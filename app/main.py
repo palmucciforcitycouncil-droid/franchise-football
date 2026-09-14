@@ -3206,18 +3206,9 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         key=lambda p: (p.contract_years_remaining, -p.overall_rating),
     )
 
-    def _pick_rows(team_abbr: str) -> list[dict]:
-        rows = []
-        for pk in draft_pick_store.picks_owned_by(team_abbr):
-            rank = draft.estimated_pick_order_rank(season, pk.original_team_abbr)
-            rows.append({
-                "pick_id": pk.pick_id,
-                "label": f"{season_year(pk.season_number)} Round {pk.round}"
-                         + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != team_abbr else ""),
-                "est_value": round(trades.pick_trade_value(
-                    trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr), season)),
-            })
-        return rows
+    # An existing save only re-seeds picks at rollover -- top up to the
+    # 5-future-draft window now (no-op write when already seeded).
+    draft_pick_store.ensure_lookahead_seeded(season.season_number)
 
     offer_feedback = None
     if offer_result and offer_player:
@@ -3227,18 +3218,16 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
             "counter_years": int(counter_years) if counter_years else None,
         }
 
-    trade_partner_roster = None
-    team_b_info = None
-    trade_partner_picks = None
-    user_picks = _pick_rows(user_abbr)
+    # Propose Trade box (rebuilt 2026-09-14, Brian's Football Mogul
+    # reference): the user's own side is ALWAYS rendered; the partner side
+    # only once a team is chosen (server-side here for the ?team_b=&acquire=
+    # Player Card hand-off, otherwise loaded in place via /gm-desk/trade/side).
+    user_side = _trade_side_context(season, user_abbr, roster)
+    partner_side = None
     if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
-        team_b_info = TEAMS_BY_ABBR[team_b]
-        with get_session() as s:
-            trade_partner_roster = sorted(
-                s.exec(select(Player).where(Player.team_abbr == team_b)).all(),
-                key=lambda p: -p.overall_rating,
-            )
-        trade_partner_picks = _pick_rows(team_b)
+        partner_side = _trade_side_context(season, team_b)
+    else:
+        team_b = None
 
     # Trade Block (Brian's ask, 2026-09-13; reworked 2026-09-14 -- see
     # trades.trade_block_availability()'s own docstring): a player only
@@ -3262,7 +3251,9 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         return {"player": p, "value": value, "interest": trades.trade_block_interest(value, season.season_number), "reason": reason}
 
     trade_block_rows = [r for r in (_trade_block_row(p) for p in trade_block_pool) if r is not None]
-    trade_block = sorted(trade_block_rows, key=lambda row: -row["value"])[:20]
+    # No top-20 cut any more (Brian, 2026-09-14): the table now filters by
+    # position/name client-side, so the whole real list is useful.
+    trade_block = sorted(trade_block_rows, key=lambda row: -row["value"])
 
     return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
@@ -3270,16 +3261,90 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         "cap": cap, "cap_space": cap_space, "cap_used": cap - cap_space,
         "top_cap_hits": top_cap_hits, "expiring": expiring,
         "cap_hits_sort_links": cap_hits_sort_links, "cap_sort": effective_cap_sort, "cap_dir": cap_direction,
-        "team_b_info": team_b_info, "preselect_player_id": acquire,
+        "preselect_player_id": acquire,
         "offer_feedback": offer_feedback,
-        "roster": sorted(roster, key=lambda p: -p.overall_rating),
         "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
-        "team_b": team_b, "trade_partner_roster": trade_partner_roster,
-        "user_picks": user_picks, "trade_partner_picks": trade_partner_picks,
+        "team_b": team_b, "user_side": user_side, "partner_side": partner_side,
         "trade_window_open": trades.is_trade_window_open(season.current_week),
         "trade_result": trade_result,
         "trade_block": trade_block,
+        "trade_block_pills": TRADE_BLOCK_PILLS,
+        "offense_groups": TRADE_BLOCK_OFFENSE, "defense_groups": TRADE_BLOCK_DEFENSE,
+        "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
+        "position_group": lambda p: POSITION_TO_GROUP[p.position],
     })
+
+
+# Trade Block position pills (Brian, 2026-09-14): the Roster page's own
+# group taxonomy (app/engine/position_groups.py) plus OFF/DEF buckets.
+TRADE_BLOCK_OFFENSE = ("QB", "RB", "WR", "TE", "T", "G", "C")
+TRADE_BLOCK_DEFENSE = ("EDGE", "DT", "LB", "CB", "S")
+TRADE_BLOCK_PILLS = ["ALL", "OFF", "DEF"] + ["QB", "RB", "WR", "TE", "T", "G", "C", "EDGE", "DT", "LB", "CB", "S", "K", "P"]
+
+
+def _trade_side_context(season, team_abbr: str, roster: list[Player] | None = None) -> dict:
+    """Everything one side of the Propose Trade box renders: the real
+    roster, the team's tradeable picks (next 5 drafts), its payroll line,
+    and -- for an AI team -- what it's shopping for (trades.
+    team_trade_profile())."""
+    from app.services import draft_pick_store
+
+    if roster is None:
+        with get_session() as s:
+            roster = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+    picks = []
+    for pk in draft_pick_store.tradeable_picks_owned_by(team_abbr, season.season_number):
+        ref = trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr)
+        picks.append({
+            "pick_id": pk.pick_id, "label": trades._pick_label(ref, team_abbr),
+            "season_year": season_year(pk.season_number), "round": pk.round,
+            "est_value": round(trades.pick_trade_value(ref, season)),
+        })
+    cap = contracts.salary_cap_for_season(season.season_number)
+    profile = None
+    if team_abbr != season.user_team_abbr:
+        profile = trades.team_trade_profile(team_abbr, season)
+    return {
+        "abbr": team_abbr, "info": TEAMS_BY_ABBR[team_abbr],
+        "side": "give" if team_abbr == season.user_team_abbr else "get",
+        "players": sorted(roster, key=lambda p: -p.overall_rating),
+        "picks": picks,
+        "payroll": round(sum(p.salary for p in roster)), "cap": round(cap),
+        "profile": profile,
+    }
+
+
+def _resolve_trade_proposal(user_abbr: str, team_b: str, give, get, give_picks, get_picks, strict: bool):
+    """Parses a submitted proposal into real Player rows + PickRefs. Strict
+    (a real submit) 404s on any asset that isn't where it claims to be;
+    lenient (the live preview/counter) silently drops it. Players come back
+    detached-but-loaded, so callers needing to MUTATE re-fetch in a session."""
+    from app.services import draft_pick_store
+
+    user_owned = {p.pick_id: p for p in draft_pick_store.picks_owned_by(user_abbr)}
+    team_b_owned = {p.pick_id: p for p in draft_pick_store.picks_owned_by(team_b)}
+    if strict:
+        if any(pid not in user_owned for pid in give_picks):
+            raise HTTPException(404, "One of your offered picks isn't yours to trade")
+        if any(pid not in team_b_owned for pid in get_picks):
+            raise HTTPException(404, "One of the requested picks isn't theirs to trade")
+
+    def ref(pk):
+        return trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr)
+
+    give_pick_refs = [ref(user_owned[pid]) for pid in give_picks if pid in user_owned]
+    get_pick_refs = [ref(team_b_owned[pid]) for pid in get_picks if pid in team_b_owned]
+    with get_session() as s:
+        give_players = [s.get(Player, pid) for pid in give]
+        get_players = [s.get(Player, pid) for pid in get]
+    if strict:
+        if any(p is None or p.team_abbr != user_abbr for p in give_players):
+            raise HTTPException(404, "One of your offered players wasn't found on your roster")
+        if any(p is None or p.team_abbr != team_b for p in get_players):
+            raise HTTPException(404, "One of the requested players wasn't found on that roster")
+    give_players = [p for p in give_players if p is not None and p.team_abbr == user_abbr]
+    get_players = [p for p in get_players if p is not None and p.team_abbr == team_b]
+    return give_players, get_players, give_pick_refs, get_pick_refs
 
 
 @app.get("/gm-desk/offer/preview")
@@ -3448,13 +3513,18 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
 def gm_desk_trade(request: Request, team_b: str = Form(...),
                    give: list[str] = Form(default=[]), get: list[str] = Form(default=[]),
                    give_picks: list[str] = Form(default=[]), get_picks: list[str] = Form(default=[]),
-                   return_to: str = Form("gm-desk")):
+                   return_to: str = Form("gm-desk"), ajax: int = Form(0)):
     """R4c's real trade flow (GDD Sec 8.5): players AND real draft picks
     (app/services/draft_pick_store.py), evaluated from the AI team's own
     side via a real Surplus Value + pick-value formula. An ACCEPT really
     swaps team_abbr for every player AND real pick ownership for every
-    pick on both sides, and clears depth_chart's starter cache."""
-    from app.services import draft_pick_store
+    pick on both sides, and clears depth_chart's starter cache.
+
+    `ajax=1` (GM Desk's rebuilt Propose Trade box, 2026-09-14) returns the
+    verdict as JSON so it renders IN the Current Offer box with no reload
+    or jump to the top; the Draft page's own pick panel still posts a
+    plain form and gets the original redirect."""
+    import random
 
     season = season_state.get_season()
     if season.user_team_abbr is None:
@@ -3467,39 +3537,36 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
     if not (give or give_picks) or not (get or get_picks):
         raise HTTPException(422, "A trade needs at least one asset (player or pick) on each side")
 
-    user_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(user_abbr)}
-    team_b_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(team_b)}
-    if any(pid not in user_owned_picks for pid in give_picks):
-        raise HTTPException(404, "One of your offered picks isn't yours to trade")
-    if any(pid not in team_b_owned_picks for pid in get_picks):
-        raise HTTPException(404, "One of the requested picks isn't theirs to trade")
-    give_pick_refs = [trades.PickRef(user_owned_picks[pid].season_number, user_owned_picks[pid].round,
-                                      user_owned_picks[pid].original_team_abbr) for pid in give_picks]
-    get_pick_refs = [trades.PickRef(team_b_owned_picks[pid].season_number, team_b_owned_picks[pid].round,
-                                     team_b_owned_picks[pid].original_team_abbr) for pid in get_picks]
+    give_players, get_players, give_pick_refs, get_pick_refs = _resolve_trade_proposal(
+        user_abbr, team_b, give, get, give_picks, get_picks, strict=True)
+    profile = trades.team_trade_profile(team_b, season)
+    # Evaluated from the AI (team_b) side: they SEND get_players/get_pick_refs, RECEIVE give_players/give_pick_refs.
+    result = trades.evaluate_trade(
+        get_players, give_players, season.season_number,
+        ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
+        ai_team_abbr=team_b,
+    )
 
-    with get_session() as s:
-        give_players = [s.get(Player, pid) for pid in give]
-        get_players = [s.get(Player, pid) for pid in get]
-        if any(p is None or p.team_abbr != user_abbr for p in give_players):
-            raise HTTPException(404, "One of your offered players wasn't found on your roster")
-        if any(p is None or p.team_abbr != team_b for p in get_players):
-            raise HTTPException(404, "One of the requested players wasn't found on that roster")
-
-        # Evaluated from the AI (team_b) side: they SEND get_players/get_pick_refs, RECEIVE give_players/give_pick_refs.
-        result = trades.evaluate_trade(
-            get_players, give_players, season.season_number,
-            ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
-            ai_team_abbr=team_b,
-        )
-
-        if result.accepted:
-            trades.execute_trade(user_abbr, give_players, team_b, get_players,
-                                  team_a_picks=give_pick_refs, team_b_picks=get_pick_refs)
-            for p in give_players + get_players:
+    if result.accepted:
+        with get_session() as s:
+            give_rows = [s.get(Player, p.player_id) for p in give_players]
+            get_rows = [s.get(Player, p.player_id) for p in get_players]
+            trades.execute_trade(user_abbr, give_rows, team_b, get_rows,
+                                  team_a_picks=give_pick_refs, team_b_picks=get_pick_refs,
+                                  acquisition_year=season_year(season.season_number))
+            for p in give_rows + get_rows:
                 s.add(p)
             s.commit()
-            depth_chart.clear_starters_cache()
+        depth_chart.clear_starters_cache()
+
+    if ajax:
+        reason = trades.verdict_reason(result, profile)
+        return {
+            "accepted": result.accepted,
+            "headline": "Accepted!" if result.accepted else random.choice(trades.REJECTION_PHRASES),
+            "reason": reason,
+            "likelihood": trades.acceptance_likelihood(result.value_sent, result.value_received),
+        }
 
     # Draft page's own compact pick-trading panel (Brian's ask, 2026-09-14)
     # posts here too rather than duplicating evaluate_trade()/execute_trade()
@@ -3516,14 +3583,12 @@ def gm_desk_trade(request: Request, team_b: str = Form(...),
 def gm_desk_trade_preview(team_b: str, give: list[str] = Query(default=[]), get: list[str] = Query(default=[]),
                            give_picks: list[str] = Query(default=[]), get_picks: list[str] = Query(default=[])):
     """Read-only twin of gm_desk_trade() above, for the Propose Trade
-    panel's live "Trade Interest" feedback (Brian's ask, 2026-09-14) --
-    calls the exact same need-weighted trades.evaluate_trade() so the
-    live preview and the real submit always agree, but never touches
-    the DB. Called on every add/remove (client-side debounced), so it's
-    deliberately cheap: no commit, silently ignores an asset id that
-    doesn't (or no longer) resolves rather than erroring out mid-typing."""
-    from app.services import draft_pick_store
-
+    panel's live interest meter (Brian's ask, 2026-09-14) -- calls the
+    exact same need-weighted trades.evaluate_trade() so the live preview
+    and the real submit always agree, but never touches the DB. Called on
+    every add/remove (client-side debounced), so it's deliberately cheap:
+    no commit, silently ignores an asset id that doesn't (or no longer)
+    resolves rather than erroring out mid-click."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
@@ -3531,26 +3596,17 @@ def gm_desk_trade_preview(team_b: str, give: list[str] = Query(default=[]), get:
     if team_b not in TEAMS_BY_ABBR or team_b == user_abbr:
         raise HTTPException(422, "Invalid trade partner")
     if not (give or give_picks or get or get_picks):
-        return {"reaction": None, "value_sent": 0, "value_received": 0}
+        return {"reaction": None, "likelihood": None, "accepted": None, "reason": None,
+                "value_sent": 0, "value_received": 0}
 
-    user_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(user_abbr)}
-    team_b_owned_picks = {p.pick_id: p for p in draft_pick_store.picks_owned_by(team_b)}
-    give_pick_refs = [trades.PickRef(user_owned_picks[pid].season_number, user_owned_picks[pid].round,
-                                      user_owned_picks[pid].original_team_abbr)
-                       for pid in give_picks if pid in user_owned_picks]
-    get_pick_refs = [trades.PickRef(team_b_owned_picks[pid].season_number, team_b_owned_picks[pid].round,
-                                     team_b_owned_picks[pid].original_team_abbr)
-                      for pid in get_picks if pid in team_b_owned_picks]
-
-    with get_session() as s:
-        give_players = [p for pid in give if (p := s.get(Player, pid)) is not None and p.team_abbr == user_abbr]
-        get_players = [p for pid in get if (p := s.get(Player, pid)) is not None and p.team_abbr == team_b]
-
-        result = trades.evaluate_trade(
-            get_players, give_players, season.season_number,
-            ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
-            ai_team_abbr=team_b,
-        )
+    give_players, get_players, give_pick_refs, get_pick_refs = _resolve_trade_proposal(
+        user_abbr, team_b, give, get, give_picks, get_picks, strict=False)
+    profile = trades.team_trade_profile(team_b, season)
+    result = trades.evaluate_trade(
+        get_players, give_players, season.season_number,
+        ai_sends_picks=get_pick_refs, ai_receives_picks=give_pick_refs, season=season,
+        ai_team_abbr=team_b,
+    )
 
     if result.value_sent > 0:
         score = result.value_received / result.value_sent
@@ -3560,7 +3616,80 @@ def gm_desk_trade_preview(team_b: str, give: list[str] = Query(default=[]), get:
         score = 1.0  # both sides price at ~0 (e.g. picks-only, or two expiring/overpaid players) -- a neutral read, not a fabricated verdict
     return {
         "reaction": trades.trade_reaction(score),
+        "likelihood": trades.acceptance_likelihood(result.value_sent, result.value_received),
+        "accepted": result.accepted,
+        "reason": trades.verdict_reason(result, profile),
         "value_sent": round(result.value_sent), "value_received": round(result.value_received),
+    }
+
+
+@app.get("/gm-desk/trade/counter")
+def gm_desk_trade_counter(team_b: str, give: list[str] = Query(default=[]), get: list[str] = Query(default=[]),
+                           give_picks: list[str] = Query(default=[]), get_picks: list[str] = Query(default=[])):
+    """"Get Counter Offer" (Brian's ask, 2026-09-14): the AI looks at the
+    current proposal and names the smallest addition from the user's own
+    roster/picks that would get it accepted (trades.build_counter_offer()),
+    or says no deal is possible on those terms. Read-only -- the client
+    adds the suggested assets to the offer; nothing moves until Submit."""
+    from app.services import draft_pick_store
+
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    user_abbr = season.user_team_abbr
+    if team_b not in TEAMS_BY_ABBR or team_b == user_abbr:
+        raise HTTPException(422, "Invalid trade partner")
+
+    give_players, get_players, give_pick_refs, get_pick_refs = _resolve_trade_proposal(
+        user_abbr, team_b, give, get, give_picks, get_picks, strict=False)
+    with get_session() as s:
+        user_roster = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
+    user_picks = [trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr)
+                  for pk in draft_pick_store.tradeable_picks_owned_by(user_abbr, season.season_number)]
+    counter = trades.build_counter_offer(
+        team_b, get_players, give_players, get_pick_refs, give_pick_refs, season,
+        candidate_players=user_roster, candidate_picks=user_picks,
+    )
+    return {
+        "possible": counter.possible, "already_acceptable": counter.already_acceptable,
+        "message": counter.message,
+        "add_give": [p.player_id for p in counter.add_players],
+        "add_give_picks": [f"{pk.season_number}_{pk.round}_{pk.original_team_abbr}" for pk in counter.add_picks],
+    }
+
+
+@app.get("/gm-desk/player-card/{player_id}")
+def gm_desk_player_card(player_id: str):
+    """The Player Card JSON blob for one player, on demand -- GM Desk's
+    Trade Block and trade box open cards from this instead of embedding
+    _player_card_json() on hundreds of rows (measured: 800+ Trade Block
+    rows = ~1.6MB of card JSON and ~3s of render time)."""
+    from fastapi.responses import Response
+
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player is None:
+            raise HTTPException(404, "No such player")
+        return Response(_player_card_json(player), media_type="application/json")
+
+
+@app.get("/gm-desk/trade/side")
+def gm_desk_trade_side(request: Request, team: str):
+    """One side of the Propose Trade box as an HTML fragment (roster +
+    picks), plus the team's "what they're looking for" profile -- the
+    partner picker and a post-trade refresh swap it in place, no reload."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    if team not in TEAMS_BY_ABBR:
+        raise HTTPException(404, "No such team")
+    side = _trade_side_context(season, team)
+    html = templates.get_template("_gm_trade_side.html").module.trade_side(side)
+    profile = side["profile"]
+    return {
+        "html": str(html),
+        "payroll": side["payroll"], "cap": side["cap"],
+        "wants": {"mode_line": profile.mode_line, "needs": profile.needs} if profile is not None else None,
     }
 
 

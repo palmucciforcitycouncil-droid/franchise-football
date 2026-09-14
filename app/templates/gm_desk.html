@@ -2,14 +2,76 @@
 {% block title %}GM Desk — Franchise Football{% endblock %}
 {% block content %}
 {% from "macros.html" import player_link %}
+{% from "_gm_trade_side.html" import trade_side %}
+
+<style>
+  /* GM Desk page-local styles (rebuilt 2026-09-14). align-items:start on
+     every grid here -- CSS Grid's default stretch is what left dead space
+     under the shorter card (HANDOFF's shared-cause note). */
+  .gm-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; margin-bottom: 1rem; }
+  .gm-grid > .card { margin-bottom: 0; min-width: 0; }
+  @media (max-width: 900px) { .gm-grid { grid-template-columns: minmax(0, 1fr); } }
+  table.gm-compact { font-size: 0.84rem; }
+  table.gm-compact th, table.gm-compact td { padding: 0.22rem 0.45rem; white-space: nowrap; }
+  /* .pc-negotiate-btn carries a 12px top margin for its Player Card home;
+     inside a table row that margin was most of the "dead space". */
+  table.gm-compact .pc-negotiate-btn { margin: 0; padding: 0.1rem 0.5rem; font-size: 0.8rem; }
+  .gm-compact-scroll { max-height: 300px; overflow: auto; }
+  .gm-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.4rem; }
+  .gm-card-head h3 { margin: 0; }
+
+  th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+  th[data-sort]:hover { color: var(--text); }
+  th[data-sort].sort-asc::after { content: " \25B2"; color: var(--gold); }
+  th[data-sort].sort-desc::after { content: " \25BC"; color: var(--gold); }
+
+  .tb-controls { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.4rem 0 0.6rem; }
+  .tb-pill { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 0.12rem 0.55rem; font-size: 0.78rem; cursor: pointer; }
+  .tb-pill.active { color: var(--gold); border-color: var(--gold); }
+  .tb-search { margin-left: auto; min-width: 180px; padding: 0.25rem 0.5rem; }
+  .tb-scroll { max-height: 440px; overflow: auto; }
+
+  .trade-board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 300px); gap: 1rem; margin-top: 0.5rem; align-items: start; }
+  @media (max-width: 900px) { .trade-board { grid-template-columns: minmax(0, 1fr); } }
+  .trade-side-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.35rem; font-size: 0.9rem; }
+  .trade-roster-wrap { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .trade-roster-table { font-size: 0.84rem; }
+  .trade-roster-table th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; padding: 0.3rem 0.45rem; text-align: left; border-bottom: 1px solid var(--border); z-index: 1; }
+  .trade-roster-table td { padding: 0.25rem 0.45rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .trade-row { cursor: pointer; }
+  .trade-row:hover { background: rgba(45, 74, 111, 0.3); }
+  .trade-row.selected { background: rgba(212, 175, 55, 0.18); }
+  .trade-picks-divider td { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; background: var(--bg); }
+  .trade-partner-picker { display: flex; align-items: center; gap: 0.5rem; margin: 0.9rem 0 0.5rem; }
+  .trade-empty { border: 1px dashed var(--border); border-radius: 8px; padding: 1.2rem; text-align: center; }
+  .trade-offer-panel { background: var(--bg); border-radius: 8px; padding: 0.75rem 0.9rem; position: sticky; top: 70px; }
+  .trade-offer-panel h4 { margin: 0 0 0.4rem; }
+  .trade-offer-label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; margin: 0.55rem 0 0.25rem; }
+  .trade-offer-list { list-style: none; margin: 0; padding: 0; min-height: 1.3rem; }
+  .trade-offer-list li { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem; font-size: 0.83rem; padding: 0.18rem 0; }
+  .trade-offer-list li small { display: block; color: var(--muted); }
+  .trade-offer-list li.trade-offer-empty { color: var(--muted); font-style: italic; }
+  .trade-offer-list button { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 0.2rem; font-size: 1rem; line-height: 1; }
+  .trade-wants ul { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; }
+  .trade-meter-bar { height: 10px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 0.25rem; }
+  .trade-meter-fill { height: 100%; width: 0; transition: width 0.25s ease, background 0.25s ease; background: var(--muted); }
+  .trade-meter-fill.meter-bad { background: #f87171; }
+  .trade-meter-fill.meter-mid { background: #facc15; }
+  .trade-meter-fill.meter-good { background: #4ade80; }
+  .trade-meter-text { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 0.2rem; }
+  #trade-verdict { margin: 0.6rem 0 0; font-size: 0.88rem; }
+  #trade-verdict small { display: block; font-weight: 400; margin-top: 0.15rem; }
+  .trade-offer-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+  .trade-offer-note { font-size: 0.74rem; margin: 0.5rem 0 0; }
+</style>
 
 <div class="card">
   <h2>GM Desk — {{ user_info.location }} ({{ user_info.abbr }})</h2>
   <p class="muted">{{ season_year(season.season_number) }} salary cap</p>
   <div class="row" style="gap: 2rem; flex-wrap: wrap;">
-    <div><span class="pc-row-label">Cap</span><div style="font-size: 1.4rem;">{{ cap | money }}</div></div>
-    <div><span class="pc-row-label">Committed</span><div style="font-size: 1.4rem;">{{ cap_used | money }}</div></div>
-    <div><span class="pc-row-label">Cap Space</span><div style="font-size: 1.4rem;" class="{% if cap_space < 0 %}pc-injury-status{% endif %}">{{ cap_space | money }}</div></div>
+    <div><span class="pc-row-label">Cap</span><div style="font-size: 1.4rem;" id="gm-cap">{{ cap | money }}</div></div>
+    <div><span class="pc-row-label">Committed</span><div style="font-size: 1.4rem;" id="gm-cap-used">{{ cap_used | money }}</div></div>
+    <div><span class="pc-row-label">Cap Space</span><div style="font-size: 1.4rem;" id="gm-cap-space" class="{% if cap_space < 0 %}pc-injury-status{% endif %}">{{ cap_space | money }}</div></div>
   </div>
 </div>
 
@@ -45,82 +107,120 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <h3>Expiring Contracts ({{ expiring | length }})</h3>
-  {% if expiring %}
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs Left</th><th></th></tr></thead>
-      <tbody>
-        {% for p in expiring %}
-        <tr>
-          <td>{{ player_link(p) }}</td>
+<div class="gm-grid">
+  <div class="card">
+    <div class="gm-card-head"><h3>Expiring Contracts ({{ expiring | length }})</h3></div>
+    {% if expiring %}
+    <div class="gm-compact-scroll">
+      <table class="gm-compact" data-sort-table>
+        <thead><tr>
+          <th data-sort="name" data-type="text">Player</th><th data-sort="pos" data-type="text">Pos</th>
+          <th data-sort="age">Age</th><th data-sort="ovr">OVR</th><th data-sort="pot">POT</th>
+          <th data-sort="salary">Salary</th><th data-sort="yrs">Yrs</th><th></th>
+        </tr></thead>
+        <tbody data-sort-body>
+          {% for p in expiring %}
+          <tr data-name="{{ p.full_name | lower }}" data-pos="{{ p.position.value }}" data-age="{{ p.age }}"
+              data-ovr="{{ p.overall_rating }}" data-pot="{{ p.potential }}" data-salary="{{ p.salary }}" data-yrs="{{ p.contract_years_remaining }}">
+            <td>{{ player_link(p) }}</td>
+            <td>{{ p.position.value }}</td>
+            <td>{{ p.age }}</td>
+            <td>{{ p.overall_rating }}</td>
+            <td>{{ p.potential }}</td>
+            <td>{{ p.salary | money }}</td>
+            <td>{{ p.contract_years_remaining }}</td>
+            <td><button type="button" class="pc-negotiate-btn" data-negotiate-resign data-card='{{ p | player_card_json }}'>Negotiate</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">No one on your roster is entering the final year of their deal.</p>
+    {% endif %}
+  </div>
+
+  <div class="card" id="cap-hits-table">
+    <div class="gm-card-head"><h3>Top Cap Hits</h3></div>
+    <div class="gm-compact-scroll">
+      <table class="gm-compact" data-sort-table>
+        <thead><tr>
+          <th data-sort="name" data-type="text">Player</th><th data-sort="pos" data-type="text">Pos</th>
+          <th data-sort="salary" class="sort-desc">Salary</th><th data-sort="yrs">Yrs Left</th>
+        </tr></thead>
+        <tbody data-sort-body>
+          {% for p in top_cap_hits %}
+          <tr data-name="{{ p.full_name | lower }}" data-pos="{{ p.position.value }}" data-salary="{{ p.salary }}" data-yrs="{{ p.contract_years_remaining }}">
+            <td>{{ player_link(p) }}</td>
+            <td>{{ p.position.value }}</td>
+            <td>{{ p.salary | money }}</td>
+            <td>{{ p.contract_years_remaining }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="trade-block-card">
+  <div class="gm-card-head"><h3>Trade Block <span class="muted" style="font-size: 0.85rem;" id="tb-count">({{ trade_block | length }})</span></h3></div>
+  <p class="muted" style="font-size: 0.8rem; margin: 0;">
+    Players whose own team has a real reason to listen: a ready replacement behind them (positional surplus),
+    or an expiring deal they're unlikely to renew. Click a row for the Player Card.
+  </p>
+  <div class="tb-controls">
+    {% for pill in trade_block_pills %}
+    <button type="button" class="tb-pill {% if pill == 'ALL' %}active{% endif %}" data-tb-filter="{{ pill }}">{{ pill }}</button>
+    {% endfor %}
+    <input type="search" class="tb-search" id="tb-search" placeholder="Search name&hellip;" aria-label="Search trade block by name">
+  </div>
+  {% if trade_block %}
+  <div class="tb-scroll">
+    <table class="gm-compact" data-sort-table id="trade-block-table">
+      <thead><tr>
+        <th data-sort="name" data-type="text">Player</th>
+        <th data-sort="team" data-type="text">Team</th>
+        {% for cid, label, typ in [('pos','Pos','text'), ('age','Age',''), ('ovr','OVR',''), ('pot','POT',''), ('ctr','Contract',''), ('yrs','Yrs',''), ('spd','SPD',''), ('str','STR',''), ('agi','AGI',''), ('tpw','TPW',''), ('tac','TAC',''), ('cth','CTH',''), ('tck','TCK',''), ('awr','AWR',''), ('sta','STA',''), ('inj','INJ',''), ('mor','MOR','')] %}
+        <th data-sort="{{ cid }}"{% if typ %} data-type="{{ typ }}"{% endif %}>{{ label }}</th>
+        {% endfor %}
+        <th data-sort="interest" data-type="text">Interest</th>
+        <th data-sort="reason" data-type="text">Why available</th>
+        <th></th>
+      </tr></thead>
+      <tbody data-sort-body>
+        {% for row in trade_block %}
+        {% set p = row.player %}
+        {% set ovr = p.overall_rating %}
+        <tr class="tb-row" data-player-id="{{ p.player_id }}" data-group="{{ position_group(p) }}" data-name="{{ p.full_name | lower }}">
+          <td>{{ p.full_name }}</td>
+          <td>{{ p.team_abbr }}</td>
           <td>{{ p.position.value }}</td>
           <td>{{ p.age }}</td>
-          <td>{{ p.overall_rating }}</td>
-          <td>{{ p.salary | money }}</td>
+          <td><span class="ovr-badge {% if ovr >= 90 %}tier-elite{% elif ovr >= 80 %}tier-good{% elif ovr >= 70 %}tier-avg{% else %}tier-low{% endif %}">{{ ovr }}</span></td>
+          <td>{{ p.potential }}</td>
+          <td>{% if p.salary %}{{ p.salary | money }}{% else %}&mdash;{% endif %}</td>
           <td>{{ p.contract_years_remaining }}</td>
-          <td><button type="button" class="pc-negotiate-btn" data-negotiate-resign data-card='{{ p | player_card_json }}'>Negotiate</button></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">No one on your roster is entering the final year of their deal.</p>
-  {% endif %}
-</div>
-
-<div class="card" id="cap-hits-table">
-  <h3>Top Cap Hits</h3>
-  <div class="table-wrap">
-    <table>
-      <thead><tr>
-        <th><a href="{{ cap_hits_sort_links.name }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'name' %}active-sort{% endif %}">Player{% if cap_sort == 'name' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-        <th><a href="{{ cap_hits_sort_links.pos }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'pos' %}active-sort{% endif %}">Pos{% if cap_sort == 'pos' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-        <th><a href="{{ cap_hits_sort_links.ctr }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'ctr' %}active-sort{% endif %}">Salary{% if cap_sort == 'ctr' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-        <th><a href="{{ cap_hits_sort_links.yrs }}" data-preserve-scroll="cap-hits-table" class="stats-sort-link {% if cap_sort == 'yrs' %}active-sort{% endif %}">Yrs Left{% if cap_sort == 'yrs' %}{% if cap_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
-      </tr></thead>
-      <tbody>
-        {% for p in top_cap_hits %}
-        <tr>
-          <td>{{ player_link(p) }}</td>
-          <td>{{ p.position.value }}</td>
-          <td>{{ p.salary | money }}</td>
-          <td>{{ p.contract_years_remaining }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card">
-  <h3>Trade Block</h3>
-  <p class="muted" style="font-size: 0.82rem;">
-    Real bargains around the league right now (highest Surplus Value -- on-field worth vs. real salary,
-    app/engine/trades.py) -- not teams that have literally put someone up for trade (this engine doesn't
-    model that), just genuinely good value worth going after.
-  </p>
-  {% if trade_block %}
-  <div class="dashboard-scroll">
-    <table class="boxtable">
-      <thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>OVR</th><th>Interest</th><th>Why available</th><th></th></tr></thead>
-      <tbody>
-        {% for row in trade_block %}
-        <tr>
-          <td>{{ row.player.full_name }}</td>
-          <td>{{ team_link(row.player.team_abbr) }}</td>
-          <td>{{ row.player.position.value }}</td>
-          <td>{{ row.player.overall_rating }}</td>
+          <td>{{ p.speed }}</td>
+          <td>{{ p.strength }}</td>
+          <td>{{ p.agility }}</td>
+          <td>{{ p.throw_power }}</td>
+          <td>{{ avg_throw_accuracy(p) }}</td>
+          <td>{{ p.catching }}</td>
+          <td>{{ p.tackle }}</td>
+          <td>{{ p.awareness }}</td>
+          <td>{{ p.stamina }}</td>
+          <td>{{ injury_risk(p) }}</td>
+          <td>{{ p.morale }}</td>
           <td>{{ row.interest | capitalize }}</td>
           <td class="muted">{{ row.reason }}</td>
-          <td><a href="/gm-desk?team_b={{ row.player.team_abbr }}&amp;acquire={{ row.player.player_id }}#propose-trade-card">Trade For</a></td>
+          <td><a href="/gm-desk?team_b={{ p.team_abbr }}&amp;acquire={{ p.player_id }}" data-trade-for="{{ p.team_abbr }}" data-player-id="{{ p.player_id }}">Trade For</a></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <p class="muted" id="tb-empty" style="font-size: 0.85rem;" hidden>No players match that filter.</p>
   {% else %}
   <p class="muted">Nobody stands out around the league right now.</p>
   {% endif %}
@@ -131,115 +231,416 @@
   {% if not trade_window_open %}
   <p class="muted pc-injury-status">The trade window is closed for this season (deadline: week 8).</p>
   {% endif %}
-  <form method="get" action="/gm-desk" data-preserve-scroll="propose-trade-card">
-    <label for="team_b">Trade with</label>
-    <select name="team_b" id="team_b" onchange="this.form.submit()">
-      <option value="">Choose a team&hellip;</option>
-      {% for t in other_teams %}
-      <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
-      {% endfor %}
-    </select>
-  </form>
+  <div class="trade-board" id="trade-board" data-preselect="{{ preselect_player_id or '' }}" data-team-b="{{ team_b or '' }}">
+    <div class="trade-rosters">
+      <div id="trade-user-side">{{ trade_side(user_side) }}</div>
+      <div class="trade-partner-picker">
+        <label for="trade-partner-select">Trade with</label>
+        <select id="trade-partner-select">
+          <option value="">Choose a team&hellip;</option>
+          {% for t in other_teams %}
+          <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="trade-partner-side">
+        {% if partner_side %}{{ trade_side(partner_side) }}{% else %}<div class="trade-empty muted">Choose a team above to see their roster and draft picks.</div>{% endif %}
+      </div>
+    </div>
 
-  {% if trade_partner_roster %}
-  <form method="post" action="/gm-desk/trade" id="trade-form" class="trade-board" data-preselect="{{ preselect_player_id or '' }}" data-team-b="{{ team_b }}">
-    <input type="hidden" name="team_b" value="{{ team_b }}">
-    <div class="trade-roster-col">
-      <h4>{{ user_info.location }} ({{ user_info.abbr }})</h4>
-      <div class="trade-roster-wrap">
-        <table class="trade-roster-table">
-          <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Salary</th><th>Yrs</th></tr></thead>
-          <tbody>
-            {% for p in roster %}
-            <tr class="trade-row" data-trade-card='{{ p | player_card_json }}'>
-              <td>
-                <input type="checkbox" name="give" value="{{ p.player_id }}" class="trade-checkbox"
-                       data-name="{{ p.full_name }}" data-pos="{{ p.position.value }}"
-                       data-ovr="{{ p.overall_rating }}" data-salary="{{ p.salary }}"
-                       data-yrs="{{ p.contract_years_remaining }}" data-side="give" hidden>
-                {{ p.full_name }}
-              </td>
-              <td>{{ p.position.value }}</td>
-              <td>{{ p.overall_rating }}</td>
-              <td>{{ p.salary | money }}</td>
-              <td>{{ p.contract_years_remaining }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% if user_picks %}
-      <div class="trade-roster-wrap" style="margin-top: 0.5rem;">
-        <table class="trade-roster-table">
-          <thead><tr><th colspan="2">Draft Picks</th></tr></thead>
-          <tbody>
-            {% for pk in user_picks %}
-            <tr>
-              <td><label><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label></td>
-              <td class="muted">est. {{ pk.est_value | money }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-    </div>
-    <div class="trade-roster-col">
-      <h4>{{ team_b_info.location }} ({{ team_b_info.abbr }})</h4>
-      <div class="trade-roster-wrap">
-        <table class="trade-roster-table">
-          <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Salary</th><th>Yrs</th></tr></thead>
-          <tbody>
-            {% for p in trade_partner_roster %}
-            <tr class="trade-row" data-trade-card='{{ p | player_card_json }}'>
-              <td>
-                <input type="checkbox" name="get" value="{{ p.player_id }}" class="trade-checkbox"
-                       data-name="{{ p.full_name }}" data-pos="{{ p.position.value }}"
-                       data-ovr="{{ p.overall_rating }}" data-salary="{{ p.salary }}"
-                       data-yrs="{{ p.contract_years_remaining }}" data-side="get" hidden>
-                {{ p.full_name }}
-              </td>
-              <td>{{ p.position.value }}</td>
-              <td>{{ p.overall_rating }}</td>
-              <td>{{ p.salary | money }}</td>
-              <td>{{ p.contract_years_remaining }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% if trade_partner_picks %}
-      <div class="trade-roster-wrap" style="margin-top: 0.5rem;">
-        <table class="trade-roster-table">
-          <thead><tr><th colspan="2">Draft Picks</th></tr></thead>
-          <tbody>
-            {% for pk in trade_partner_picks %}
-            <tr>
-              <td><label><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label></td>
-              <td class="muted">est. {{ pk.est_value | money }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-    </div>
     <div class="trade-offer-panel">
       <h4>Current Offer</h4>
+      <div class="trade-wants" id="trade-wants" {% if not partner_side %}hidden{% endif %}>
+        <div class="trade-offer-label" style="margin-top: 0;">What they're looking for</div>
+        <ul id="trade-wants-list">
+          {% if partner_side %}
+          <li>{{ partner_side.profile.mode_line }}</li>
+          {% for need in partner_side.profile.needs %}<li>{{ need }}</li>{% endfor %}
+          {% endif %}
+        </ul>
+      </div>
       <div class="trade-offer-label">{{ user_info.abbr }} sends</div>
-      <ul class="trade-offer-list" data-offer-list="give"><li class="muted trade-offer-empty">Click a player to add them</li></ul>
-      <div class="trade-offer-label">{{ team_b_info.abbr }} sends</div>
-      <ul class="trade-offer-list" data-offer-list="get"><li class="muted trade-offer-empty">Click a player to add them</li></ul>
-      <div class="pc-row" style="margin-top: 0.5rem;"><span class="pc-row-label">Trade Interest</span><span id="trade-reaction">&mdash;</span></div>
+      <ul class="trade-offer-list" data-offer-list="give"><li class="trade-offer-empty">Click your players or picks to offer them</li></ul>
+      <div class="trade-offer-label">in exchange for&hellip;</div>
+      <ul class="trade-offer-list" data-offer-list="get"><li class="trade-offer-empty">Click their players or picks to request them</li></ul>
+
+      <div class="trade-offer-label">Acceptance likelihood</div>
+      <div class="trade-meter-bar"><div class="trade-meter-fill" id="trade-meter-fill"></div></div>
+      <div class="trade-meter-text"><span id="trade-meter-label" class="muted">&mdash;</span><span id="trade-meter-pct" class="muted"></span></div>
+
+      <div id="trade-verdict" class="neg-result-message" hidden></div>
+
       <div class="trade-offer-actions">
-        <button type="submit" {% if not trade_window_open %}disabled{% endif %}>Submit Offer</button>
+        <button type="button" id="trade-submit-btn" {% if not trade_window_open %}disabled{% endif %}>Submit Offer</button>
+        <button type="button" id="trade-counter-btn">Get Counter Offer</button>
         <button type="button" id="trade-clear-btn">Clear Offer</button>
       </div>
-      <p class="muted trade-offer-note">No counter-offer negotiation -- the AI side returns a single accept/reject verdict on the exact offer submitted (app/engine/trades.py), not adjustable terms.</p>
+      <p class="muted trade-offer-note">Click a row to add or remove it; double-click a player for his Player Card. Future picks 3+ drafts out are valued at a league-average slot.</p>
     </div>
-  </form>
-  {% endif %}
-
-  <p class="muted trade-offer-note" style="margin-top: 0.75rem;">Draft picks are real, tradeable assets too (GDD &sect;8.5): the current season's picks plus the next two drafts, listed above alongside each side's roster. A future pick's value is estimated from live current-season standings (the real order isn't final until that season ends) using the same real pick-value chart (&sect;4.1) the Draft itself uses.</p>
+  </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  function fmtMoney(n) {
+    if (n === null || n === undefined || n === '') { return '--'; }
+    return '$' + (Math.round(Number(n) / 1000) * 1000).toLocaleString('en-US');
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+  // Player Card JSON is fetched on demand: embedding it on every Trade
+  // Block/trade-box row (800+ rows, career stats each) made this page a
+  // multi-MB, multi-second load.
+  function openCardById(playerId) {
+    if (!window.ffgOpenCard) { return; }
+    fetch('/gm-desk/player-card/' + encodeURIComponent(playerId)).then(function (r) {
+      if (!r.ok) { throw new Error('card failed'); }
+      return r.json();
+    }).then(function (card) { window.ffgOpenCard(card); }).catch(function (err) {
+      console.error('Failed to load player card', err);
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var row = e.target.closest('tr.tb-row');
+    if (row && !e.target.closest('a, button')) { openCardById(row.dataset.playerId); }
+  });
+
+  // ---- Client-side table sorting (no reload, no jump) ----------------
+  function cellValue(row, key, idx) {
+    if (row.dataset[key] !== undefined) { return row.dataset[key]; }
+    var cell = row.cells[idx];
+    return cell ? cell.textContent.trim().toLowerCase() : '';
+  }
+  document.addEventListener('click', function (e) {
+    var th = e.target.closest('th[data-sort]');
+    if (!th) { return; }
+    var table = th.closest('table[data-sort-table]');
+    var body = table && table.querySelector('tbody[data-sort-body]');
+    if (!body) { return; }
+    var key = th.dataset.sort;
+    var isText = th.dataset.type === 'text';
+    // Numbers default to high-first (OVR/Salary), text to A-Z.
+    var dir = th.classList.contains('sort-desc') ? 'asc'
+            : th.classList.contains('sort-asc') ? 'desc'
+            : (isText ? 'asc' : 'desc');
+    table.querySelectorAll('th[data-sort]').forEach(function (h) { h.classList.remove('sort-asc', 'sort-desc'); });
+    th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+    var rows = Array.prototype.slice.call(body.rows);
+    rows.sort(function (a, b) {
+      // data-<key> when a row carries one (e.g. raw salary dollars), else
+      // the cell's own text -- keeps 800-row tables free of duplicate attrs.
+      var va = cellValue(a, key, idx), vb = cellValue(b, key, idx);
+      var cmp = isText ? va.localeCompare(vb) : ((parseFloat(va.replace(/[^0-9.\-]/g, '')) || 0) - (parseFloat(vb.replace(/[^0-9.\-]/g, '')) || 0));
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  });
+
+  // ---- Trade Block: position pills + name search ---------------------
+  var OFFENSE = {{ offense_groups | list | tojson }};
+  var DEFENSE = {{ defense_groups | list | tojson }};
+  var tbTable = document.getElementById('trade-block-table');
+  var tbFilter = 'ALL';
+  var tbSearch = document.getElementById('tb-search');
+  function applyTradeBlockFilter() {
+    if (!tbTable) { return; }
+    var q = (tbSearch.value || '').trim().toLowerCase();
+    var shown = 0;
+    tbTable.querySelectorAll('tbody[data-sort-body] tr').forEach(function (row) {
+      var g = row.dataset.group;
+      var groupOk = tbFilter === 'ALL' || (tbFilter === 'OFF' ? OFFENSE.indexOf(g) >= 0
+                  : tbFilter === 'DEF' ? DEFENSE.indexOf(g) >= 0 : g === tbFilter);
+      var ok = groupOk && (!q || row.dataset.name.indexOf(q) >= 0);
+      row.hidden = !ok;
+      if (ok) { shown++; }
+    });
+    document.getElementById('tb-count').textContent = '(' + shown + ')';
+    document.getElementById('tb-empty').hidden = shown > 0;
+  }
+  document.querySelectorAll('[data-tb-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      tbFilter = btn.dataset.tbFilter;
+      document.querySelectorAll('[data-tb-filter]').forEach(function (b) { b.classList.toggle('active', b === btn); });
+      applyTradeBlockFilter();
+    });
+  });
+  if (tbSearch) { tbSearch.addEventListener('input', applyTradeBlockFilter); }
+
+  // ---- Propose Trade box ----------------------------------------------
+  var board = document.getElementById('trade-board');
+  if (!board) { return; }
+  var userSideEl = document.getElementById('trade-user-side');
+  var partnerSideEl = document.getElementById('trade-partner-side');
+  var partnerSelect = document.getElementById('trade-partner-select');
+  var wantsEl = document.getElementById('trade-wants');
+  var wantsList = document.getElementById('trade-wants-list');
+  var meterFill = document.getElementById('trade-meter-fill');
+  var meterLabel = document.getElementById('trade-meter-label');
+  var meterPct = document.getElementById('trade-meter-pct');
+  var verdictEl = document.getElementById('trade-verdict');
+  var submitBtn = document.getElementById('trade-submit-btn');
+  var counterBtn = document.getElementById('trade-counter-btn');
+  var teamB = board.dataset.teamB || '';
+  // side -> ordered list of {id, kind, label, detail}
+  var offer = {give: [], get: []};
+  var previewTimer = null;
+  var previewSeq = 0;
+
+  function rowFor(side, id) {
+    var root = side === 'give' ? userSideEl : partnerSideEl;
+    return root.querySelector('.trade-row[data-asset-id="' + CSS.escape(id) + '"]');
+  }
+  function inOffer(side, id) {
+    return offer[side].some(function (a) { return a.id === id; });
+  }
+  function addAsset(side, row) {
+    var id = row.dataset.assetId;
+    if (inOffer(side, id)) { return; }
+    offer[side].push({id: id, kind: row.dataset.assetKind, label: row.dataset.label, detail: row.dataset.detail});
+    row.classList.add('selected');
+  }
+  function removeAsset(side, id) {
+    offer[side] = offer[side].filter(function (a) { return a.id !== id; });
+    var row = rowFor(side, id);
+    if (row) { row.classList.remove('selected'); }
+  }
+  function clearVerdict() { verdictEl.hidden = true; verdictEl.innerHTML = ''; }
+  function showVerdict(kind, headline, reason) {
+    verdictEl.className = 'neg-result-message ' + kind;
+    verdictEl.innerHTML = esc(headline) + (reason ? '<small>' + esc(reason) + '</small>' : '');
+    verdictEl.hidden = false;
+  }
+
+  function renderOffer() {
+    ['give', 'get'].forEach(function (side) {
+      var list = board.querySelector('.trade-offer-list[data-offer-list="' + side + '"]');
+      if (!offer[side].length) {
+        list.innerHTML = '<li class="trade-offer-empty">' + (side === 'give'
+          ? 'Click your players or picks to offer them' : 'Click their players or picks to request them') + '</li>';
+        return;
+      }
+      list.innerHTML = offer[side].map(function (a) {
+        return '<li><span>' + esc(a.label) + '<small>' + esc(a.detail) + '</small></span>' +
+          '<button type="button" title="Remove" data-remove-side="' + side + '" data-remove-id="' + esc(a.id) + '">&times;</button></li>';
+      }).join('');
+    });
+  }
+
+  function proposalParams() {
+    var params = new URLSearchParams();
+    params.set('team_b', teamB);
+    offer.give.forEach(function (a) { params.append(a.kind === 'pick' ? 'give_picks' : 'give', a.id); });
+    offer.get.forEach(function (a) { params.append(a.kind === 'pick' ? 'get_picks' : 'get', a.id); });
+    return params;
+  }
+
+  function setMeter(likelihood, reason) {
+    meterFill.classList.remove('meter-bad', 'meter-mid', 'meter-good');
+    if (likelihood === null || likelihood === undefined) {
+      meterFill.style.width = '0';
+      meterLabel.textContent = teamB ? 'Add players or picks' : 'Choose a trade partner';
+      meterLabel.className = 'muted';
+      meterPct.textContent = '';
+      return;
+    }
+    var cls = likelihood >= 70 ? 'good' : likelihood >= 40 ? 'mid' : 'bad';
+    meterFill.classList.add('meter-' + cls);
+    meterFill.style.width = Math.max(3, likelihood) + '%';
+    meterLabel.textContent = (cls === 'good' ? 'Likely' : cls === 'mid' ? 'Possible' : 'Unlikely') +
+      (reason && cls !== 'good' ? ' -- ' + reason : '') +
+      (offer.give.length && !offer.get.length ? ' -- add something you want back' : '');
+    meterLabel.className = 'neg-reaction-' + cls;
+    meterPct.textContent = likelihood + '%';
+  }
+
+  function offerChanged() {
+    renderOffer();
+    clearVerdict();
+    if (previewTimer) { clearTimeout(previewTimer); }
+    if (!teamB || (!offer.give.length && !offer.get.length)) { setMeter(null); return; }
+    previewTimer = setTimeout(function () {
+      var seq = ++previewSeq;
+      meterLabel.textContent = 'Checking…';
+      fetch('/gm-desk/trade/preview?' + proposalParams().toString()).then(function (r) {
+        if (!r.ok) { throw new Error('preview failed'); }
+        return r.json();
+      }).then(function (data) {
+        if (seq !== previewSeq) { return; }  // a newer click already superseded this read
+        setMeter(data.likelihood, data.reason);
+      }).catch(function () { if (seq === previewSeq) { setMeter(null); } });
+    }, 200);
+  }
+
+  board.addEventListener('click', function (e) {
+    var removeBtn = e.target.closest('[data-remove-id]');
+    if (removeBtn) {
+      removeAsset(removeBtn.dataset.removeSide, removeBtn.dataset.removeId);
+      offerChanged();
+      return;
+    }
+    var row = e.target.closest('.trade-row');
+    if (!row) { return; }
+    var side = row.dataset.side;
+    if (inOffer(side, row.dataset.assetId)) { removeAsset(side, row.dataset.assetId); } else { addAsset(side, row); }
+    offerChanged();
+  });
+  board.addEventListener('dblclick', function (e) {
+    var row = e.target.closest('.trade-row[data-asset-kind="player"]');
+    if (row) { openCardById(row.dataset.assetId); }
+  });
+
+  function renderWants(wants) {
+    if (!wants) { wantsEl.hidden = true; wantsList.innerHTML = ''; return; }
+    wantsList.innerHTML = [wants.mode_line].concat(wants.needs).map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('');
+    wantsEl.hidden = false;
+  }
+
+  function loadSide(team) {
+    return fetch('/gm-desk/trade/side?team=' + encodeURIComponent(team)).then(function (r) {
+      if (!r.ok) { throw new Error('side failed'); }
+      return r.json();
+    });
+  }
+
+  function loadPartner(team) {
+    offer.get = [];
+    teamB = team;
+    board.dataset.teamB = team;
+    clearVerdict();
+    // Keep a reload on the same partner (history only -- no navigation).
+    var url = new URL(window.location.href);
+    url.searchParams.delete('acquire');
+    url.searchParams.delete('trade_result');
+    if (team) { url.searchParams.set('team_b', team); } else { url.searchParams.delete('team_b'); }
+    history.replaceState(null, '', url.toString());
+    if (!team) {
+      partnerSideEl.innerHTML = '<div class="trade-empty muted">Choose a team above to see their roster and draft picks.</div>';
+      renderWants(null);
+      offerChanged();
+      return Promise.resolve();
+    }
+    partnerSideEl.innerHTML = '<div class="trade-empty muted">Loading…</div>';
+    return loadSide(team).then(function (data) {
+      if (teamB !== team) { return; }
+      partnerSideEl.innerHTML = data.html;
+      renderWants(data.wants);
+      offerChanged();
+    }).catch(function () {
+      partnerSideEl.innerHTML = '<div class="trade-empty muted">Couldn\'t load that roster -- try again.</div>';
+    });
+  }
+  partnerSelect.addEventListener('change', function () { loadPartner(partnerSelect.value); });
+
+  function scrollToTradeBox() {
+    var card = document.getElementById('propose-trade-card');
+    var header = document.querySelector('header');
+    var top = card.getBoundingClientRect().top + window.scrollY - (header ? header.getBoundingClientRect().height + 12 : 0);
+    window.scrollTo({top: top, behavior: 'smooth'});
+  }
+
+  // Trade Block "Trade For": load that partner in place and pre-add the
+  // player (the link's href stays as a no-JS fallback).
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('a[data-trade-for]');
+    if (!link) { return; }
+    e.preventDefault();
+    var team = link.dataset.tradeFor, pid = link.dataset.playerId;
+    partnerSelect.value = team;
+    loadPartner(team).then(function () {
+      var row = rowFor('get', pid);
+      if (row) { addAsset('get', row); offerChanged(); }
+      scrollToTradeBox();
+    });
+  });
+
+  clearBtnInit();
+  function clearBtnInit() {
+    document.getElementById('trade-clear-btn').addEventListener('click', function () {
+      offer.give.slice().forEach(function (a) { removeAsset('give', a.id); });
+      offer.get.slice().forEach(function (a) { removeAsset('get', a.id); });
+      offerChanged();
+    });
+  }
+
+  submitBtn.addEventListener('click', function () {
+    if (!teamB) { showVerdict('reject', 'Choose a trade partner first.'); return; }
+    if (!offer.give.length || !offer.get.length) {
+      showVerdict('reject', 'A trade needs something on both sides.');
+      return;
+    }
+    var body = proposalParams();
+    body.set('ajax', '1');
+    submitBtn.disabled = true;
+    fetch('/gm-desk/trade', {method: 'POST', body: body}).then(function (r) {
+      return r.json().then(function (data) { return {ok: r.ok, data: data}; });
+    }).then(function (res) {
+      if (!res.ok) { showVerdict('reject', 'Not submitted', res.data.detail || 'Something went wrong.'); return; }
+      var data = res.data;
+      if (!data.accepted) {
+        setMeter(data.likelihood, data.reason);
+        showVerdict('reject', data.headline, data.reason);
+        return;
+      }
+      // Accepted: both rosters (and the cap figures) changed for real --
+      // refresh them in place and start a fresh offer.
+      var headline = data.headline, reason = data.reason;
+      offer = {give: [], get: []};
+      Promise.all([loadSide(board.querySelector('#trade-user-side .trade-side').dataset.team), loadSide(teamB)]).then(function (sides) {
+        userSideEl.innerHTML = sides[0].html;
+        partnerSideEl.innerHTML = sides[1].html;
+        renderWants(sides[1].wants);
+        document.getElementById('gm-cap-used').textContent = fmtMoney(sides[0].payroll);
+        var space = sides[0].cap - sides[0].payroll;
+        var spaceEl = document.getElementById('gm-cap-space');
+        spaceEl.textContent = fmtMoney(space);
+        spaceEl.classList.toggle('pc-injury-status', space < 0);
+      }).finally(function () {
+        renderOffer();
+        setMeter(null);
+        showVerdict('accept', headline, reason);
+      });
+    }).catch(function () {
+      showVerdict('reject', 'Something went wrong submitting that offer -- try again.');
+    }).finally(function () {
+      submitBtn.disabled = {{ 'true' if not trade_window_open else 'false' }};
+    });
+  });
+
+  counterBtn.addEventListener('click', function () {
+    if (!teamB) { showVerdict('reject', 'Choose a trade partner first.'); return; }
+    counterBtn.disabled = true;
+    fetch('/gm-desk/trade/counter?' + proposalParams().toString()).then(function (r) {
+      if (!r.ok) { throw new Error('counter failed'); }
+      return r.json();
+    }).then(function (data) {
+      if (!data.possible) { showVerdict('reject', data.message); return; }
+      if (data.already_acceptable) { showVerdict('accept', data.message); return; }
+      data.add_give.forEach(function (id) { var row = rowFor('give', id); if (row) { addAsset('give', row); } });
+      data.add_give_picks.forEach(function (id) { var row = rowFor('give', id); if (row) { addAsset('give', row); } });
+      offerChanged();
+      showVerdict('counter', 'Counter offer', data.message);
+    }).catch(function () {
+      showVerdict('reject', 'Couldn\'t get a counter offer -- try again.');
+    }).finally(function () { counterBtn.disabled = false; });
+  });
+
+  // Player Card "Acquire" hand-off (?team_b=&acquire=): pre-add that player.
+  var preselectId = board.dataset.preselect;
+  if (preselectId && teamB) {
+    var preRow = rowFor('get', preselectId);
+    if (preRow) {
+      addAsset('get', preRow);
+      offerChanged();
+      preRow.scrollIntoView({block: 'nearest'});
+      scrollToTradeBox();
+    }
+  } else {
+    setMeter(null);
+  }
+});
+</script>
 {% endblock %}
