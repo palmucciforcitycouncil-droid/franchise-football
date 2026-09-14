@@ -27,6 +27,12 @@ def _is_division_champion(season, team_abbr: str) -> bool:
     return best_abbr == team_abbr
 
 
+# (team_abbr, role) -> coach_id fired this offseason with no replacement
+# found, so ensure_core_staff() never "fills" the seat by re-hiring the very
+# coach who was just let go.
+_unfilled_firings: dict[tuple[str, CoachRole], str] = {}
+
+
 def _evaluate_team(season, team_abbr: str, team_ranks, week: int, log: list[str]) -> None:
     """One team's HC/OC/DC/ST firing pass. `week` is 0 for an offseason
     evaluation (full weight, no in-season caution) or 1-18 in-season.
@@ -62,6 +68,7 @@ def _evaluate_team(season, team_abbr: str, team_ranks, week: int, log: list[str]
         in_season = week > 0
         decision = coach_replacement.decide_replacement(team_abbr, role, fired_id, season.season_number, in_season)
         if decision.coach_id is None:
+            _unfilled_firings[(team_abbr, role)] = fired_id
             log.append(f"{team_abbr}:{role.value}:fired_no_replacement_found")
             continue
 
@@ -97,6 +104,7 @@ def run_offseason_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
     for next season via its own real season outcome (Sec 3.2)."""
     from app.services import coach_records, team_expectations
 
+    _unfilled_firings.clear()
     log: list[str] = list(coach_replacement.resolve_interim_appointments(season))
 
     ranks = coach_progression.compute_team_ranks(season)
@@ -177,7 +185,15 @@ def ensure_core_staff(season, exclude_team_abbr: str | None) -> list[str]:
                 coach_contracts.renew_contract(coach.coach_id)
                 log.append(f"{team.abbr}:{role.value}:safety_net_renewed")
             else:
-                decision = coach_replacement.decide_replacement(team.abbr, role, "", season.season_number, in_season=False)
+                just_fired = _unfilled_firings.get((team.abbr, role), "")
+                decision = coach_replacement.decide_replacement(team.abbr, role, just_fired, season.season_number, in_season=False)
+                if decision.coach_id is not None and decision.coach_id == just_fired:
+                    others = [c for c, _ in coach_replacement.search_external_pool(
+                        role, team.abbr, season.season_number, decision.appointment_type) if c.coach_id != just_fired]
+                    internal = coach_replacement.best_internal_candidate(team.abbr, role, just_fired, season.season_number)
+                    fallback_id = others[0].coach_id if others else (internal[0].coach_id if internal else None)
+                    decision = coach_replacement.ReplacementDecision(
+                        team.abbr, role, "external" if others else "internal", fallback_id, decision.appointment_type)
                 if decision.coach_id is None:
                     unresolvable.add(role)
                     log.append(f"{team.abbr}:{role.value}:safety_net_no_candidate")
