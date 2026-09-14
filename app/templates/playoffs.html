@@ -110,9 +110,9 @@
   {% elif bracket.is_complete %}
   <p class="muted">Champion: <strong>{{ bracket.champion_abbr }}</strong></p>
   {% if season.offseason_stage == "staff" %}
-  <p class="muted">The offseason is underway -- head to the <a href="/staff">Staff</a> page for Staff Decisions, then continue to free agency and the draft.</p>
+  <p class="muted">The offseason is underway -- head to the <a href="/staff">Staff</a> page for Staff Decisions, then continue to Expiring Contracts and the draft.</p>
   {% elif season.offseason_stage == "resign" %}
-  <p class="muted">The offseason is underway -- head to the <a href="/gm-desk">GM Desk</a> for Free Agent Decisions, then continue to the draft.</p>
+  <p class="muted">The offseason is underway -- head to the <a href="/gm-desk">GM Desk</a> for Expiring Contracts, then continue to the draft.</p>
   {% elif season.offseason_stage == "draft" %}
   <p class="muted">The offseason is underway -- head to the <a href="/draft">Draft</a> page to run it live.</p>
   {% else %}

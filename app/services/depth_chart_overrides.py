@@ -130,3 +130,18 @@ def auto_fill(
         rest_sorted = sorted(rest, key=functools.cmp_to_key(lambda a, b: _compare_for_autofill(a, b, respect_fatigue)))
         ordered = locked + rest_sorted
         set_order(team_abbr, position.value, [p.player_id for p in ordered], path)
+
+
+def auto_fill_teams(rosters_by_team: dict, respect_fatigue: bool = False, path: Path | None = None) -> None:
+    """auto_fill() (no Lock Starters) for many teams in ONE load/save --
+    the preseason roster prep re-sorts all 31 AI depth charts at once
+    (Brian's ask, 2026-09-14), and auto_fill()'s per-position set_order()
+    would otherwise rewrite this JSON file hundreds of times.
+    rosters_by_team: {team_abbr: {Position: [Player, ...]}}."""
+    data = _load(path)
+    for team_abbr, players_by_position in rosters_by_team.items():
+        team_orders = data.setdefault(team_abbr, {})
+        for position, players in players_by_position.items():
+            ordered = sorted(players, key=functools.cmp_to_key(lambda a, b: _compare_for_autofill(a, b, respect_fatigue)))
+            team_orders[position.value] = [p.player_id for p in ordered]
+    _save(data, path)

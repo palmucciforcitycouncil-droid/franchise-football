@@ -39,24 +39,86 @@
     {% endif %}
   </div>
   {% if not team %}
-  <p class="muted" style="margin-top: 0.75rem;">Pick a team to browse its full roster. Starters (top row at each position) are highlighted in gold.</p>
+  <p class="muted" style="margin-top: 0.75rem;">Pick a team to browse its full roster. Starters are marked with a gold stripe.</p>
   {% endif %}
 </div>
 
 {% if team %}
-<div class="card">
+{% if roster_gate_banner %}
+<!-- Preseason roster gate (Brian's ask, 2026-09-14): app/main.py's
+     _preseason_roster_gate_redirect() sends a short-handed user here
+     before the season's first game. -->
+<div class="card roster-gate {% if roster_gate_banner.holes %}roster-gate-short{% else %}roster-gate-ready{% endif %}" id="roster-gate">
+  {% if roster_gate_banner.holes %}
+  <h3 style="margin-top: 0;">Roster Holes</h3>
+  <p>You need: <strong>{{ roster_gate_banner.holes }}</strong> to meet minimum requirements before the preseason can begin.</p>
+  <p class="muted">Sign free agents yourself from Top Free Agents below, or Auto-Fill: your front office signs the best affordable free agent into every hole (the same logic AI teams use), then every other team fixes its own roster and depth chart.</p>
+  <form method="post" action="/roster/auto-fill-holes" class="sim-week-form">
+    <button type="submit">AUTO-FILL ROSTER</button>
+  </form>
+  {% else %}
+  <h3 style="margin-top: 0;">Roster Ready</h3>
+  <p>{% if roster_gate_banner.autofilled %}Signed {{ roster_gate_banner.autofilled }} free agent{{ '' if roster_gate_banner.autofilled == 1 else 's' }}. {% endif %}Your roster meets every minimum requirement{% if roster_gate_banner.can_sim %} &mdash; you're clear to sim the preseason{% endif %}.</p>
+  {% endif %}
+</div>
+{% endif %}
 
+<style>
+  /* Roster | Depth Chart tabs + starter marking (Brian's ask, 2026-09-14).
+     Scoped to this page, so base.html's shared tr.starter rule elsewhere
+     is untouched. */
+  .roster-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 0.75rem; }
+  .roster-tab { background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; color: var(--muted); padding: 0.5rem 1rem; font-weight: 600; }
+  .roster-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .starter-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1.25rem; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.75rem; }
+  .starter-legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .legend-swatch { display: inline-block; width: 1.6rem; height: 0.95rem; border-left: 4px solid var(--gold); background: rgba(212, 175, 55, 0.14); }
+  .legend-divider { display: inline-block; width: 1.6rem; border-top: 2px solid var(--gold); }
+  #roster-depth-card tr.starter td { background: rgba(212, 175, 55, 0.08); }
+  #roster-depth-card tr.starter td:first-child { box-shadow: inset 4px 0 0 var(--gold); color: var(--gold); font-weight: 600; }
+  #roster-depth-card .roster-table-wrap tr.starter td:first-child { background: linear-gradient(rgba(212, 175, 55, 0.08), rgba(212, 175, 55, 0.08)), var(--panel); }
+  #roster-depth-card tr.starter-last td { border-bottom: 2px solid var(--gold); }
+  #roster-depth-card.is-loading [data-roster-panel] { opacity: 0.6; pointer-events: none; }
+  .depth-group { margin-bottom: 1.5rem; }
+  .depth-table-wrap { overflow-x: auto; }
+  .depth-table-wrap table { white-space: nowrap; }
+  .depth-group h4 { margin: 0 0 0.35rem; }
+  .depth-autofill { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1.25rem; }
+  .depth-autofill p { margin: 0 0 0.6rem; }
+  .depth-autofill-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; }
+  .depth-autofill-form .filter-checkbox { flex: 0 0 auto; }
+  .depth-autofill-form button { flex: 0 0 auto; width: auto; }
+  .roster-gate-short { border-left: 4px solid #f87171; }
+  .roster-gate-ready { border-left: 4px solid #4ade80; }
+</style>
+
+<div class="card" id="roster-depth-card">
+  {% set has_depth_tab = depth_chart_groups and team.abbr != 'FA' %}
+  <div class="roster-tabs" role="tablist">
+    <button type="button" class="roster-tab active" role="tab" aria-selected="true" data-roster-tab="roster">Roster</button>
+    {% if has_depth_tab %}
+    <button type="button" class="roster-tab" role="tab" aria-selected="false" data-roster-tab="depth">Depth Chart</button>
+    {% endif %}
+  </div>
+  {% if team.abbr != 'FA' %}
+  <div class="starter-legend" aria-label="Legend">
+    <span><i class="legend-swatch" aria-hidden="true"></i>Starter</span>
+    <span><i class="legend-divider" aria-hidden="true"></i>Last starter at the position &mdash; backups below</span>
+  </div>
+  {% endif %}
+
+  <div data-roster-panel="roster">
   {% if position_quotas and team.abbr != 'FA' %}
   <div style="margin-bottom: 1rem;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
       <div style="font-size: 0.875rem; font-weight: 600; color: var(--muted);">Team Quota</div>
-      {% if position_filter %}<a href="{{ all_pill_link }}" class="muted" style="font-size: 0.78rem;">&times; Clear position filter</a>{% endif %}
+      {% if position_filter %}<a href="{{ all_pill_link }}" data-roster-swap class="muted" style="font-size: 0.78rem;">&times; Clear position filter</a>{% endif %}
     </div>
     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-      <a href="{{ all_pill_link }}" class="quota-pill {% if total_roster_count >= max_roster_size %}met{% else %}short{% endif %} {% if not position_filter %}active{% endif %}">ALL {{ total_roster_count }}/{{ max_roster_size }}</a>
+      <a href="{{ all_pill_link }}" data-roster-swap class="quota-pill {% if total_roster_count >= max_roster_size %}met{% else %}short{% endif %} {% if not position_filter %}active{% endif %}">ALL {{ total_roster_count }}/{{ max_roster_size }}</a>
       {% for pos in quota_pill_links %}
       {% set quota = position_quotas[pos] %}
-      <a href="{{ quota_pill_links[pos] }}" class="quota-pill {% if quota.current >= quota.min %}met{% else %}short{% endif %} {% if position_filter == [pos] %}active{% endif %}">{{ pos }} {{ quota.current }}/{{ quota.min }}</a>
+      <a href="{{ quota_pill_links[pos] }}" data-roster-swap class="quota-pill {% if quota.short %}short{% else %}met{% endif %} {% if position_filter == [pos] %}active{% endif %}">{{ pos }} {{ quota.current }}/{{ quota.min }}</a>
       {% endfor %}
     </div>
   </div>
@@ -66,7 +128,7 @@
   <details class="roster-filter-panel" id="roster-filter-panel" {% if advanced_filters_active %}open{% endif %}>
     <summary>🔍 Filter Roster{% if generated_query %} (active){% endif %}</summary>
     <div class="roster-filter-body">
-      <form method="get" action="/roster" data-preserve-scroll="roster-filter-panel">
+      <form method="get" action="/roster" data-roster-swap>
         <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
         <input type="hidden" name="view" value="{{ view }}">
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">{% endif %}
@@ -129,7 +191,7 @@
         {% endif %}
 
         <div class="filter-actions">
-          <a href="{{ clear_filters_link }}"><button type="button" style="background: transparent; border: 1px solid var(--border); color: var(--text);">Clear All</button></a>
+          <a href="{{ clear_filters_link }}" data-roster-swap><button type="button" style="background: transparent; border: 1px solid var(--border); color: var(--text);">Clear All</button></a>
           <button type="submit">Apply Filters</button>
         </div>
       </form>
@@ -141,16 +203,16 @@
   <table>
     <thead>
       <tr>
-        <th><a href="{{ sort_links.name }}" data-preserve-scroll="roster-table-wrap" class="stats-sort-link {% if sort == 'name' %}active-sort{% endif %}">Player{% if sort == 'name' %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ sort_links.name }}" data-roster-swap class="stats-sort-link {% if sort == 'name' %}active-sort{% endif %}">Player{% if sort == 'name' %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
         {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
-        <th><a href="{{ sort_links[cid] }}" data-preserve-scroll="roster-table-wrap" class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ sort_links[cid] }}" data-roster-swap class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
         {% endfor %}
       </tr>
     </thead>
     <tbody>
       {% for p in players %}
       {% set ovr = p.overall_rating %}
-      <tr class="{% if p.player_id in starters %}starter{% endif %}" data-card='{{ p | player_card_json }}'>
+      <tr class="{% if p.player_id in starters %}starter{% endif %}{% if not sort and p.player_id in last_starters %} starter-last{% endif %}" data-card='{{ p | player_card_json }}'>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.position.value }}</td>
         <td>{{ p.age }}</td>
@@ -182,7 +244,7 @@
     <thead>
       <tr>
         {% for cid, label in [('name','Name'), ('pos','Pos'), ('g','G'), ('pass','Pass Yds'), ('rush','Rush Yds'), ('rec','Rec Yds'), ('def','Tkl/Sk')] %}
-        <th><a href="{{ sort_links[cid] }}" data-preserve-scroll="roster-stats-table-wrap" class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+        <th><a href="{{ sort_links[cid] }}" data-roster-swap class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
         {% endfor %}
       </tr>
     </thead>
@@ -191,7 +253,7 @@
       {% for p in players %}
       {% set stat = stats_data.get((p.full_name, p.position.value)) %}
       {% if stat %}
-      <tr class="{% if p.player_id in starters %}starter{% endif %}" data-card='{{ p | player_card_json }}'>
+      <tr class="{% if p.player_id in starters %}starter{% endif %}{% if not sort and p.player_id in last_starters %} starter-last{% endif %}" data-card='{{ p | player_card_json }}'>
         <td>{{ player_link(p) }}</td>
         <td>{{ p.position.value }}</td>
         <td>{{ stat.games_played or '-' }}</td>
@@ -207,6 +269,15 @@
       {% endif %}
     </tbody>
   </table>
+  </div>
+  {% endif %}
+  </div>
+
+  {% if has_depth_tab %}
+  <!-- Depth Chart tab (Sec13's move/auto-fill widget, now sharing this card
+       with the Roster table instead of living in its own box). -->
+  <div data-roster-panel="depth" hidden>
+    {% include "_depth_chart_widget.html" %}
   </div>
   {% endif %}
 </div>
@@ -395,12 +466,106 @@
   </div>
 </div>
 
-<!-- Depth Chart widget (Sec13: replaces the old read-only embed + the
-     standalone /depth-chart page -- full move/auto-fill functionality
-     lives here now, shared via include so it's defined in one place). -->
-{% if depth_chart_groups and team.abbr != 'FA' %}
-{% include "_depth_chart_widget.html" %}
-{% endif %}
+<script>
+  // Roster | Depth Chart tabs + in-place updates (Brian's ask, 2026-09-14:
+  // no page jumps on Move up/down, position-group pills, column sorts,
+  // filters, or Auto-Fill). Every such control inside #roster-depth-card
+  // carries data-roster-swap: instead of a full reload (which resets
+  // scroll), it's fetched, and only this card's contents are replaced
+  // from the response -- the scroll position never moves. Any failure
+  // falls back to the plain navigation/submit the markup already does.
+  (function () {
+    var card = document.getElementById('roster-depth-card');
+    if (!card) { return; }
+    var TAB_KEY = 'ffg-roster-tab';
+
+    function currentTab() {
+      var active = card.querySelector('[data-roster-tab].active');
+      return active ? active.dataset.rosterTab : 'roster';
+    }
+
+    function urlWithTab(url, tab) {
+      var base = url.split('#')[0];
+      return tab === 'depth' ? base + '#depth-chart' : base;
+    }
+
+    function setTab(name, remember) {
+      if (!card.querySelector('[data-roster-tab="' + name + '"]')) { name = 'roster'; }
+      card.querySelectorAll('[data-roster-tab]').forEach(function (btn) {
+        var on = btn.dataset.rosterTab === name;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      card.querySelectorAll('[data-roster-panel]').forEach(function (panel) {
+        panel.hidden = panel.dataset.rosterPanel !== name;
+      });
+      if (remember) {
+        try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* storage unavailable -- tab just isn't remembered */ }
+        history.replaceState(null, '', urlWithTab(location.pathname + location.search, name));
+      }
+    }
+
+    var initial = 'roster';
+    if (location.hash === '#depth-chart') {
+      initial = 'depth';
+    } else {
+      try { initial = localStorage.getItem(TAB_KEY) || 'roster'; } catch (e) { initial = 'roster'; }
+    }
+    setTab(initial, location.hash === '#depth-chart');
+
+    function swapFrom(url, fetchOpts, pushUrl) {
+      var scrollY = window.scrollY;
+      var wrap = card.querySelector('[data-roster-panel]:not([hidden]) .roster-table-wrap');
+      var scrollLeft = wrap ? wrap.scrollLeft : 0;
+      var tab = currentTab();
+      card.classList.add('is-loading');
+      return fetch(url, fetchOpts).then(function (resp) {
+        if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+        return resp.text();
+      }).then(function (html) {
+        var fresh = new DOMParser().parseFromString(html, 'text/html').getElementById('roster-depth-card');
+        if (!fresh) { throw new Error('response had no roster card'); }
+        card.innerHTML = fresh.innerHTML;
+        setTab(tab, false);
+        var newWrap = card.querySelector('[data-roster-panel]:not([hidden]) .roster-table-wrap');
+        if (newWrap) { newWrap.scrollLeft = scrollLeft; }
+        window.scrollTo(0, scrollY);
+        if (pushUrl) { history.replaceState(null, '', urlWithTab(pushUrl, tab)); }
+      }).finally(function () {
+        card.classList.remove('is-loading');
+      });
+    }
+
+    card.addEventListener('click', function (e) {
+      var tabBtn = e.target.closest('[data-roster-tab]');
+      if (tabBtn) {
+        setTab(tabBtn.dataset.rosterTab, true);
+        return;
+      }
+      var link = e.target.closest('a[data-roster-swap]');
+      if (!link || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
+      e.preventDefault();
+      swapFrom(link.href, { credentials: 'same-origin' }, link.href).catch(function () {
+        location.href = link.href;
+      });
+    });
+
+    card.addEventListener('submit', function (e) {
+      var form = e.target.closest('form[data-roster-swap]');
+      if (!form) { return; }
+      e.preventDefault();
+      var data = new FormData(form);
+      var request;
+      if ((form.getAttribute('method') || 'get').toLowerCase() === 'post') {
+        request = swapFrom(form.action, { method: 'POST', body: data, credentials: 'same-origin' }, null);
+      } else {
+        var url = form.action.split('?')[0] + '?' + new URLSearchParams(data).toString();
+        request = swapFrom(url, { credentials: 'same-origin' }, url);
+      }
+      request.catch(function () { form.submit(); });
+    });
+  })();
+</script>
 
 {% endif %}
 {% endblock %}

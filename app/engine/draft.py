@@ -776,3 +776,77 @@ def run_draft_for_season(season, season_number: int) -> dict:
     # future asset (Sec 8.5's "current draft" window has just closed).
     draft_pick_store.consume_season(season_number)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Supplemental undrafted free agents (Brian's ask, 2026-09-14: "I want there
+# to always be enough free agents to fill holes on rosters. That should
+# happen naturally with undrafted free agents.")
+# ---------------------------------------------------------------------------
+
+# Realistic street-free-agent quality: below a typical rostered starter
+# (league position averages sit in the 70s), still playable depth.
+SUPPLEMENTAL_UDFA_OVR_RANGE = (45, 62)
+
+
+def supplemental_udfa_id(season_number: int, position: Position, ordinal: int, league_seed: int) -> str:
+    """Deterministic id, distinct from _player_id_for()'s draft_ namespace
+    so a supplemental signing never collides with a real class member."""
+    tag = stable_seed(league_seed, "udfa", season_number, position.value, ordinal) % 1_000_000
+    return f"udfa_{season_number}_{position.value}_{ordinal:03d}_{tag:06d}"
+
+
+def generate_supplemental_udfa(position: Position, ordinal: int, league_seed: int, season_number: int) -> ProspectDraft:
+    """One extra undrafted rookie at `position`, built with the same
+    attribute pipeline as _generate_one_prospect() (POSITION_PROFILES
+    key attributes + duller off-profile attributes, profile-weighted
+    overall) so ratings stay internally coherent -- only the talent draw
+    is lower, targeting SUPPLEMENTAL_UDFA_OVR_RANGE. The overall is
+    shifted into range by moving every attribute together, not by
+    overwriting overall_rating alone, so the Player Card's attributes
+    still explain the number."""
+    rng = RNG.with_seed(stable_seed(league_seed, "udfa", season_number, position.value, ordinal))
+    lo, hi = SUPPLEMENTAL_UDFA_OVR_RANGE
+    target = rng.uniform(lo, hi)
+    profile = POSITION_PROFILES.get(position, {})
+    base_talent = target - 5  # profile biases average roughly +5 above base_talent
+    attrs: dict[str, int] = {}
+    for name in ALL_ATTR_FIELDS:
+        bias = profile[name][1] if name in profile else -15
+        attrs[name] = _clamp(base_talent + bias + rng.gauss(0, 8))
+
+    def _overall(a: dict[str, int]) -> int:
+        if profile:
+            total_w = sum(w for w, _ in profile.values())
+            return _clamp(sum(a[n] * w for n, (w, _) in profile.items()) / total_w)
+        return _clamp(sum(a.values()) / len(a))
+
+    overall = _overall(attrs)
+    shift = max(lo, min(hi, round(target))) - overall
+    if shift:
+        attrs = {n: _clamp(v + shift) for n, v in attrs.items()}
+        overall = max(lo, min(hi, _overall(attrs)))
+
+    group = _group_for(position)
+    (h_min, h_max), (w_min, w_max) = _HEIGHT_WEIGHT_BY_GROUP[group]
+    return ProspectDraft(
+        index=ordinal, first_name=rng.choice(_FIRST_NAMES), last_name=rng.choice(_LAST_NAMES),
+        position=position, college=rng.choice(_COLLEGES), age=rng.r().randint(22, 24),
+        height_inches=rng.r().randint(h_min, h_max), weight_lbs=rng.r().randint(w_min, w_max),
+        overall_rating=overall, potential=_clamp(overall + rng.uniform(0, 12)),
+        attrs=attrs, draft_grade=_draft_grade(overall), group=group,
+    )
+
+
+def supplemental_udfa_player(position: Position, ordinal: int, league_seed: int, season_number: int) -> Player:
+    """generate_supplemental_udfa() as a real free-agent Player row
+    (team_abbr=None) on the same league-minimum 1-year terms
+    finalize_undrafted_to_db() gives a real undrafted prospect, grown with
+    the cap the same way rookie_scale_aav() grows its anchors."""
+    from app.engine.contracts import salary_cap_for_season, SALARY_CAP_BASE
+
+    prospect = generate_supplemental_udfa(position, ordinal, league_seed, season_number)
+    salary = round(LEAGUE_MINIMUM_BASE * salary_cap_for_season(season_number) / SALARY_CAP_BASE)
+    player = _prospect_to_player(prospect, league_seed, season_number, None, salary=salary, contract_years_remaining=1)
+    player.player_id = supplemental_udfa_id(season_number, position, ordinal, league_seed)
+    return player
