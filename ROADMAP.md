@@ -463,7 +463,6 @@ Brian's "Sept 14 2026 FF game fixes" doc (~45 items) was built in one session: a
 - [ ] Ties: record tied games as ties (W-L-T) instead of a home win — touches `TeamRecord`, save format, tiebreakers, all W-L displays, headlines.
 - [ ] Back-fill acquisition history for the imported real roster (draft round/pick, FA/trade year).
 - [ ] Re-measure player retirement volume across several seasons (tuned once, not re-measured).
-- [ ] `test_apply_coach_offseason_decrements_real_contract_years` was already failing on the foundation commit — investigate.
 - [ ] Trade valuation: `player_trade_value()` rates most well-paid starters as negative surplus; the floor patches it — revisit `expected_market_value()` against real salaries.
 - [ ] Live browser pass on every changed page (agents verified via TestClient; the lead did a smoke check only).
 

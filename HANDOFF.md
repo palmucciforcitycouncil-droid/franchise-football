@@ -19,7 +19,7 @@ Brian handed over `SONNET_IMPLEMENTATION_PROMPT.md` plus his original "Sept 14 2
 - Player retirement did not exist before; it was added so the season report could list retirements. Volume was tuned once only.
 - Ties still count as a home win in standings (see ROADMAP §4l follow-ups).
 
-**Verification:** each package ran its own targeted tests in its worktree (all green except the pre-existing `test_apply_coach_offseason_decrements_real_contract_years`). One full-suite run on the merged branch — results below. Lead did a live smoke check on a fresh save.
+**Verification:** each package ran its own targeted tests in its worktree (all green except the pre-existing `test_apply_coach_offseason_decrements_real_contract_years`). One full-suite run on the merged branch: 692 passed, 5 failed, 1 skipped (86 min). All 5 were one order-dependent cause — a fresh franchise with empty League History starts at season_number 0 (2002), which the year-anchored cap turned into an ~$80M cap (every offer OVER_CAP). Fixed by clamping cap growth at 2026 (`contracts.cap_growth_factor`); the affected files re-run green (the full suite was not re-run). Live smoke check on a fresh NE save: every page renders, preseason + 3 weeks simulate, cap/staff cap/headline records/depth chart tabs visible.
 
 ## Session state right now (2026-09-14, save_manager per-save-store fix + a stale-worktree false alarm)
 
