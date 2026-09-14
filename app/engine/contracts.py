@@ -29,11 +29,12 @@ disclosed:**
   (already real, already A3-tuned against actual sim sensitivity) scales
   it by position -- reusing a number this engine already trusts rather
   than inventing an unrelated second one.
-- **No Mood Meter / multi-round patience state.** Sec 8.3.3's "drains on
-  rejections, empties on insulting lowballs, locking the negotiation" is
-  stateful, UI-heavy, and not needed to unlock R4b/R4c. `evaluate_offer()`
-  is a single deterministic verdict (ACCEPT/REJECT/COUNTER) per call --
-  real accept-or-not logic, not a fabricated mood animation.
+- **Mood Meter lives in its own layer.** `evaluate_offer()` stays a
+  single deterministic, stateless verdict per call. Sec 8.3.3's stateful
+  mood ("drains on rejections, empties on insulting lowballs, locking the
+  negotiation") was added 2026-09-14 as app/engine/negotiation.py, which
+  the offer routes run ON TOP of this score (additive mood bonus,
+  counter-offers that compromise, a permanent refusal at mood 0).
 - **No rookie scale.** Depends on the Draft (R5), which itself depends on
   this chunk -- can't exist yet. Every player negotiated here is a real
   veteran with a real `years_pro`.
@@ -189,6 +190,21 @@ W_GUARANTEED_BONUS = 0.10
 # already a strong, real-world-plausible term, not a threshold no
 # realistic offer ever reaches.
 FULL_GUARANTEE_FRACTION = 0.5
+# Bottom of the "Considering" reaction band -- app/engine/negotiation.py
+# gives an offer here a seeded chance to be accepted outright.
+CONSIDERING_FLOOR = 0.88
+
+
+def negotiation_model(player: Player, season_number: int):
+    """This module's thresholds/AAV weight for app/engine/negotiation.py's
+    mood layer (Brian's 2026-09-14 fixes doc), which now sits on top of
+    evaluate_offer()'s unchanged raw score for every GM Desk re-sign."""
+    from app.engine.negotiation import ScoreModel
+    return ScoreModel(
+        accept_threshold=ACCEPT_THRESHOLD, counter_threshold=COUNTER_THRESHOLD,
+        considering_floor=CONSIDERING_FLOOR, w_aav=W_AAV,
+        expected_aav=expected_market_value(player, season_number), reaction=offer_reaction,
+    )
 
 
 def offer_reaction(score: float) -> str:
@@ -204,7 +220,7 @@ def offer_reaction(score: float) -> str:
         return "Very Interested"
     if score >= ACCEPT_THRESHOLD:
         return "Interested"
-    if score >= 0.88:
+    if score >= CONSIDERING_FLOOR:
         return "Considering"
     if score >= COUNTER_THRESHOLD:
         return "Lowball"

@@ -290,6 +290,25 @@ def _isolate_db_path(_golden_db_path):
         _clear_db_backed_caches()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_negotiation_store():
+    """Contract negotiation mood (app/services/negotiation_store.py,
+    2026-09-14): written by every offer route. Function-scoped, not
+    session-scoped like the stores above, because a mood/refusal left
+    behind by one test's offers would silently change the verdict another
+    test's identical offer gets (same window, team and player)."""
+    from app.services import negotiation_store
+    real_path = negotiation_store.DEFAULT_PATH
+    test_path = Path("data/saves/_test_isolated_negotiations.json")
+    test_path.unlink(missing_ok=True)
+    negotiation_store.DEFAULT_PATH = test_path
+    try:
+        yield
+    finally:
+        negotiation_store.DEFAULT_PATH = real_path
+        test_path.unlink(missing_ok=True)
+
+
 def _clear_db_backed_caches() -> None:
     """Every lru_cache keyed off DB content, cleared on both sides of
     _isolate_db_path's swap -- otherwise a query answered before this

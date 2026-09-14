@@ -92,8 +92,13 @@ def search_external_pool(vacant_role: CoachRole, team_abbr: str, season_number: 
     plus the seeded Tier 3 college/former-NFL candidates
     (coach_pool.candidates_for_role()) -- coach_pool already unions both."""
     turnover = recent_hc_turnover_count(team_abbr, season_number)
+    # Staff salary cap (2026-09-14): a candidate whose market salary won't
+    # fit this team's remaining staff-cap room isn't a realistic hire.
+    room = coach_contracts.staff_cap_room(team_abbr, season_number)
     out = []
     for candidate in coach_pool.candidates_for_role(vacant_role):
+        if coach_contracts.coach_market_value(candidate, season_number=season_number) > room:
+            continue
         if not coach_hiring.will_consider(candidate, team_abbr, season_number, appointment_type, turnover):
             continue
         interest = coach_hiring.interest_score(candidate, team_abbr, season_number)
@@ -169,7 +174,18 @@ def execute_hire(team_abbr: str, role: CoachRole, coach_id: str, season_number: 
     """Assigns `coach_id` into `role` on `team_abbr`. Sec 6: a new hire's
     personal JSS history does NOT transfer (blank-slate job_security_score);
     OwnerWinPressure is untouched here on purpose -- it lives in
-    owner_pressure_store.py, franchise-level, not on the Coach row."""
+    owner_pressure_store.py, franchise-level, not on the Coach row.
+
+    2026-09-14: refuses (returns None) to seat a 5th assistant
+    (coach_contracts.MAX_ASSISTANTS), and the new salary is trimmed to the
+    team's staff-cap room (coach_contracts.affordable_salary) -- the user's
+    own hire route checks affordability up front and refuses with a
+    message instead, so this trim only ever binds for AI hires."""
+    if role is CoachRole.AC:
+        current_acs = [c for c in coach_store.assistants(team_abbr) if c.coach_id != coach_id]
+        if len(current_acs) >= coach_contracts.MAX_ASSISTANTS:
+            return None
+    room = coach_contracts.staff_cap_room(team_abbr, season_number, exclude_coach_id=coach_id)
     with get_session() as s:
         coach = s.get(Coach, coach_id)
         if coach is None:
@@ -195,7 +211,8 @@ def execute_hire(team_abbr: str, role: CoachRole, coach_id: str, season_number: 
         # an internally promoted assistant (their old AC-tier pay) stuck at
         # the wrong numbers forever after a hire.
         coach.contract_years = coach_contracts.DEFAULT_CONTRACT_YEARS[role]
-        coach.salary_aav = round(coach_contracts.coach_market_value(coach))
+        market = coach_contracts.coach_market_value(coach, season_number=season_number)
+        coach.salary_aav = round(coach_contracts.affordable_salary(role, market, room, season_number))
         offensive, defensive = _draw_profile(role, coach_id, league_seed, season_number)
         if role in (CoachRole.HC, CoachRole.OC):
             coach.offensive_profile = offensive

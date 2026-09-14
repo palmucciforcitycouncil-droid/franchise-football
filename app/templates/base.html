@@ -896,6 +896,11 @@
     .coach-name-link:hover { color: var(--accent); }
     .coach-vacant { color: var(--muted); font-style: italic; }
     .coach-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
+    /* Staff salary cap readout, right of the team picker (2026-09-14). */
+    .staff-cap-summary { margin-left: auto; display: flex; align-items: baseline; gap: 0.5rem; }
+    .staff-cap-summary.staff-cap-over strong { color: #f87171; }
+    .staff-error { color: #f87171; font-size: 0.85rem; margin: 6px 0 0; }
+    .staff-contract-expired { color: #f87171; }
     .coach-ovr {
       display: inline-block; min-width: 34px; text-align: center; padding: 1px 6px;
       border-radius: 4px; font-weight: 600; background: var(--border); color: var(--text);
@@ -1202,12 +1207,13 @@
         <div class="neg-slider-label"><span>Annual Salary</span><span id="neg-aav-value"></span></div>
         <input type="range" id="neg-aav" min="0" step="50000">
       </div>
-      <div class="neg-slider-row">
+      <div class="neg-slider-row" id="neg-guaranteed-row">
         <div class="neg-slider-label"><span>Guaranteed</span><span id="neg-guaranteed-value"></span></div>
         <input type="range" id="neg-guaranteed-pct" min="0" max="100" step="5">
       </div>
       <div class="pc-row"><span class="pc-row-label">Total Contract Value</span><span id="neg-total-value"></span></div>
-      <div class="pc-row"><span class="pc-row-label">Player Reaction</span><span id="neg-reaction">&mdash;</span></div>
+      <div class="pc-row"><span class="pc-row-label" id="neg-reaction-label">Player Reaction</span><span id="neg-reaction">&mdash;</span></div>
+      <div class="pc-row"><span class="pc-row-label">Negotiation Mood</span><span id="neg-mood">&mdash;</span></div>
       <div class="trade-offer-actions" style="margin-top: 1rem;">
         <button type="button" id="neg-cancel" style="background: transparent; border: 1px solid var(--border); color: var(--text);">Cancel</button>
         <button type="button" id="neg-submit">Make Offer</button>
@@ -1397,6 +1403,8 @@
       // leaving it out of the verdict is an omission of a term the GDD
       // itself never specified, not a deviation from one it did.
       function negGuaranteedDollar() {
+        // Coach extensions have no guaranteed-money term (opts.hideGuaranteed).
+        if (negCurrentOpts && negCurrentOpts.hideGuaranteed) { return 0; }
         var years = Number(negYearsInput.value);
         var aav = Number(negAavInput.value);
         var pct = Number(negGuaranteedInput.value);
@@ -1425,8 +1433,13 @@
           if (!r.ok) { throw new Error('preview failed'); }
           return r.json();
         }).then(function (data) {
+          negShowMood(data);
+          if (data.refused) {
+            negLockRefused(data.message);
+            return;
+          }
           if (data.verdict === 'OVER_CAP') {
-            negReactionEl.textContent = 'Over your cap space';
+            negReactionEl.textContent = data.reaction || 'Over your cap space';
             negReactionEl.className = 'neg-reaction-bad';
             return;
           }
@@ -1453,6 +1466,28 @@
         negGuaranteedInput.addEventListener('input', negScheduleFetch);
       }
 
+      // Negotiation mood (app/engine/negotiation.py, 2026-09-14): every
+      // preview/submit response carries the person's mood; at mood 0 they
+      // refuse for the rest of this negotiation window and Make Offer is
+      // greyed out.
+      var negMoodEl = document.getElementById('neg-mood');
+      var negReactionLabelEl = document.getElementById('neg-reaction-label');
+      var negGuaranteedRowEl = document.getElementById('neg-guaranteed-row');
+
+      function negShowMood(data) {
+        if (!negMoodEl || data.mood === undefined || data.mood === null) { return; }
+        negMoodEl.textContent = data.mood_label + ' (' + data.mood + ')';
+        negMoodEl.className = data.mood >= 55 ? 'neg-reaction-good' : (data.mood >= 40 ? '' : 'neg-reaction-bad');
+      }
+
+      function negLockRefused(message) {
+        negShowResult('reject', message);
+        negReactionEl.textContent = 'Refuses to negotiate';
+        negReactionEl.className = 'neg-reaction-bad';
+        negSubmitBtn.disabled = true;
+        negSubmitBtn.dataset.refused = '1';
+      }
+
       function negShowResult(kind, text) {
         negResultMessageEl.textContent = text;
         negResultMessageEl.className = 'neg-result-message ' + kind;
@@ -1474,6 +1509,15 @@
         negTeamEl.textContent = opts.team;
         negAgeEl.textContent = opts.age != null ? ('Age ' + opts.age) : '';
         negMarketValueEl.textContent = money(opts.expectedValue) + '/yr';
+        // Coach extensions reuse this same modal (2026-09-14): no
+        // guaranteed-money slider, a 7-year max, "Coach Reaction".
+        negGuaranteedRowEl.hidden = !!opts.hideGuaranteed;
+        negYearsInput.max = opts.maxYears || 10;
+        negReactionLabelEl.textContent = opts.reactionLabel || 'Player Reaction';
+        negMoodEl.textContent = '—';
+        negMoodEl.className = '';
+        negSubmitBtn.disabled = false;
+        delete negSubmitBtn.dataset.refused;
 
         negYearsInput.value = opts.defaultYears;
         var maxAav = Math.max(opts.expectedValue * 2, opts.defaultAav * 2, 1000000);
@@ -1521,8 +1565,17 @@
               return r.json();
             })
             .then(function (data) {
+              negShowMood(data);
+              if (data.verdict === 'REFUSED') {
+                negLockRefused(data.message);
+                return;
+              }
               if (data.verdict === 'ACCEPT') {
                 negShowResult('accept', 'We have a deal!');
+                // Reload below keeps the user's scroll position (Brian's
+                // 2026-09-14 report: the Staff page jumped to the top after
+                // an extension offer) -- see restoreKeptScroll().
+                keepScrollForReload();
                 // Brian's report, 2026-09-13: the page's own Expiring
                 // Contracts table (and the Cap/Committed/Cap Space
                 // figures above it) were rendered server-side at page
@@ -1535,7 +1588,7 @@
                 // changes out from under it.
                 setTimeout(function () { window.location.reload(); }, 1200);
               } else if (data.verdict === 'COUNTER') {
-                negShowResult('counter', 'How about this?');
+                negShowResult('counter', data.message || 'How about this?');
                 // Round UP to the slider's own $50k step, never to
                 // nearest -- a <input type="range" step="50000"> SILENTLY
                 // snaps an assigned .value to the nearest step, which can
@@ -1556,16 +1609,19 @@
                 negUpdateDisplay();
                 negFetchReaction();
               } else if (data.verdict === 'OVER_CAP') {
-                negShowResult('reject', 'That offer would put you over your cap space.');
+                negShowResult('reject', data.message || 'That offer would put you over your cap space.');
               } else {
-                negShowResult('reject', 'Rejected.');
+                // Rotates server-side (Rejected / No way / Not happening /
+                // No thank you / Pass) so a repeat rejection visibly
+                // changes instead of looking like nothing happened.
+                negShowResult('reject', (data.message || 'Rejected') + '.');
               }
             })
             .catch(function () {
               negShowResult('reject', 'Something went wrong submitting that offer -- try again.');
             })
             .finally(function () {
-              negSubmitBtn.disabled = false;
+              negSubmitBtn.disabled = negSubmitBtn.dataset.refused === '1';
             });
         });
       }
@@ -1800,7 +1856,8 @@
         // Age moved to the header badge row (same as the Player Card) --
         // not repeated here to avoid showing it twice.
         var overview = ccRow('Experience', card.experience_years + ' yrs') +
-          ccRow('Reputation', card.reputation) +
+          ccRow(card.salary_label || 'Salary', money(card.salary) + '/yr') +
+          ccRow('Contract', card.contract_status) +
           ccRow('Role', card.title) +
           (card.specialty ? ccRow('Specialty', card.specialty) : '') +
           ccRow('Offensive Scheme', card.offensive_profile) +
@@ -1808,7 +1865,7 @@
           ccRow('Focus Area', card.focus_area) +
           ccRow('Job Security', card.job_security);
         overview += '<div class="pc-bar-wrap"><div class="pc-bar-top"><span>Reputation</span><span>' +
-          card.reputation + '/99</span></div><div class="pc-bar-track"><div class="pc-bar-fill" style="width:' +
+          card.reputation + '</span></div><div class="pc-bar-track"><div class="pc-bar-fill" style="width:' +
           Math.max(0, Math.min(100, card.reputation)) + '%"></div></div></div>';
         if (card.generated_note) {
           overview += '<p class="coach-generated-note">' + card.generated_note + '</p>';
@@ -1831,8 +1888,8 @@
           ccRow('Conference Titles', card.conference_titles) +
           ccRow('Super Bowl Wins', card.super_bowl_wins) +
           ccRow('Coach of the Year', card.coach_awards) +
-          ccRow('Salary', money(card.salary)) +
-          ccRow('Contract', card.contract_years + ' yr(s) remaining');
+          ccRow(card.salary_label || 'Salary', money(card.salary)) +
+          ccRow('Contract', card.contract_status);
         if (card.titles_by_role && card.titles_by_role.length) {
           career += '<div class="pc-stat-heading">Titles by Role Held</div>';
           for (var t = 0; t < card.titles_by_role.length; t++) {
@@ -2209,6 +2266,37 @@
           }
         }
       }
+      // Exact-scroll-position variant (2026-09-14, Brian: Staff page
+      // actions jumped to the top). data-preserve-scroll above re-anchors
+      // on an element; data-keep-scroll forms (the Staff page's focus/
+      // fire/hire forms, which redirect straight back to the same page)
+      // and the Negotiation modal's post-deal reload instead restore the
+      // exact window.scrollY -- but only if the next page is the same
+      // path, so a stale value can never scroll an unrelated page.
+      function keepScrollForReload() {
+        sessionStorage.setItem('ffg-keep-scroll', JSON.stringify({path: window.location.pathname, y: window.scrollY}));
+      }
+      (function restoreKeptScroll() {
+        var raw = sessionStorage.getItem('ffg-keep-scroll');
+        if (!raw) { return; }
+        sessionStorage.removeItem('ffg-keep-scroll');
+        try {
+          var kept = JSON.parse(raw);
+          if (kept.path === window.location.pathname) {
+            window.scrollTo(0, kept.y);
+            // Again once late layout (fonts) settles, in case it shifted.
+            window.addEventListener('load', function () { window.scrollTo(0, kept.y); });
+          }
+        } catch (err) { /* malformed value -- just don't scroll */ }
+      })();
+      document.querySelectorAll('form[data-keep-scroll]').forEach(function (form) {
+        // 'change' as well as 'submit' -- a <select onchange="this.form.submit()">
+        // never fires 'submit' (see the data-preserve-scroll note below).
+        form.addEventListener('submit', function (e) {
+          if (!e.defaultPrevented) { keepScrollForReload(); }  // e.g. a cancelled Fire confirm()
+        });
+        form.addEventListener('change', keepScrollForReload);
+      });
       document.querySelectorAll('[data-preserve-scroll]').forEach(function (el) {
         var save = function () { sessionStorage.setItem('ffg-scroll-anchor', el.dataset.preserveScroll); };
         if (el.tagName === 'FORM') {

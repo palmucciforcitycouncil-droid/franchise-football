@@ -60,6 +60,11 @@ def setup(tag: str = "verify") -> None:
     for p in paths:
         p.unlink(missing_ok=True)
 
+    # Contract negotiation mood (2026-09-14) -- written by every offer route.
+    from app.services import negotiation_store
+    negotiation_store.DEFAULT_PATH = Path(f"data/saves/_{tag}_negotiations.json")
+    negotiation_store.DEFAULT_PATH.unlink(missing_ok=True)
+
     from app.services import coach_store, depth_chart, injury_store
     depth_chart.clear_starters_cache()
     coach_store.clear_cache()
@@ -105,6 +110,7 @@ def teardown(tag: str = "verify") -> None:
         Path(f"data/saves/_{tag}_draft_classes.json"),
         Path(f"data/saves/_{tag}_draft_board.json"),
         Path(f"data/saves/_{tag}_offseason_recap.json"),
+        Path(f"data/saves/_{tag}_negotiations.json"),
     ]:
         p.unlink(missing_ok=True)
     # These module-level attrs stay pointed at the throwaway paths in

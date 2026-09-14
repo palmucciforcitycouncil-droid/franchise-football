@@ -48,6 +48,8 @@ from app.services import (
 )
 from app.engine import draft as draft_engine
 from app.engine import coach_hiring, coach_replacement
+from app.engine import coach_contracts
+from app.services import negotiation_store
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
@@ -934,8 +936,13 @@ def _coach_card_json(coach: Coach) -> str:
         "focus_area": coach.focus_area,
         "appointment_type": coach.appointment_type,
         "background": coach.background,
-        "salary": coach.salary_aav,
+        # An unemployed coach has no salary of his own (pool candidates are
+        # seeded at $0, Brian's "$0/yr" report) -- show what he'd ask for.
+        "salary": coach.salary_aav if coach.team_abbr else round(coach_contracts.coach_market_value(
+            coach, season_number=season_state.get_season().season_number)),
+        "salary_label": "Salary" if coach.team_abbr else "Asking Salary",
         "contract_years": coach.contract_years,
+        "contract_status": _contract_status(coach),
         "career_record": f"{coach.career_wins}-{coach.career_losses}",
         "seasons_coached": coach.seasons_coached,
         "playoff_wins": coach.playoff_wins,
@@ -956,7 +963,8 @@ def _coach_card_json(coach: Coach) -> str:
             {"heading": "Strategic Tendencies (Sec 7.7.2.2)", "rows": [
                 ["Pass Tendency", coach.run_pass_tendency],
                 ["Offensive Aggression", coach.offensive_aggression],
-                ["Pace", coach.pace],
+                # "Pace" removed 2026-09-14 (staff impact audit): no sim
+                # system reads a coach's pace, so it isn't shown as if it did.
                 ["Red Zone Pass Lean", coach.red_zone_offense_bias],
                 ["Two-Point Tendency", coach.two_point_tendency],
                 ["Blitz Rate", coach.blitz_rate],
@@ -2889,16 +2897,36 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
     """R3d Sec 11's Fill Vacancy panel: internal candidates (real
     InterimPromotionScore, Sec 4.1) plus willing external pool
     candidates (real HiringMerit, Sec 4.3) -- the exact same functions
-    the AI autonomy loop scores every other team's vacancy with."""
+    the AI autonomy loop scores every other team's vacancy with.
+
+    2026-09-14: every row carries its real salary in the new role and
+    whether it fits the staff salary cap; an AC seat (coach_role AC) lists
+    the best-rated assistant free agents, the same pool and ordering the
+    AI's own backfill (coach_ai.backfill_assistants) hires from."""
+    room = coach_contracts.staff_cap_room(team_abbr, season.season_number)
+    if coach_role is CoachRole.AC:
+        rows = []
+        for candidate in sorted(coach_pool.candidates_for_role(CoachRole.AC), key=lambda c: (-c.overall, c.coach_id))[:8]:
+            salary = _candidate_salary(candidate, coach_role, season.season_number)
+            rows.append({
+                "coach_id": candidate.coach_id, "name": candidate.full_name,
+                "source": "Free agent", "detail": candidate.specialty or candidate.title,
+                "score": candidate.overall, "background": candidate.specialty,
+                "salary": salary, "affordable": salary <= room,
+            })
+        return rows
+
     rows = []
     for candidate, score in (
         (c, coach_hiring.interim_promotion_score(c, season.season_number))
         for c in coach_replacement.internal_candidates(team_abbr, coach_role, exclude_coach_id="")
     ):
+        salary = _candidate_salary(candidate, coach_role, season.season_number)
         rows.append({
             "coach_id": candidate.coach_id, "name": candidate.full_name,
             "source": "Internal promotion", "detail": candidate.title,
             "score": round(score), "background": candidate.background,
+            "salary": salary, "affordable": salary <= room + candidate.salary_aav,
         })
     turnover = coach_replacement.recent_hc_turnover_count(team_abbr, season.season_number)
     for candidate in coach_pool.candidates_for_role(coach_role):
@@ -2907,21 +2935,63 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
             continue
         interest = coach_hiring.interest_score(candidate, team_abbr, season.season_number)
         merit = coach_hiring.hiring_merit(candidate, coach_role, team_abbr, season.season_number, interest)
+        salary = _candidate_salary(candidate, coach_role, season.season_number)
         rows.append({
             "coach_id": candidate.coach_id, "name": candidate.full_name,
             "source": "College" if candidate.pool_tier == "college" else
                       ("Former NFL" if candidate.pool_tier else "Free agent"),
             "detail": candidate.background or candidate.title,
             "score": round(merit), "background": candidate.background,
+            "salary": salary, "affordable": salary <= room,
         })
     rows.sort(key=lambda r: -r["score"])
     return rows[:8]
 
 
+def _candidate_salary(candidate: Coach, role: CoachRole, season_number: int) -> int:
+    """What hiring `candidate` into `role` would cost this season -- the
+    same market value execute_hire() writes, priced for the NEW role (a
+    pool candidate's stored salary_aav is often 0, and a promoted
+    assistant's is still AC pay)."""
+    return round(coach_contracts.market_value_for_role(candidate, role, season_number=season_number))
+
+
+def _staff_error_redirect(team_abbr: str, role: CoachRole, message: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/staff?" + urlencode({"team": team_abbr, "staff_error": message, "staff_error_role": role.value}),
+        status_code=303)
+
+
+def _contract_status(coach: Coach) -> str:
+    """Brian's 2026-09-14 report: "0 yr(s) left" read as broken. An
+    unemployed coach has no contract at all; 0 years on an employed coach
+    means the deal has run out."""
+    if coach.team_abbr is None:
+        return "No contract (free agent)"
+    if coach.contract_years <= 0:
+        return "Contract expired"
+    return f"{coach.contract_years} year{'s' if coach.contract_years != 1 else ''} remaining"
+
+
+def _coach_negotiate_opts(coach: Coach, team_abbr: str, season_number: int) -> str:
+    """data-negotiate blob for the shared Negotiation modal (base.html's
+    openNegotiation()) -- a coach extension uses the exact same slider
+    dialog as a player re-sign or free-agent signing."""
+    market = round(coach_contracts.coach_market_value(coach, season_number=season_number))
+    return json.dumps({
+        "playerId": coach.coach_id, "name": coach.full_name, "pos": CoachRole(coach.role).value,
+        "ovr": coach.overall, "team": team_abbr, "age": coach.age,
+        "actionUrl": f"/staff/{team_abbr}/{coach.coach_id}/extend",
+        "previewUrl": f"/staff/{team_abbr}/{coach.coach_id}/extend/preview",
+        "expectedValue": market, "defaultAav": coach.salary_aav or market,
+        "defaultYears": coach_contracts.DEFAULT_CONTRACT_YEARS[CoachRole(coach.role)],
+        "maxYears": COACH_EXTENSION_MAX_YEARS, "hideGuaranteed": True, "reactionLabel": "Coach Reaction",
+    })
+
+
 @app.get("/staff", response_class=HTMLResponse)
 def staff_view(request: Request, q: str = "", role: str = "", team: str = "", available: bool = False,
-                extend_result: str | None = None, extend_coach: str | None = None,
-                extend_counter_aav: str | None = None, extend_counter_years: str | None = None):
+                staff_error: str | None = None, staff_error_role: str | None = None):
     """Real Staff page. `team` lets any team's staff be viewed (the
     Scouting Panel's Head Coach link and Find Coaches results both point
     here); it defaults to the user's own team, same convention /roster
@@ -2961,10 +3031,21 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
             # every AI team's vacancy is filled autonomously the same
             # offseason/in-season it opens (app/services/coach_ai.py).
             "candidates": _staff_candidate_rows(team_abbr, r, season) if (holder is None and is_user_team) else [],
+            "negotiate": _coach_negotiate_opts(holder, team_abbr, season.season_number) if (holder and is_user_team) else None,
+            "contract_status": _contract_status(holder) if holder else "",
         })
     assistant_rows = [
-        {"coach": c, "card": _coach_card_json(c)} for c in by_role.get(CoachRole.AC, [])
+        {"coach": c, "card": _coach_card_json(c), "contract_status": _contract_status(c),
+         "negotiate": _coach_negotiate_opts(c, team_abbr, season.season_number) if is_user_team else None}
+        for c in by_role.get(CoachRole.AC, [])
     ]
+    # Brian's 2026-09-14 fixes doc: at most MAX_ASSISTANTS; the Hire
+    # Assistant panel only appears while a seat is actually open.
+    open_assistant_seats = max(0, coach_contracts.MAX_ASSISTANTS - len(assistant_rows))
+    assistant_candidates = (_staff_candidate_rows(team_abbr, CoachRole.AC, season)
+                            if (is_user_team and open_assistant_seats) else [])
+    staff_payroll = sum(c.salary_aav for c in staff)
+    staff_cap = contracts.coach_salary_cap_for_season(season.season_number)
 
     effect = coaching.staff_effect_for(team_abbr)
     search_results = []
@@ -2973,14 +3054,6 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
             {"coach": c, "card": _coach_card_json(c)}
             for c in coach_store.search(q, role=role, available_only=available, limit=40)
         ]
-
-    extend_feedback = None
-    if extend_result and extend_coach:
-        extend_feedback = {
-            "coach_name": extend_coach, "verdict": extend_result,
-            "counter_aav": int(extend_counter_aav) if extend_counter_aav else None,
-            "counter_years": int(extend_counter_years) if extend_counter_years else None,
-        }
 
     from app.services import owner_pressure_store
     return templates.TemplateResponse(request, "staff.html", {
@@ -2991,7 +3064,15 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
         "positions": positions,
         "assistants": assistant_rows,
         "staff_size": len(staff),
-        "payroll": _money(sum(c.salary_aav for c in staff)),
+        "payroll": _money(staff_payroll),
+        "staff_cap": staff_cap,
+        "staff_payroll": staff_payroll,
+        "over_staff_cap": staff_payroll > staff_cap,
+        "max_assistants": coach_contracts.MAX_ASSISTANTS,
+        "open_assistant_seats": open_assistant_seats,
+        "assistant_candidates": assistant_candidates,
+        "staff_error": staff_error,
+        "staff_error_role": staff_error_role,
         "effect_rows": _staff_effect_rows(effect, team_abbr),
         "focus_areas": FOCUS_AREAS,
         "search_results": search_results,
@@ -3005,7 +3086,6 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
         "owner_pressure": round(owner_pressure_store.pressure_for(team_abbr)),
         # HC/OC/DC/ST only -- R3d Sec 8 doesn't model AC firing.
         "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value, CoachRole.ST.value],
-        "extend_feedback": extend_feedback,
     })
 
 
@@ -3049,11 +3129,30 @@ def staff_hire_coach(request: Request, team_abbr: str, role: str = Form(...), co
         coach_role = CoachRole(role)
     except ValueError:
         raise HTTPException(422, "Invalid role")
-    if coach_store.coach_in_role(team_abbr, coach_role) is not None:
+    if coach_role is CoachRole.AC:
+        # Brian's 2026-09-14 fixes doc: at most 4 assistants per staff.
+        if len(coach_store.assistants(team_abbr)) >= coach_contracts.MAX_ASSISTANTS:
+            return _staff_error_redirect(team_abbr, coach_role,
+                                         f"Your staff already has {coach_contracts.MAX_ASSISTANTS} assistant coaches.")
+    elif coach_store.coach_in_role(team_abbr, coach_role) is not None:
         raise HTTPException(409, "That role isn't vacant")
     candidate = coach_store.by_id(coach_id)
-    if candidate is None or candidate.team_abbr is not None:
+    if candidate is None:
         raise HTTPException(404, "Candidate is not available to hire")
+    is_internal = candidate.team_abbr == team_abbr and coach_role is not CoachRole.AC
+    if candidate.team_abbr is not None and not is_internal:
+        raise HTTPException(404, "Candidate is not available to hire")
+
+    # Staff salary cap: priced at the candidate's market value in the NEW
+    # role (an internal promotion frees their current salary first).
+    salary = _candidate_salary(candidate, coach_role, season.season_number)
+    room = coach_contracts.staff_cap_room(team_abbr, season.season_number,
+                                          exclude_coach_id=candidate.coach_id if is_internal else None)
+    if salary > room:
+        return _staff_error_redirect(
+            team_abbr, coach_role,
+            f"Can't hire {candidate.full_name}: his {_money(salary)}/yr salary would put your staff over "
+            f"its salary cap ({_money(max(0, room))}/yr of room left).")
 
     coach_replacement.execute_hire(team_abbr, coach_role, coach_id, season.season_number,
                                     APPOINTMENT_PERMANENT, season.league_seed)
@@ -3106,49 +3205,95 @@ def staff_set_focus_area(request: Request, team_abbr: str, coach_id: str, focus_
     return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
 
 
+COACH_EXTENSION_MAX_YEARS = 7
+
+
+def _coach_extension_outcome(season, team_abbr: str, coach, aav: int, years: int, persist: bool):
+    """Shared by the Extend Contract preview and submit routes. Returns
+    None when the offer would push the staff past its salary cap (checked
+    before any mood math -- an offer the team can't make isn't a
+    negotiating move), else the negotiation layer's outcome on top of
+    coach_contracts.evaluate_extension()'s raw score."""
+    room = coach_contracts.staff_cap_room(team_abbr, season.season_number, exclude_coach_id=coach.coach_id)
+    if aav > room:
+        return None
+    team_record = season.records.get(team_abbr)
+    team_win_pct = team_record.win_pct if team_record is not None else 0.5
+    result = coach_contracts.evaluate_extension(coach, float(aav), years, team_win_pct,
+                                                season_number=season.season_number)
+    return negotiation_store.negotiate(
+        season, team_abbr, coach.coach_id, result.offer_score, float(aav), years, 0.0,
+        coach_contracts.negotiation_model(coach, season.season_number), persist=persist)
+
+
+def _staff_over_cap_json(season, team_abbr: str, coach) -> dict:
+    room = coach_contracts.staff_cap_room(team_abbr, season.season_number, exclude_coach_id=coach.coach_id)
+    return {"verdict": "OVER_CAP", "reaction": "Over your staff salary cap", "refused": False,
+            "message": f"That salary would put your staff over its salary cap -- at most "
+                       f"{_money(max(0, room))}/yr fits."}
+
+
+def _user_team_coach_or_404(season, team_abbr: str, coach_id: str):
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    coach = coach_store.by_id(coach_id)
+    if coach is None or coach.team_abbr != team_abbr:
+        raise HTTPException(404, "No such coach on this team")
+    return coach
+
+
+@app.get("/staff/{team_abbr}/{coach_id}/extend/preview")
+def staff_extend_coach_preview(team_abbr: str, coach_id: str, aav: int, years: int):
+    """Read-only twin of staff_extend_coach(), for the shared Negotiation
+    modal's live "Coach Reaction" (Brian's 2026-09-14 ask: coach extensions
+    use the same slider system as free agents). Never writes."""
+    season = season_state.get_season()
+    if years < 1 or years > COACH_EXTENSION_MAX_YEARS or aav < 0:
+        raise HTTPException(422, "Invalid offer terms")
+    coach = _user_team_coach_or_404(season, team_abbr, coach_id)
+    outcome = _coach_extension_outcome(season, team_abbr, coach, aav, years, persist=False)
+    if outcome is None:
+        return _staff_over_cap_json(season, team_abbr, coach)
+    return _negotiation_json(outcome, season, team_abbr, coach_id, preview=True)
+
+
 @app.post("/staff/{team_abbr}/{coach_id}/extend")
 def staff_extend_coach(request: Request, team_abbr: str, coach_id: str,
                          aav: int = Form(...), years: int = Form(...)):
     """Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
-    Sec 11): the real Extend Contract negotiation -- same single
-    deterministic ACCEPT/REJECT/COUNTER shape as gm_desk_offer()'s player
-    negotiation. User's own team only; AI teams' contract decisions are
-    autonomous (app/services/coach_ai.py's run_offseason_autonomy(), which
-    reuses the real firing-probability roll rather than negotiating with
-    itself -- see app/engine/coach_contracts.py's own module docstring)."""
-    from app.engine import coach_contracts
+    Sec 11): the real Extend Contract negotiation. User's own team only;
+    AI teams' contract decisions are autonomous (app/services/coach_ai.py's
+    run_offseason_autonomy(), which reuses the real firing-probability roll
+    rather than negotiating with itself -- see app/engine/coach_contracts.py's
+    own module docstring).
+
+    Returns JSON, not a redirect (2026-09-14, Brian: "when an offer is made
+    to extend a coach's contract the page jumps to the top") -- the Staff
+    page now opens the same fetch()-driven Negotiation modal GM Desk and
+    Free Agency use, with the same mood layer, counters and refusal, and
+    the verdict renders in place. The staff salary cap is enforced first."""
     from app.models.coach import Coach as CoachModel
 
     season = season_state.get_season()
-    if season.user_team_abbr != team_abbr:
-        raise HTTPException(404, "Not your team")
-    if years < 1 or years > 7 or aav < 0:
+    if years < 1 or years > COACH_EXTENSION_MAX_YEARS or aav < 0:
         raise HTTPException(422, "Invalid offer terms")
+    coach = _user_team_coach_or_404(season, team_abbr, coach_id)
 
-    with get_session() as s:
-        coach = s.get(CoachModel, coach_id)
-        if coach is None or coach.team_abbr != team_abbr:
-            raise HTTPException(404, "No such coach on this team")
+    outcome = _coach_extension_outcome(season, team_abbr, coach, aav, years, persist=True)
+    if outcome is None:
+        return {"player_name": coach.full_name, **_staff_over_cap_json(season, team_abbr, coach)}
 
-        team_record = season.records.get(team_abbr)
-        team_win_pct = team_record.win_pct if team_record is not None else 0.5
-        result = coach_contracts.evaluate_extension(coach, float(aav), years, team_win_pct)
-
-        if result.verdict == coach_contracts.ExtensionVerdict.ACCEPT:
-            coach.salary_aav = aav
-            coach.contract_years = years
-            s.add(coach)
+    if outcome.verdict == "ACCEPT":
+        with get_session() as s:
+            row = s.get(CoachModel, coach_id)
+            row.salary_aav = aav
+            row.contract_years = years
+            s.add(row)
             s.commit()
-
-        params = {"extend_result": result.verdict.value, "extend_coach": coach.full_name}
-        if result.verdict == coach_contracts.ExtensionVerdict.COUNTER:
-            params["extend_counter_aav"] = result.counter_aav
-            params["extend_counter_years"] = result.counter_years
-
-    if result.verdict == coach_contracts.ExtensionVerdict.ACCEPT:
         coach_store.clear_cache()
 
-    return RedirectResponse(url=f"/staff?team={team_abbr}&" + urlencode(params), status_code=303)
+    return {"player_name": coach.full_name,
+            **_negotiation_json(outcome, season, team_abbr, coach_id, preview=False)}
 
 
 @app.get("/gm-desk", response_class=HTMLResponse)
@@ -3302,10 +3447,26 @@ def gm_desk_offer_preview(player_id: str, aav: int, years: int, guaranteed: int 
             raise HTTPException(404, "Player not found on your roster")
         team_rating = roster_strength.compute_roster_strength(season.user_team_abbr).team_rating
         result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating, float(guaranteed))
+        outcome = negotiation_store.negotiate(
+            season, season.user_team_abbr, player_id, result.offer_score, float(aav), years, float(guaranteed),
+            contracts.negotiation_model(player, season.season_number), persist=False)
 
+    return _negotiation_json(outcome, season, season.user_team_abbr, player_id, preview=True)
+
+
+def _negotiation_json(outcome, season, team_abbr: str, person_id: str, preview: bool) -> dict:
+    """Shared JSON shape for every offer route's preview and submit
+    (player re-sign, free agency, coach extension) -- the Negotiation
+    modal in base.html reads exactly these keys. A preview reports the
+    person's CURRENT mood (the hypothetical offer hasn't happened); a
+    submit reports the mood that offer left them in."""
+    from app.engine import negotiation
+    mood = negotiation_store.current_state(season, team_abbr, person_id).mood if preview else outcome.mood
     return {
-        "verdict": result.verdict.value, "reaction": contracts.offer_reaction(result.offer_score),
-        "counter_aav": result.counter_aav, "counter_years": result.counter_years,
+        "verdict": outcome.verdict, "reaction": outcome.reaction, "message": outcome.message,
+        "counter_aav": outcome.counter_aav, "counter_years": outcome.counter_years,
+        "mood": round(mood), "mood_label": negotiation.mood_label(mood),
+        "refused": outcome.verdict == negotiation.REFUSED,
     }
 
 
@@ -3348,18 +3509,21 @@ def gm_desk_offer(request: Request, player_id: str = Form(...), aav: int = Form(
 
         team_rating = roster_strength.compute_roster_strength(season.user_team_abbr).team_rating
         result = contracts.evaluate_offer(player, float(aav), years, season.season_number, team_rating, float(guaranteed))
+        # 2026-09-14: the verdict now comes from the negotiation mood layer
+        # on top of that unchanged raw score (app/engine/negotiation.py).
+        outcome = negotiation_store.negotiate(
+            season, season.user_team_abbr, player_id, result.offer_score, float(aav), years, float(guaranteed),
+            contracts.negotiation_model(player, season.season_number), persist=True)
 
-        if result.verdict == contracts.OfferVerdict.ACCEPT:
+        if outcome.verdict == "ACCEPT":
             player.salary = aav
             player.contract_years_remaining = years
             player.guaranteed_money = guaranteed
             s.add(player)
             s.commit()
 
-        return {
-            "verdict": result.verdict.value, "player_name": player.full_name,
-            "counter_aav": result.counter_aav, "counter_years": result.counter_years,
-        }
+        return {"player_name": player.full_name,
+                **_negotiation_json(outcome, season, season.user_team_abbr, player_id, preview=False)}
 
 
 @app.get("/free-agency/offer/preview")
@@ -3386,8 +3550,13 @@ def free_agency_offer_preview(player_id: str, aav: int, years: int, guaranteed: 
             player, user_abbr, float(aav), years, season.season_number,
             team_rating, current_group_rating, team_players, float(guaranteed),
         )
+        if result.verdict == free_agency.FAOfferVerdict.OVER_CAP:
+            return {"verdict": "OVER_CAP", "reaction": "Over your cap space", "refused": False}
+        outcome = negotiation_store.negotiate(
+            season, user_abbr, player_id, result.score, float(aav), years, float(guaranteed),
+            free_agency.negotiation_model(player, season.season_number), persist=False)
 
-    return {"verdict": result.verdict.value, "reaction": free_agency.fa_offer_reaction(result.score)}
+    return _negotiation_json(outcome, season, user_abbr, player_id, preview=True)
 
 
 @app.post("/free-agency/offer")
@@ -3428,8 +3597,19 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             player, user_abbr, float(aav), years, season.season_number,
             team_rating, current_group_rating, team_players, float(guaranteed),
         )
+        if result.verdict == free_agency.FAOfferVerdict.OVER_CAP:
+            # The cap guardrail stays ahead of the mood layer: an offer the
+            # team can't legally make doesn't count as a negotiating move.
+            return {"verdict": "OVER_CAP", "player_name": player.full_name, "refused": False,
+                    "message": "That offer would put you over your cap space."}
+        # 2026-09-14: mood layer on top of the unchanged raw score -- adds
+        # counter-offers, a chance to sign from "Considering", rotating
+        # rejection messages, and a permanent refusal at mood 0.
+        outcome = negotiation_store.negotiate(
+            season, user_abbr, player_id, result.score, float(aav), years, float(guaranteed),
+            free_agency.negotiation_model(player, season.season_number), persist=True)
 
-        if result.verdict == free_agency.FAOfferVerdict.ACCEPT:
+        if outcome.verdict == "ACCEPT":
             player.team_abbr = user_abbr
             player.salary = aav
             player.contract_years_remaining = years
@@ -3441,7 +3621,8 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             # player now, not part of the expiring UDFA pool anymore.
             undrafted_pool.remove(player_id)
 
-        return {"verdict": result.verdict.value, "player_name": player.full_name}
+        return {"player_name": player.full_name,
+                **_negotiation_json(outcome, season, user_abbr, player_id, preview=False)}
 
 
 @app.post("/gm-desk/trade")

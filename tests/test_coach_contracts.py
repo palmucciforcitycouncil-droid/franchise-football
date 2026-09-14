@@ -44,28 +44,24 @@ def _peer(coach_id: str, role: CoachRole, salary: int, overall_ratings: int) -> 
 # coach_market_value()
 # --------------------------------------------------------------------
 
-def test_market_value_is_the_salary_at_the_matching_overall_percentile():
+def test_market_value_maps_the_overall_percentile_onto_the_role_range():
+    """2026-09-14: priced on Brian's real 2026 role range (HC $4M-$10M,
+    median $7M), not on whatever peers happen to be paid right now."""
     peers = [
         _peer("p1", CoachRole.HC, salary=1_000_000, overall_ratings=40),
         _peer("p2", CoachRole.HC, salary=5_000_000, overall_ratings=60),
         _peer("p3", CoachRole.HC, salary=10_000_000, overall_ratings=90),
     ]
-    # The best-rated peer's own value should map to the highest salary.
-    best = peers[2]
-    assert coach_contracts.coach_market_value(best, peers) == pytest.approx(10_000_000)
-    # A coach rated below every one of these three peers (not one of them
-    # itself, avoiding the "at-or-below" percentile's own self-inclusion --
-    # same technique reputation_from_salary() already uses at import time)
-    # should map to the lowest salary.
+    # The best-rated peer sits at the 100th percentile -> the range max.
+    assert coach_contracts.coach_market_value(peers[2], peers) == pytest.approx(10_000_000)
+    # Rated below every peer -> the range floor.
     below_all = _peer("outsider", CoachRole.HC, salary=0, overall_ratings=10)
-    assert coach_contracts.coach_market_value(below_all, peers) == pytest.approx(1_000_000)
+    assert coach_contracts.coach_market_value(below_all, peers) == pytest.approx(4_000_000)
 
 
 def test_market_value_only_compares_within_the_same_tier():
     """An HC and an AC with identical ratings must NOT be valued the
-    same -- comparing an assistant's pay to a head coach's would be
-    meaningless (same reasoning reputation_from_salary() already uses
-    at import time)."""
+    same -- each is priced on its own role's range."""
     hc_peers = [_peer("hc1", CoachRole.HC, salary=10_000_000, overall_ratings=70)]
     ac_peers = [_peer("ac1", CoachRole.AC, salary=500_000, overall_ratings=70)]
     hc = _coach(CoachRole.HC, discipline=70, player_dev_offense=70, player_dev_defense=70,
@@ -73,12 +69,34 @@ def test_market_value_only_compares_within_the_same_tier():
     ac = _coach(CoachRole.AC, discipline=70, player_dev_offense=70, player_dev_defense=70,
                 motivation_chemistry=70, red_zone_offense=70, red_zone_defense=70, reputation=70)
     assert coach_contracts.coach_market_value(hc, hc_peers) == pytest.approx(10_000_000)
-    assert coach_contracts.coach_market_value(ac, ac_peers) == pytest.approx(500_000)
+    assert coach_contracts.coach_market_value(ac, ac_peers) == pytest.approx(800_000)
 
 
-def test_market_value_falls_back_to_own_salary_with_no_real_peers():
-    coach = _coach(CoachRole.HC, salary_aav=3_000_000)
-    assert coach_contracts.coach_market_value(coach, peers=[]) == pytest.approx(3_000_000)
+def test_market_value_with_no_peers_uses_overall_on_the_rating_scale():
+    """A pool candidate (salary_aav 0 at seed) must still get a real,
+    in-range market salary -- Brian's "$0/yr" report."""
+    coach = _coach(CoachRole.AC, salary_aav=0)
+    value = coach_contracts.coach_market_value(coach, peers=[])
+    assert 200_000 < value < 800_000
+
+
+def test_market_value_escalates_with_the_salary_cap_every_season():
+    from app.config import season_year
+    from app.engine import contracts
+    peers = [_peer("p1", CoachRole.HC, salary=0, overall_ratings=70)]
+    coach = peers[0]
+    base_season = next(n for n in range(0, 60) if season_year(n) == 2026)
+    v2026 = coach_contracts.coach_market_value(coach, peers, season_number=base_season)
+    v2027 = coach_contracts.coach_market_value(coach, peers, season_number=base_season + 1)
+    assert v2027 == pytest.approx(v2026 * (1 + contracts.SALARY_CAP_GROWTH))
+    assert contracts.coach_salary_cap_for_season(base_season + 1) == pytest.approx(
+        contracts.coach_salary_cap_for_season(base_season) * (1 + contracts.SALARY_CAP_GROWTH))
+
+
+def test_affordable_salary_trims_to_cap_room_but_never_below_the_role_floor():
+    assert coach_contracts.affordable_salary(CoachRole.AC, 600_000, 450_000, None) == pytest.approx(450_000)
+    assert coach_contracts.affordable_salary(CoachRole.AC, 600_000, 5_000_000, None) == pytest.approx(600_000)
+    assert coach_contracts.affordable_salary(CoachRole.AC, 600_000, -1, None) == pytest.approx(200_000)
 
 
 # --------------------------------------------------------------------
