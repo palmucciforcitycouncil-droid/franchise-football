@@ -72,6 +72,46 @@ def update_ratings(home_rating: float, away_rating: float, home_score: int, away
     return home_rating + delta, away_rating - delta
 
 
+# ---------------------------------------------------------------------------
+# Power RANKING order (display) -- rating plus a record anchor
+# ---------------------------------------------------------------------------
+# Brian's report, 2026-09-14: late in the season an 8-7 team sat 3 spots
+# ahead of an 11-4 team because the rankings sorted on raw Elo alone, which
+# can drift away from the standings (a couple of lopsided wins inflate it).
+# He wants rankings to reflect team strength, but with losing teams
+# anchored downward and winning teams upward as the season goes on.
+#
+# So the ranking sorts on power_score(): the untouched Elo rating PLUS an
+# additive record bonus (never a re-weighting of the rating itself -- the
+# Elo value still drives win probability in the sim exactly as before).
+# The bonus is (win% - .500) * RECORD_ANCHOR_POINTS, scaled by how much of
+# the season is in the books: ~0 in Week 1 (strength dominates early),
+# full weight after a full slate. At full weight one extra win is worth
+# ~35 rating points, so an 11-4 team outranks an 8-7 team unless the 8-7
+# team is ~200+ Elo points stronger -- a genuinely extreme gap.
+RECORD_ANCHOR_POINTS = 600.0
+RECORD_ANCHOR_FULL_WEIGHT_GAMES = 17  # a full regular-season slate (schedule.py: 17 games + 1 bye)
+
+
+def record_anchor_bonus(wins: int, losses: int, ties: int = 0) -> float:
+    games = wins + losses + ties
+    if games <= 0:
+        return 0.0
+    weight = min(games / RECORD_ANCHOR_FULL_WEIGHT_GAMES, 1.0)
+    win_pct = (wins + 0.5 * ties) / games
+    return weight * (win_pct - 0.5) * RECORD_ANCHOR_POINTS
+
+
+def power_score(rating: float, wins: int, losses: int, ties: int = 0) -> float:
+    """What the Power Rankings sort (and display) by -- see above."""
+    return rating + record_anchor_bonus(wins, losses, ties)
+
+
+def power_score_for(record) -> float:
+    """power_score() for anything shaped like season_state.TeamRecord."""
+    return power_score(record.power_rating, record.wins, record.losses, getattr(record, "ties", 0))
+
+
 def regress_to_mean(rating: float) -> float:
     """GDD Sec 7.2: at season rollover, regress a third of the way back
     toward the league baseline."""

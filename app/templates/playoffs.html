@@ -99,6 +99,40 @@
 </div>
 {% endmacro %}
 
+{% macro clinch_mark(abbr) %}{% if clinch_marks and clinch_marks.get(abbr) %}<span class="clinch-mark" title="{{ 'Clinched first-round bye' if clinch_marks[abbr] == '*' else 'Clinched playoff spot' }}">{{ clinch_marks[abbr] }}</span>{% endif %}{% endmacro %}
+
+{% macro hunt_cards(teams) %}
+<div class="hunt-cards">
+  {% for t in teams %}
+  <div class="hunt-card">
+    <div class="hunt-card-top">
+      <div><div class="hunt-team">{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
+      <div class="hunt-if-in">If in:<strong>#{{ t.seed_if_made }}</strong></div>
+    </div>
+    <div class="hunt-gb">GB: <strong>{{ t.gb }}</strong></div>
+  </div>
+  {% else %}
+  <p class="muted">No bubble teams to show.</p>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro division_tables(conf, divisions) %}
+<div class="division-standings-grid">
+  {% for div, teams in divisions.items() %}
+  <table>
+    <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
+    <tbody>
+      {% for t in teams %}
+      <tr><td>{{ loop.index }}</td><td>{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}{{ clinch_mark(t.abbr) }}</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+</div>
+<p class="muted clinch-legend">x = Clinched playoff spot &middot; * = Clinched first-round bye</p>
+{% endmacro %}
+
 <div class="card">
   <h2>Playoffs</h2>
   {% if bracket is none %}
@@ -150,32 +184,9 @@
   <h3><span class="conf-badge {{ conf|lower }}">{{ conf }}</span> Current Playoff Picture</h3>
   <p class="muted">If the season ended today &mdash; real standings, updated every simulated week. "If in" is the seed a bubble team would hold next; GB is games back of the real 7-seed.</p>
   <div class="dash-subhead">In The Hunt</div>
-  <div class="hunt-cards">
-    {% for t in preview.in_the_hunt[conf] %}
-    <div class="hunt-card">
-      <div class="hunt-card-top">
-        <div><div class="hunt-team">{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
-        <div class="hunt-if-in">If in:<strong>#{{ t.seed_if_made }}</strong></div>
-      </div>
-      <div class="hunt-gb">GB: <strong>{{ t.gb }}</strong></div>
-    </div>
-    {% else %}
-    <p class="muted">No bubble teams to show.</p>
-    {% endfor %}
-  </div>
+  {{ hunt_cards(preview.in_the_hunt[conf]) }}
   <div class="dash-subhead">Division Standings</div>
-  <div class="division-standings-grid">
-    {% for div, teams in preview.division_standings[conf].items() %}
-    <table>
-      <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
-      <tbody>
-        {% for t in teams %}
-        <tr><td>{{ loop.index }}</td><td>{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endfor %}
-  </div>
+  {{ division_tables(conf, preview.division_standings[conf]) }}
 </div>
 {% endfor %}
 {% endif %}
@@ -196,6 +207,17 @@
      its SVG connector lines (see base.html's .full-tree-grid comment). -->
 <div class="card">
   {{ full_tree(afc_rounds, nfc_rounds, afc_champion, nfc_champion, sb_matchup, bracket.is_complete, bracket.champion_abbr) }}
+</div>
+
+<!-- Brian's ask, 2026-09-14: the In The Hunt info from the AFC/NFC tabs
+     also belongs under the bracket on this main Full Bracket view. -->
+<div class="card">
+  <h3>In The Hunt</h3>
+  <p class="muted">Teams closest to a playoff berth but outside the 7-seed bracket, by the same wildcard tiebreak chain the seeds use. "If in" is the seed they'd hold next; GB is games back of the 7-seed.</p>
+  {% for conf in ['AFC', 'NFC'] %}
+  <div class="dash-subhead"><span class="conf-badge {{ conf|lower }}">{{ conf }}</span></div>
+  {{ hunt_cards(in_the_hunt[conf]) }}
+  {% endfor %}
 </div>
 {% endif %}
 
@@ -229,35 +251,12 @@
 <div class="card">
   <h3>In The Hunt</h3>
   <p class="muted">Real teams closest to a playoff berth but outside the 7-seed bracket, ranked by the same wildcard tiebreak chain the seeds themselves use. "If in" is the seed they'd hold next, in that same real order; GB is games back of the real 7-seed.</p>
-  <div class="hunt-cards">
-    {% for t in in_the_hunt[conf] %}
-    <div class="hunt-card">
-      <div class="hunt-card-top">
-        <div><div class="hunt-team">{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</div><div class="hunt-record">{{ t.record.wins }}-{{ t.record.losses }}</div></div>
-        <div class="hunt-if-in">If in:<strong>#{{ t.seed_if_made }}</strong></div>
-      </div>
-      <div class="hunt-gb">GB: <strong>{{ t.gb }}</strong></div>
-    </div>
-    {% else %}
-    <p class="muted">No bubble teams to show.</p>
-    {% endfor %}
-  </div>
+  {{ hunt_cards(in_the_hunt[conf]) }}
 </div>
 
 <div class="card">
   <h3>Division Standings</h3>
-  <div class="division-standings-grid">
-    {% for div, teams in division_standings[conf].items() %}
-    <table>
-      <thead><tr><th colspan="3">{{ conf }} {{ div }}</th></tr></thead>
-      <tbody>
-        {% for t in teams %}
-        <tr><td>{{ loop.index }}</td><td>{{ team_link(t.abbr, t.location + ' (' + t.abbr + ')') }}</td><td>{{ t.record.wins }}-{{ t.record.losses }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endfor %}
-  </div>
+  {{ division_tables(conf, division_standings[conf]) }}
 </div>
 {% endif %}
 

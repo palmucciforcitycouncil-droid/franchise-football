@@ -796,7 +796,8 @@ def test_simulate_current_week_records_a_power_rank_snapshot():
 
     expected_ranks = {
         r.abbr: i for i, r in enumerate(
-            sorted(season.records.values(), key=lambda r: -r.power_rating), start=1
+            # 2026-09-14: ranked by rating + record anchor (power_rating.power_score_for).
+            sorted(season.records.values(), key=lambda r: -__import__("app.engine.power_rating", fromlist=["x"]).power_score_for(r)), start=1
         )
     }
     stored = power_rank_history.get_ranks(season.season_number, 1)
@@ -1243,3 +1244,54 @@ def test_dashboard_awards_race_box_renders_real_categories():
     assert resp.status_code == 200
     for tab in ("MVP", "OPOY", "DPOY", "ROY"):
         assert f'data-tab="{tab.lower()}">{tab}' in resp.text
+
+
+# --- 2026-09-14 fixes: preseason box score/headlines, clinch legend, no page jumps ---
+
+def test_dashboard_box_score_shows_latest_preseason_game_before_week_1():
+    season_state.set_user_team("KC")
+    season_state.simulate_next_preseason_round()
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "No games played yet" not in resp.text
+    assert 'class="preseason-tag">Preseason</span> Round 1' in resp.text
+    assert "/season/preseason/game/" in resp.text  # full box score link + schedule score links
+    assert "Preseason Round 1" in resp.text  # headlines label for the preseason round
+
+
+def test_preseason_rounds_record_their_own_headlines():
+    from app.services import headlines_history
+    season_state.simulate_preseason()
+    season = season_state.get_season()
+    for r in range(1, season.preseason_total_rounds + 1):
+        lines = headlines_history.get_week_headlines(season.season_number, f"P{r}")
+        assert lines and all(isinstance(line, str) and line for line in lines)
+
+
+def test_standings_boxes_show_the_clinch_legend():
+    season_state.set_user_team("KC")
+    for page in ("/dashboard", "/season"):
+        resp = client.get(page)
+        assert resp.status_code == 200
+        assert "x = Clinched playoff spot" in resp.text and "* = Clinched first-round bye" in resp.text
+
+
+def test_gameplan_save_via_fetch_answers_json_instead_of_reloading():
+    season_state.set_user_team("KC")
+    resp = client.post("/gameplan", data={
+        "offensive_aggressiveness": "Balanced", "defensive_aggressiveness": "Balanced",
+        "coverage": "Hybrid", "blitz": "Standard", "rz_offense": "Balanced", "rz_defense": "Balanced",
+    }, headers={"X-Requested-With": "fetch"}, follow_redirects=False)
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    dashboard = client.get("/dashboard")
+    assert 'id="gameplan-form"' in dashboard.text and "X-Requested-With" in dashboard.text
+
+
+def test_stats_apply_form_keeps_scroll_position():
+    season_state.set_user_team("KC")
+    season_state.simulate_current_week()
+    resp = client.get("/stats?tab=player")
+    assert resp.status_code == 200
+    assert 'class="stats-filter-form" data-keep-scroll' in resp.text
+    assert "ffg-keep-scroll" in resp.text  # base.html's restore wiring

@@ -8,7 +8,7 @@
      for why (GDD Sec1.3's Determinism & Seeding Policy). Rendered once by
      season_state.simulate_current_week() and read here, not recomputed. -->
 <div class="card headlines-card">
-  <h2>Headlines</h2>
+  <h2>Headlines{% if weekly_headlines and headlines_label %} <span class="muted headlines-when">&mdash; {{ headlines_label }}</span>{% endif %}</h2>
   {% if weekly_headlines %}
   <ul class="headlines-list">
     {% for line in weekly_headlines %}
@@ -32,6 +32,7 @@
        is needed here for ordering -- just render in dict order. -->
   <div class="card">
     <h3>Standings</h3>
+    {# 2026-09-14: clinch marks (app/engine/clinch.py -- conservative, never shown until guaranteed). #}
     <div class="dash-tabs-grid cols-2" data-tabgroup="standings-conf">
       {% for conf in ['AFC', 'NFC'] %}
       <button type="button" class="dash-tab {% if user_info.conference == conf %}active{% endif %}" data-tab="{{ conf }}">{{ conf }}</button>
@@ -46,11 +47,11 @@
         <tbody>
           {% for r in records %}
           <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
-            <td>{{ team_link(r.abbr, r.location + ' (' + r.abbr + ')') }}</td>
+            <td>{{ team_link(r.abbr, r.location + ' (' + r.abbr + ')') }}{% if clinch_marks.get(r.abbr) %}<span class="clinch-mark" title="{{ 'Clinched first-round bye' if clinch_marks[r.abbr] == '*' else 'Clinched playoff spot' }}">{{ clinch_marks[r.abbr] }}</span>{% endif %}</td>
             <td>{{ r.wins }}-{{ r.losses }}</td>
             <td>{{ r.points_for }}</td>
             <td>{{ r.points_against }}</td>
-            <td>{{ r.power_rating | round | int }}</td>
+            <td>{{ r | power_score | round | int }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -58,6 +59,7 @@
       {% endfor %}
     </div>
     {% endfor %}
+    <p class="muted clinch-legend">x = Clinched playoff spot &middot; * = Clinched first-round bye</p>
   </div>
 
   <!-- Row 1, Columns 2-3: Box Score (ROADMAP.md Sec2c item 3): a condensed
@@ -80,7 +82,7 @@
         <span class="boxscore-score {% if last_game.home_score > last_game.away_score %}winner{% endif %}">{{ last_game.home_score }}</span>
       </div>
       <div class="boxscore-meta">
-        <span class="muted">Week {{ last_game.week }} &middot; Final</span>
+        <span class="muted">{% if last_game.is_preseason %}<span class="preseason-tag">Preseason</span> Round {{ last_game.week }}{% else %}Week {{ last_game.week }}{% endif %} &middot; Final</span>
       </div>
       <div class="boxscore-team">
         <span class="boxscore-score {% if last_game.away_score > last_game.home_score %}winner{% endif %}">{{ last_game.away_score }}</span>
@@ -134,7 +136,7 @@
       </div>
     </div>
 
-    <p><a href="/season/week/{{ last_game.week }}/game/{{ last_game.home_abbr }}/{{ last_game.away_abbr }}">Full box score &amp; play-by-play &rarr;</a></p>
+    <p><a href="{{ last_game.box_url }}">Full box score &amp; play-by-play &rarr;</a></p>
 
     <div class="dashboard-scroll">
       {% if last_game.box.passing %}
@@ -196,9 +198,11 @@
           </div>
           {% if g.result %}
           <div class="schedule-score">
+            {% if g.box_url %}<a href="{{ g.box_url }}" class="schedule-box-link" title="Box score">{% endif %}
             <span class="{% if g.result.won %}win{% endif %}">{{ season.user_team_abbr }} {{ g.result.user_score }}</span>
             <span class="schedule-meta">&ndash;</span>
             <span class="{% if not g.result.won and not g.result.tied %}win{% endif %}">{{ g.result.opp_score }} {{ g.opponent_abbr }}</span>
+            {% if g.box_url %}</a>{% endif %}
           </div>
           {% endif %}
         </div>
@@ -362,7 +366,11 @@
        already explain each setting. -->
   <div class="card">
     <h3>Weekly Gameplan</h3>
-    <form method="post" action="/gameplan">
+    {# Brian's report, 2026-09-14: saving used to reload the Dashboard at
+       the top. Submitted with fetch() below (POST /gameplan answers JSON
+       for it) so the page stays exactly where it is; without JS it's still
+       a normal form post. #}
+    <form method="post" action="/gameplan" id="gameplan-form">
       <div class="row">
         <div>
           <label for="offensive_aggressiveness">Off. Aggressiveness
@@ -426,9 +434,30 @@
         </div>
         <div>
           <button type="submit">Save Gameplan</button>
+          <span class="muted gameplan-status" id="gameplan-status" role="status"></span>
         </div>
       </div>
     </form>
+    <script>
+      (function () {
+        var form = document.getElementById('gameplan-form');
+        var status = document.getElementById('gameplan-status');
+        if (!form || !window.fetch) return;
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          status.textContent = 'Saving...';
+          fetch(form.action, {
+            method: 'POST',
+            body: new URLSearchParams(new FormData(form)),
+            headers: {'X-Requested-With': 'fetch'}
+          }).then(function (r) {
+            status.textContent = r.ok ? 'Saved' : 'Save failed';
+          }).catch(function () {
+            status.textContent = 'Save failed';
+          });
+        });
+      })();
+    </script>
   </div>
 
   <!-- Row 3, Column 1: Power Rankings (ROADMAP.md Sec2d-B item 10): real
@@ -449,7 +478,7 @@
             <td>{{ pr.record.wins }}-{{ pr.record.losses }}</td>
             <td>{{ pr.record.points_for }}</td>
             <td>{{ pr.record.points_against }}</td>
-            <td>{{ pr.record.power_rating | round | int }}</td>
+            <td>{{ pr.record | power_score | round | int }}</td>
             <td>
               {% if pr.delta is none %}
               <span class="pr-delta-none">N/A</span>

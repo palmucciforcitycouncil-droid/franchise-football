@@ -55,3 +55,40 @@ def test_update_ratings_ties_produce_no_change():
 def test_regress_to_mean_pulls_toward_baseline():
     assert pr.regress_to_mean(1700) == 0.67 * 1700 + 0.33 * pr.INITIAL_RATING
     assert pr.regress_to_mean(pr.INITIAL_RATING) == pr.INITIAL_RATING
+
+
+# --- Power RANKING order: rating + record anchor (2026-09-14) -------------
+
+def test_record_anchor_is_zero_before_any_games_and_symmetric_around_500():
+    assert pr.record_anchor_bonus(0, 0) == 0.0
+    assert pr.record_anchor_bonus(8, 8) == 0.0
+    assert pr.record_anchor_bonus(12, 4) == -pr.record_anchor_bonus(4, 12)
+
+
+def test_record_anchor_grows_with_games_played():
+    early = pr.record_anchor_bonus(1, 0)
+    late = pr.record_anchor_bonus(15, 0)
+    assert 0 < early < late
+
+
+def test_late_season_11_4_outranks_8_7_despite_a_moderate_rating_edge():
+    # Brian's screenshot (~Week 16): an 8-7 team ranked above an 11-4 team.
+    eight_seven = pr.power_score(1620, 8, 7)
+    eleven_four = pr.power_score(1550, 11, 4)
+    assert eleven_four > eight_seven
+
+
+def test_extreme_strength_gap_can_still_beat_record_late():
+    # Strength still matters: a far stronger 8-7 team isn't forced below.
+    assert pr.power_score(1800, 8, 7) > pr.power_score(1500, 11, 4)
+
+
+def test_early_season_rankings_stay_driven_by_strength():
+    # Week 2: a 0-1 team with a real 60-point rating edge stays ahead of a 1-0 team.
+    assert pr.power_score(1560, 0, 1) > pr.power_score(1500, 1, 0)
+
+
+def test_power_score_does_not_change_the_rating_used_by_the_sim():
+    # Additive display/ranking key only -- win probability still reads raw ratings.
+    assert pr.home_win_probability(1500, 11, 15, 1500, 4, 15, current_week=16) == \
+        pr.home_win_probability(1500, 0, 15, 1500, 15, 15, current_week=5)

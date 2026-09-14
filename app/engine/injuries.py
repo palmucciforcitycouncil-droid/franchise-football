@@ -220,7 +220,8 @@ def _duration_weeks(rng: RNG, severity: InjurySeverity, week_num: int) -> int:
     return min(weeks, max(0, N_WEEKS - week_num))
 
 
-def _generate_injury(rng: RNG, player: Player, team_abbr: str, season_number: int, week_num: int) -> Injury:
+def _generate_injury(rng: RNG, player: Player, team_abbr: str, season_number: int, week_num: int,
+                     id_suffix: str | None = None) -> Injury:
     group = POSITION_TO_GROUP[player.position]
     type_weights = TYPE_WEIGHTS_BY_GROUP[group]
     injury_type = rng.weighted_choice(list(type_weights.keys()), list(type_weights.values()))
@@ -228,7 +229,7 @@ def _generate_injury(rng: RNG, player: Player, team_abbr: str, season_number: in
     weeks_out = _duration_weeks(rng, severity, week_num)
 
     return Injury(
-        injury_id=f"{player.player_id}_{season_number}_{week_num}",
+        injury_id=f"{player.player_id}_{season_number}_{id_suffix if id_suffix is not None else week_num}",
         player_id=player.player_id,
         team_abbr=team_abbr,
         season_number=season_number,
@@ -246,6 +247,36 @@ def roll_injuries_for_week(season, week_num: int) -> list[Injury]:
     """Called once, after `week_num`'s games have all simulated. Skips
     any player who already has an active injury (Sec 3.8.2: one active
     injury per player at a time)."""
+    return _roll_injuries_for_games(
+        season, season.schedule[week_num - 1], week_num,
+        seed_tag="injury", id_suffix=None, exposure_scale=1.0,
+    )
+
+
+# A preseason game exposes a player at a quarter of a real game's injury
+# risk -- the same "~25% of a regular-season game's usage" convention
+# season_state.PRESEASON_NUDGE_WEIGHT already uses for progression (starters
+# don't play full preseason games in reality; this engine has no separate
+# preseason rotation, so the scale stands in for it).
+PRESEASON_EXPOSURE_SCALE = 0.25
+
+
+def roll_injuries_for_preseason_round(season, round_idx: int) -> list[Injury]:
+    """Brian's ask, 2026-09-14: preseason games are real, fully simulated
+    games, so players can get hurt in them too (and a hurt starter is a
+    headline). Same exposure model as a regular-season week; recorded with
+    week_injured=0 (before Week 1) and a "P<round>" id suffix so it can
+    never collide with a regular-season injury id. Its own seed tag keeps
+    the regular season's per-week injury rolls byte-identical to before."""
+    return _roll_injuries_for_games(
+        season, season.preseason_schedule[round_idx - 1], 0,
+        seed_tag=f"preseason_injury_{round_idx}", id_suffix=f"P{round_idx}",
+        exposure_scale=PRESEASON_EXPOSURE_SCALE,
+    )
+
+
+def _roll_injuries_for_games(season, week_games: list, week_num: int, seed_tag: str, id_suffix: str | None,
+                             exposure_scale: float = 1.0) -> list[Injury]:
     from app.services import injury_store
 
     already_hurt = set(injury_store.currently_out_player_ids()) | {
@@ -255,7 +286,6 @@ def roll_injuries_for_week(season, week_num: int) -> list[Injury]:
     with_session_players: dict[tuple[str, str], Player] = {}
     from app.core.db import get_session
     from sqlmodel import select
-    week_games = season.schedule[week_num - 1]
     team_abbrs = {abbr for g in week_games if g.result is not None for abbr in (g.home_abbr, g.away_abbr)}
     if team_abbrs:
         with get_session() as s:
@@ -273,12 +303,12 @@ def roll_injuries_for_week(season, week_num: int) -> list[Injury]:
                 player = with_session_players.get((abbr, name))
                 if player is None or player.player_id in already_hurt:
                     continue
-                seed = stable_seed("injury", season.league_seed, season.season_number, week_num, player.player_id)
+                seed = stable_seed(seed_tag, season.league_seed, season.season_number, week_num, player.player_id)
                 rng = RNG.with_seed(seed)
                 proneness_mult = _proneness_multiplier(player) * team_injury_risk
-                p_no_injury = _no_injury_probability(events, proneness_mult)
+                p_no_injury = _no_injury_probability(events, proneness_mult) ** exposure_scale
                 if rng.prob(1.0 - p_no_injury):
-                    injury = _generate_injury(rng, player, abbr, season.season_number, week_num)
+                    injury = _generate_injury(rng, player, abbr, season.season_number, week_num, id_suffix)
                     new_injuries.append(injury)
                     already_hurt.add(player.player_id)
 

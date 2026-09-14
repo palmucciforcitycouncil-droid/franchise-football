@@ -369,6 +369,9 @@ def simulate_preseason() -> int:
 
         simulated = 0
         for round_idx, round_games in enumerate(season.preseason_schedule, start=1):
+            if all(g.result is not None for g in round_games):
+                continue
+            _before_preseason_round(season, round_idx)
             for game in round_games:
                 if game.result is not None:
                     continue
@@ -377,6 +380,7 @@ def simulate_preseason() -> int:
                     (season.season_number, "preseason", round_idx, game.home_abbr, game.away_abbr),
                 )
                 simulated += 1
+            _after_preseason_round(season, round_idx)
 
         from app.services import save_service
         save_service.save_season(season)
@@ -402,6 +406,7 @@ def simulate_next_preseason_round() -> int:
         for round_idx, round_games in enumerate(season.preseason_schedule, start=1):
             if all(g.result is not None for g in round_games):
                 continue
+            _before_preseason_round(season, round_idx)
             for game in round_games:
                 if game.result is not None:
                     continue
@@ -409,10 +414,36 @@ def simulate_next_preseason_round() -> int:
                     season, game.home_abbr, game.away_abbr, 1,
                     (season.season_number, "preseason", round_idx, game.home_abbr, game.away_abbr),
                 )
+            _after_preseason_round(season, round_idx)
             from app.services import save_service
             save_service.save_season(season)
             return round_idx
         return 0  # unreachable given the preseason_complete check above, but explicit
+
+
+def _before_preseason_round(season: Season, round_idx: int) -> None:
+    """Injury clock between preseason rounds (2026-09-14): a player hurt in
+    one preseason round heals on the same weekly cadence as the regular
+    season. Round 1 is skipped -- nothing has happened yet this preseason,
+    and Week 1's own decay already runs before the regular season."""
+    if round_idx > 1:
+        injuries.apply_weekly_decay(season.season_number, 0)
+        depth_chart.clear_starters_cache()
+
+
+def _after_preseason_round(season: Season, round_idx: int) -> None:
+    """Brian's ask, 2026-09-14: preseason games are real games -- players
+    can get hurt in them, and each round gets its own headlines (results +
+    starter injuries), same pipeline as a regular-season week. Starters are
+    captured BEFORE injuries are rolled (see headlines.starter_ids_for_games)."""
+    round_games = season.preseason_schedule[round_idx - 1]
+    starter_ids = headlines.starter_ids_for_games(round_games)
+    new_injuries = injuries.roll_injuries_for_preseason_round(season, round_idx)
+    depth_chart.clear_starters_cache()
+    headlines_history.record_week_headlines(
+        season.season_number, f"P{round_idx}",
+        headlines.preseason_round_headlines(season, round_idx, new_injuries, starter_ids),
+    )
 
 
 def simulate_current_week() -> int:
@@ -480,7 +511,7 @@ def simulate_current_week() -> int:
         # the store's shape and the test-isolation convention it follows.
         ranks = {
             r.abbr: i for i, r in enumerate(
-                sorted(season.records.values(), key=lambda r: -r.power_rating), start=1
+                sorted(season.records.values(), key=lambda r: -power_rating.power_score_for(r)), start=1
             )
         }
         power_rank_history.record_snapshot(season.season_number, week_num, ranks)
@@ -514,6 +545,7 @@ def simulate_current_week() -> int:
         # final; clear the starters cache again so next week's selection
         # (and this week's Player Card/Roster status badges) reflect any
         # brand-new injuries immediately.
+        starter_ids = headlines.starter_ids_for_games(week_games)  # kickoff lineups, before injuries change them
         new_injuries = injuries.roll_injuries_for_week(season, week_num)
         depth_chart.clear_starters_cache()
 
@@ -526,7 +558,7 @@ def simulate_current_week() -> int:
         # right after this week's games -- injuries don't change box-score
         # stats, so it's still fresh for headlines.weekly_headlines()'s own
         # cached_current_season_aggregates() call.)
-        this_week_headlines = headlines.weekly_headlines(season, week_num, prior_division_standings, new_injuries)
+        this_week_headlines = headlines.weekly_headlines(season, week_num, prior_division_standings, new_injuries, starter_ids)
         headlines_history.record_week_headlines(season.season_number, week_num, this_week_headlines)
 
         # R3d Sec 10: "after each game, if JSS threshold triggers" --
@@ -595,6 +627,12 @@ def simulate_playoff_round() -> str:
         # for WC/DIV, and Sec 7.9.2's idempotency requirement means a
         # replayed round credits nothing a second time.
         coach_records.credit_championship_round(season, round_name)
+
+        # Brian's ask, 2026-09-14: headlines continue through the playoffs --
+        # each round's results and standout performers, keyed by round name.
+        headlines_history.record_week_headlines(
+            season.season_number, round_name, headlines.playoff_round_headlines(season, current_round),
+        )
 
         if round_name != "SB":
             bracket.rounds.append(playoffs.build_next_round(bracket))
