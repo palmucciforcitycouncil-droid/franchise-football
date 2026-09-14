@@ -118,6 +118,24 @@ def _paths_for(save_dir: Path) -> dict[str, Path]:
         "owner_pressure": save_dir / "owner_pressure.json",
         "team_expectations": save_dir / "team_expectations.json",
         "depth_chart_overrides": save_dir / "depth_chart_overrides.json",
+        # Brian's report, 2026-09-13: these were never redirected per-save,
+        # so every save shared (and overwrote each other's) headlines and
+        # draft state through the same fixed data/saves/*.json files the
+        # instant a second franchise existed -- season_state.py keys
+        # draft_class_store/offseason_recap_store by season_number alone,
+        # and two saves both starting at season_number 0 (the common case)
+        # collide outright. scripts/_verify_isolated.py already treated
+        # this full set as one unit for test isolation; save_manager just
+        # never grew the matching per-save entries when these stores were
+        # added.
+        "headlines": save_dir / "headlines_history.json",
+        "pick_inventory": save_dir / "pick_inventory.json",
+        "draft_history": save_dir / "draft_history.json",
+        "undrafted_pool": save_dir / "undrafted_pool.json",
+        "draft_progress": save_dir / "draft_progress.json",
+        "draft_classes": save_dir / "draft_classes.json",
+        "draft_board": save_dir / "draft_board.json",
+        "offseason_recap": save_dir / "offseason_recap.json",
     }
 
 
@@ -130,6 +148,8 @@ def _redirect_globals(save_dir: Path) -> None:
     from app.services import (
         save_service, history_store, power_rank_history, gameplan_store,
         award_race_history, owner_pressure_store, team_expectations, depth_chart_overrides,
+        headlines_history, draft_pick_store, draft_store, undrafted_pool,
+        draft_progress_store, draft_class_store, draft_board_store, offseason_recap_store,
     )
     p = _paths_for(save_dir)
     db_module.DB_PATH = p["db"]
@@ -141,6 +161,14 @@ def _redirect_globals(save_dir: Path) -> None:
     owner_pressure_store.DEFAULT_PATH = p["owner_pressure"]
     team_expectations.DEFAULT_PATH = p["team_expectations"]
     depth_chart_overrides.DEFAULT_PATH = p["depth_chart_overrides"]
+    headlines_history.DEFAULT_PATH = p["headlines"]
+    draft_pick_store.DEFAULT_PATH = p["pick_inventory"]
+    draft_store.DEFAULT_PATH = p["draft_history"]
+    undrafted_pool.DEFAULT_PATH = p["undrafted_pool"]
+    draft_progress_store.DEFAULT_PATH = p["draft_progress"]
+    draft_class_store.DEFAULT_PATH = p["draft_classes"]
+    draft_board_store.DEFAULT_PATH = p["draft_board"]
+    offseason_recap_store.DEFAULT_PATH = p["offseason_recap"]
 
 
 def _clear_all_caches() -> None:
