@@ -77,7 +77,7 @@ from pathlib import Path
 import pytest
 
 from app.core import db as db_module
-from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool, draft_class_store, draft_board_store, draft_progress_store, offseason_recap_store, draft_pick_store, honors_store
+from app.services import save_service, power_rank_history, owner_pressure_store, team_expectations, award_race_history, save_manager, headlines_history, draft_store, undrafted_pool, draft_class_store, draft_board_store, draft_progress_store, offseason_recap_store, draft_pick_store, honors_store, depth_chart_overrides
 
 # Captured once, at collection time, before any fixture below ever
 # reassigns `db_module.DB_PATH` -- the one stable reference point
@@ -135,6 +135,9 @@ def _isolate_season_save_path():
     # Season honors (2026-09-14): written by the last regular-season week,
     # every CONF/SB round, and begin_offseason() -- same treatment.
     real_honors_path = honors_store.DEFAULT_PATH
+    # Preseason roster prep (2026-09-14): the first preseason/Week-1 sim now
+    # auto-fills every AI team's depth chart -- same throwaway treatment.
+    real_depth_chart_overrides_path = depth_chart_overrides.DEFAULT_PATH
     # Multi-save games (save_manager.py): defense in depth -- no existing
     # test creates/loads/deletes a save (see that module's own docstring
     # for why its registry-existence check already makes it a no-op in
@@ -160,7 +163,8 @@ def _isolate_season_save_path():
     test_draft_progress_path = Path("data/saves/_test_isolated_draft_progress.json")
     test_offseason_recap_path = Path("data/saves/_test_isolated_offseason_recap.json")
     test_honors_path = Path("data/saves/_test_isolated_honors.json")
-    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_pick_inventory_path, test_registry_path, test_draft_class_path, test_draft_board_path, test_draft_progress_path, test_offseason_recap_path, test_honors_path):
+    test_depth_chart_overrides_path = Path("data/saves/_test_isolated_depth_chart_overrides.json")
+    for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_pick_inventory_path, test_registry_path, test_draft_class_path, test_draft_board_path, test_draft_progress_path, test_offseason_recap_path, test_honors_path, test_depth_chart_overrides_path):
         p.unlink(missing_ok=True)  # clear any leftover from an interrupted prior run
     shutil.rmtree(test_saves_root, ignore_errors=True)
     save_service.DEFAULT_SAVE_PATH = test_path
@@ -179,6 +183,7 @@ def _isolate_season_save_path():
     draft_progress_store.DEFAULT_PATH = test_draft_progress_path
     offseason_recap_store.DEFAULT_PATH = test_offseason_recap_path
     honors_store.DEFAULT_PATH = test_honors_path
+    depth_chart_overrides.DEFAULT_PATH = test_depth_chart_overrides_path
     owner_pressure_store.clear_cache()
     team_expectations.clear_cache()
     try:
@@ -202,7 +207,8 @@ def _isolate_season_save_path():
         honors_store.DEFAULT_PATH = real_honors_path
         owner_pressure_store.clear_cache()
         team_expectations.clear_cache()
-        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_pick_inventory_path, test_registry_path, test_draft_class_path, test_draft_board_path, test_draft_progress_path, test_offseason_recap_path, test_honors_path):
+        depth_chart_overrides.DEFAULT_PATH = real_depth_chart_overrides_path
+        for p in (test_path, test_power_rank_path, test_owner_pressure_path, test_team_expectations_path, test_award_race_path, test_headlines_path, test_draft_path, test_undrafted_path, test_pick_inventory_path, test_registry_path, test_draft_class_path, test_draft_board_path, test_draft_progress_path, test_offseason_recap_path, test_honors_path, test_depth_chart_overrides_path):
             p.unlink(missing_ok=True)
         shutil.rmtree(test_saves_root, ignore_errors=True)
 
@@ -284,6 +290,12 @@ def _isolate_db_path(_golden_db_path):
     shutil.copy(source, per_test_path)
     db_module.DB_PATH = per_test_path
     db_module._engine = None
+    # Depth-chart overrides are player_id orders keyed to THIS test's DB
+    # (preseason roster prep writes every AI team's) -- never let one
+    # test's orders leak into the next test's fresh roster copy.
+    from app.services import depth_chart_overrides
+    if depth_chart_overrides.DEFAULT_PATH.name.startswith("_test_"):  # never the real store
+        depth_chart_overrides.DEFAULT_PATH.unlink(missing_ok=True)
     _clear_db_backed_caches()
     # Season honors are keyed by season_number, and nearly every test's
     # fresh franchise starts at the SAME season_number -- a later test

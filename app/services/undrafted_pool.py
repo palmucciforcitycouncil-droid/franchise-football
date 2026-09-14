@@ -63,6 +63,22 @@ def years_remaining(player_id: str, path: Path | None = None) -> int | None:
     return _load(path).get(player_id)
 
 
+def tracked_ids(path: Path | None = None) -> set[str]:
+    """Every player_id still in the expiring pool -- lets a signing tag
+    its acquisition as "Undrafted FA" before remove() drops the id."""
+    return set(_load(path).keys())
+
+
+def remove_many(player_ids: list[str], path: Path | None = None) -> None:
+    """remove() for a batch (one read + one write, not one per signee)."""
+    if not player_ids:
+        return
+    data = _load(path)
+    for pid in player_ids:
+        data.pop(pid, None)
+    _save(data, path)
+
+
 def decrement_and_expire(path: Path | None = None) -> list[str]:
     """Called once per offseason (season_state.start_new_season()).
     Decrements every tracked player's clock by 1; anyone hitting 0 is

@@ -48,6 +48,7 @@ from app.services import (
     undrafted_pool, draft_store, draft_class_store, draft_board_store, draft_progress_store, offseason_recap_store,
     honors_store, season_honors,
 )
+from app.services import roster_prep
 from app.engine import draft as draft_engine
 from app.engine import coach_hiring, coach_replacement
 from app.engine import coach_contracts
@@ -91,10 +92,12 @@ STARTER_COUNTS: dict[Position, int] = {
 }
 
 # Position roster minimums for Team Quota badges (M4: Figma RosterPage.tsx)
-_ROSTER_POSITION_MINIMUMS: dict[str, int] = {
-    "QB": 2, "RB": 3, "WR": 5, "TE": 2, "C": 1, "G": 2, "T": 2,
-    "EDGE": 2, "DT": 1, "LB": 6, "CB": 4, "S": 4, "K": 1, "P": 1,
-}
+# -- derived from free_agency.ROSTER_REQUIREMENTS (2026-09-14) so the pills
+# and the preseason roster gate can never disagree about what "short" means.
+_ROSTER_POSITION_MINIMUMS: dict[str, int] = {}
+for _pos, _need in free_agency.ROSTER_REQUIREMENTS.items():
+    _grp = POSITION_TO_GROUP[_pos]
+    _ROSTER_POSITION_MINIMUMS[_grp] = _ROSTER_POSITION_MINIMUMS.get(_grp, 0) + _need
 
 # M11 correction: Team Quota pills need a GENERIC group per player --
 # `_ROSTER_POSITION_MINIMUMS` above was always keyed by these generic
@@ -313,6 +316,7 @@ def roster_view(
     find_rookie: bool = False,
     find_sort: str = "ovr", find_dir: str = "desc",
     fa_offer_result: str | None = None, fa_offer_player: str | None = None,
+    roster_gate: bool = False, autofilled: str | None = None,
 ):
     """Real player data (2,365 players across 32 teams, plus 71 free
     agents) has existed since the roster import but was only ever
@@ -374,26 +378,54 @@ def roster_view(
     position_rank = {pos: i for i, pos in enumerate(Position)}
     players.sort(key=lambda p: (position_rank[p.position], -p.overall_rating))
 
+    # Depth chart groups (reusing depth_chart_view's logic)
+    depth_chart_groups = _depth_chart_groups_for_team(team_abbr, players) if team_abbr != "FA" else []
+
+    # Starters = the real depth chart's top N per position (Brian's ask,
+    # 2026-09-14: the Roster and Depth Chart tabs must agree on who
+    # starts), and the default row order follows that same depth order so
+    # the gold divider after each group's last starter reads correctly.
     starters: set[str] = set()
-    if team_abbr != "FA":
-        seen_counts: dict[Position, int] = {}
-        for p in players:
-            count_so_far = seen_counts.get(p.position, 0)
-            if count_so_far < STARTER_COUNTS.get(p.position, 1):
+    last_starters: set[str] = set()
+    depth_rank: dict[str, int] = {}
+    for group in depth_chart_groups:
+        for i, p in enumerate(group["players"]):
+            depth_rank[p.player_id] = i
+            if i < group["starter_count"]:
                 starters.add(p.player_id)
-            seen_counts[p.position] = count_so_far + 1
+        shown = group["players"][:group["starter_count"]]
+        if shown and len(group["players"]) > len(shown):
+            last_starters.add(shown[-1].player_id)
+    if depth_rank:
+        players.sort(key=lambda p: (position_rank[p.position], depth_rank.get(p.player_id, 0)))
 
     # Team Quota badges: counted by the fixed generic grouping (see
     # _QUOTA_GROUP_FOR_POSITION's docstring for the bug this replaces).
     total_roster_count = len(players)
+    # Holes are per POSITION (HB and FB share the RB pill), so a pill is
+    # only "met" when its count clears the group minimum AND none of its
+    # positions is individually short -- the same test the gate applies.
+    position_holes = free_agency.roster_shortfall(players) if team_abbr != "FA" else {}
     position_quotas = {
         grp: {"current": sum(1 for p in players if _QUOTA_GROUP_FOR_POSITION[p.position] == grp),
-              "min": _ROSTER_POSITION_MINIMUMS.get(grp, 1)}
+              "min": _ROSTER_POSITION_MINIMUMS.get(grp, 1),
+              "short": any(_QUOTA_GROUP_FOR_POSITION[pos] == grp for pos in position_holes)}
         for grp in QUOTA_GROUPS
     }
+    for quota in position_quotas.values():
+        quota["short"] = quota["short"] or quota["current"] < quota["min"]
 
-    # Depth chart groups (reusing depth_chart_view's logic)
-    depth_chart_groups = _depth_chart_groups_for_team(team_abbr, players) if team_abbr != "FA" else []
+    # Preseason roster gate banner (Brian's ask, 2026-09-14): shown on the
+    # user's own team whenever the season hasn't played a game yet and the
+    # roster is short, or right after the gate/Auto-Fill sent them here.
+    gate_season = season_state.get_season()
+    roster_gate_banner = None
+    if team_abbr == gate_season.user_team_abbr and (roster_gate or (position_holes and season_state.season_not_started(gate_season))):
+        roster_gate_banner = {
+            "holes": roster_prep.holes_summary(position_holes),
+            "autofilled": _int_or_none(autofilled),
+            "can_sim": season_state.season_not_started(gate_season),
+        }
 
     # Depth slot label per player ("QB1", "QB2", ...) -- RosterTable.tsx's
     # DEP column, real (each group's already-resolved starter order),
@@ -648,6 +680,7 @@ def roster_view(
             "find_sort_columns": ROSTER_SORT_COLUMN_LABELS,
             "all_positions": list(Position),
             "fa_offer_result": fa_offer_result, "fa_offer_player": fa_offer_player,
+            "roster_gate_banner": roster_gate_banner, "last_starters": last_starters,
         },
     )
 
@@ -689,7 +722,9 @@ def depth_chart_move(team_abbr: str, position_value: str, player_id: str = Form(
     depth_chart_overrides.move_player(team_abbr, position_value, current_order, player_id, direction)
     clear_starters_cache()  # the override just changed -- don't serve a stale cached starter
 
-    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+    # #depth-chart reopens the Depth Chart tab for a no-JS full reload;
+    # roster.html's fetch() path swaps the tab in place instead.
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}#depth-chart", status_code=303)
 
 
 @app.post("/depth-chart/{team_abbr}/auto-fill")
@@ -707,7 +742,7 @@ def depth_chart_auto_fill(team_abbr: str, respect_fatigue: bool = Form(False), l
     depth_chart_overrides.auto_fill(team_abbr, by_position, STARTER_COUNTS, respect_fatigue=respect_fatigue, lock_starters=lock_starters)
     clear_starters_cache()
 
-    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}#depth-chart", status_code=303)
 
 
 def _defensive_stat_leaders(season, top_n: int = 15):
@@ -2258,7 +2293,7 @@ def _sim_week_label(season) -> str:
     if season.offseason_stage == "staff":
         return "Staff Decisions"
     if season.offseason_stage == "resign":
-        return "Free Agent Decisions"
+        return "Expiring Contracts"
     return "The Draft"
 
 
@@ -3203,6 +3238,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
     from app.services import owner_pressure_store
     return templates.TemplateResponse(request, "staff.html", {
         "season": season,
+        "offseason_blockers": season_state.offseason_staff_blockers(season.user_team_abbr) if season.offseason_stage == "staff" else [],
         "team_abbr": team_abbr,
         "team": TEAMS_BY_ABBR[team_abbr],
         "teams": TEAMS,
@@ -3824,6 +3860,9 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             player.salary = aav
             player.contract_years_remaining = years
             player.guaranteed_money = guaranteed
+            free_agency.mark_free_agent_acquisition(
+                player, season_year(season.season_number), undrafted_pool.years_remaining(player_id) is not None,
+            )
             s.add(player)
             s.commit()
             depth_chart.clear_starters_cache()
@@ -4872,6 +4911,9 @@ def season_simulate_week(redirect_to: str | None = Form(None)):
     page's own Sim Pick/Sim to Your Next Pick/End controls) rather than
     redirect_to's normal "go back to where you were" behavior."""
     season = season_state.get_season()
+    gate = _preseason_roster_gate_redirect(season)
+    if gate is not None:
+        return gate
     if season.preseason_pending:
         season_state.simulate_next_preseason_round()
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
@@ -4892,8 +4934,38 @@ def season_simulate_preseason():
     remaining preseason game at once (unlike the regular season's
     one-week-at-a-time Sim Week) -- see season_state.simulate_preseason()'s
     own docstring for exactly what it does and doesn't touch."""
+    gate = _preseason_roster_gate_redirect(season_state.get_season())
+    if gate is not None:
+        return gate
     season_state.simulate_preseason()
     return RedirectResponse(url="/season", status_code=303)
+
+
+def _preseason_roster_gate_redirect(season) -> RedirectResponse | None:
+    """Brian's ask, 2026-09-14: before the season's first game (preseason
+    round 1, or Week 1 for a season that never plays preseason), a user
+    whose roster is short of free_agency.ROSTER_REQUIREMENTS is sent to
+    /roster instead, where the Roster Holes banner lists what's missing
+    and offers Auto-Fill. None = clear to simulate."""
+    if season.user_team_abbr is None or not season_state.season_not_started(season):
+        return None
+    if not roster_prep.team_holes(season.user_team_abbr):
+        return None
+    return RedirectResponse(url=f"/roster?team_abbr={season.user_team_abbr}&roster_gate=1", status_code=303)
+
+
+@app.post("/roster/auto-fill-holes")
+def roster_auto_fill_holes():
+    """The Roster Holes banner's AUTO-FILL ROSTER button: the user's team
+    signs free agents into every hole first (same AI logic every team
+    uses), then every AI team fills its holes and re-sorts its depth
+    chart -- see roster_prep.auto_fill_user_roster()."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    signed = roster_prep.auto_fill_user_roster(season.league_seed, season.season_number, season.user_team_abbr)
+    params = urlencode({"team_abbr": season.user_team_abbr, "roster_gate": "1", "autofilled": len(signed)})
+    return RedirectResponse(url=f"/roster?{params}", status_code=303)
 
 
 @app.post("/season/reset")
@@ -4912,7 +4984,12 @@ def offseason_advance_to_resign():
     season = season_state.get_season()
     if season.offseason_stage != "staff":
         raise HTTPException(404, "Not at the Staff Decisions stage")
-    season_state.advance_offseason_stage()
+    try:
+        season_state.advance_offseason_stage()
+    except season_state.StaffRequirementError:
+        # Brian's report, 2026-09-14: an expired Head Coach must block this
+        # step. /staff re-derives the blocker list itself for its banner.
+        return RedirectResponse(url="/staff?offseason_blocked=1", status_code=303)
     return RedirectResponse(url="/gm-desk", status_code=303)
 
 

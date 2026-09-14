@@ -1,37 +1,32 @@
 {% from "macros.html" import player_link %}
-<!-- Sec13: full Depth Chart functionality (real move buttons + auto-fill),
-     folded into the Roster page's embedded widget so it doesn't need its
-     own standalone page anymore -- shared between here and (nowhere else,
-     the old /depth-chart route just redirects here now) via this include
-     rather than duplicating the per-position table/move-button/auto-fill
-     markup in two templates. -->
-<div class="card" id="depth-chart-widget">
-  <h3>Depth Chart</h3>
-  <p class="muted">The gold rows are current starters (wired into the Drive Engine). QB/HB/WR/TE/OL/DL/LB/CB/S orders are wired in (3 for WR, 2 for DT/CB, 1 for every other position); FB/K/P orders are saved but not consumed by the engine yet.</p>
-
-  <div class="roster-filter-body" style="margin-bottom: 1.5rem;">
-    <p class="muted" style="margin-top: 0;">Auto-Fill assigns the best available player at each slot by OVR, across every position group on this team.</p>
-    <form method="post" action="/depth-chart/{{ team.abbr }}/auto-fill" data-preserve-scroll="depth-chart-widget">
-      <div class="filter-checkbox-grid" style="margin-bottom: 0.75rem; align-items: center;">
-        <label class="filter-checkbox">
-          <input type="checkbox" name="respect_fatigue" value="true" checked>
-          Consider Stamina
-          <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Prefers the player with higher Stamina when two players at the same slot are within 2 OVR of each other.</span></span>
-        </label>
-        <label class="filter-checkbox"><input type="checkbox" name="lock_starters" value="true"> Lock Starters <span class="muted" style="font-size: 0.75rem;">(only re-sort backups)</span></label>
-        <button type="submit">Apply Auto-Fill</button>
-      </div>
+<!-- Sec13: full Depth Chart functionality (real move buttons + auto-fill).
+     Included by roster.html as the Depth Chart TAB of the shared Roster
+     card (Brian's ask, 2026-09-14) rather than its own box. Every form
+     carries data-roster-swap so roster.html's script applies it in place
+     (no page jump); without JS they still post and reload normally. -->
+<div id="depth-chart-widget">
+  <div class="depth-autofill">
+    <p class="muted">Rows with the gold stripe start in games; everyone below a position's gold line is a backup. Reorder with the arrows, or Auto-Fill every position by OVR.</p>
+    <form method="post" action="/depth-chart/{{ team.abbr }}/auto-fill" class="depth-autofill-form" data-roster-swap>
+      <label class="filter-checkbox">
+        <input type="checkbox" name="respect_fatigue" value="true" checked>
+        Consider Stamina
+        <span class="gp-tooltip"><span class="gp-help-icon">?</span><span class="gp-tooltip-content">Prefers the player with higher Stamina when two players at the same slot are within 2 OVR of each other.</span></span>
+      </label>
+      <label class="filter-checkbox"><input type="checkbox" name="lock_starters" value="true"> Lock Starters <span class="muted" style="font-size: 0.75rem;">(only re-sort backups)</span></label>
+      <button type="submit">Apply Auto-Fill</button>
     </form>
   </div>
 
   {% for group in depth_chart_groups %}
-  <div style="margin-bottom: 1.5rem;">
-    <h4>{{ group.position }}</h4>
+  <div class="depth-group">
+    <h4>{{ group.position }} <span class="muted" style="font-size: 0.78rem; font-weight: 400;">{{ group.starter_count }} starter{{ '' if group.starter_count == 1 else 's' }}</span></h4>
+    <div class="depth-table-wrap">
     <table style="font-size: 0.875rem;">
       <thead><tr><th></th><th>#</th><th>Name</th><th>Age</th><th>OVR</th><th>POT</th><th>SPD</th><th>STR</th><th>AGI</th><th>AWR</th><th>STA</th><th></th></tr></thead>
       <tbody>
         {% for p in group.players %}
-        <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}">
+        <tr class="{% if loop.index <= group.starter_count %}starter{% endif %}{% if loop.index == group.starter_count and not loop.last %} starter-last{% endif %}">
           <td>{{ loop.index }}</td>
           <td>{{ p.jersey_number }}</td>
           <td>{{ player_link(p) }}</td>
@@ -45,17 +40,17 @@
           <td>{{ p.stamina }}</td>
           <td class="depth-actions">
             {% if not loop.first %}
-            <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move" data-preserve-scroll="depth-chart-widget">
+            <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move" data-roster-swap>
               <input type="hidden" name="player_id" value="{{ p.player_id }}">
               <input type="hidden" name="direction" value="up">
-              <button type="submit" title="Move up">&uarr;</button>
+              <button type="submit" title="Move up" aria-label="Move {{ p.full_name }} up">&uarr;</button>
             </form>
             {% endif %}
             {% if not loop.last %}
-            <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move" data-preserve-scroll="depth-chart-widget">
+            <form method="post" action="/depth-chart/{{ team.abbr }}/{{ group.position }}/move" data-roster-swap>
               <input type="hidden" name="player_id" value="{{ p.player_id }}">
               <input type="hidden" name="direction" value="down">
-              <button type="submit" title="Move down">&darr;</button>
+              <button type="submit" title="Move down" aria-label="Move {{ p.full_name }} down">&darr;</button>
             </form>
             {% endif %}
           </td>
@@ -63,6 +58,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
   {% endfor %}
 </div>

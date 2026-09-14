@@ -345,6 +345,23 @@ def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_p
     return result
 
 
+def season_not_started(season: Season) -> bool:
+    """No game of this season -- preseason or regular -- has been played:
+    the window the preseason roster gate (app/main.py) guards."""
+    return season.current_week == 1 and season.preseason_rounds_played == 0 and season.playoffs is None
+
+
+def _prepare_rosters_if_first_game(season: Season) -> None:
+    """Brian's ask, 2026-09-14: every AI team fixes its roster holes and
+    depth chart before the season's first game, regardless of whether the
+    user ever hit the preseason gate (that gate is the user's own half,
+    in app/main.py). Only on the first game, so a mid-season roster move
+    isn't second-guessed weekly."""
+    if season_not_started(season):
+        from app.services import roster_prep
+        roster_prep.prepare_ai_rosters(season.league_seed, season.season_number, season.user_team_abbr)
+
+
 def simulate_preseason() -> int:
     """R10 (GDD preseason): user-triggered, all 4 rounds simulated in one
     action (unlike the regular season's one-week-at-a-time Sim Week) --
@@ -366,6 +383,7 @@ def simulate_preseason() -> int:
         season = get_season()
         if season.preseason_complete or not season.preseason_schedule:
             return 0
+        _prepare_rosters_if_first_game(season)
 
         simulated = 0
         for round_idx, round_games in enumerate(season.preseason_schedule, start=1):
@@ -402,6 +420,7 @@ def simulate_next_preseason_round() -> int:
         season = get_season()
         if not season.preseason_schedule or season.preseason_complete:
             return 0
+        _prepare_rosters_if_first_game(season)
 
         for round_idx, round_games in enumerate(season.preseason_schedule, start=1):
             if all(g.result is not None for g in round_games):
@@ -459,6 +478,7 @@ def simulate_current_week() -> int:
         season = get_season()
         if season.is_complete:
             return season.current_week - 1
+        _prepare_rosters_if_first_game(season)
 
         week_num = season.current_week
 
@@ -846,6 +866,9 @@ def apply_coach_offseason(season: Season) -> int:
     # its manual equivalent.
     from app.services import coach_ai
     coach_ai.run_offseason_autonomy(season, exclude_team_abbr=season.user_team_abbr)
+    # Safety net: no AI team leaves this stage with a vacant/expired
+    # HC/OC/DC (retirements and no-candidate firings used to stay open).
+    coach_ai.ensure_core_staff(season, exclude_team_abbr=season.user_team_abbr)
     coach_store.clear_cache()
     coaching.clear_cache()
 
@@ -943,16 +966,58 @@ def begin_offseason() -> Season:
         return season
 
 
-def advance_offseason_stage() -> Season:
+class StaffRequirementError(ValueError):
+    """The user's team can't leave Staff Decisions yet -- see
+    offseason_staff_blockers(). A ValueError subclass so existing
+    `except ValueError` callers still treat it as "can't advance"."""
+
+    def __init__(self, messages: list[str]):
+        self.messages = messages
+        super().__init__(" ".join(messages))
+
+
+_CORE_STAFF_TITLES = {"HC": "Head Coach", "OC": "Offensive Coordinator", "DC": "Defensive Coordinator"}
+
+
+def offseason_staff_blockers(team_abbr: str | None) -> list[str]:
+    """User-facing reasons `team_abbr` can't advance past Staff Decisions
+    (Brian's report, 2026-09-14: a Head Coach at 0 years left, never
+    extended or replaced, still let him continue). Empty = free to go."""
+    if team_abbr is None:
+        return []
+    from app.services import coach_ai
+    messages = []
+    for role, problem in coach_ai.core_staff_blockers(team_abbr):
+        title = _CORE_STAFF_TITLES[role.value]
+        if problem == "expired":
+            messages.append(f"{title} contract expired. Extend or hire a replacement to continue.")
+        else:
+            messages.append(f"{title} position is vacant. Hire a replacement to continue.")
+    return messages
+
+
+def advance_offseason_stage(enforce_staff_requirements: bool = True) -> Season:
     """Moves the offseason from "staff" (Staff Decisions, on /staff) to
-    "resign" (Free Agent Decisions, on the GM Desk) -- the user has
+    "resign" (Expiring Contracts, on the GM Desk) -- the user has
     reviewed/adjusted their own staff (or simply chose not to) and is
     ready to move on. Raises if the offseason hasn't begun, or has
-    already moved past "staff"."""
+    already moved past "staff", or (StaffRequirementError) the user's
+    team still has a vacant/expired HC/OC/DC. `enforce_staff_requirements`
+    =False exists only for start_new_season()'s no-pause one-shot, which
+    has no user standing by to fix a seat."""
     with _STATE_LOCK:
         season = get_season()
         if season.offseason_stage != "staff":
             raise ValueError("Not at the Staff Decisions stage")
+        if enforce_staff_requirements:
+            blockers = offseason_staff_blockers(season.user_team_abbr)
+            if blockers:
+                raise StaffRequirementError(blockers)
+        # Belt-and-braces for AI teams: begin_offseason() already ran this,
+        # but a save paused at "staff" from before it existed hasn't.
+        from app.services import coach_ai
+        coach_ai.ensure_core_staff(season, exclude_team_abbr=season.user_team_abbr)
+        coaching.clear_cache()
         season.offseason_stage = "resign"
         from app.services import save_service, save_manager
         save_service.save_season(season)
@@ -1014,16 +1079,16 @@ def finish_offseason(season: Season | None = None) -> Season:
             # unconditionally. Autoflush (the session default) means this
             # query already reflects the releases just made above.
             free_agent_pool = list(s.exec(select(Player).where(Player.team_abbr == None)).all())  # noqa: E711
+            undrafted_ids = undrafted_pool.tracked_ids()
             for team in TEAMS:
                 team_roster = [p for p in players if p.team_abbr == team.abbr]
-                newly_signed = free_agency.fill_roster_gaps(team.abbr, team_roster, free_agent_pool, season.season_number)
+                newly_signed = free_agency.fill_roster_gaps(
+                    team.abbr, team_roster, free_agent_pool, season.season_number, undrafted_ids=undrafted_ids,
+                )
                 # R5 (Sec 9.2): an emergency-signed free agent might be a
-                # previously-undrafted rookie -- remove() is a no-op for
-                # anyone not actually in that pool, so this is safe to
-                # call unconditionally rather than checking membership
-                # first.
-                for signed_player in newly_signed:
-                    undrafted_pool.remove(signed_player.player_id)
+                # previously-undrafted rookie -- remove_many() is a no-op
+                # for anyone not actually in that pool.
+                undrafted_pool.remove_many([p.player_id for p in newly_signed])
 
             s.commit()
         depth_chart.clear_starters_cache()
@@ -1174,6 +1239,11 @@ def complete_draft_and_advance_season(season: Season | None = None) -> Season:
         draft_board_store.clear_season(next_number)
 
         undrafted_pool.decrement_and_expire()
+        # Brian's ask, 2026-09-14: "always enough free agents to fill holes"
+        # -- runs after expiry (which deletes old undrafted rows) so the
+        # guarantee is measured against the pool that actually remains.
+        from app.services import roster_prep
+        roster_prep.ensure_free_agent_pool_depth(season.league_seed, next_number)
         depth_chart.clear_starters_cache()
 
         prior_standings = playoffs.final_division_standings(season)
@@ -1308,7 +1378,7 @@ def start_new_season() -> Season:
     Draft screens each get a chance to run between them."""
     with _STATE_LOCK:
         season = begin_offseason()
-        advance_offseason_stage()
+        advance_offseason_stage(enforce_staff_requirements=False)
         finish_offseason(season)
         while current_draft_slot() is not None:
             advance_draft_pick()

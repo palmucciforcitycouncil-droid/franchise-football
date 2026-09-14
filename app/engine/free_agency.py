@@ -255,36 +255,100 @@ MIN_ROSTER_COUNTS: dict[Position, int] = {
 }
 
 
-def fill_roster_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list[Player],
-                      season_number: int) -> list[Player]:
-    """Emergency AI signings, run for every team right after
-    release_expired_contracts() each offseason (never for the user's own
-    team via a user action -- this is the automated "the league doesn't
-    let a roster spot sit truly empty" backstop, the real-world
-    equivalent of a practice-squad call-up or a street free agent
-    signing that this engine doesn't model in that level of detail).
-    Signs the single best-rated available free agent at each position
-    where `roster` is short of MIN_ROSTER_COUNTS, removing each signee
-    from `free_agent_pool` in place so a caller processing multiple
-    teams against the SAME shared pool never double-signs one player.
-    Real, deterministic pay (expected_market_value), a real 2-year
-    term. Returns the list of newly-signed players (mutated in place;
-    the caller commits). A position with truly nobody left in the whole
-    league's free-agent pool stays unfilled -- a real, disclosed edge
-    case (this function can't conjure a player that doesn't exist), not
-    silently hidden."""
-    signed: list[Player] = []
+# The league-wide ROSTER REQUIREMENT (Brian's ask, 2026-09-14): what every
+# team must carry before its first preseason game -- the preseason roster
+# gate (app/services/roster_prep.py), the Roster page's Team Quota pills,
+# and the post-draft free-agent pool guarantee all read this one table.
+# A realistic 38-man core (a real 53-man roster carries more, but these are
+# the counts a team genuinely can't take the field without), every entry
+# >= MIN_ROSTER_COUNTS above so meeting it always satisfies the sim too.
+ROSTER_REQUIREMENTS: dict[Position, int] = {
+    Position.QB: 2, Position.HB: 2, Position.WR: 5, Position.TE: 2,
+    Position.T: 3, Position.G: 3, Position.C: 2,
+    Position.EDGE: 3, Position.DT: 3, Position.LB: 4,
+    Position.CB: 4, Position.S: 3,
+    Position.K: 1, Position.P: 1,
+}
+
+ACQ_FREE_AGENT = "Free Agent"
+ACQ_UNDRAFTED_FA = "Undrafted FA"
+
+
+def roster_shortfall(roster: list[Player], requirements: dict[Position, int] | None = None) -> dict[Position, int]:
+    """{position: how many more players `roster` needs}, only positions
+    actually short, in the requirement table's own order."""
+    requirements = ROSTER_REQUIREMENTS if requirements is None else requirements
     counts = Counter(p.position for p in roster)
-    for position, minimum in MIN_ROSTER_COUNTS.items():
-        deficit = minimum - counts.get(position, 0)
-        for _ in range(max(0, deficit)):
+    return {pos: need - counts.get(pos, 0) for pos, need in requirements.items() if counts.get(pos, 0) < need}
+
+
+def mark_free_agent_acquisition(player: Player, season_year: int, was_undrafted: bool) -> None:
+    """Acquisition tracking for any free-agent signing (user offer or AI
+    hole fill). A re-sign of a team's own player never calls this -- the
+    original draft/trade/FA acquisition stays the player's real origin."""
+    player.acquisition_type = ACQ_UNDRAFTED_FA if was_undrafted else ACQ_FREE_AGENT
+    player.acquisition_season = season_year
+    player.acquisition_round = None
+    player.acquisition_pick = None
+    player.acquisition_team = None
+
+
+def fill_roster_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list[Player],
+                      season_number: int, requirements: dict[Position, int] | None = None,
+                      undrafted_ids: set[str] | None = None) -> list[Player]:
+    """AI hole-filling signings -- the same logic for every AI team AND
+    for the user's own team when they press Auto-Fill Roster on the
+    preseason roster gate (Brian's ask, 2026-09-14: "the user team hole
+    filling can follow the same logic as the AI"). Run right after
+    release_expired_contracts() each offseason against MIN_ROSTER_COUNTS
+    (the sim's hard floor, the default), and again before preseason
+    against ROSTER_REQUIREMENTS.
+
+    Cap-aware: for each missing slot, signs the best-rated free agent at
+    that position whose market value (expected_market_value) fits the
+    team's real cap space after reserving a veteran minimum for every
+    other slot still to fill. If nobody fits, the hole is still filled --
+    by the cheapest available player, at no more than what's left (never
+    below the veteran minimum) -- because a team that can't field a
+    position is a worse outcome than a team a sliver over the cap; this
+    is the real-world "street free agent at the minimum" signing. Terms:
+    2 years for a 65+ OVR player, 1 otherwise.
+
+    Removes each signee from `free_agent_pool` in place so teams sharing
+    one pool never double-sign. Stamps acquisition fields (Undrafted FA
+    when the player's id is in `undrafted_ids`). Returns the newly-signed
+    players (mutated in place; the caller commits). A position with truly
+    nobody left in the pool stays unfilled -- disclosed, not hidden (the
+    post-draft pool guarantee in roster_prep.py is what keeps that from
+    happening in practice)."""
+    from app.config import season_year
+
+    requirements = MIN_ROSTER_COUNTS if requirements is None else requirements
+    undrafted_ids = undrafted_ids or set()
+    shortfall = roster_shortfall(roster, requirements)
+    slots_left = sum(shortfall.values())
+    cap_space = contracts.team_cap_space(roster, season_number)
+    signed: list[Player] = []
+    for position, deficit in shortfall.items():
+        for _ in range(deficit):
+            slots_left -= 1
             candidates = [fa for fa in free_agent_pool if fa.position == position]
             if not candidates:
                 break
-            best = max(candidates, key=lambda p: p.overall_rating)
-            best.team_abbr = team_abbr
-            best.salary = round(contracts.expected_market_value(best, season_number))
-            best.contract_years_remaining = 2
-            free_agent_pool.remove(best)
-            signed.append(best)
+            budget = cap_space - slots_left * contracts.veteran_minimum(0, season_number)
+            market = {c.player_id: contracts.expected_market_value(c, season_number) for c in candidates}
+            affordable = [c for c in candidates if market[c.player_id] <= budget]
+            if affordable:
+                choice = max(affordable, key=lambda p: (p.overall_rating, p.player_id))
+                salary = market[choice.player_id]
+            else:
+                choice = min(candidates, key=lambda p: (market[p.player_id], -p.overall_rating, p.player_id))
+                salary = max(contracts.veteran_minimum(choice.years_pro, season_number), min(market[choice.player_id], budget))
+            choice.team_abbr = team_abbr
+            choice.salary = round(salary)
+            choice.contract_years_remaining = 2 if choice.overall_rating >= 65 else 1
+            mark_free_agent_acquisition(choice, season_year(season_number), choice.player_id in undrafted_ids)
+            cap_space -= choice.salary
+            free_agent_pool.remove(choice)
+            signed.append(choice)
     return signed

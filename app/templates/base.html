@@ -2307,11 +2307,19 @@
           // height afterward so the anchor's own top is actually visible
           // below it, not hidden underneath it.
           anchorEl.scrollIntoView();
+          var savedTop = parseFloat(sessionStorage.getItem('ffg-scroll-anchor-top'));
           var stickyHeader = document.querySelector('header');
-          if (stickyHeader) {
+          if (!isNaN(savedTop)) {
+            // 2026-09-14: put the anchor back at the SAME on-screen offset
+            // it had when the control was used, not snapped to the top --
+            // snapping was itself a visible jump for any control that
+            // wasn't already at the top of the viewport.
+            window.scrollBy(0, -savedTop);
+          } else if (stickyHeader) {
             window.scrollBy(0, -(stickyHeader.getBoundingClientRect().height + 12));
           }
         }
+        sessionStorage.removeItem('ffg-scroll-anchor-top');
       }
       // Exact-scroll-position variant (2026-09-14, Brian: Staff page
       // actions jumped to the top). data-preserve-scroll above re-anchors
@@ -2345,7 +2353,13 @@
         form.addEventListener('change', keepScrollForReload);
       });
       document.querySelectorAll('[data-preserve-scroll]').forEach(function (el) {
-        var save = function () { sessionStorage.setItem('ffg-scroll-anchor', el.dataset.preserveScroll); };
+        var save = function () {
+          sessionStorage.setItem('ffg-scroll-anchor', el.dataset.preserveScroll);
+          var target = document.getElementById(el.dataset.preserveScroll);
+          if (target) {
+            sessionStorage.setItem('ffg-scroll-anchor-top', String(target.getBoundingClientRect().top));
+          }
+        };
         if (el.tagName === 'FORM') {
           el.addEventListener('submit', save);
           // A <select onchange="this.form.submit()"> inside this form

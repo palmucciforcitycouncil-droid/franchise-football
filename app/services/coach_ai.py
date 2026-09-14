@@ -27,6 +27,12 @@ def _is_division_champion(season, team_abbr: str) -> bool:
     return best_abbr == team_abbr
 
 
+# (team_abbr, role) -> coach_id fired this offseason with no replacement
+# found, so ensure_core_staff() never "fills" the seat by re-hiring the very
+# coach who was just let go.
+_unfilled_firings: dict[tuple[str, CoachRole], str] = {}
+
+
 def _evaluate_team(season, team_abbr: str, team_ranks, week: int, log: list[str]) -> None:
     """One team's HC/OC/DC/ST firing pass. `week` is 0 for an offseason
     evaluation (full weight, no in-season caution) or 1-18 in-season.
@@ -62,6 +68,7 @@ def _evaluate_team(season, team_abbr: str, team_ranks, week: int, log: list[str]
         in_season = week > 0
         decision = coach_replacement.decide_replacement(team_abbr, role, fired_id, season.season_number, in_season)
         if decision.coach_id is None:
+            _unfilled_firings[(team_abbr, role)] = fired_id
             log.append(f"{team_abbr}:{role.value}:fired_no_replacement_found")
             continue
 
@@ -97,6 +104,7 @@ def run_offseason_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
     for next season via its own real season outcome (Sec 3.2)."""
     from app.services import coach_records, team_expectations
 
+    _unfilled_firings.clear()
     log: list[str] = list(coach_replacement.resolve_interim_appointments(season))
 
     ranks = coach_progression.compute_team_ranks(season)
@@ -157,6 +165,80 @@ def backfill_assistants(season, exclude_team_abbr: str | None) -> list[str]:
                 break
             log.append(f"{team.abbr}:AC:assistant_hired")
             open_seats -= 1
+    return log
+
+
+# The seats a team cannot enter the next offseason stage without (Brian's
+# report, 2026-09-14: his own expired Head Coach let him walk straight into
+# free agency). ST/AC vacancies are survivable -- the sim falls back to a
+# neutral effect -- but HC/OC/DC are the play-callers.
+CORE_STAFF_ROLES: tuple[CoachRole, ...] = (CoachRole.HC, CoachRole.OC, CoachRole.DC)
+
+
+def core_staff_blockers(team_abbr: str) -> list[tuple[CoachRole, str]]:
+    """Every HC/OC/DC seat on `team_abbr` that is vacant or holds an
+    expired contract (contract_years <= 0 -- an extension resets it above
+    zero, so an extended coach is never a blocker). Returns
+    (role, "vacant"|"expired") pairs, empty when the staff is complete or
+    the database has no coach table at all."""
+    if not coach_store.has_coaches():
+        return []
+    blockers: list[tuple[CoachRole, str]] = []
+    for role in CORE_STAFF_ROLES:
+        coach = coach_store.coach_in_role(team_abbr, role)
+        if coach is None:
+            blockers.append((role, "vacant"))
+        elif coach.contract_years <= 0:
+            blockers.append((role, "expired"))
+    return blockers
+
+
+def ensure_core_staff(season, exclude_team_abbr: str | None) -> list[str]:
+    """Safety net run right after run_offseason_autonomy(): that pass skips
+    teams with no games played, leaves a seat open when a firing finds no
+    replacement, and never refills a retirement (apply_coach_offseason's
+    own docstring) -- so an AI team could otherwise carry a vacant or
+    expired HC/OC/DC into the next stage. Expired -> renewed at market
+    value (the same call _evaluate_team makes for a survivor); vacant ->
+    the same decide_replacement()/execute_hire() offseason path a firing
+    uses. The user's team is excluded: the Staff-stage gate makes the user
+    fix their own seats manually."""
+    if not coach_store.has_coaches():
+        return []
+    log: list[str] = []
+    for team in TEAMS:
+        if team.abbr == exclude_team_abbr:
+            continue
+        # Re-read after every fix: an internal promotion into HC opens the
+        # promoted coordinator's own seat, which must be caught this pass.
+        unresolvable: set[CoachRole] = set()
+        for _ in range(2 * len(CORE_STAFF_ROLES)):
+            pending = [(r, p) for r, p in core_staff_blockers(team.abbr) if r not in unresolvable]
+            if not pending:
+                break
+            role, problem = pending[0]
+            if problem == "expired":
+                coach = coach_store.coach_in_role(team.abbr, role)
+                coach_contracts.renew_contract(coach.coach_id)
+                log.append(f"{team.abbr}:{role.value}:safety_net_renewed")
+            else:
+                just_fired = _unfilled_firings.get((team.abbr, role), "")
+                decision = coach_replacement.decide_replacement(team.abbr, role, just_fired, season.season_number, in_season=False)
+                if decision.coach_id is not None and decision.coach_id == just_fired:
+                    others = [c for c, _ in coach_replacement.search_external_pool(
+                        role, team.abbr, season.season_number, decision.appointment_type) if c.coach_id != just_fired]
+                    internal = coach_replacement.best_internal_candidate(team.abbr, role, just_fired, season.season_number)
+                    fallback_id = others[0].coach_id if others else (internal[0].coach_id if internal else None)
+                    decision = coach_replacement.ReplacementDecision(
+                        team.abbr, role, "external" if others else "internal", fallback_id, decision.appointment_type)
+                if decision.coach_id is None:
+                    unresolvable.add(role)
+                    log.append(f"{team.abbr}:{role.value}:safety_net_no_candidate")
+                    continue
+                coach_replacement.execute_hire(
+                    team.abbr, role, decision.coach_id, season.season_number, decision.appointment_type, season.league_seed)
+                log.append(f"{team.abbr}:{role.value}:safety_net_hired({decision.source})")
+            coach_store.clear_cache()
     return log
 
 

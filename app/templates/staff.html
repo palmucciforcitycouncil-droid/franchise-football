@@ -145,9 +145,14 @@
 {% if season.offseason_stage == "staff" and team_abbr == season.user_team_abbr %}
 <div class="card">
   <h3>Offseason: Staff Decisions</h3>
-  <p class="muted">Every other team has already settled its own coaching staff for next season. Review or change yours below (Hire/Fire) if you want to, then continue -- your staff carries into free agency and the draft either way.</p>
+  <p class="muted">Every other team has already settled its own coaching staff for next season. Review or change yours below (Hire/Fire/Extend), then continue to Expiring Contracts.</p>
+  {% if offseason_blockers %}
+  <div class="offseason-blockers" role="alert" style="border-left: 4px solid #f87171; background: rgba(248, 113, 113, 0.1); padding: 0.6rem 0.8rem; border-radius: 6px; margin-bottom: 0.75rem;">
+    {% for msg in offseason_blockers %}<p style="margin: 0.15rem 0;"><strong>{{ msg }}</strong></p>{% endfor %}
+  </div>
+  {% endif %}
   <form method="post" action="/offseason/advance-to-resign">
-    <button type="submit">Continue to Free Agency</button>
+    <button type="submit" {% if offseason_blockers %}disabled title="Fix the staff issues above first"{% endif %}>Continue to Expiring Contracts</button>
   </form>
 </div>
 {% endif %}
