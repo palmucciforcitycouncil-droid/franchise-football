@@ -95,8 +95,8 @@ def test_rookie_scale_aav_declines_by_pick():
 
 
 def test_rookie_scale_aav_grows_with_the_real_cap_across_seasons():
-    season0 = draft.rookie_scale_aav(1, season_number=0)
-    season3 = draft.rookie_scale_aav(1, season_number=3)
+    season0 = draft.rookie_scale_aav(1, season_number=24)  # 2026
+    season3 = draft.rookie_scale_aav(1, season_number=27)
     assert season3 > season0
 
 

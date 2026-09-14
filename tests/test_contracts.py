@@ -38,8 +38,8 @@ def test_salary_cap_grows_75_percent_per_season():
     # Updated 2026-09-12: the real-world growth rate was corrected from
     # 11.2% (2025's stale figure) to 7.5% (real 2026 rate) -- see
     # contracts.py's own SALARY_CAP_GROWTH comment.
-    cap0 = contracts.salary_cap_for_season(0)
-    cap1 = contracts.salary_cap_for_season(1)
+    cap0 = contracts.salary_cap_for_season(24)  # 2026 -- pre-2026 seasons are clamped to the anchor
+    cap1 = contracts.salary_cap_for_season(25)
     assert cap1 == pytest.approx(cap0 * 1.075)
 
 

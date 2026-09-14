@@ -84,7 +84,11 @@ COACH_SALARY_CAP_2026 = 15_000_000
 
 def cap_growth_factor(season_number: int) -> float:
     from app.config import season_year
-    return (1.0 + SALARY_CAP_GROWTH) ** (season_year(season_number) - CAP_ANCHOR_YEAR)
+    # Clamped at the anchor year: season_numbers before 2026 are the imported
+    # 2002-2025 history, never simulated -- and a fresh franchise with an
+    # empty League History (tests, a stripped template) starts at
+    # season_number 0 = 2002, which must not shrink the cap to ~$80M.
+    return (1.0 + SALARY_CAP_GROWTH) ** max(0, season_year(season_number) - CAP_ANCHOR_YEAR)
 
 
 def salary_cap_for_season(season_number: int) -> float:
