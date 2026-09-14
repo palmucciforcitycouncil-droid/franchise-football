@@ -447,6 +447,26 @@ Brian asked "the sim takes too long, are there ways to make it faster?" Measured
 
 Full suite after the shipped fix: 93 of the directly-affected tests (`test_draft.py`, `test_draft_pick_store.py`, `test_trades.py`, `test_coaching.py`) pass clean.
 
+## 4l. Sept 14 2026 game fixes — built (2026-09-14)
+
+Brian's "Sept 14 2026 FF game fixes" doc (~45 items) was built in one session: a foundation commit by the lead, then 6 parallel packages in isolated worktrees, merged into `docs/gdd-v3-2`. **Full spec of what now exists: `docs/GDD_v3.2.md` Appendix S** (it overrides older GDD sections where they conflict).
+
+- [x] **Foundation** — positions unified (T/G/EDGE/LB/S), automatic DB schema migration on every engine open, cap re-anchored to calendar year ($450M player cap / $15M staff cap in 2026, +7.5%/yr), staff payroll migration (`scripts/migrate_2026_09_14_staff_payroll.py`: 4 ACs per team, real-world role salary ranges), Player acquisition columns.
+- [x] **Staff + negotiation** — staff cap display/enforcement, 4-AC limit + AI backfill, coach demands grow with cap, slider extension modal, mood/counter/refusal system for players and coaches (`app/engine/negotiation.py`, `negotiation_store`), rotating rejections, Considering sometimes accepts, staff-impact audit (dev-focus side-of-ball bug fixed), coach card salary/years/no "/99".
+- [x] **Offseason + roster** — Staff-stage HC/OC/DC gate + AI safety net, stage labels ("Expiring Contracts"), `ROSTER_REQUIREMENTS`, preseason roster gate + AUTO-FILL (user first, then AI + depth charts), undrafted FA pool guarantee, Roster/Depth Chart tabs with starter stripe/divider/legend, no depth chart jumps.
+- [x] **Draft** — positional value + need bonus AI, K/P rule (rd 5+, ≤2/round), Figma DraftPageV2 layout, full sortable ratings w/ POT, picks show drafted player, acquisition tracking.
+- [x] **Trades/GM Desk** — rebuilt Propose Trade (5-year picks, interest meter, team wants, counter offer, in-box verdicts), starter value floor, Trade Block filters/search, compact Expiring Contracts, correct cap.
+- [x] **Awards/honors** — season-end finalization of awards + Pro Bowl (stats/OVR blend), SB MVP, `honors_store`, player/coach card honors + acquisition, end-of-season report, offseason-start headlines, new player retirement (`app/engine/retirement.py`).
+- [x] **Headlines/standings** — upset/tie/record rules, template rotation, playoff/preseason/injury headlines, clinch x/* (`app/engine/clinch.py`), In the Hunt under bracket, record-anchored power ranking order, preseason box scores, no jumps on Stats Apply / Save Gameplan.
+
+**Open follow-ups (good small Sonnet chunks):**
+- [ ] Ties: record tied games as ties (W-L-T) instead of a home win — touches `TeamRecord`, save format, tiebreakers, all W-L displays, headlines.
+- [ ] Back-fill acquisition history for the imported real roster (draft round/pick, FA/trade year).
+- [ ] Re-measure player retirement volume across several seasons (tuned once, not re-measured).
+- [ ] `test_apply_coach_offseason_decrements_real_contract_years` was already failing on the foundation commit — investigate.
+- [ ] Trade valuation: `player_trade_value()` rates most well-paid starters as negative surplus; the floor patches it — revisit `expected_market_value()` against real salaries.
+- [ ] Live browser pass on every changed page (agents verified via TestClient; the lead did a smoke check only).
+
 ---
 
 ## 5. How to actually run this efficiently (the token-saving playbook)

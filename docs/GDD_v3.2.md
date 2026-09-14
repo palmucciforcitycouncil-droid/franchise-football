@@ -9822,3 +9822,69 @@ Events in Tier 3 are scanned only if headline list has fewer than 4 items. Rank 
 
 \*\*1a's real prerequisite, not yet built anywhere:\*\* mathematical clinching/elimination detection. Nothing in `app/engine/playoffs.py` computes "clinched" or "eliminated" today -- `rank_teams()`/`seed_conference()` only ever rank the CURRENT standings, they don't project remaining games. A fully exact clincher (checking every rival's best-case remaining record against this team's worst case, through the real tiebreak chain) is real, tractable work but bigger than the rest of 12.3 combined. ROADMAP.md \\S4e scopes a first-pass simplified proxy (games-back vs. games-remaining) with the exact solver as a documented, disclosed follow-up -- not silently approximated without saying so.
 
+
+
+---
+
+## Appendix S. September 14, 2026 Game Fixes (implemented)
+
+Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts with an earlier section, **this appendix wins** (earlier sections were not all rewritten line by line).
+
+### S.1 Positions (supersedes Sec 3.1's Madden-granular scheme)
+- Position codes: QB, HB, FB, WR, TE, **T, G**, C, **EDGE**, DT, **LB**, CB, **S**, K, P. No left/right, inside/outside or free/strong distinction anywhere (LT/RT→T, LG/RG→G, LE/RE→EDGE, LOLB/MLB/ROLB→LB, FS/SS→S). `app.models.player.normalize_position()` maps legacy codes; every DB is migrated automatically when opened (`app/core/db.py _migrate_schema`).
+- Starters per position: WR 3, T 2, G 2, C 1, EDGE 2, DT 2, LB 3, CB 2, S 2, others 1. Sec 6.6.2's zone blocking still has left/right sides: the 1st starter at T/G/EDGE plays the left side, the 2nd the right.
+- Roster requirements (single table, `free_agency.ROSTER_REQUIREMENTS`): QB2 HB2 WR5 TE2 T3 G3 C2 EDGE3 DT3 LB4 CB4 S3 K1 P1.
+
+### S.2 Salary caps (supersedes the $720M rescale in Sec 8.3)
+- The cap is anchored to the calendar year (`season_year`), not season_number (which starts at 2002; the old formula compounded 25 years of growth for a 2026 save). **Player cap $450M in 2026** (smallest round number every imported real-salary roster fits under), **+7.5%/yr**.
+- Player market value stays on the real-world $301.2M scale × the same growth, so demands escalate with the cap.
+- **Coaching staff cap $15M in 2026**, same growth, covering all coach salaries combined. Enforced for user hires/extensions and AI hires/renewals (AI trims salary to the room left).
+- Coach salary ranges (2026 dollars, grow with the cap): HC $4–10M (median 7), OC/DC $1–2.5M (1.5), ST $0.7–1.5M (1.0), AC $0.2–0.8M (0.5). Market value = percentile of `overall` within role, mapped onto the range.
+
+### S.3 Coaching staff
+- Staff = HC, OC, DC, ST + **max 4 assistant coaches** (`coach_contracts.MAX_ASSISTANTS`). AI teams refill to 4 each offseason.
+- **Staff impact model (audited 2026-09-14):** tendency, development and training effects are a tier-weighted average of the staff (HC 0.4, coordinators 0.6, assistants 0.3), centered on the league baseline; assistants can shift but never push effects past their bounds. Discipline comes from the HC alone. Scouting accumulates across coaches with diminishing returns. A development-focus coach affects only his own side of the ball (bug fixed: it previously fed both). The unused `pace` slider is excluded from the league baseline and the card.
+- Offseason Staff stage gate: the user cannot continue while HC, OC or DC is vacant or has an expired contract. AI teams get a safety net (`coach_ai.ensure_core_staff`) that renews or hires those seats.
+
+### S.4 Contract negotiation (players and coaches)
+- One shared slider Negotiation modal for re-signs, free agency and coach extensions, with a live reaction label.
+- **Mood** (0–100, starts 50, per save and season stage, `app/engine/negotiation.py`): improving offers raise it; lowballs and non-improving repeats lower it. Mood adds a bonus/penalty on top of the existing offer score (additive). Reasonable offers get a **counter** that moves toward the midpoint as mood improves. Mood 0 → permanent refusal: "We have had enough, we will not accept any more offers from your team." (Make Offer greyed out).
+- Rejection text rotates: Rejected / No way / Not happening / No thank you / Pass.
+- "Considering" offers sign ~20–30% of the time (seeded), more with better mood.
+
+### S.5 Offseason and preseason flow
+- Stages: Staff Decisions → **Expiring Contracts** → Draft → preseason. Buttons name the next stage.
+- **Preseason roster gate:** before the first preseason game, a user roster below requirements redirects to /roster with a "Roster Holes" banner and AUTO-FILL ROSTER. Order: the user team fills first, then every AI team fills holes and re-sorts its depth chart (this also runs automatically before any season's first game). Signings respect the cap, falling back to the veteran minimum.
+- **Free-agent pool guarantee:** after the draft, extra undrafted rookies (OVR 45–62, deterministic) are generated to cover the league shortfall + 20% (min 2 per position).
+- **Player retirement** (`app/engine/retirement.py`) runs when the re-signing window closes; it never drops a team below requirements when no replacement exists.
+
+### S.6 Draft
+- AI pick score = perceived OVR + positional value (QB +8; EDGE, T +6; CB +5; WR, DT +2; HB, S, G, C +1; TE, LB 0; FB −4; K, P −25) + need bonus (+5/+3/+2 for the three thinnest groups vs. typical depth). K/P never before round 5, max 2 per round.
+- Draft page follows Figma `DraftPageV2.tsx`: compact Team Needs chips; used picks show "F. Lastname (POS)"; full sortable ratings table with POT after OVR; client-side filters/sort; in-place updates (no page jumps).
+- Drafted players record acquisition type/season/round/pick.
+
+### S.7 Trades (GM Desk)
+- Propose Trade: user roster always shown; partner roster loads in place; sortable columns incl. POT; draft picks for the next 5 drafts; interest meter (red <40, yellow 40–69, green ≥70); "What they're looking for" (rebuilding/contending + positional needs); Get Counter Offer (smallest addition that makes the deal acceptable, else "A deal is not possible with those terms."); verdict shown in the Current Offer box with rotating rejection phrases and a reason.
+- Valuation: an AI starter is never priced below one season of market value; rebuilding/contending/need bonuses are additive.
+- Trade Block: ALL/OFF/DEF + position filters, name search, roster columns with Contract and Years between POT and SPD. Expiring Contracts box compacted, POT added. GM Desk cap shows the real current cap.
+
+### S.8 Awards, honors and cards
+- Awards Race shows the top 10 per category during the season. **After the final regular-season game**, awards and the **Pro Bowl** (70% season stat score / 30% OVR; OL, K, P by OVR; starters + reserves per conference) are finalized once and saved (`honors_store`), then shown as final.
+- **Super Bowl MVP** is chosen from the winning team's box score; the bracket shows "SUPER BOWL <numeral>", the score, the MVP and his stat line.
+- Player Card header shows acquisition ("FA Signing 2026", "Drafted 2027 · Round 2, Pick 45", "Trade 2026 (from NYJ)") and awards with years. Coach Card shows e.g. "Super Bowl Champion x2 (2027, 2026)", conference titles and COTY with years.
+- End-of-season report (/offseason/recap): Super Bowl champion + score + MVP, conference champions, award winners, retired players, Pro Bowl rosters; user team highlighted.
+
+### S.9 Headlines, standings, playoffs, power rankings
+- "Upset" only with a real record gap (≥25 win-% points) or a large early-season rating gap; ties have their own wording; team records in parentheses; 2–4 templates per type without week-to-week repeats; clinch headlines only in the week it happens; headlines for preseason, every playoff round (with a standout) and offseason start (Super Bowl, SB MVP, major awards); starter injuries (up to 3/week). Preseason games now carry injuries at 25% of regular risk and produce box scores.
+- Standings: `x` = clinched playoff berth, `*` = clinched first-round bye (conservative math, `app/engine/clinch.py`), with legend.
+- Playoffs: "In the Hunt" is also shown under the Full Bracket.
+- Power rankings: order = power rating + a record bonus whose weight grows from ~0 to full by game 17 (the sim's power rating itself is unchanged).
+
+### S.10 UI
+- Roster and Depth Chart share one card with tabs; starters are marked with a gold left stripe, lighter background, a divider after the last starter and a legend.
+- No page jumps on: stats Apply, Save Gameplan, draft interactions, depth chart moves/sorts/group selection, staff actions, trade submit/sort/filter (fetch-in-place or exact scroll restore via `data-keep-scroll`).
+- Staff page: "Coach Salary $X / $15.0M" beside the team picker; real salary and "N years remaining" / "Contract expired" on coach cards; no "/99" rating suffixes.
+
+### S.11 Known gaps (not built)
+- Tied games are still recorded as a home win in W-L standings (no ties column).
+- Acquisition history for players rostered before the franchise began is blank (to back-fill later).
