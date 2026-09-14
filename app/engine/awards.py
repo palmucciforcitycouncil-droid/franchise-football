@@ -84,6 +84,10 @@ from app.models.player import Player
 from app.models.coach import CoachRole
 from app.engine.season_stats import aggregate_season_stats, aggregate_season_defensive_stats
 
+# How many candidates the Awards Race / final award lists keep (Brian's
+# ask, 2026-09-14: top 10, not 5).
+AWARDS_RACE_TOP_N = 10
+
 
 def _normalize(value: float, pool: list[float]) -> float:
     if not pool:
@@ -503,6 +507,39 @@ class AwardsRace:
     coty: list[CoachAwardCandidate] = field(default_factory=list)
 
 
+def season_award_lists(season, top_n: int = AWARDS_RACE_TOP_N) -> dict[str, list]:
+    """Every award's ranked list in one pass -- {"mvp", "opoy", "dpoy",
+    "oroy", "droy", "roy", "coty"} -- producing exactly what the
+    individual *_of_the_year() functions above return, but aggregating
+    the season's box scores ONCE (season_stats' cached aggregates) instead
+    of once per award. Used by the Awards page and the end-of-season
+    finalization (app/services/season_honors.py), which both need all
+    of them at once."""
+    from app.engine.season_stats import cached_current_season_aggregates
+
+    passing, rushing, receiving, defense = cached_current_season_aggregates(season)
+    rookie_keys = _rookie_keys(season)
+    non_defenders = _known_non_defensive_position_keys()
+    real_defense = {k: v for k, v in defense.items() if k not in non_defenders}
+
+    offense = offensive_candidates_from_stats(passing, rushing, receiving)
+    offense_rookies = offensive_candidates_from_stats(passing, rushing, receiving, rookie_keys)
+    defenders = defensive_candidates_from_stats(real_defense)
+    defense_rookies = defensive_candidates_from_stats(real_defense, rookie_keys)
+    by_score = lambda cands: sorted(cands, key=lambda c: -c.score)[:top_n]  # noqa: E731
+    win_pct_by_abbr = {abbr: r.win_pct for abbr, r in season.records.items()}
+
+    return {
+        "mvp": mvp_from_candidates(offense, win_pct_by_abbr)[:top_n],
+        "opoy": by_score(offense),
+        "dpoy": by_score(defenders),
+        "oroy": by_score(offense_rookies),
+        "droy": by_score(defense_rookies),
+        "roy": by_score(offense_rookies + defense_rookies),
+        "coty": coach_of_the_year(season, top_n),
+    }
+
+
 def season_awards(season, top_n: int = 5) -> AwardsRace:
     return AwardsRace(
         mvp=most_valuable_player(season, top_n),
@@ -519,25 +556,29 @@ class ProBowlStarter:
     team_abbr: str
     position: str  # generic position-group label (position_groups.py's QUOTA_GROUPS)
     ovr: int
+    # Filled by pro_bowl_rosters() (the real end-of-season selection);
+    # left at their defaults by the older OVR-only pro_bowl_starters().
+    player_id: str = ""
+    stat_line: str = ""
+    score: float = 0.0
 
 
-# R8 (Awards Page): a real, disclosed simplification -- there's no
-# GDD-literal Pro Bowl vote formula (or ballot data) anywhere in this
-# project, so "starters" here means the real, live roster's own top
-# overall_rating at each position, one bucket per position_groups.py's
-# generic group (the same grouping the Roster page's Team Quota pills
-# use) rather than Madden's granular per-slot positions. Real starter
-# COUNTS per side loosely match a real Pro Bowl roster's own shape (2 WR/
-# T/G/EDGE/DT/CB/S, 3 LB, 1 everything else) -- this module's own choice,
-# not a GDD value. K/P are their own "special" bucket rather than folded
-# into "offense", matching how the Awards page's own 3-tab shape
-# (Season Leaderboards / Weekly Race Archive / Pro Bowl Preview) treats
-# them. A player's overall_rating doesn't change mid-season in this
-# engine (only at the next Player Progression rollover), so this is
-# genuinely a "preview" -- the same players all season until then.
+# Real starter COUNTS per side loosely match a real Pro Bowl roster's own
+# shape (2 WR/T/G/EDGE/DT/CB/S, 3 LB, 1 everything else) -- this module's
+# own choice, not a GDD value. Buckets are position_groups.py's generic
+# groups (the Roster page's Team Quota grouping), not Madden's granular
+# per-slot positions. K/P are their own "special" bucket.
 PRO_BOWL_OFFENSE_STARTER_COUNTS: dict[str, int] = {"QB": 1, "RB": 1, "WR": 2, "TE": 1, "C": 1, "G": 2, "T": 2}
 PRO_BOWL_DEFENSE_STARTER_COUNTS: dict[str, int] = {"EDGE": 2, "DT": 2, "LB": 3, "CB": 2, "S": 2}
 PRO_BOWL_SPECIAL_STARTER_COUNTS: dict[str, int] = {"K": 1, "P": 1}
+# Reserves (Brian's ask, 2026-09-14: "starters + reserves"): a second,
+# smaller tier per group, roughly a real Pro Bowl roster's alternates.
+# Module's own choice. No K/P reserves -- one specialist per side is
+# already the real shape.
+PRO_BOWL_RESERVE_COUNTS: dict[str, int] = {
+    "QB": 2, "RB": 1, "WR": 2, "TE": 1, "C": 1, "G": 1, "T": 1,
+    "EDGE": 2, "DT": 1, "LB": 2, "CB": 2, "S": 1,
+}
 
 
 def _pro_bowl_side(conf_players: list, counts: dict[str, int]) -> list[ProBowlStarter]:
@@ -576,3 +617,181 @@ def pro_bowl_starters(season, conf: str) -> dict[str, list[ProBowlStarter]]:
         "defense": _pro_bowl_side(conf_players, PRO_BOWL_DEFENSE_STARTER_COUNTS),
         "special": _pro_bowl_side(conf_players, PRO_BOWL_SPECIAL_STARTER_COUNTS),
     }
+
+
+# --- End-of-season Pro Bowl selection (Brian's decision, 2026-09-14) -------
+#
+# Selected ONCE, right after the final regular-season game (see
+# app/services/season_honors.py), per conference. Brian's call: season
+# stats blended with OVR, scored with the SAME per-position stat scoring
+# the awards already use (offensive_candidates_from_stats /
+# defensive_candidates_from_stats), with OVR as the tiebreak -- and as the
+# whole signal for groups this engine has no per-player stat line for
+# (OL, K, P). The 0.7/0.3 split is this module's own choice: large enough
+# that a real season of production beats a higher-rated backup who barely
+# played, small enough that OVR still separates two similar stat lines.
+PRO_BOWL_STAT_WEIGHT = 0.7
+
+# Which awards candidate pool scores each position group. A group missing
+# here (C/G/T/K/P) is scored on OVR alone.
+_PRO_BOWL_STAT_POOL = {
+    "QB": "QB", "RB": "RB", "WR": "WR/TE", "TE": "WR/TE",
+    "EDGE": "DEF", "DT": "DEF", "LB": "DEF", "CB": "DEF", "S": "DEF",
+}
+
+
+def pro_bowl_rosters(season) -> dict[str, dict[str, list[ProBowlStarter]]]:
+    """{"AFC": {"offense", "defense", "special", "reserves"}, "NFC": {...}}
+    of real ProBowlStarter rows (player_id/stat_line/score filled in)."""
+    from app.data.teams import TEAMS_BY_ABBR
+    from app.engine.position_groups import POSITION_TO_GROUP
+    from app.engine.season_stats import cached_current_season_aggregates
+
+    passing, rushing, receiving, defense = cached_current_season_aggregates(season)
+    stat_candidates: dict[tuple[str, str, str], AwardCandidate] = {}
+    for c in offensive_candidates_from_stats(passing, rushing, receiving) + defensive_candidates_from_stats(defense):
+        stat_candidates[(c.team_abbr, c.name, c.position)] = c
+
+    with get_session() as s:
+        players = list(s.exec(select(Player).where(Player.team_abbr != None)))  # noqa: E711
+
+    by_conf_group: dict[tuple[str, str], list[ProBowlStarter]] = {}
+    for p in players:
+        info = TEAMS_BY_ABBR.get(p.team_abbr)
+        if info is None:
+            continue
+        group = POSITION_TO_GROUP[p.position]
+        ovr_term = p.overall_rating / 99.0
+        pool = _PRO_BOWL_STAT_POOL.get(group)
+        cand = stat_candidates.get((p.team_abbr, p.full_name, pool)) if pool else None
+        if pool:
+            score = PRO_BOWL_STAT_WEIGHT * (cand.score if cand else 0.0) + (1 - PRO_BOWL_STAT_WEIGHT) * ovr_term
+        else:
+            score = ovr_term
+        by_conf_group.setdefault((info.conference, group), []).append(ProBowlStarter(
+            name=p.full_name, team_abbr=p.team_abbr, position=group, ovr=p.overall_rating,
+            player_id=p.player_id, stat_line=cand.stat_line if cand else "", score=round(score, 4),
+        ))
+
+    rosters: dict[str, dict[str, list[ProBowlStarter]]] = {}
+    for conf in ("AFC", "NFC"):
+        sides: dict[str, list[ProBowlStarter]] = {"offense": [], "defense": [], "special": [], "reserves": []}
+        for side, counts in (("offense", PRO_BOWL_OFFENSE_STARTER_COUNTS),
+                             ("defense", PRO_BOWL_DEFENSE_STARTER_COUNTS),
+                             ("special", PRO_BOWL_SPECIAL_STARTER_COUNTS)):
+            for group, n in counts.items():
+                ranked = sorted(by_conf_group.get((conf, group), []), key=lambda r: (-r.score, -r.ovr, r.name))
+                sides[side].extend(ranked[:n])
+                sides["reserves"].extend(ranked[n:n + PRO_BOWL_RESERVE_COUNTS.get(group, 0)])
+        rosters[conf] = sides
+    return rosters
+
+
+# --- Super Bowl MVP (Brian's ask, 2026-09-14) ------------------------------
+#
+# Chosen from the Super Bowl's own real box score, winning team only (the
+# real award essentially always goes to the winner). Per-player "game
+# impact" points -- this module's own weights, a fantasy-football-style
+# yardage/TD/turnover scale since no GDD formula exists:
+#   passing:   0.04/yd, 4/TD, -2/INT
+#   rushing:   0.1/yd,  6/TD, -2/fumble lost
+#   receiving: 0.1/yd,  6/TD, 0.5/reception
+#   defense:   4/sack, 5/INT, 6/defensive TD, 3/forced fumble,
+#              1/tackle-for-loss, 1/pass defended, 0.5/solo tackle
+
+def _sb_stat_segments(passing, rushing, receiving, defense) -> list[tuple[float, str]]:
+    """(weight, text) segments for one player's stat line, strongest
+    contribution first."""
+    segs: list[tuple[float, str]] = []
+    if passing and passing.attempts:
+        segs.append((passing.yards * 0.04 + passing.touchdowns * 4,
+                     f"{passing.yards} Passing Yards | {passing.touchdowns} TD | {passing.interceptions} INT"))
+    if rushing and rushing.carries and (rushing.yards >= 20 or rushing.touchdowns):
+        segs.append((rushing.yards * 0.1 + rushing.touchdowns * 6,
+                     f"{rushing.yards} Rushing Yards | {rushing.touchdowns} TD"))
+    if receiving and receiving.receptions:
+        segs.append((receiving.yards * 0.1 + receiving.touchdowns * 6,
+                     f"{receiving.receptions} Receptions | {receiving.yards} Receiving Yards | {receiving.touchdowns} TD"))
+    if defense:
+        bits = []
+        if defense.sacks:
+            bits.append(f"{defense.sacks} Sack{'s' if defense.sacks != 1 else ''}")
+        if defense.interceptions:
+            bits.append(f"{defense.interceptions} INT")
+        if defense.defensive_touchdowns:
+            bits.append(f"{defense.defensive_touchdowns} TD")
+        if defense.forced_fumbles:
+            bits.append(f"{defense.forced_fumbles} FF")
+        bits.append(f"{defense.solo_tackles} Tackles")
+        segs.append((defense.sacks * 4 + defense.interceptions * 5 + defense.defensive_touchdowns * 6
+                     + defense.forced_fumbles * 3, " | ".join(bits)))
+    return sorted(segs, key=lambda s: -s[0])
+
+
+def super_bowl_mvp(plays, winner_abbr: str) -> dict | None:
+    """{"name", "team_abbr", "position", "player_id", "stat_line", "score"}
+    for the winning team's highest-impact player in this game, or None
+    if nobody on the winning side recorded a stat (not reachable in a
+    real simulated game, but never fabricated)."""
+    from app.engine.box_score import build_box_score
+    from app.engine.defensive_box_score import build_defensive_box_score
+
+    box = build_box_score(plays, winner_abbr)
+    defense = build_defensive_box_score(plays, winner_abbr)
+
+    names: set[str] = set()
+    passing = {l.name: l for l in box.passing}
+    rushing = {l.name: l for l in box.rushing}
+    receiving = {l.name: l for l in box.receiving}
+    defensive = {l.name: l for l in defense}
+    for pool in (passing, rushing, receiving, defensive):
+        names.update(pool)
+    if not names:
+        return None
+
+    def impact(name: str) -> float:
+        total = 0.0
+        if name in passing:
+            l = passing[name]
+            total += l.yards * 0.04 + l.touchdowns * 4 - l.interceptions * 2
+        if name in rushing:
+            l = rushing[name]
+            total += l.yards * 0.1 + l.touchdowns * 6 - l.fumbles_lost * 2
+        if name in receiving:
+            l = receiving[name]
+            total += l.yards * 0.1 + l.touchdowns * 6 + l.receptions * 0.5
+        if name in defensive:
+            l = defensive[name]
+            total += (l.sacks * 4 + l.interceptions * 5 + l.defensive_touchdowns * 6 + l.forced_fumbles * 3
+                      + l.tackles_for_loss + l.passes_defended + l.solo_tackles * 0.5)
+        return total
+
+    best = max(sorted(names), key=impact)
+    segments = _sb_stat_segments(passing.get(best), rushing.get(best), receiving.get(best), defensive.get(best))
+
+    position, player_id = "", ""
+    with get_session() as s:
+        match = next((p for p in s.exec(select(Player).where(Player.team_abbr == winner_abbr)) if p.full_name == best), None)
+    if match is not None:
+        position, player_id = match.position.value, match.player_id
+
+    return {
+        "name": best, "team_abbr": winner_abbr, "position": position, "player_id": player_id,
+        "stat_line": " | ".join(text for _, text in segments[:2]),
+        "score": round(impact(best), 2),
+    }
+
+
+def super_bowl_numeral(season_year_value: int) -> str:
+    """The real Super Bowl numbering: the 2025 season's game was Super
+    Bowl LX, so N = season year - 1965 (2026 season -> LXI)."""
+    n = season_year_value - 1965
+    if n <= 0:
+        return str(season_year_value)
+    out = ""
+    for value, sym in ((1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+                       (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")):
+        while n >= value:
+            out += sym
+            n -= value
+    return out

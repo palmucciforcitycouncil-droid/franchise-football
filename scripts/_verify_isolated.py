@@ -26,6 +26,7 @@ def setup(tag: str = "verify") -> None:
         owner_pressure_store, team_expectations, draft_pick_store,
         award_race_history, headlines_history, draft_store, undrafted_pool,
         draft_progress_store, draft_class_store, draft_board_store, offseason_recap_store,
+        honors_store,
     )
 
     shutil.copy(REAL_DB_PATH, _SCRATCH_DB_PATH)
@@ -48,6 +49,7 @@ def setup(tag: str = "verify") -> None:
         Path(f"data/saves/_{tag}_draft_classes.json"),
         Path(f"data/saves/_{tag}_draft_board.json"),
         Path(f"data/saves/_{tag}_offseason_recap.json"),
+        Path(f"data/saves/_{tag}_honors.json"),
     ]
     save_service.DEFAULT_SAVE_PATH, history_store.DEFAULT_PATH, \
         gameplan_store.DEFAULT_PATH, power_rank_history.DEFAULT_PATH, \
@@ -56,7 +58,7 @@ def setup(tag: str = "verify") -> None:
         headlines_history.DEFAULT_PATH, draft_store.DEFAULT_PATH, \
         undrafted_pool.DEFAULT_PATH, draft_progress_store.DEFAULT_PATH, \
         draft_class_store.DEFAULT_PATH, draft_board_store.DEFAULT_PATH, \
-        offseason_recap_store.DEFAULT_PATH = paths
+        offseason_recap_store.DEFAULT_PATH, honors_store.DEFAULT_PATH = paths
     for p in paths:
         p.unlink(missing_ok=True)
 
@@ -111,6 +113,7 @@ def teardown(tag: str = "verify") -> None:
         Path(f"data/saves/_{tag}_draft_board.json"),
         Path(f"data/saves/_{tag}_offseason_recap.json"),
         Path(f"data/saves/_{tag}_negotiations.json"),
+        Path(f"data/saves/_{tag}_honors.json"),
     ]:
         p.unlink(missing_ok=True)
     # These module-level attrs stay pointed at the throwaway paths in

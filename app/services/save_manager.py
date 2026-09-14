@@ -137,6 +137,10 @@ def _paths_for(save_dir: Path) -> dict[str, Path]:
         "draft_board": save_dir / "draft_board.json",
         "offseason_recap": save_dir / "offseason_recap.json",
         "negotiations": save_dir / "negotiations.json",
+        # Season honors (2026-09-14): final awards, Pro Bowl rosters, Super
+        # Bowl result/MVP, retirements, and every player's/coach's dated
+        # award history -- all per-franchise.
+        "honors": save_dir / "honors.json",
     }
 
 
@@ -152,6 +156,7 @@ def _redirect_globals(save_dir: Path) -> None:
         headlines_history, draft_pick_store, draft_store, undrafted_pool,
         draft_progress_store, draft_class_store, draft_board_store, offseason_recap_store,
         negotiation_store,
+        honors_store,
     )
     p = _paths_for(save_dir)
     db_module.DB_PATH = p["db"]
@@ -172,6 +177,7 @@ def _redirect_globals(save_dir: Path) -> None:
     draft_board_store.DEFAULT_PATH = p["draft_board"]
     offseason_recap_store.DEFAULT_PATH = p["offseason_recap"]
     negotiation_store.DEFAULT_PATH = p["negotiations"]
+    honors_store.DEFAULT_PATH = p["honors"]
 
 
 def _clear_all_caches() -> None:

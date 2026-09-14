@@ -274,6 +274,28 @@
       gap: 1rem; padding: 1.25rem 1.5rem 1rem; border-bottom: 1px solid var(--border);
     }
     .pc-header-main { display: flex; align-items: center; gap: 1rem; }
+    .pc-header-honors {
+      flex: 1; min-width: 0; text-align: right; font-size: 0.82rem; line-height: 1.45;
+      align-self: center; overflow-wrap: anywhere;
+    }
+    .pc-header-honors:empty { display: none; }
+    /* Season honors tables (Awards page, Pro Bowl, Season Summary):
+       fixed-layout so long names wrap instead of colliding with the next
+       column (Brian's 2026-09-14 overlap report), and a subtle gold row
+       for anything involving the user's own team. */
+    .awards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+    table.honors-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    table.honors-table td, table.honors-table th { padding: 0.35rem 0.4rem; vertical-align: top; text-align: left; overflow-wrap: anywhere; }
+    table.honors-table .col-rank { width: 2rem; color: var(--muted); }
+    table.honors-table .col-score { width: 4rem; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+    table.honors-table .col-pos { width: 3.5rem; color: var(--muted); }
+    table.honors-table .honors-sub { display: block; font-size: 0.8rem; color: var(--muted); }
+    table.honors-table tr.winner td { font-weight: 600; }
+    tr.honors-user-row td { background: rgba(212, 175, 55, 0.10); }
+    li.honors-user-row, div.honors-user-row { background: rgba(212, 175, 55, 0.10); border-radius: 4px; }
+    .pc-honors-acq { color: var(--muted); margin-bottom: 0.2rem; }
+    .pc-honors-list { list-style: none; margin: 0; padding: 0; color: var(--gold); }
+    .pc-honors-list li { white-space: normal; }
     .pc-avatar {
       width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
       background: var(--border); display: flex; align-items: center; justify-content: center;
@@ -439,6 +461,12 @@
     .champ-card.tbd { border-color: var(--border); color: var(--muted); }
     .conf-col-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; overflow-x: auto; }
 
+    .sb-result { text-align: center; margin-top: 0.6rem; line-height: 1.35; }
+    .sb-result-title { font-weight: 700; letter-spacing: 0.05em; color: var(--gold); font-size: 0.85rem; }
+    .sb-result-score { font-weight: 600; margin: 0.15rem 0 0.4rem; }
+    .sb-result-mvp-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .sb-result-mvp { font-weight: 600; }
+    .sb-result-stats { font-size: 0.8rem; color: var(--muted); }
     .sb-champions-banner {
       background: linear-gradient(90deg, var(--gold), #f4d03f); color: #1a1200;
       border-radius: 6px; padding: 0.5rem; text-align: center; font-weight: 700;
@@ -1076,6 +1104,9 @@
           <div id="pc-acquire-slot"></div>
         </div>
       </div>
+      <!-- Brian's ask, 2026-09-14: the header's empty right side shows how
+           the player was acquired and his season awards with years. -->
+      <div class="pc-header-honors" id="pc-honors"></div>
       <button type="button" id="pc-close" aria-label="Close">&times;</button>
     </div>
     <div class="pc-tabs">
@@ -1144,6 +1175,7 @@
           </div>
         </div>
       </div>
+      <div class="pc-header-honors" id="cc-honors"></div>
       <button type="button" id="cc-close" aria-label="Close">&times;</button>
     </div>
     <div class="pc-tabs">
@@ -1226,6 +1258,30 @@
       var teamEl = document.getElementById('pc-team');
       var ageEl = document.getElementById('pc-age');
       var acquireSlotEl = document.getElementById('pc-acquire-slot');
+      var pcHonorsEl = document.getElementById('pc-honors');
+
+      // Header right side (Brian's ask, 2026-09-14): acquisition line +
+      // season awards with years, shared by the Player and Coach Cards.
+      // Built with DOM text nodes -- the strings are server data, never HTML.
+      function renderHonors(el, acquisition, honors) {
+        el.textContent = '';
+        if (acquisition) {
+          var acq = document.createElement('div');
+          acq.className = 'pc-honors-acq';
+          acq.textContent = acquisition;
+          el.appendChild(acq);
+        }
+        if (honors && honors.length) {
+          var ul = document.createElement('ul');
+          ul.className = 'pc-honors-list';
+          honors.forEach(function (h) {
+            var li = document.createElement('li');
+            li.textContent = h;
+            ul.appendChild(li);
+          });
+          el.appendChild(ul);
+        }
+      }
       var overviewEl = document.getElementById('pc-panel-overview');
       var ratingsEl = document.getElementById('pc-panel-ratings');
       var statsEl = document.getElementById('pc-panel-stats');
@@ -1752,6 +1808,7 @@
         teamEl.textContent = card.team;
         ageEl.textContent = 'Age ' + card.age;
         acquireSlotEl.innerHTML = acquireButtonHtml(card);
+        renderHonors(pcHonorsEl, card.acquisition, card.honors);
 
         overviewEl.innerHTML = overviewPanel(card);
         ratingsEl.innerHTML = ratingsPanel(card);
@@ -1841,6 +1898,7 @@
         ccOvrEl.textContent = card.overall + ' OVR';
         ccTeamEl.textContent = card.team_abbr || 'Free Agent';
         ccAgeEl.textContent = 'Age ' + card.age;
+        renderHonors(document.getElementById('cc-honors'), null, card.honors);
 
         // Age moved to the header badge row (same as the Player Card) --
         // not repeated here to avoid showing it twice.
