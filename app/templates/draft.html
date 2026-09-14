@@ -1,440 +1,990 @@
 {% extends "base.html" %}
 {% block title %}Draft — Franchise Football{% endblock %}
 {% block content %}
+{#
+  Laid out after Figma's DraftPageV2.tsx (the component App.tsx renders for
+  the Draft tab) and its children (draft-v2/RoundTabs, StatusChip, BoardItem,
+  ProspectCardModal; draft/DraftProspectsTable + DraftProspectsTable.css;
+  draft/CompareDrawer). Colors below are that export's own literal values.
+  Omitted from Figma, disclosed: the watchlist star (no real watchlist exists
+  -- the Draft Board is the real personal list), the Trade Block box, the
+  Scout Report blurb and the Compare drawer's "Board Score" (all mock-only
+  in the export, no real data behind them).
 
-{% if mode == "review" %}
-{% if just_completed %}
-<div class="card">
-  <h3>Offseason: Draft</h3>
-  <p class="muted">Free agency has settled -- here's the real, just-simulated draft for this season. Sim Week will pick back up with next season's preseason whenever you're ready.</p>
-</div>
-{% endif %}
-<div class="card">
-  <h2>Draft &mdash; Season {{ target_season + 1 }}</h2>
-  <p class="muted">
-    A real 7-round draft: deterministic per-league prospect generation, a real worst-to-best draft order
-    (record, then strength of schedule, then a seeded tiebreak), and a need-aware greedy simulation --
-    every pick below is a real rostered player with a real rookie-scale contract, not placeholder data.
-    {{ undrafted_count }} prospects went undrafted this year and joined the free-agent pool (a 3-year
-    signing window before they expire).
-  </p>
-  <p class="row" style="gap: 1rem;">
-    <a href="/draft">&larr; Back to the current Prospects board</a>
-    {% if has_prior_season %}<a href="/draft?season_param={{ target_season - 1 }}">&larr; Season {{ target_season }}</a>{% endif %}
-    {% if has_next_season %}<a href="/draft?season_param={{ target_season + 1 }}">Season {{ target_season + 2 }} &rarr;</a>{% endif %}
-  </p>
-</div>
+  Everything inside #draft-root is re-rendered in place after any action
+  (fetch + swap, see the script at the bottom) so the page never reloads or
+  jumps; sorting / position chips / search / compare are pure client-side.
+#}
+<style>
+  .dp-title h1 { margin: 0; font-size: 1.9rem; font-weight: 600; }
+  .dp-title p { margin: 0.25rem 0 1.25rem; color: var(--muted); font-size: 0.875rem; }
+  .dp-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; align-items: start; }
+  .dp-col-2 { grid-column: span 2; } .dp-col-3 { grid-column: span 3; } .dp-col-4 { grid-column: span 4; }
+  .dp-col-5 { grid-column: span 5; } .dp-col-9 { grid-column: span 9; } .dp-col-12 { grid-column: span 12; }
+  @media (max-width: 1200px) {
+    .dp-col-2, .dp-col-3, .dp-col-4, .dp-col-5, .dp-col-9 { grid-column: span 12; }
+  }
+  .dp-panel { background: #1a2332; border: 1px solid #2d4a6f; border-radius: 8px; padding: 16px; min-width: 0; }
+  .dp-panel.dp-stretch { height: 100%; }
+  .dp-dark { position: relative; z-index: 0; background: #11161C; border: 1px solid #1F2A35; border-radius: 8px; min-width: 0; }
+  .dp-panel h3, .dp-dark h3 { margin: 0 0 12px; font-size: 1rem; font-weight: 600; color: #fff; }
+  .dp-sub { color: var(--muted); font-size: 0.8rem; margin: 0; }
+  .dp-banner { background: #1a2332; border: 1px solid #2d4a6f; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.9rem; }
 
-{% if user_abbr %}
-<div class="card">
-  <h3>Your Picks ({{ user_abbr }})</h3>
-  {% if user_picks %}
-  <table class="boxtable">
-    <thead><tr><th>Round</th><th>Pick</th><th>Player</th><th>Pos</th><th>College</th><th>OVR</th></tr></thead>
-    <tbody>
-      {% for p in user_picks %}
-      <tr>
-        <td>{{ p.round }}</td>
-        <td>#{{ p.overall_pick }}</td>
-        <td>{{ player_link_or_name(p.name, p.team_abbr) }}</td>
-        <td>{{ p.position }}</td>
-        <td>{{ p.college }}</td>
-        <td>{{ p.overall_rating }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">No picks this draft.</p>
+  /* Team Picks / Team Needs strip */
+  .dp-chips { display: flex; flex-wrap: wrap; gap: 12px; }
+  .dp-pick-chip { background: #0a1929; border: 1px solid var(--gold); border-radius: 4px; padding: 8px 16px; min-width: 100px; }
+  .dp-pick-chip .dp-pick-rd { color: var(--gold); font-size: 0.75rem; }
+  .dp-pick-chip .dp-pick-main { color: #fff; font-size: 0.95rem; white-space: nowrap; }
+  .dp-pick-chip.used { border-color: #2d4a6f; }
+  .dp-need-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dp-need-chip { background: #0a1929; border: 1px solid #2d4a6f; border-radius: 4px; padding: 6px 12px; color: var(--muted); font-size: 0.875rem; }
+
+  /* Buttons (Figma outline / gold / small) */
+  .dp-btn { background: transparent; border: 1px solid #2d4a6f; color: var(--muted); border-radius: 6px; padding: 4px 10px; font-size: 0.75rem; font-weight: 500; line-height: 1.4; cursor: pointer; }
+  .dp-btn:hover { background: #1a2332; color: #fff; filter: none; }
+  .dp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .dp-btn.gold { background: var(--gold); border-color: var(--gold); color: #0a1929; font-weight: 600; }
+  .dp-btn.gold:hover { background: #c49a2e; }
+  .dp-btn.pause { background: rgba(234, 179, 8, 0.2); color: #fde047; border-color: rgba(234, 179, 8, 0.5); }
+  .dp-btn.resume { background: rgba(34, 197, 94, 0.2); color: #86efac; border-color: rgba(34, 197, 94, 0.5); }
+  .dp-btn.block { width: 100%; }
+  .dp-inline-form { display: inline; margin: 0; }
+
+  /* Draft Results (left) */
+  .dp-results-head { padding: 12px; border-bottom: 1px solid #1F2A35; }
+  .dp-results-head .dp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .dp-results-head h3 { margin: 0; font-size: 0.875rem; }
+  .dp-status { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; }
+  .dp-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
+  .dp-status.on-clock { background: rgba(212, 175, 55, 0.2); border: 1px solid var(--gold); color: var(--gold); }
+  .dp-status.waiting { background: rgba(30, 58, 95, 0.5); border: 1px solid #2d4a6f; color: var(--muted); }
+  .dp-status.simulating .dot { animation: dp-pulse 1s ease-in-out infinite; }
+  @keyframes dp-pulse { 50% { opacity: 0.3; } }
+  .dp-round-tabs { display: flex; gap: 4px; background: #0B0F14; border: 1px solid #1F2A35; border-radius: 8px; padding: 4px; }
+  .dp-round-tab { flex: 1; background: none; border: 2px solid transparent; color: var(--muted); border-radius: 4px; padding: 4px 0; font-size: 0.85rem; font-weight: 500; }
+  .dp-round-tab:hover { color: #fff; background: #1a2332; filter: none; }
+  .dp-round-tab.active { background: #1e3a5f; color: #fff; border-color: var(--gold); }
+  .dp-sim-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .dp-sim-row .span2 { grid-column: span 2; }
+  .dp-results-scroll { overflow: auto; max-height: calc(100vh - 300px); min-height: 300px; }
+  .dp-results-table { width: 100%; font-size: 0.75rem; border-collapse: collapse; }
+  .dp-results-table th { position: sticky; top: 0; background: #11161C; color: var(--muted); font-size: 0.75rem; text-align: left; padding: 8px; border-bottom: 1px solid #1F2A35; z-index: 1; }
+  .dp-results-table td { padding: 8px; border-bottom: 1px solid rgba(31, 42, 53, 0.5); vertical-align: top; }
+  .dp-results-table tr.pending { opacity: 0.5; }
+  .dp-results-table tr.current { opacity: 1; background: rgba(212, 175, 55, 0.08); }
+  .dp-results-table tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--gold); }
+  .dp-team-badge { display: inline-block; background: #1e3a5f; color: #fff; border-radius: 4px; padding: 2px 6px; font-size: 0.72rem; }
+  .dp-pick-sub { color: var(--muted); }
+  .dp-round-panel[hidden] { display: none; }
+
+  /* Prospects card (DraftProspectsTable.css) */
+  /* position+z-index: own stacking context, so the table's sticky cells
+     (z 10/40) can never paint over the site's sticky header (z 10). */
+  .dp-prospects-card { position: relative; z-index: 0; background: #1a2332; border: 1px solid #2d4a6f; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+  .dp-prospects-header { padding: 16px; border-bottom: 1px solid #2d4a6f; }
+  .dp-prospects-header .dp-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .dp-prospects-header h3 { margin: 0; }
+  .dp-title-line { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .dp-years { display: flex; align-items: center; gap: 8px; }
+  .dp-years a { padding: 4px 12px; border-radius: 4px; font-size: 0.75rem; text-decoration: none; background: rgba(45, 74, 111, 0.3); color: var(--muted); border: 1px solid #2d4a6f; }
+  .dp-years a.active { background: var(--gold); color: #0a1929; border-color: var(--gold); }
+  .dp-filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dp-filter-chip { padding: 6px 12px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; background: rgba(45, 74, 111, 0.3); color: var(--muted); border: 1px solid #2d4a6f; }
+  .dp-filter-chip:hover { background: rgba(45, 74, 111, 0.5); filter: none; }
+  .dp-filter-chip.active { background: #1e3a5f; color: #fff; border: 2px solid var(--gold); padding: 5px 11px; }
+  .dp-compare-actions { display: flex; gap: 8px; }
+  #draft-root [hidden], .dp-dialog [hidden] { display: none !important; }
+  .dp-search { margin-top: 12px; width: 100%; background: #0B0F14; border: 1px solid #1F2A35; color: #fff; border-radius: 6px; padding: 8px 12px; font: inherit; font-size: 0.875rem; }
+  .dp-search::placeholder { color: var(--muted); }
+  .dp-topbar { height: 12px; overflow-x: auto; overflow-y: hidden; border-top: 1px solid #2d4a6f; flex-shrink: 0; }
+  .dp-topbar .sizer { height: 1px; }
+  .dp-scroll { overflow: auto; max-height: 56vh; min-height: 400px; overscroll-behavior: contain; }
+  .dp-scroll::-webkit-scrollbar, .dp-topbar::-webkit-scrollbar { height: 12px; width: 12px; }
+  .dp-scroll::-webkit-scrollbar-track, .dp-topbar::-webkit-scrollbar-track { background: #0a1929; }
+  .dp-scroll::-webkit-scrollbar-thumb, .dp-topbar::-webkit-scrollbar-thumb { background: #2d4a6f; border-radius: 6px; }
+  table.dp-table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 0.875rem; }
+  table.dp-table th, table.dp-table td { white-space: nowrap; border-bottom: 1px solid rgba(45, 74, 111, 0.5); padding: 10px 10px; text-align: right; }
+  table.dp-table thead th { position: sticky; top: 0; z-index: 3; background: #0f1723; color: var(--muted); font-weight: 500; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25); cursor: pointer; user-select: none; }
+  table.dp-table thead th:hover { color: #fff; }
+  table.dp-table thead th.nosort { cursor: default; }
+  table.dp-table th .arrow { opacity: 0.5; font-size: 0.7rem; margin-left: 2px; }
+  table.dp-table th.sorted .arrow { opacity: 1; color: var(--gold); }
+  table.dp-table td { color: var(--muted); }
+  table.dp-table .left { text-align: left; }
+  table.dp-table .center { text-align: center; }
+  table.dp-table .sticky-cb { position: sticky; left: 0; z-index: 10; background: #1a2332; width: 44px; min-width: 44px; max-width: 44px; text-align: center; }
+  table.dp-table .sticky-name { position: sticky; left: 44px; z-index: 10; background: #1a2332; box-shadow: 2px 0 4px rgba(0, 0, 0, 0.3); text-align: left; min-width: 190px; }
+  table.dp-table thead .sticky-cb, table.dp-table thead .sticky-name { z-index: 40; background: #0f1723; }
+  table.dp-table tbody tr:hover td, table.dp-table tbody tr:hover .sticky-cb, table.dp-table tbody tr:hover .sticky-name { background: #22324a; }
+  table.dp-table tbody tr.selected td, table.dp-table tbody tr.selected .sticky-cb, table.dp-table tbody tr.selected .sticky-name { background: #1c3150; }
+  table.dp-table th.rating-first, table.dp-table td.rating-first { border-left: 1px solid #2d4a6f; }
+  .dp-name { color: #fff; background: none; border: none; padding: 0; font: inherit; font-size: 0.875rem; font-weight: 500; cursor: pointer; text-align: left; }
+  .dp-name:hover { color: var(--gold); text-decoration: underline; filter: none; }
+  .dp-pos-sub { font-size: 0.75rem; color: var(--muted); }
+  .dp-cmp { width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer; margin: 0; }
+  .dp-ovr { display: inline-block; padding: 2px 8px; border-radius: 4px; }
+  .dp-ovr.t90 { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+  .dp-ovr.t80 { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+  .dp-ovr.t70 { background: rgba(234, 179, 8, 0.2); color: #fde047; }
+  .dp-ovr.t0 { background: rgba(107, 114, 128, 0.2); color: #d1d5db; }
+  .dp-need { color: var(--gold); font-size: 0.72rem; border: 1px solid rgba(212, 175, 55, 0.5); border-radius: 4px; padding: 1px 5px; }
+  .dp-empty { text-align: center; padding: 32px 8px; color: var(--muted); }
+  .dp-board-note { font-size: 0.72rem; color: var(--muted); margin: -6px 0 10px; }
+
+  /* Draft Board (BoardItem.tsx) */
+  .dp-board-list { padding: 16px; display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow: auto; }
+  .dp-board-item { background: #0B0F14; border: 1px solid #1F2A35; border-radius: 8px; padding: 12px; display: flex; gap: 12px; align-items: flex-start; }
+  .dp-board-item:hover { background: #1a2332; }
+  .dp-rank { width: 24px; height: 24px; border-radius: 50%; background: var(--gold); color: #0a1929; font-size: 0.75rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600; }
+  .dp-board-main { flex: 1; min-width: 0; }
+  .dp-board-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .dp-board-top .dp-college { color: var(--muted); font-size: 0.75rem; }
+  .dp-pos-badge { border: 1px solid #2d4a6f; color: var(--muted); border-radius: 6px; font-size: 0.72rem; padding: 1px 6px; }
+  .dp-board-actions { display: flex; align-items: center; gap: 6px; }
+  .dp-icon-btn { background: none; border: none; color: var(--muted); padding: 2px 6px; font-size: 0.85rem; cursor: pointer; }
+  .dp-icon-btn:hover { color: #fff; filter: none; }
+  .dp-icon-btn.remove { margin-left: auto; }
+  .dp-icon-btn.remove:hover { color: #f87171; }
+  .dp-icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* Top Prospects strip */
+  .dp-top-item { background: #0B0F14; border: 1px solid #1F2A35; border-radius: 8px; padding: 8px; margin-bottom: 12px; }
+  .dp-top-item:last-child { margin-bottom: 0; }
+  .dp-top-item .dp-name { font-size: 0.75rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .dp-top-item .dp-meta { display: flex; gap: 4px; align-items: center; margin-top: 4px; font-size: 0.72rem; }
+  .dp-top-item .dp-college { color: var(--muted); font-size: 0.72rem; margin: 4px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Compare + prospect card dialogs */
+  dialog.dp-dialog { background: #11161C; color: #fff; border: 1px solid #1F2A35; border-radius: 10px; padding: 0; width: 720px; max-width: 94vw; max-height: 90vh; }
+  dialog.dp-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  .dp-dialog-head { padding: 20px 24px 14px; border-bottom: 1px solid #1F2A35; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .dp-dialog-head h2 { margin: 0 0 6px; font-size: 1.4rem; font-weight: 600; }
+  .dp-dialog-body { padding: 20px 24px; overflow: auto; }
+  .dp-dialog-foot { padding: 14px 24px; border-top: 1px solid #1F2A35; display: flex; justify-content: flex-end; gap: 10px; }
+  .dp-attr-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #1F2A35; font-size: 0.875rem; }
+  .dp-attr-row span:first-child { color: var(--muted); }
+  .dp-card-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 640px) { .dp-card-cols { grid-template-columns: 1fr; } }
+  .dp-h4 { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 10px; font-weight: 500; }
+  .dp-proj-box { background: #1a2332; border: 1px solid #2d4a6f; border-radius: 8px; padding: 12px; }
+  .dp-proj-box .lbl { color: var(--gold); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  .dp-cmp-card { background: #0B0F14; border: 1px solid #1F2A35; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+  .dp-cmp-card.baseline { border-color: var(--gold); }
+  .dp-cmp-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; font-size: 0.75rem; }
+  .dp-cmp-bar-row .who { width: 110px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dp-cmp-bar { flex: 1; height: 20px; background: #1F2A35; border-radius: 999px; overflow: hidden; position: relative; }
+  .dp-cmp-bar .fill { height: 100%; }
+  .dp-cmp-bar .val { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; }
+  .fill.t90 { background: #27ae60; } .fill.t80 { background: #3498db; } .fill.t70 { background: #f39c12; } .fill.t0 { background: #94a3b8; }
+  .dp-diff-pos { color: #27ae60; } .dp-diff-neg { color: #e74c3c; }
+</style>
+
+{% macro ovr_class(v) %}{% if v >= 90 %}t90{% elif v >= 80 %}t80{% elif v >= 70 %}t70{% else %}t0{% endif %}{% endmacro %}
+{% macro proj_label(r) %}{% if r %}R{{ r }}{% else %}UDFA{% endif %}{% endmacro %}
+
+<div id="draft-root"
+     data-mode="{{ mode }}"
+     data-your-turn="{{ '1' if your_turn else '0' }}"
+     data-active="{{ '1' if (mode == 'live' and current_slot) else '0' }}"
+     data-current-round="{{ active_round }}"
+     data-init-group="{{ active_group | default('ALL') }}"
+     data-init-sort="{{ active_sort | default('ovr') }}"
+     data-init-dir="{{ active_dir | default('desc') }}">
+
+  <div class="dp-title">
+    <h1>Draft</h1>
+    <p>
+      {{ draft_year }} NFL Draft
+      {% if mode == "live" %}
+        {% if current_slot %}&middot; Round {{ current_slot.round }} &middot; {{ picks_made }} of {{ total_slots }} picks made{% else %}&middot; Complete{% endif %}
+      {% elif mode == "prospects" %}
+        &middot; Prospects &middot; the live draft opens once the offseason reaches it
+      {% else %}
+        &middot; Results &middot; {{ undrafted_count }} prospects went undrafted and joined free agency
+      {% endif %}
+    </p>
+  </div>
+
+  {% if mode == "review" and just_completed %}
+  <div class="dp-banner">Here's the draft that just finished. Sim Week picks back up with next season's preseason whenever you're ready.</div>
   {% endif %}
-</div>
-{% endif %}
-
-<div class="card">
-  <h3>Draft Order</h3>
-  <p class="muted" style="font-size: 0.82rem;">Worst record first (real strength-of-schedule and seeded-coin-flip tiebreaks).</p>
-  <div class="dashboard-scroll">
-    <ol>
-      {% for abbr in draft_order %}
-      <li>{{ team_link(abbr) }}{% if abbr == user_abbr %} <span class="muted">(you)</span>{% endif %}</li>
-      {% endfor %}
-    </ol>
+  {% if trade_result %}
+  <div class="dp-banner">
+    {% if trade_result == 'ACCEPT' %}<strong>{{ team_b }}</strong> accepted your trade.
+    {% else %}<strong>{{ team_b }}</strong> rejected your trade &mdash; the value they'd receive isn't close enough to what they'd give up.{% endif %}
   </div>
-</div>
+  {% endif %}
 
-<div class="card">
-  <h3>Full Results by Round</h3>
-  <div class="dash-tabs-grid cols-4" data-tabgroup="draft-rounds">
-    {% for round_num in picks_by_round.keys() | sort %}
-    <button type="button" class="dash-tab {% if loop.first %}active{% endif %}" data-tab="r{{ round_num }}">Round {{ round_num }}</button>
-    {% endfor %}
-  </div>
-  {% for round_num in picks_by_round.keys() | sort %}
-  <div class="dash-panel" data-panel="r{{ round_num }}" data-tabgroup-panel="draft-rounds" {% if not loop.first %}hidden{% endif %}>
-    <table class="boxtable">
-      <thead><tr><th>Pick</th><th>Team</th><th>Player</th><th>Pos</th><th>College</th><th>OVR</th></tr></thead>
-      <tbody>
-        {% for p in picks_by_round[round_num] %}
-        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
-          <td>#{{ p.overall_pick }}</td>
-          <td>{{ team_link(p.team_abbr) }}</td>
-          <td>{{ player_link_or_name(p.name, p.team_abbr) }}</td>
-          <td>{{ p.position }}</td>
-          <td>{{ p.college }}</td>
-          <td>{{ p.overall_rating }}</td>
-        </tr>
+  {# ---- Top row: Team Picks (9) + Team Needs (3) ---- #}
+  {% if user_abbr %}
+  <div class="dp-grid">
+    <section class="dp-panel dp-stretch {{ 'dp-col-9' if mode != 'review' else 'dp-col-12' }}">
+      <h3>Team Picks ({{ team_picks | length }})</h3>
+      {% if team_picks %}
+      <div class="dp-chips">
+        {% for pk in team_picks %}
+        <div class="dp-pick-chip {% if pk.label %}used{% endif %}">
+          {% if pk.label %}
+          <div class="dp-pick-rd">Round {{ pk.round }} &middot; Pick #{{ pk.overall_pick }}</div>
+          <div class="dp-pick-main">{{ pk.label }}</div>
+          {% else %}
+          <div class="dp-pick-rd">Round {{ pk.round }}</div>
+          <div class="dp-pick-main">{% if pk.overall_pick %}Pick #{{ pk.overall_pick }}{% else %}Pick TBD{% if pk.via %} <span class="dp-sub" style="display:inline">via {{ pk.via }}</span>{% endif %}{% endif %}</div>
+          {% endif %}
+        </div>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endfor %}
-</div>
-
-{% elif mode == "live" %}
-<div class="card">
-  <h2>Draft &mdash; Season {{ target_season + 1 }}</h2>
-  <p class="muted">Live, real, pick-by-pick -- {{ picks_made }} of {{ total_slots }} picks made.</p>
-  {% if current_slot %}
-  <p>
-    {% if your_turn %}
-    <strong>You're on the clock</strong> &mdash; Pick #{{ current_slot.overall_pick }} (Round {{ current_slot.round }}). Pick a prospect below.
-    {% else %}
-    {{ team_link(current_slot.team_abbr) }} is on the clock &mdash; Pick #{{ current_slot.overall_pick }} (Round {{ current_slot.round }}).
+      </div>
+      {% else %}
+      <p class="dp-sub">No picks in this draft.</p>
+      {% endif %}
+    </section>
+    {% if mode != "review" %}
+    <section class="dp-panel dp-stretch dp-col-3">
+      <h3>Team Needs</h3>
+      <div class="dp-need-chips">
+        {% for group, rating in needs %}
+        <div class="dp-need-chip" title="{{ group }} group rating {{ rating | round(1) }} (weakest first)">{{ group }}</div>
+        {% endfor %}
+      </div>
+    </section>
     {% endif %}
-  </p>
-  {% else %}
-  <p><strong>Draft complete.</strong></p>
-  {% endif %}
-  <div class="row" style="gap: 0.6rem;">
-    <form method="post" action="/draft/sim-pick"><button type="submit" {% if your_turn %}disabled{% endif %}>Sim Pick</button></form>
-    <form method="post" action="/draft/sim-to-next-pick"><button type="submit" {% if your_turn %}disabled{% endif %}>Sim to Your Next Pick</button></form>
-    <form method="post" action="/draft/end"><button type="submit" style="background:#3a3f52; border-color:#3a3f52;">End (auto-draft the rest)</button></form>
   </div>
-</div>
-
-{% if trade_result %}
-<div class="card">
-  {% if trade_result == 'ACCEPT' %}
-  <p><strong>{{ team_b }}</strong> accepted your trade.</p>
-  {% else %}
-  <p><strong>{{ team_b }}</strong> rejected your trade &mdash; the value they'd receive isn't close enough to what they'd give up.</p>
   {% endif %}
-</div>
-{% endif %}
 
-<div class="card">
-  <h3>Team Picks ({{ team_picks | length }})</h3>
-  {% if team_picks %}
-  <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
-    {% for slot in team_picks %}
-    <span class="pc-badge-ovr">Round {{ slot.round }}<br>Pick #{{ slot.overall_pick }}</span>
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="muted">No picks left in this draft.</p>
-  {% endif %}
-</div>
-
-<div class="card">
-  <h3>Draft Results</h3>
-  {% if picks_so_far %}
-  <div class="dashboard-scroll">
-    <table class="boxtable">
-      <thead><tr><th>Pick</th><th>Team</th><th>Player</th><th>Pos</th><th>College</th><th>OVR</th></tr></thead>
-      <tbody>
-        {% for p in picks_so_far %}
-        <tr class="{% if p.team_abbr == user_abbr %}starter{% endif %}">
-          <td>#{{ p.overall_pick }}</td>
-          <td>{{ team_link(p.team_abbr) }}</td>
-          <td>{{ p.name }}</td>
-          <td>{{ p.position }}</td>
-          <td>{{ p.college }}</td>
-          <td>{{ p.overall_rating }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">No picks yet.</p>
-  {% endif %}
-</div>
-
-<div class="card">
-  <h3>Team Needs ({{ user_abbr }})</h3>
-  <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
-    {% for group, rating in needs %}
-    <span class="pc-badge-ovr" title="Group rating: {{ rating | round(1) }}">{{ group }}</span>
-    {% endfor %}
-  </div>
-</div>
-
-<div class="card">
-  <h3>Your Draft Board ({{ board | length }})</h3>
-  <p class="muted" style="font-size: 0.82rem;">Your own reference ranking -- doesn't affect the real, need-aware AI picks (including your own, if you let "End" auto-draft them).</p>
-  {% if board %}
-  <div class="dashboard-scroll">
-    <table class="boxtable">
-      <thead><tr><th>#</th><th>Player</th><th>Pos</th><th>OVR</th><th>POT</th><th></th></tr></thead>
-      <tbody>
-        {% for p in board %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ p.first_name }} {{ p.last_name }}</td>
-          <td>{{ p.position.value }}</td>
-          <td>{{ p.overall_rating }}</td>
-          <td>{{ p.potential }}</td>
-          <td class="row" style="gap: 0.3rem;">
+  {# ---- Draft Results (3) + Prospects (9) ---- #}
+  <div class="dp-grid">
+    <section class="dp-dark {{ 'dp-col-12' if mode == 'review' else 'dp-col-3' }}" id="dp-results">
+      <div class="dp-results-head">
+        <div class="dp-row">
+          <h3>Draft Results</h3>
+          {% if mode == "live" %}
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            {% if current_slot %}
+            <button type="button" class="dp-btn pause" id="dp-pause" hidden>&#10074;&#10074; Pause</button>
             {% if your_turn %}
-            <form method="post" action="/draft/pick">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <button type="submit">Draft</button>
-            </form>
+            <span class="dp-status on-clock"><span class="dot"></span>You're on the clock &middot; Pick #{{ current_slot.overall_pick }}</span>
+            {% else %}
+            <span class="dp-status waiting" id="dp-status"><span class="dot"></span>{{ current_slot.team_abbr }} on the clock &middot; Pick #{{ current_slot.overall_pick }}</span>
             {% endif %}
-            <form method="post" action="/draft/board/move">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <input type="hidden" name="direction" value="up">
-              <button type="submit" {% if loop.first %}disabled{% endif %}>&uarr;</button>
-            </form>
-            <form method="post" action="/draft/board/move">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <input type="hidden" name="direction" value="down">
-              <button type="submit" {% if loop.last %}disabled{% endif %}>&darr;</button>
-            </form>
-            <form method="post" action="/draft/board/remove">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <button type="submit">Remove</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">Nothing on your board yet -- add prospects from the Prospects list below.</p>
-  {% endif %}
-</div>
-
-{% if user_abbr %}
-<div class="card">
-  <h3>Your Roster ({{ roster | length }})</h3>
-  <div class="dashboard-scroll" style="max-height: 320px;">
-    <table class="boxtable">
-      <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Age</th></tr></thead>
-      <tbody>
-        {% for p in roster %}
-        <tr>
-          <td>{{ p.first_name }} {{ p.last_name }}</td>
-          <td>{{ p.position.value }}</td>
-          <td>{{ p.overall_rating }}</td>
-          <td>{{ p.age }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card" id="draft-trade-card">
-  <h3>Trade Picks</h3>
-  <p class="muted" style="font-size: 0.82rem;">Real draft-pick trading (GDD &sect;8.5), right on the draft screen -- posts through the exact same evaluation GM Desk's own Propose Trade panel uses.</p>
-  <form method="get" action="/draft" data-preserve-scroll="draft-trade-card">
-    <label for="draft-team-b">Trade with</label>
-    <select name="team_b" id="draft-team-b" onchange="this.form.submit()">
-      <option value="">Choose a team&hellip;</option>
-      {% for t in other_teams %}
-      <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
-      {% endfor %}
-    </select>
-  </form>
-  {% if team_b_info %}
-  <form method="post" action="/gm-desk/trade">
-    <input type="hidden" name="team_b" value="{{ team_b }}">
-    <input type="hidden" name="return_to" value="draft">
-    <div class="row" style="gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin-top: 0.5rem;">
-      <div>
-        <h4>{{ user_abbr }} sends</h4>
-        {% if user_tradeable_picks %}
-        {% for pk in user_tradeable_picks %}
-        <label class="filter-checkbox" style="display: block;"><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
-        {% endfor %}
-        {% else %}
-        <p class="muted">No tradeable picks.</p>
+            {% else %}
+            <span class="dp-status waiting"><span class="dot"></span>Draft complete</span>
+            {% endif %}
+          </div>
+          {% elif mode == "review" %}
+          <div class="dp-years">
+            <span class="dp-sub">Draft Year:</span>
+            {% for y in year_options %}<a href="{{ y.url }}" class="{% if y.season_number == target_season %}active{% endif %}">{{ y.year }}</a>{% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        {% if rounds %}
+        <div class="dp-round-tabs" role="tablist">
+          {% for r in range(1, 8) %}
+          <button type="button" class="dp-round-tab {% if r == active_round %}active{% endif %}" data-round="{{ r }}">{{ r }}</button>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if mode == "live" and current_slot %}
+        <div class="dp-sim-row">
+          <form method="post" action="/draft/sim-pick" class="dp-inline-form"><button type="submit" class="dp-btn block" {% if your_turn %}disabled{% endif %}>Sim Pick</button></form>
+          <form method="post" action="/draft/sim-to-next-pick" class="dp-inline-form" id="dp-sim-next-form"><button type="submit" class="dp-btn block" {% if your_turn %}disabled{% endif %}>Sim to Next Pick</button></form>
+          <form method="post" action="/draft/end" class="dp-inline-form span2" data-confirm="End the draft? Every remaining pick -- including your own -- will be auto-drafted."><button type="submit" class="dp-btn block">End (auto-draft the rest)</button></form>
+        </div>
         {% endif %}
       </div>
-      <div>
-        <h4>{{ team_b_info.abbr }} sends</h4>
-        {% if trade_partner_picks %}
-        {% for pk in trade_partner_picks %}
-        <label class="filter-checkbox" style="display: block;"><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
+      {% if rounds %}
+      <div class="dp-results-scroll" id="dp-results-scroll">
+        {% for r in range(1, 8) %}
+        <div class="dp-round-panel" data-round-panel="{{ r }}" {% if r != active_round %}hidden{% endif %}>
+          <table class="dp-results-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Team</th><th>Player</th>
+                {% if mode == "review" %}<th>Pos</th><th>College</th><th>OVR</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for pk in rounds.get(r, []) %}
+              <tr class="{% if not pk.made %}pending{% endif %}{% if current_slot and pk.overall_pick == current_slot.overall_pick %} current{% endif %}{% if pk.team_abbr == user_abbr %} mine{% endif %}">
+                <td style="color:#fff">{{ pk.overall_pick }}</td>
+                <td>{% if mode == "review" %}{{ team_link(pk.team_abbr) }}{% else %}<span class="dp-team-badge">{{ pk.team_abbr }}</span>{% endif %}</td>
+                <td>
+                  {% if pk.made %}
+                  {% if mode == "review" %}
+                  {{ player_link_or_name(pk.name, pk.team_abbr) }}
+                  {% else %}
+                  <div style="color:#fff">{{ pk.name }}</div>
+                  <div class="dp-pick-sub">{{ pk.position }} &middot; {{ pk.overall_rating }}</div>
+                  {% endif %}
+                  {% else %}<span class="dp-pick-sub">-</span>{% endif %}
+                </td>
+                {% if mode == "review" %}<td>{{ pk.position }}</td><td>{{ pk.college }}</td><td>{{ pk.overall_rating }}</td>{% endif %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
         {% endfor %}
+      </div>
+      {% else %}
+      <div class="dp-empty">
+        The draft order is set once this season ends (worst record picks first).
+        {% if has_prior_draft %}<br><a href="/draft?season_param={{ target_season - 1 }}">View last year's draft results &rarr;</a>{% endif %}
+      </div>
+      {% endif %}
+    </section>
+
+    {% if mode != "review" %}
+    <section class="dp-prospects-card dp-col-9" id="draftProspectsCard">
+      <div class="dp-prospects-header">
+        <div class="dp-row">
+          <div>
+            <div class="dp-title-line">
+              <h3>Prospects (<span id="dp-visible-count">{{ prospects | length }}</span>)</h3>
+              <div class="dp-years">
+                <span class="dp-sub">Draft Year:</span>
+                {% for y in year_options %}<a href="{{ y.url }}" class="{% if y.season_number == target_season %}active{% endif %}">{{ y.year }}</a>{% endfor %}
+              </div>
+            </div>
+            <p class="dp-sub" id="dp-select-note" style="margin-top:4px; font-size:0.875rem;">Select up to 5 prospects to compare</p>
+          </div>
+          <div class="dp-compare-actions" id="dp-compare-actions" hidden>
+            <button type="button" class="dp-btn" id="dp-clear">Clear</button>
+            <button type="button" class="dp-btn gold" id="dp-compare">Compare</button>
+          </div>
+        </div>
+        <div class="dp-filter-chips">
+          {% for g in group_tabs %}
+          <button type="button" class="dp-filter-chip {% if g == active_group %}active{% endif %}" data-group="{{ g }}">{{ g }} {{ group_counts[g] }}</button>
+          {% endfor %}
+        </div>
+        <input type="search" class="dp-search" id="dp-search" placeholder="Search name, POS, college" autocomplete="off">
+      </div>
+      <div class="dp-topbar" id="dp-topbar"><div class="sizer"></div></div>
+      <div class="dp-scroll" id="dp-scroll">
+        <table class="dp-table" id="dp-table">
+          <thead>
+            <tr>
+              <th class="sticky-cb nosort" title="Compare"></th>
+              <th class="sticky-name" data-sort="name" data-type="str">Player <span class="arrow">&#8597;</span></th>
+              <th class="center nosort">Board</th>
+              {% if your_turn %}<th class="center nosort"></th>{% endif %}
+              <th class="left" data-sort="pos" data-type="str">Pos <span class="arrow">&#8597;</span></th>
+              <th class="left" data-sort="college" data-type="str">College <span class="arrow">&#8597;</span></th>
+              <th data-sort="age" data-type="num">Age <span class="arrow">&#8597;</span></th>
+              <th class="center" data-sort="need" data-type="num" title="Plays one of your Team Needs">Need <span class="arrow">&#8597;</span></th>
+              <th data-sort="proj" data-type="num" title="Projected round: consensus ranking by OVR plus positional draft value">Proj <span class="arrow">&#8597;</span></th>
+              <th class="center" data-sort="grade" data-type="num" title="Draft grade (A 85+, B 70+, C 55+, D)">Grade <span class="arrow">&#8597;</span></th>
+              <th data-sort="ovr" data-type="num" title="Overall Rating">OVR <span class="arrow">&#8597;</span></th>
+              <th data-sort="pot" data-type="num" title="Potential">POT <span class="arrow">&#8597;</span></th>
+              {% for key, label, attr, title in rating_columns %}
+              <th data-sort="{{ key }}" data-type="num" data-rating="1" title="{{ title }}" class="{% if loop.first %}rating-first{% endif %}">{{ label }} <span class="arrow">&#8597;</span></th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in prospects %}
+            <tr data-idx="{{ p.index }}" data-group="{{ p.group }}" data-search="{{ (p.name ~ ' ' ~ p.pos ~ ' ' ~ p.group ~ ' ' ~ p.college) | lower }}"
+                data-name="{{ p.name }}" data-pos="{{ p.pos }}" data-college="{{ p.college }}" data-grade="{{ p.grade }}"
+                data-proj="{{ proj_label(p.proj) }}" data-on-board="{{ '1' if p.on_board else '0' }}">
+              <td class="sticky-cb"><input type="checkbox" class="dp-cmp" value="{{ p.index }}" aria-label="Compare {{ p.name }}"></td>
+              <td class="sticky-name" data-v="{{ p.name | lower }}">
+                <button type="button" class="dp-name" data-prospect-card>{{ p.name }}</button>
+                <div class="dp-pos-sub">{{ p.pos }} &middot; {{ p.college }}</div>
+              </td>
+              <td class="center">
+                {% if user_abbr %}
+                <form method="post" action="/draft/board/{{ 'remove' if p.on_board else 'add' }}" class="dp-inline-form">
+                  <input type="hidden" name="prospect_index" value="{{ p.index }}">
+                  <button type="submit" class="dp-btn" title="{{ 'Remove from' if p.on_board else 'Add to' }} Draft Board">{% if p.on_board %}&#10003; Board{% else %}+ Board{% endif %}</button>
+                </form>
+                {% endif %}
+              </td>
+              {% if your_turn %}
+              <td class="center">
+                <form method="post" action="/draft/pick" class="dp-inline-form">
+                  <input type="hidden" name="prospect_index" value="{{ p.index }}">
+                  <button type="submit" class="dp-btn gold">Draft</button>
+                </form>
+              </td>
+              {% endif %}
+              <td class="left" data-v="{{ p.pos }}">{{ p.pos }}</td>
+              <td class="left" data-v="{{ p.college | lower }}">{{ p.college }}</td>
+              <td>{{ p.age }}</td>
+              <td class="center" data-v="{{ 1 if p.need else 0 }}">{% if p.need %}<span class="dp-need">NEED</span>{% endif %}</td>
+              <td data-v="{{ p.proj or 8 }}">{{ proj_label(p.proj) }}</td>
+              <td class="center" data-v="{{ {'A': 4, 'B': 3, 'C': 2}.get(p.grade, 1) }}">{{ p.grade }}</td>
+              <td data-k="ovr" data-v="{{ p.ovr }}"><span class="dp-ovr {{ ovr_class(p.ovr) }}">{{ p.ovr }}</span></td>
+              <td data-k="pot">{{ p.pot }}</td>
+              {% for value in p.ratings %}
+              <td data-k="{{ rating_columns[loop.index0][0] }}"{% if loop.first %} class="rating-first"{% endif %}>{{ value }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if not prospects %}<div class="dp-empty">Every prospect has been drafted.</div>{% endif %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  {% if mode != "review" %}
+  {# ---- Draft Board (5) + Trade (5) + Top Prospects (2) ---- #}
+  <div class="dp-grid">
+    {% if user_abbr %}
+    <section class="dp-dark dp-col-5" style="min-height:260px;">
+      <div style="padding:16px; border-bottom:1px solid #1F2A35;">
+        <h3 style="margin:0">Draft Board ({{ board | length }})</h3>
+      </div>
+      <div class="dp-board-list">
+        <p class="dp-board-note">Your own reference ranking -- it doesn't steer the AI, including your own picks if you let "End" auto-draft them.</p>
+        {% for p in board %}
+        <div class="dp-board-item" data-idx="{{ p.index }}">
+          <div class="dp-rank">{{ loop.index }}</div>
+          <div class="dp-board-main">
+            <div class="dp-board-top">
+              <div style="min-width:0">
+                <button type="button" class="dp-name" data-prospect-card>{{ p.name }}</button>
+                <div class="dp-college">{{ p.college }} &middot; POT {{ p.pot }} &middot; {{ proj_label(p.proj) }}</div>
+              </div>
+              <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+                <span class="dp-pos-badge">{{ p.pos }}</span>
+                <span class="dp-ovr {{ ovr_class(p.ovr) }}" style="font-size:0.75rem">{{ p.ovr }}</span>
+              </div>
+            </div>
+            <div class="dp-board-actions">
+              {% if your_turn %}
+              <form method="post" action="/draft/pick" class="dp-inline-form">
+                <input type="hidden" name="prospect_index" value="{{ p.index }}">
+                <button type="submit" class="dp-btn gold">Draft</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/draft/board/move" class="dp-inline-form">
+                <input type="hidden" name="prospect_index" value="{{ p.index }}"><input type="hidden" name="direction" value="up">
+                <button type="submit" class="dp-icon-btn" title="Move up" {% if loop.first %}disabled{% endif %}>&#9650;</button>
+              </form>
+              <form method="post" action="/draft/board/move" class="dp-inline-form">
+                <input type="hidden" name="prospect_index" value="{{ p.index }}"><input type="hidden" name="direction" value="down">
+                <button type="submit" class="dp-icon-btn" title="Move down" {% if loop.last %}disabled{% endif %}>&#9660;</button>
+              </form>
+              <form method="post" action="/draft/board/remove" class="dp-inline-form" style="margin-left:auto">
+                <input type="hidden" name="prospect_index" value="{{ p.index }}">
+                <button type="submit" class="dp-icon-btn remove" title="Remove from board">&#10005;</button>
+              </form>
+            </div>
+          </div>
+        </div>
         {% else %}
-        <p class="muted">No tradeable picks.</p>
+        <div class="dp-empty">Add players to your board from Prospects.</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="dp-panel dp-col-5" id="draft-trade-card">
+      <h3>Trade Picks</h3>
+      <p class="dp-sub" style="margin-bottom:10px;">Real draft-pick trading (GDD &sect;8.5) -- the same evaluation GM Desk's Propose Trade panel uses.</p>
+      <form method="get" action="/draft" data-soft-get>
+        <label for="draft-team-b">Trade with</label>
+        <select name="team_b" id="draft-team-b" style="font-size:0.9rem;">
+          <option value="">Choose a team&hellip;</option>
+          {% for t in other_teams %}
+          <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% if team_b_info %}
+      <form method="post" action="/gm-desk/trade">
+        <input type="hidden" name="team_b" value="{{ team_b }}">
+        <input type="hidden" name="return_to" value="draft">
+        <div style="display:flex; gap:1.5rem; align-items:flex-start; flex-wrap:wrap; margin-top:0.5rem;">
+          <div>
+            <h4 style="margin:0.4rem 0">{{ user_abbr }} sends</h4>
+            {% for pk in user_tradeable_picks %}
+            <label class="filter-checkbox" style="display:block;"><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
+            {% else %}<p class="dp-sub">No tradeable picks.</p>{% endfor %}
+          </div>
+          <div>
+            <h4 style="margin:0.4rem 0">{{ team_b_info.abbr }} sends</h4>
+            {% for pk in trade_partner_picks %}
+            <label class="filter-checkbox" style="display:block;"><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
+            {% else %}<p class="dp-sub">No tradeable picks.</p>{% endfor %}
+          </div>
+        </div>
+        <button type="submit" class="dp-btn gold" style="margin-top:0.75rem; font-size:0.85rem; padding:6px 14px;">Submit Offer</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="dp-dark {{ 'dp-col-2' if user_abbr else 'dp-col-12' }}" style="padding:16px;">
+      <h3 style="font-size:0.875rem; text-transform:uppercase; letter-spacing:0.04em;">Top Prospects</h3>
+      {% for p in top_prospects %}
+      <div class="dp-top-item" data-idx="{{ p.index }}">
+        <button type="button" class="dp-name" data-prospect-card>{{ p.name }}</button>
+        <div class="dp-meta"><span class="dp-pos-badge">{{ p.pos }}</span><span class="dp-ovr {{ ovr_class(p.ovr) }}" style="padding:0 4px">{{ p.ovr }}</span><span class="dp-pick-sub">{{ proj_label(p.proj) }}</span></div>
+        <div class="dp-college">{{ p.college }}</div>
+        {% if user_abbr and not p.on_board %}
+        <form method="post" action="/draft/board/add" class="dp-inline-form">
+          <input type="hidden" name="prospect_index" value="{{ p.index }}">
+          <button type="submit" class="dp-btn block">+Board</button>
+        </form>
         {% endif %}
+      </div>
+      {% else %}
+      <p class="dp-sub">No prospects left.</p>
+      {% endfor %}
+    </section>
+  </div>
+
+  {% if user_abbr %}
+  <section class="dp-panel" style="margin-bottom:16px;">
+    <h3>Your Roster ({{ roster | length }})</h3>
+    <div class="dashboard-scroll" style="max-height: 320px;">
+      <table class="boxtable">
+        <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th></tr></thead>
+        <tbody>
+          {% for p in roster %}
+          <tr><td>{{ p.first_name }} {{ p.last_name }}</td><td>{{ p.position.value }}</td><td>{{ p.overall_rating }}</td><td>{{ p.potential }}</td><td>{{ p.age }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+  {% endif %}
+</div>
+
+{# ---- Prospect Card (ProspectCardModal.tsx) ---- #}
+<dialog class="dp-dialog" id="dp-card">
+  <div class="dp-dialog-head">
+    <div>
+      <h2 id="dp-card-name"></h2>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span class="dp-pos-badge" id="dp-card-pos"></span>
+        <span class="dp-ovr" id="dp-card-ovr"></span>
+        <span class="dp-pos-badge" style="border-color:var(--gold); color:var(--gold);" id="dp-card-college"></span>
       </div>
     </div>
-    <button type="submit" style="margin-top: 0.75rem;">Submit Offer</button>
-  </form>
-  {% endif %}
-</div>
-{% endif %}
+    <button type="button" class="dp-icon-btn" data-close-dialog aria-label="Close">&#10005;</button>
+  </div>
+  <div class="dp-dialog-body">
+    <div class="dp-card-cols">
+      <div>
+        <h4 class="dp-h4">Attributes</h4>
+        <div id="dp-card-attrs"></div>
+      </div>
+      <div>
+        <h4 class="dp-h4">Key Ratings</h4>
+        <div id="dp-card-key"></div>
+        <div class="dp-proj-box" style="margin-top:14px;">
+          <div class="lbl">Draft Projection</div>
+          <div id="dp-card-proj"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dp-dialog-foot">
+    <button type="button" class="dp-btn" data-close-dialog>Close</button>
+    <button type="button" class="dp-btn" id="dp-card-board" style="color:#fff">Add to Board</button>
+    <button type="button" class="dp-btn gold" id="dp-card-draft" hidden>Draft</button>
+  </div>
+</dialog>
 
-<div class="card" id="draft-prospects">
-  <h3>Prospects ({{ prospects | length }} remaining)</h3>
-  <div class="row" style="gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
-    {% for g in group_tabs %}
-    <a href="/draft?group={{ g }}&sort={{ active_sort }}&dir={{ active_dir }}" class="dash-tab {% if g == active_group %}active{% endif %}" data-preserve-scroll="draft-prospects">{{ g }}</a>
-    {% endfor %}
+{# ---- Compare (CompareDrawer.tsx) ---- #}
+<dialog class="dp-dialog" id="dp-compare-dialog" style="width:860px;">
+  <div class="dp-dialog-head">
+    <div><h2>Compare Prospects</h2><p class="dp-sub">Compare up to 5 prospects side by side</p></div>
+    <button type="button" class="dp-icon-btn" data-close-dialog aria-label="Close">&#10005;</button>
   </div>
-  <div class="dashboard-scroll">
-    <table class="boxtable">
-      <thead>
-        <tr>
-          <th>Player</th><th>Pos</th><th>College</th><th>Age</th><th>OVR</th><th>POT</th><th>Grade</th>
-          {% if your_turn %}<th></th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in prospects %}
-        <tr>
-          <td>{{ p.first_name }} {{ p.last_name }}</td>
-          <td>{{ p.position.value }}</td>
-          <td>{{ p.college }}</td>
-          <td>{{ p.age }}</td>
-          <td>{{ p.overall_rating }}</td>
-          <td>{{ p.potential }}</td>
-          <td>{{ p.draft_grade }}</td>
-          {% if your_turn %}
-          <td>
-            <form method="post" action="/draft/pick">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <button type="submit">Draft</button>
-            </form>
-          </td>
-          {% endif %}
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+  <div class="dp-dialog-body" id="dp-compare-body"></div>
+</dialog>
 
-{% else %}
-<div class="card">
-  <h2>Draft &mdash; Season {{ target_season + 1 }} Prospects</h2>
-  <p class="muted">
-    Next season's real draft class -- generated the moment this season began, browsable and board-able the
-    whole way through. The real 7-round draft itself (worst-to-best order, need-aware AI, a real manual pick
-    for your own team's turns) runs live once the offseason reaches it.
-    {% if has_prior_draft %}<a href="/draft?season_param={{ target_season - 1 }}">View this season's own draft results &rarr;</a>{% endif %}
-  </p>
-</div>
+<script>
+(function () {
+  var state = {
+    group: null, sort: null, dir: null, search: '', round: null, roundPinned: false,
+    selected: [], simming: false, paused: false, busy: false
+  };
+  var COMPARE_ATTRS = [['ovr', 'Overall'], ['pot', 'Potential'], ['spd', 'Speed'], ['agi', 'Agility'], ['str', 'Strength'], ['awr', 'Awareness']];
 
-{% if user_abbr %}
-<div class="card">
-  <h3>Team Needs ({{ user_abbr }})</h3>
-  <p class="muted" style="font-size: 0.82rem;">Your weakest position groups by real roster talent (roster_strength.py), weakest first.</p>
-  <div class="row" style="gap: 0.5rem; flex-wrap: wrap;">
-    {% for group, rating in needs %}
-    <span class="pc-badge-ovr" title="Group rating: {{ rating | round(1) }}">{{ group }}</span>
-    {% endfor %}
-  </div>
-</div>
+  function root() { return document.getElementById('draft-root'); }
+  function tierClass(v) { return v >= 90 ? 't90' : v >= 80 ? 't80' : v >= 70 ? 't70' : 't0'; }
 
-<div class="card">
-  <h3>Your Draft Board ({{ board | length }})</h3>
-  <p class="muted" style="font-size: 0.82rem;">Your own reference ranking -- doesn't affect the real, need-aware AI picks (including your own, if you let "End" auto-draft them).</p>
-  {% if board %}
-  <div class="dashboard-scroll">
-    <table class="boxtable">
-      <thead><tr><th>#</th><th>Player</th><th>Pos</th><th>OVR</th><th>POT</th><th></th></tr></thead>
-      <tbody>
-        {% for p in board %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ p.first_name }} {{ p.last_name }}</td>
-          <td>{{ p.position.value }}</td>
-          <td>{{ p.overall_rating }}</td>
-          <td>{{ p.potential }}</td>
-          <td class="row" style="gap: 0.3rem;">
-            <form method="post" action="/draft/board/move">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <input type="hidden" name="direction" value="up">
-              <button type="submit" {% if loop.first %}disabled{% endif %}>&uarr;</button>
-            </form>
-            <form method="post" action="/draft/board/move">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <input type="hidden" name="direction" value="down">
-              <button type="submit" {% if loop.last %}disabled{% endif %}>&darr;</button>
-            </form>
-            <form method="post" action="/draft/board/remove">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <button type="submit">Remove</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">Nothing on your board yet -- add prospects from the list below.</p>
-  {% endif %}
-</div>
-{% endif %}
+  // ---------- prospects table: filter / search / sort (client-side) ----------
+  function cellValue(row, colIndex, type) {
+    var cell = row.cells[colIndex];
+    if (!cell) { return type === 'num' ? 0 : ''; }
+    var raw = cell.hasAttribute('data-v') ? cell.getAttribute('data-v') : cell.textContent.trim();
+    return type === 'num' ? (parseFloat(raw) || 0) : raw.toLowerCase();
+  }
 
-<div class="card">
-  <h3>Prospects ({{ prospects | length }})</h3>
-  <div class="row" style="gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
-    {% for g in group_tabs %}
-    <a href="{{ group_links[g] }}" class="dash-tab {% if g == active_group %}active{% endif %}">{{ g }}</a>
-    {% endfor %}
-  </div>
-  <div class="dashboard-scroll">
-    <table class="boxtable">
-      <thead>
-        <tr>
-          <th><a href="{{ sort_links.name }}">Player</a></th>
-          <th><a href="{{ sort_links.pos }}">Pos</a></th>
-          <th><a href="{{ sort_links.college }}">College</a></th>
-          <th><a href="{{ sort_links.age }}">Age</a></th>
-          <th><a href="{{ sort_links.ovr }}">OVR</a></th>
-          <th><a href="{{ sort_links.pot }}">POT</a></th>
-          <th>Grade</th>
-          {% if user_abbr %}<th></th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in prospects %}
-        <tr>
-          <td>{{ p.first_name }} {{ p.last_name }}</td>
-          <td>{{ p.position.value }}</td>
-          <td>{{ p.college }}</td>
-          <td>{{ p.age }}</td>
-          <td>{{ p.overall_rating }}</td>
-          <td>{{ p.potential }}</td>
-          <td>{{ p.draft_grade }}</td>
-          {% if user_abbr %}
-          <td>
-            {% if p.index in board_indexes %}
-            <form method="post" action="/draft/board/remove">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <button type="submit">On Board</button>
-            </form>
-            {% else %}
-            <form method="post" action="/draft/board/add">
-              <input type="hidden" name="prospect_index" value="{{ p.index }}">
-              <button type="submit">+ Board</button>
-            </form>
-            {% endif %}
-          </td>
-          {% endif %}
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endif %}
+  function applySort() {
+    var table = document.getElementById('dp-table');
+    if (!table) { return; }
+    var ths = table.tHead.rows[0].cells, colIndex = -1, type = 'num';
+    for (var i = 0; i < ths.length; i++) {
+      ths[i].classList.remove('sorted');
+      var arrow = ths[i].querySelector('.arrow');
+      if (arrow) { arrow.innerHTML = '&#8597;'; }
+      if (ths[i].dataset.sort === state.sort) {
+        colIndex = i; type = ths[i].dataset.type;
+        ths[i].classList.add('sorted');
+        if (arrow) { arrow.innerHTML = state.dir === 'asc' ? '&#9650;' : '&#9660;'; }
+      }
+    }
+    if (colIndex < 0) { return; }
+    var body = table.tBodies[0];
+    var rows = Array.prototype.slice.call(body.rows);
+    var keyed = rows.map(function (r, n) { return { r: r, v: cellValue(r, colIndex, type), n: n }; });
+    var sign = state.dir === 'asc' ? 1 : -1;
+    keyed.sort(function (a, b) {
+      if (a.v < b.v) { return -sign; }
+      if (a.v > b.v) { return sign; }
+      return a.n - b.n;
+    });
+    var frag = document.createDocumentFragment();
+    keyed.forEach(function (k) { frag.appendChild(k.r); });
+    body.appendChild(frag);
+  }
+
+  function applyFilter() {
+    var table = document.getElementById('dp-table');
+    if (!table) { return; }
+    var g = state.group, q = state.search.trim().toLowerCase(), shown = 0;
+    var offense = ['QB', 'RB', 'WR', 'TE', 'OL'], defense = ['DL', 'LB', 'CB', 'S'];
+    Array.prototype.forEach.call(table.tBodies[0].rows, function (row) {
+      var grp = row.dataset.group;
+      var ok = g === 'ALL' || (g === 'OFFENSE' ? offense.indexOf(grp) >= 0 : g === 'DEFENSE' ? defense.indexOf(grp) >= 0 : grp === g);
+      if (ok && q) { ok = row.dataset.search.indexOf(q) >= 0; }
+      row.hidden = !ok;
+      if (ok) { shown++; }
+    });
+    document.querySelectorAll('.dp-filter-chip').forEach(function (c) { c.classList.toggle('active', c.dataset.group === g); });
+    var countEl = document.getElementById('dp-visible-count');
+    if (countEl) { countEl.textContent = shown; }
+    syncSizer();
+  }
+
+  function applySelection() {
+    var alive = [];
+    document.querySelectorAll('#dp-table .dp-cmp').forEach(function (cb) {
+      var on = state.selected.indexOf(cb.value) >= 0;
+      cb.checked = on;
+      cb.closest('tr').classList.toggle('selected', on);
+      if (on) { alive.push(cb.value); }
+    });
+    state.selected = state.selected.filter(function (v) { return alive.indexOf(v) >= 0; });
+    var n = state.selected.length;
+    var note = document.getElementById('dp-select-note');
+    if (note) { note.textContent = n > 0 ? n + ' selected' + (n >= 5 ? ' (max)' : '') : 'Select up to 5 prospects to compare'; }
+    var actions = document.getElementById('dp-compare-actions');
+    if (actions) { actions.hidden = n === 0; }
+    var cmpBtn = document.getElementById('dp-compare');
+    if (cmpBtn) { cmpBtn.hidden = n < 2; cmpBtn.textContent = 'Compare (' + n + ')'; }
+  }
+
+  function applyRound() {
+    var r = root();
+    if (!state.roundPinned) { state.round = r.dataset.currentRound; }
+    document.querySelectorAll('.dp-round-tab').forEach(function (t) { t.classList.toggle('active', t.dataset.round === String(state.round)); });
+    document.querySelectorAll('.dp-round-panel').forEach(function (p) { p.hidden = p.dataset.roundPanel !== String(state.round); });
+  }
+
+  // Figma's synced top scrollbar over the wide ratings table.
+  function syncSizer() {
+    var table = document.getElementById('dp-table'), bar = document.getElementById('dp-topbar');
+    if (table && bar) { bar.querySelector('.sizer').style.width = table.scrollWidth + 'px'; }
+  }
+  function wireScrollSync() {
+    var bar = document.getElementById('dp-topbar'), body = document.getElementById('dp-scroll');
+    if (!bar || !body) { return; }
+    var syncing = false;
+    bar.addEventListener('scroll', function () { if (syncing) { return; } syncing = true; body.scrollLeft = bar.scrollLeft; syncing = false; });
+    body.addEventListener('scroll', function () { if (syncing) { return; } syncing = true; bar.scrollLeft = body.scrollLeft; syncing = false; });
+    syncSizer();
+  }
+
+  function updateSimControls() {
+    var r = root(), pause = document.getElementById('dp-pause');
+    if (pause) {
+      pause.hidden = !(state.simming || state.paused);
+      pause.className = 'dp-btn ' + (state.paused ? 'resume' : 'pause');
+      pause.innerHTML = state.paused ? '&#9654; Resume' : '&#10074;&#10074; Pause';
+    }
+    var status = document.getElementById('dp-status');
+    if (status) { status.classList.toggle('simulating', state.simming && !state.paused); }
+    // While auto-simming, the sim controls are locked (Pause is the way to
+    // stop); paused, they come back -- a pause only ever happens on an AI
+    // team's turn, so none of them should be disabled then.
+    if (state.simming) {
+      var locked = !state.paused;
+      r.querySelectorAll('#dp-results form button').forEach(function (b) { b.disabled = locked; });
+    }
+  }
+
+  function initialize(first) {
+    var r = root();
+    if (first) {
+      state.group = r.dataset.initGroup || 'ALL';
+      state.sort = r.dataset.initSort || 'ovr';
+      state.dir = r.dataset.initDir || 'desc';
+      state.round = r.dataset.currentRound;
+    }
+    var search = document.getElementById('dp-search');
+    if (search) { search.value = state.search; }
+    applySort();
+    applyFilter();
+    applySelection();
+    applyRound();
+    wireScrollSync();
+    updateSimControls();
+  }
+
+  // ---------- in-place refresh (no reload, no jump) ----------
+  function swapFrom(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var fresh = doc.getElementById('draft-root');
+    if (!fresh) { return false; }
+    var scroll = document.getElementById('dp-scroll'), results = document.getElementById('dp-results-scroll');
+    var keep = {
+      top: scroll ? scroll.scrollTop : 0, left: scroll ? scroll.scrollLeft : 0,
+      resTop: results ? results.scrollTop : 0, win: window.scrollY
+    };
+    var searchFocused = document.activeElement && document.activeElement.id === 'dp-search';
+    root().replaceWith(fresh);
+    initialize(false);
+    scroll = document.getElementById('dp-scroll'); results = document.getElementById('dp-results-scroll');
+    if (scroll) { scroll.scrollTop = keep.top; scroll.scrollLeft = keep.left; }
+    if (results) { results.scrollTop = keep.resTop; }
+    window.scrollTo(0, keep.win);
+    if (searchFocused) { var s = document.getElementById('dp-search'); if (s) { s.focus(); } }
+    return true;
+  }
+
+  function request(url, options) {
+    return fetch(url, Object.assign({ credentials: 'same-origin' }, options || {})).then(function (resp) {
+      if (!resp.ok) {
+        return resp.text().then(function (t) {
+          var msg = t;
+          try { msg = JSON.parse(t).detail || t; } catch (e) { /* plain text */ }
+          throw new Error(msg);
+        });
+      }
+      var landed = new URL(resp.url, window.location.href);
+      if (landed.pathname !== '/draft') {
+        // The draft's last slot resolved and the franchise advanced (the
+        // Offseason Recap), or any other real redirect -- follow it.
+        window.location.href = resp.url;
+        return null;
+      }
+      return resp.text().then(function (html) {
+        swapFrom(html);
+        var clean = landed.search.indexOf('team_b=') >= 0 ? '/draft' + landed.search : '/draft';
+        if (window.location.pathname + window.location.search !== clean) { history.replaceState(null, '', clean); }
+        return html;
+      });
+    });
+  }
+
+  function submitForm(form) {
+    if (state.busy) { return Promise.resolve(); }
+    state.busy = true;
+    var method = (form.getAttribute('method') || 'get').toUpperCase();
+    var action = form.getAttribute('action') || '/draft';
+    var p = method === 'POST'
+      ? request(action, { method: 'POST', body: new URLSearchParams(new FormData(form)) })
+      : request(action + '?' + new URLSearchParams(new FormData(form)).toString());
+    return p.catch(function (err) { alert(err.message || 'Something went wrong.'); })
+      .then(function () { state.busy = false; });
+  }
+
+  // "Sim to Next Pick", resolved one real pick per request so the board
+  // visibly fills in and Figma's Pause actually has something to pause.
+  // (POST /draft/sim-to-next-pick still does it in one call without JS.)
+  function simLoop() {
+    var r = root();
+    if (r.dataset.active !== '1' || r.dataset.yourTurn === '1') {
+      // Your pick (or the end of the draft) -- stop and jump the results
+      // back to the live round.
+      state.simming = false; state.paused = false; state.roundPinned = false;
+      updateSimControls(); applyRound();
+      return;
+    }
+    if (state.paused) { updateSimControls(); return; }
+    request('/draft/sim-pick', { method: 'POST' }).then(function (html) {
+      if (html === null) { return; }
+      setTimeout(simLoop, 120);
+    }).catch(function (err) {
+      state.simming = false; updateSimControls();
+      alert(err.message || 'Simulation failed.');
+    });
+  }
+
+  // ---------- prospect card ----------
+  var cardIdx = null;
+  function rowFor(idx) { return document.querySelector('#dp-table tr[data-idx="' + idx + '"]'); }
+  function cellByKey(row, key) {
+    var c = row.querySelector('td[data-k="' + key + '"]');
+    return c ? parseInt(c.getAttribute('data-v') || c.textContent, 10) : null;
+  }
+  function openCard(idx) {
+    var row = rowFor(idx);
+    if (!row) { return; }
+    cardIdx = idx;
+    var ovr = cellByKey(row, 'ovr');
+    document.getElementById('dp-card-name').textContent = row.dataset.name;
+    document.getElementById('dp-card-pos').textContent = row.dataset.pos;
+    var ovrEl = document.getElementById('dp-card-ovr');
+    ovrEl.textContent = 'OVR ' + ovr; ovrEl.className = 'dp-ovr ' + tierClass(ovr);
+    document.getElementById('dp-card-college').textContent = row.dataset.college;
+    var rowsHtml = function (pairs) {
+      return pairs.map(function (p) { return '<div class="dp-attr-row"><span>' + p[0] + '</span><span>' + p[1] + '</span></div>'; }).join('');
+    };
+    document.getElementById('dp-card-attrs').innerHTML = rowsHtml([
+      ['Overall', ovr], ['Potential', cellByKey(row, 'pot')], ['Speed', cellByKey(row, 'spd')],
+      ['Strength', cellByKey(row, 'str')], ['Agility', cellByKey(row, 'agi')], ['Awareness', cellByKey(row, 'awr')],
+      ['Grade', '<span style="color:var(--gold)">' + row.dataset.grade + '</span>']
+    ]);
+    // This prospect's five best ratings -- real values off the same row.
+    // INJ is skipped: it's a risk (lower is better), not a skill.
+    var ratings = [];
+    document.querySelectorAll('#dp-table thead th[data-rating]').forEach(function (th) {
+      var v = cellByKey(row, th.dataset.sort);
+      if (v !== null && !isNaN(v) && th.dataset.sort !== 'inj') { ratings.push([th.getAttribute('title'), v]); }
+    });
+    ratings.sort(function (a, b) { return b[1] - a[1]; });
+    document.getElementById('dp-card-key').innerHTML = rowsHtml(ratings.slice(0, 5));
+    document.getElementById('dp-card-proj').textContent = row.dataset.proj === 'UDFA' ? 'Projected undrafted' : 'Round ' + row.dataset.proj.slice(1);
+    var boardBtn = document.getElementById('dp-card-board');
+    boardBtn.hidden = !document.querySelector('#dp-table form[action^="/draft/board/"]');
+    boardBtn.textContent = row.dataset.onBoard === '1' ? 'Remove from Board' : 'Add to Board';
+    document.getElementById('dp-card-draft').hidden = root().dataset.yourTurn !== '1';
+    document.getElementById('dp-card').showModal();
+  }
+  function postIndex(url, idx) {
+    var fd = new URLSearchParams(); fd.set('prospect_index', idx);
+    state.busy = true;
+    return request(url, { method: 'POST', body: fd })
+      .catch(function (err) { alert(err.message || 'Something went wrong.'); })
+      .then(function () { state.busy = false; });
+  }
+
+  // ---------- compare ----------
+  function openCompare() {
+    var picked = state.selected.map(rowFor).filter(Boolean);
+    if (picked.length < 2) { return; }
+    var esc = function (s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+    var html = '<h4 class="dp-h4">Selected Prospects</h4>';
+    picked.forEach(function (row, i) {
+      html += '<div class="dp-cmp-card' + (i === 0 ? ' baseline' : '') + '"><div style="display:flex; justify-content:space-between; gap:8px;">'
+        + '<div>' + (i === 0 ? '<span class="dp-need" style="margin-right:6px">Baseline</span>' : '') + esc(row.dataset.name) + '</div>'
+        + '<div><span class="dp-pos-badge">' + esc(row.dataset.pos) + '</span> ' + cellByKey(row, 'ovr') + ' OVR</div></div>'
+        + '<div class="dp-sub" style="margin-top:4px">' + esc(row.dataset.college) + ' &middot; ' + esc(row.dataset.proj) + '</div></div>';
+    });
+    html += '<h4 class="dp-h4" style="margin-top:18px">Attribute Comparison</h4>';
+    COMPARE_ATTRS.forEach(function (a) {
+      html += '<div style="margin-bottom:12px"><div style="font-size:0.85rem; margin-bottom:6px">' + a[1] + '</div>';
+      picked.forEach(function (row) {
+        var v = cellByKey(row, a[0]);
+        html += '<div class="dp-cmp-bar-row"><div class="who">' + esc(row.dataset.name.split(' ')[0]) + '</div>'
+          + '<div class="dp-cmp-bar"><div class="fill ' + tierClass(v) + '" style="width:' + (v / 99 * 100) + '%"></div><div class="val">' + v + '</div></div></div>';
+      });
+      html += '</div>';
+    });
+    var base = picked[0];
+    html += '<h4 class="dp-h4" style="margin-top:18px">Difference vs Baseline (' + esc(base.dataset.name) + ')</h4>'
+      + '<div style="overflow-x:auto"><table class="boxtable"><thead><tr><th>Prospect</th>'
+      + COMPARE_ATTRS.map(function (a) { return '<th>' + a[1] + '</th>'; }).join('') + '</tr></thead><tbody>';
+    picked.slice(1).forEach(function (row) {
+      html += '<tr><td>' + esc(row.dataset.name) + ' <span class="dp-sub">' + esc(row.dataset.pos) + '</span></td>';
+      COMPARE_ATTRS.forEach(function (a) {
+        var d = cellByKey(row, a[0]) - cellByKey(base, a[0]);
+        html += '<td class="' + (d > 0 ? 'dp-diff-pos' : d < 0 ? 'dp-diff-neg' : '') + '">' + (d > 0 ? '+' : '') + d + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    document.getElementById('dp-compare-body').innerHTML = html;
+    document.getElementById('dp-compare-dialog').showModal();
+  }
+
+  // ---------- event delegation (survives every swap) ----------
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.closest('[data-close-dialog]')) { t.closest('dialog').close(); return; }
+    if (t.tagName === 'DIALOG' && t.classList.contains('dp-dialog')) { t.close(); return; }
+    if (!t.closest('#draft-root') && !t.closest('.dp-dialog')) { return; }
+
+    var th = t.closest('#dp-table thead th[data-sort]');
+    if (th) {
+      if (state.sort === th.dataset.sort) { state.dir = state.dir === 'asc' ? 'desc' : 'asc'; }
+      else { state.sort = th.dataset.sort; state.dir = th.dataset.type === 'str' ? 'asc' : 'desc'; }
+      applySort();
+      return;
+    }
+    var chip = t.closest('.dp-filter-chip');
+    if (chip) { state.group = chip.dataset.group; applyFilter(); return; }
+    var tab = t.closest('.dp-round-tab');
+    if (tab) { state.round = tab.dataset.round; state.roundPinned = true; applyRound(); return; }
+    var nameBtn = t.closest('[data-prospect-card]');
+    if (nameBtn) { openCard(nameBtn.closest('[data-idx]').dataset.idx); return; }
+    if (t.id === 'dp-clear') { state.selected = []; applySelection(); return; }
+    if (t.id === 'dp-compare') { openCompare(); return; }
+    if (t.closest('#dp-pause')) {
+      state.paused = !state.paused;
+      if (state.paused) { updateSimControls(); } else { state.simming = true; updateSimControls(); simLoop(); }
+      return;
+    }
+    if (t.id === 'dp-card-board' && cardIdx !== null) {
+      var row = rowFor(cardIdx);
+      document.getElementById('dp-card').close();
+      postIndex(row && row.dataset.onBoard === '1' ? '/draft/board/remove' : '/draft/board/add', cardIdx);
+      return;
+    }
+    if (t.id === 'dp-card-draft' && cardIdx !== null) {
+      document.getElementById('dp-card').close();
+      postIndex('/draft/pick', cardIdx);
+    }
+  });
+
+  document.addEventListener('change', function (e) {
+    var cb = e.target.closest('#dp-table .dp-cmp');
+    if (cb) {
+      var i = state.selected.indexOf(cb.value);
+      if (cb.checked && i < 0) {
+        if (state.selected.length >= 5) { cb.checked = false; return; }
+        state.selected.push(cb.value);
+      } else if (!cb.checked && i >= 0) {
+        state.selected.splice(i, 1);
+      }
+      applySelection();
+      return;
+    }
+    if (e.target.id === 'draft-team-b') { submitForm(e.target.form); }
+  });
+
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'dp-search') { state.search = e.target.value; applyFilter(); }
+  });
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form.closest('#draft-root')) { return; }
+    e.preventDefault();
+    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) { return; }
+    if (form.id === 'dp-sim-next-form') {
+      state.simming = true; state.paused = false; state.roundPinned = false;
+      updateSimControls();
+      simLoop();
+      return;
+    }
+    submitForm(form);
+  });
+
+  window.addEventListener('resize', syncSizer);
+  initialize(true);
+})();
+</script>
 {% endblock %}

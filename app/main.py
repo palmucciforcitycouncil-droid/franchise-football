@@ -3565,20 +3565,65 @@ def gm_desk_trade_preview(team_b: str, give: list[str] = Query(default=[]), get:
 
 
 PROSPECT_SORT_KEYS = ("ovr", "pot", "name", "pos", "age", "college")
-# Position-group tabs the Prospects grid and live Draft Results both
-# filter by -- ALL/OFFENSE/DEFENSE are convenience buckets over
-# app.engine.draft.GROUP_POSITIONS' own 11 real groups.
+# Position-group tabs the Prospects grid filters by -- ALL/OFFENSE/DEFENSE
+# are convenience buckets over app.engine.draft.GROUP_POSITIONS' own 11
+# real groups (the same chip set as Figma's DraftPageV2.tsx).
 PROSPECT_GROUP_TABS = ["ALL", "OFFENSE", "DEFENSE"] + list(draft_engine.GROUP_POSITIONS.keys())
 _OFFENSE_GROUPS = ("QB", "RB", "WR", "TE", "OL")
 _DEFENSE_GROUPS = ("DL", "LB", "CB", "S")
 
+# Every rating a prospect carries (Brian, 2026-09-14: "the prospects need to
+# have the full ratings lines"), as (column key, header, attribute, tooltip).
+# The first ten are the Roster page's own columns in its own order and with
+# its own abbreviations/derivations (ROSTER_SORT_KEYS: TAC = the three
+# throw-accuracy splits averaged, INJ = 99 - durability); everything else
+# follows, grouped the way ATTRIBUTE_LABELS groups them. `None` attribute
+# means a derived column, computed in _prospect_rating_values().
+PROSPECT_RATING_COLUMNS: tuple[tuple[str, str, str | None, str], ...] = (
+    ("spd", "SPD", "speed", "Speed"), ("str", "STR", "strength", "Strength"),
+    ("agi", "AGI", "agility", "Agility"), ("tpw", "TPW", "throw_power", "Throw Power"),
+    ("tac", "TAC", None, "Throw Accuracy (average of short/mid/deep)"), ("cth", "CTH", "catching", "Catching"),
+    ("tck", "TCK", "tackle", "Tackle"), ("awr", "AWR", "awareness", "Awareness"),
+    ("sta", "STA", "stamina", "Stamina"), ("inj", "INJ", None, "Injury risk (99 - Durability)"),
+    ("acc", "ACC", "acceleration", "Acceleration"), ("jmp", "JMP", "jumping", "Jumping"),
+    ("tgh", "TGH", "toughness", "Toughness"),
+    ("sac", "SAC", "throw_accuracy_short", "Throw Accuracy (Short)"),
+    ("mac", "MAC", "throw_accuracy_mid", "Throw Accuracy (Mid)"),
+    ("dac", "DAC", "throw_accuracy_deep", "Throw Accuracy (Deep)"),
+    ("pac", "PAC", "play_action", "Play Action"), ("tor", "TOR", "throw_on_the_run", "Throw on the Run"),
+    ("tup", "TUP", "throw_under_pressure", "Throw Under Pressure"), ("bsk", "BSK", "break_sack", "Break Sack"),
+    ("spc", "SPC", "spectacular_catch", "Spectacular Catch"), ("cit", "CIT", "catch_in_traffic", "Catch in Traffic"),
+    ("srr", "SRR", "short_route_running", "Short Routes"), ("mrr", "MRR", "medium_route_running", "Medium Routes"),
+    ("drr", "DRR", "deep_route_running", "Deep Routes"), ("rls", "RLS", "release", "Release"),
+    ("car", "CAR", "carrying", "Ball Carrying"), ("trk", "TRK", "trucking", "Trucking"),
+    ("cod", "COD", "change_of_direction", "Change of Direction"), ("bcv", "BCV", "ball_carrier_vision", "Vision"),
+    ("sfa", "SFA", "stiff_arm", "Stiff Arm"), ("spm", "SPM", "spin_move", "Spin Move"),
+    ("jkm", "JKM", "juke_move", "Juke Move"), ("btk", "BTK", "break_tackle", "Break Tackle"),
+    ("rbk", "RBK", "run_block", "Run Block"), ("pbk", "PBK", "pass_block", "Pass Block"),
+    ("rbp", "RBP", "run_block_power", "Run Block Power"), ("rbf", "RBF", "run_block_finesse", "Run Block Finesse"),
+    ("pbp", "PBP", "pass_block_power", "Pass Block Power"), ("pbf", "PBF", "pass_block_finesse", "Pass Block Finesse"),
+    ("lbk", "LBK", "lead_block", "Lead Block"), ("ibl", "IBL", "impact_blocking", "Impact Blocking"),
+    ("pow", "POW", "hit_power", "Hit Power"), ("bsh", "BSH", "block_shedding", "Block Shedding"),
+    ("pur", "PUR", "pursuit", "Pursuit"), ("prc", "PRC", "play_recognition", "Play Recognition"),
+    ("mcv", "MCV", "man_coverage", "Man Coverage"), ("zcv", "ZCV", "zone_coverage", "Zone Coverage"),
+    ("prs", "PRS", "press", "Press"), ("pmv", "PMV", "power_moves", "Power Moves"),
+    ("fmv", "FMV", "finesse_moves", "Finesse Moves"),
+    ("kpw", "KPW", "kick_power", "Kick Power"), ("kac", "KAC", "kick_accuracy", "Kick Accuracy"),
+    ("ret", "RET", "kick_return", "Kick Return"),
+)
 
-def _prospect_sort_value(p, key: str):
-    return {
-        "ovr": p.overall_rating, "pot": p.potential,
-        "name": f"{p.first_name} {p.last_name}".lower(),
-        "pos": p.position.value, "age": p.age, "college": p.college.lower(),
-    }.get(key, p.overall_rating)
+
+def _prospect_rating_values(p) -> list[int]:
+    attrs = p.attrs
+    values = []
+    for key, _label, attr, _title in PROSPECT_RATING_COLUMNS:
+        if key == "tac":
+            values.append(round((attrs["throw_accuracy_short"] + attrs["throw_accuracy_mid"] + attrs["throw_accuracy_deep"]) / 3))
+        elif key == "inj":
+            values.append(99 - attrs["durability"])
+        else:
+            values.append(attrs[attr])
+    return values
 
 
 def _prospect_matches_group(p, group: str) -> bool:
@@ -3591,11 +3636,33 @@ def _prospect_matches_group(p, group: str) -> bool:
     return p.group == group
 
 
+def _short_player_label(name: str, position: str) -> str:
+    """Team Picks' used-slot label (Brian: "R. Smith (RB)") -- first
+    initial + last name + the position code exactly as stored."""
+    first, _, last = name.partition(" ")
+    return f"{first[:1]}. {last} ({position})" if last else f"{name} ({position})"
+
+
+def _draft_year_options(season, current_draft_season: int | None) -> list[dict]:
+    """Figma's "Draft Year" selector, backed by real data only: every draft
+    this franchise actually recorded (read-only review) plus the upcoming
+    class, if one exists. No year appears that has nothing behind it."""
+    options = [
+        {"season_number": n, "year": season_year(n), "url": f"/draft?season_param={n}"}
+        for n in draft_store.recorded_seasons()
+    ]
+    if current_draft_season is not None and all(o["season_number"] != current_draft_season for o in options):
+        options.append({"season_number": current_draft_season, "year": season_year(current_draft_season), "url": "/draft"})
+    return sorted(options, key=lambda o: o["season_number"])
+
+
 def _draft_review_response(request: Request, season, target_season: int, just_completed: bool):
     """The original (pre-2026-09-13) read-only review of one season's
-    ALREADY COMPLETED draft -- unchanged, still how a past season's
-    results are browsed (season_param), and still what a completed
-    live draft looks like immediately afterward."""
+    ALREADY COMPLETED draft -- still how a past season's results are
+    browsed (season_param), and still what a completed live draft looks
+    like immediately afterward. Restyled 2026-09-14 onto the same
+    Figma DraftPageV2 layout as the live page (Team Picks + Draft Results
+    by round), prospect table omitted since there's no class left."""
     draft_data = draft_store.get_draft(target_season)
     if draft_data is None:
         return templates.TemplateResponse(request, "coming_soon.html", {
@@ -3609,23 +3676,42 @@ def _draft_review_response(request: Request, season, target_season: int, just_co
 
     picks_by_round: dict[int, list[dict]] = {}
     for pick in draft_data["picks"]:
-        picks_by_round.setdefault(pick["round"], []).append(pick)
+        picks_by_round.setdefault(pick["round"], []).append({**pick, "made": True})
 
     user_abbr = season.user_team_abbr
     user_picks = [p for p in draft_data["picks"] if p["team_abbr"] == user_abbr] if user_abbr else []
+    pending_class = draft_class_store.get_class(season.season_number + 1) if season.offseason_stage != "draft" else None
+    current_draft_season = season.season_number + 1 if (pending_class is not None or season.offseason_stage == "draft") else None
 
     return templates.TemplateResponse(request, "draft.html", {
         "mode": "review",
         "target_season": target_season,
+        "draft_year": season_year(target_season),
+        "year_options": _draft_year_options(season, current_draft_season),
         "draft_order": draft_data["order"],
-        "picks_by_round": picks_by_round,
+        "rounds": picks_by_round,
+        "active_round": 1,
         "undrafted_count": draft_data["undrafted_count"],
         "user_abbr": user_abbr,
-        "user_picks": user_picks,
-        "has_prior_season": draft_store.get_draft(target_season - 1) is not None,
-        "has_next_season": draft_store.get_draft(target_season + 1) is not None,
+        "team_picks": [
+            {"round": p["round"], "overall_pick": p["overall_pick"], "label": _short_player_label(p["name"], p["position"])}
+            for p in user_picks
+        ],
         "just_completed": just_completed,
     })
+
+
+def _prospect_rows(prospects, projected: dict, need_groups: set[str], board_indexes: set[int]) -> list[dict]:
+    return [
+        {
+            "index": p.index, "name": f"{p.first_name} {p.last_name}", "pos": p.position.value,
+            "group": p.group, "college": p.college, "age": p.age, "ovr": p.overall_rating,
+            "pot": p.potential, "grade": p.draft_grade, "proj": projected.get(p.index),
+            "need": POSITION_TO_GROUP.get(p.position) in need_groups, "on_board": p.index in board_indexes,
+            "ratings": _prospect_rating_values(p),
+        }
+        for p in prospects
+    ]
 
 
 @app.get("/draft", response_class=HTMLResponse)
@@ -3635,89 +3721,126 @@ def draft_view(
     team_b: str | None = None, trade_result: str | None = None,
 ):
     """R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f),
-    rebuilt 2026-09-13 (Brian's ask) into three real modes:
+    rebuilt 2026-09-13 (Brian's ask) into three real modes, and laid out
+    2026-09-14 to match Figma's DraftPageV2.tsx (Team Picks / Team Needs
+    strip, Draft Results by round beside a full-ratings Prospects table,
+    Draft Board / Trade / Top Prospects row, Roster):
 
-    1. `season_param` given -- the original read-only REVIEW of a past,
-       already-completed draft (unchanged).
+    1. `season_param` given -- the read-only REVIEW of a past draft.
     2. No `season_param`, and the live draft is in progress
        (`season.offseason_stage == "draft"`) -- the live pick-by-pick
-       event: Sim Pick / Sim to Your Next Pick / End, plus a real manual
-       "Draft" action on each prospect row whenever it's genuinely the
-       user's own team's turn (never auto-picked except via End).
+       event: Sim Pick / Sim to Your Next Pick (with Pause) / End, plus a
+       real manual "Draft" action whenever it's the user's own turn.
     3. No `season_param`, no live draft -- the PROSPECTS view: next
-       season's real class (generated the moment the CURRENT season was
-       built, app/services/draft_class_store.py), sortable/filterable
-       (same GET-param convention as the Roster page's own
-       ROSTER_SORT_KEYS/_roster_sort_value), with the user's own
-       reorderable personal board and a Team Needs panel -- browsable
-       for the entire season, not just after the draft resolves."""
+       season's real class, browsable and board-able all season.
+
+    Sorting, position filtering, search and compare are all client-side
+    (draft.html) -- `group`/`sort`/`dir` only seed the initial state -- and
+    every POST action on the page is fetched and swapped in place, so
+    nothing here reloads or jumps the page (Brian's 2026-09-14 report)."""
     season = season_state.get_season()
 
     if season_param is not None:
         return _draft_review_response(request, season, season_param, just_completed=False)
 
-    if season.offseason_stage == "draft":
-        from app.services import draft_pick_store
+    live = season.offseason_stage == "draft"
+    if not live and just_completed:
+        # The live draft (or "End") just finished -- the season whose
+        # rookies were just picked is season.season_number itself.
+        return _draft_review_response(request, season, season.season_number, just_completed=True)
 
-        next_number = season.season_number + 1
-        progress = draft_progress_store.get(next_number)
+    next_number = season.season_number + 1
+    user_abbr = season.user_team_abbr
+    progress = draft_progress_store.get(next_number) if live else None
+    if live:
         prospects = draft_class_store.get_class(next_number) or draft_engine.generate_draft_class(season.league_seed, next_number)
-        prospects_by_index = {p.index: p for p in prospects}
-        drafted_indexes = set(progress["drafted_indexes"]) if progress else set()
-        slots = draft_engine.draft_slots(progress["order"], season_number=next_number) if progress else []
-        idx = progress["current_pick_index"] if progress else 0
-        current_slot = slots[idx] if idx < len(slots) else None
-        remaining = sorted(
-            (p for p in prospects_by_index.values() if p.index not in drafted_indexes and _prospect_matches_group(p, group)),
-            key=lambda p: _prospect_sort_value(p, sort if sort in PROSPECT_SORT_KEYS else "ovr"),
-            reverse=(dir != "asc"),
-        )
-        needs = []
-        if season.user_team_abbr:
-            strength = roster_strength.compute_roster_strength(season.user_team_abbr)
-            needs = sorted(strength.group_ratings.items(), key=lambda kv: kv[1])[:6]
+    else:
+        prospects = draft_class_store.get_class(next_number)
+        if prospects is None:
+            return _draft_review_response(request, season, season.season_number, just_completed=False)
 
-        # Team Picks (Brian's ask, 2026-09-14): the user's own remaining
-        # picks in THIS draft, in order -- real ownership-resolved slots
-        # (draft_slots()'s own 2026-09-14 fix), so a pick traded away no
-        # longer shows here and one traded FOR does.
-        user_abbr = season.user_team_abbr
-        team_picks = [s for s in slots[idx:] if s.team_abbr == user_abbr] if user_abbr else []
+    prospects_by_index = {p.index: p for p in prospects}
+    drafted_indexes = set(progress["drafted_indexes"]) if progress else set()
+    slots = draft_engine.draft_slots(progress["order"], season_number=next_number) if progress else []
+    idx = progress["current_pick_index"] if progress else 0
+    current_slot = slots[idx] if idx < len(slots) else None
+    made_picks = {p["overall_pick"]: p for p in progress["picks"]} if progress else {}
 
-        # Draft Board, now usable DURING the live draft too (previously
-        # only the pre-draft "prospects" mode below rendered it) -- the
-        # same personal ranking, with a real "Draft" button per row on
-        # your own turn instead of just "+Board"/"Remove".
-        board_indexes = draft_board_store.get_board(next_number)
-        board = [prospects_by_index[i] for i in board_indexes if i in prospects_by_index and i not in drafted_indexes]
+    # Projected round: the consensus value ranking (draft_engine.
+    # projected_rounds, same position-weighted draft_value() the AI picks
+    # by) over the WHOLE class, so a prospect's projection doesn't drift
+    # as others come off the board.
+    projected = draft_engine.projected_rounds(prospects)
+    remaining = [p for p in prospects if p.index not in drafted_indexes]
+    remaining.sort(key=lambda p: (-p.overall_rating, p.index))
 
-        # Roster (Brian's ask, 2026-09-14): a compact, position-sorted
-        # view of the user's own CURRENT roster, so a real need is one
-        # glance away while picking -- no new query shape, same Player
-        # rows the Roster page itself reads.
-        roster = []
-        if user_abbr:
-            with get_session() as s:
-                roster = sorted(
-                    s.exec(select(Player).where(Player.team_abbr == user_abbr)).all(),
-                    key=lambda p: (p.position.value, -p.overall_rating),
-                )
+    needs = []
+    if user_abbr:
+        strength = roster_strength.compute_roster_strength(user_abbr)
+        needs = sorted(strength.group_ratings.items(), key=lambda kv: kv[1])[:5]
+    need_groups = {g for g, _ in needs}
 
-        # Trade panel (Brian's ask, 2026-09-14): picks-only trading right
-        # on the draft page -- posts to the SAME /gm-desk/trade route GM
-        # Desk's own Propose Trade panel uses (return_to=draft just picks
-        # which page shows the real ACCEPT/REJECT result), so there's no
-        # second trade-evaluation implementation to keep in sync.
-        team_b_info = None
-        trade_partner_picks = []
-        user_tradeable_picks = []
-        if user_abbr:
-            user_tradeable_picks = [
-                {"pick_id": pk.pick_id,
-                 "label": f"{season_year(pk.season_number)} Round {pk.round}"
-                          + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != user_abbr else "")}
-                for pk in draft_pick_store.picks_owned_by(user_abbr)
-            ]
+    board_indexes = draft_board_store.get_board(next_number)
+    board = [prospects_by_index[i] for i in board_indexes if i in prospects_by_index and i not in drafted_indexes]
+    rows = _prospect_rows(remaining, projected, need_groups, set(board_indexes))
+    group_counts = {g: sum(1 for p in remaining if _prospect_matches_group(p, g)) for g in PROSPECT_GROUP_TABS}
+    top_prospects = sorted(remaining, key=lambda p: (-draft_engine.draft_value(p), p.index))[:6]
+
+    # Team Picks: every one of the user's slots in THIS draft, in order.
+    # A used slot shows who was taken there (Brian: "R. Smith (RB)")
+    # instead of disappearing. Before the live draft opens there's no real
+    # slot order yet, only owned round picks (draft_pick_store).
+    team_picks = []
+    if user_abbr and live:
+        for s in slots:
+            if s.team_abbr != user_abbr:
+                continue
+            made = made_picks.get(s.overall_pick)
+            team_picks.append({
+                "round": s.round, "overall_pick": s.overall_pick,
+                "label": _short_player_label(made["name"], made["position"]) if made else None,
+            })
+    elif user_abbr:
+        from app.services import draft_pick_store
+        for pk in sorted(draft_pick_store.picks_owned_by(user_abbr), key=lambda pk: pk.round):
+            if pk.season_number == next_number:
+                team_picks.append({
+                    "round": pk.round, "overall_pick": None, "label": None,
+                    "via": pk.original_team_abbr if pk.original_team_abbr != user_abbr else None,
+                })
+
+    rounds: dict[int, list[dict]] = {}
+    for s in slots:
+        made = made_picks.get(s.overall_pick)
+        rounds.setdefault(s.round, []).append({
+            "overall_pick": s.overall_pick, "team_abbr": s.team_abbr, "made": made is not None,
+            "name": made["name"] if made else None, "position": made["position"] if made else None,
+            "overall_rating": made["overall_rating"] if made else None,
+        })
+
+    roster = []
+    if user_abbr:
+        with get_session() as s:
+            roster = sorted(
+                s.exec(select(Player).where(Player.team_abbr == user_abbr)).all(),
+                key=lambda p: (p.position.value, -p.overall_rating),
+            )
+
+    # Trade panel (Brian's ask, 2026-09-14): picks-only trading right on
+    # the draft page -- posts to the SAME /gm-desk/trade route GM Desk's own
+    # Propose Trade panel uses (return_to=draft), so there's no second
+    # trade-evaluation implementation to keep in sync.
+    team_b_info = None
+    trade_partner_picks = []
+    user_tradeable_picks = []
+    if user_abbr:
+        from app.services import draft_pick_store
+        user_tradeable_picks = [
+            {"pick_id": pk.pick_id,
+             "label": f"{season_year(pk.season_number)} Round {pk.round}"
+                      + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != user_abbr else "")}
+            for pk in draft_pick_store.picks_owned_by(user_abbr)
+        ]
         if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
             trade_partner_picks = [
                 {"pick_id": pk.pick_id,
@@ -3727,77 +3850,32 @@ def draft_view(
             ]
             team_b_info = TEAMS_BY_ABBR[team_b]
 
-        return templates.TemplateResponse(request, "draft.html", {
-            "mode": "live",
-            "target_season": next_number,
-            "user_abbr": season.user_team_abbr,
-            "your_turn": current_slot is not None and current_slot.team_abbr == season.user_team_abbr,
-            "current_slot": current_slot,
-            "picks_so_far": list(reversed(progress["picks"])) if progress else [],
-            "total_slots": len(slots),
-            "picks_made": idx,
-            "prospects": remaining,
-            "group_tabs": PROSPECT_GROUP_TABS, "active_group": group,
-            "sort_keys": PROSPECT_SORT_KEYS, "active_sort": sort if sort in PROSPECT_SORT_KEYS else "ovr",
-            "active_dir": dir if dir in ("asc", "desc") else "desc",
-            "needs": needs,
-            "team_picks": team_picks,
-            "board": board, "board_indexes": set(board_indexes),
-            "roster": roster,
-            "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
-            "team_b": team_b, "team_b_info": team_b_info,
-            "user_tradeable_picks": user_tradeable_picks, "trade_partner_picks": trade_partner_picks,
-            "trade_result": trade_result,
-        })
-
-    if just_completed:
-        # The live draft (or "End") just finished -- the season whose
-        # rookies were just picked is season.season_number itself (the
-        # NEW season this redirect landed on), not next_number's still-
-        # pending class. Show that real, just-resolved result once.
-        return _draft_review_response(request, season, season.season_number, just_completed=True)
-
-    next_number = season.season_number + 1
-    prospects = draft_class_store.get_class(next_number)
-    if prospects is None:
-        return _draft_review_response(request, season, season.season_number, just_completed=False)
-
-    effective_sort = sort if sort in PROSPECT_SORT_KEYS else "ovr"
-    effective_dir = dir if dir in ("asc", "desc") else "desc"
-    filtered = [p for p in prospects if _prospect_matches_group(p, group)]
-    filtered.sort(key=lambda p: _prospect_sort_value(p, effective_sort), reverse=(effective_dir == "desc"))
-
-    board_indexes = draft_board_store.get_board(next_number)
-    prospects_by_index = {p.index: p for p in prospects}
-    board = [prospects_by_index[i] for i in board_indexes if i in prospects_by_index]
-
-    needs = []
-    if season.user_team_abbr:
-        strength = roster_strength.compute_roster_strength(season.user_team_abbr)
-        needs = sorted(strength.group_ratings.items(), key=lambda kv: kv[1])[:6]
-
-    def draft_query(overrides: dict) -> str:
-        base = {"group": group, "sort": sort, "dir": dir}
-        base.update(overrides)
-        return "/draft?" + urlencode({k: v for k, v in base.items() if v not in (None, "")})
-
-    sort_links = {}
-    for key in PROSPECT_SORT_KEYS:
-        next_dir = "asc" if (effective_sort == key and effective_dir == "desc") else "desc"
-        sort_links[key] = draft_query({"sort": key, "dir": next_dir})
-
     return templates.TemplateResponse(request, "draft.html", {
-        "mode": "prospects",
+        "mode": "live" if live else "prospects",
         "target_season": next_number,
-        "user_abbr": season.user_team_abbr,
-        "prospects": filtered,
-        "board": board,
-        "board_indexes": set(board_indexes),
+        "draft_year": season_year(next_number),
+        "year_options": _draft_year_options(season, next_number),
+        "user_abbr": user_abbr,
+        "your_turn": current_slot is not None and current_slot.team_abbr == user_abbr,
+        "current_slot": current_slot,
+        "total_slots": len(slots),
+        "picks_made": idx,
+        "rounds": rounds,
+        "active_round": current_slot.round if current_slot else 1,
+        "prospects": rows,
+        "rating_columns": PROSPECT_RATING_COLUMNS,
+        "group_tabs": PROSPECT_GROUP_TABS, "group_counts": group_counts,
+        "active_group": group if group in PROSPECT_GROUP_TABS else "ALL",
+        "active_sort": sort or "ovr", "active_dir": dir if dir in ("asc", "desc") else "desc",
         "needs": needs,
-        "group_tabs": PROSPECT_GROUP_TABS, "active_group": group,
-        "sort_keys": PROSPECT_SORT_KEYS, "active_sort": effective_sort, "active_dir": effective_dir,
-        "sort_links": sort_links,
-        "group_links": {g: draft_query({"group": g}) for g in PROSPECT_GROUP_TABS},
+        "team_picks": team_picks,
+        "board": _prospect_rows(board, projected, need_groups, set(board_indexes)),
+        "top_prospects": _prospect_rows(top_prospects, projected, need_groups, set(board_indexes)),
+        "roster": roster,
+        "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
+        "team_b": team_b, "team_b_info": team_b_info,
+        "user_tradeable_picks": user_tradeable_picks, "trade_partner_picks": trade_partner_picks,
+        "trade_result": trade_result,
         "has_prior_draft": draft_store.get_draft(season.season_number) is not None,
     })
 

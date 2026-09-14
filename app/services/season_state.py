@@ -1059,7 +1059,14 @@ def advance_draft_pick(chosen_prospect_index: int | None = None) -> dict:
             # docstring for why this store never needs to track counts
             # itself as extra persisted state).
             group_counts = draft._all_teams_group_counts()
-            prospect = draft.resolve_one_pick(prospects_by_index, drafted_indexes, slot.team_abbr, group_counts)
+            specialists_this_round = sum(
+                1 for p in progress["picks"] if p["round"] == slot.round and p["position"] in ("K", "P")
+            )
+            prospect = draft.resolve_one_pick(
+                prospects_by_index, drafted_indexes, slot.team_abbr, group_counts,
+                round_num=slot.round, specialists_taken_this_round=specialists_this_round,
+                league_seed=season.league_seed, season_number=next_number,
+            )
 
         pick = draft.apply_single_pick_to_db(
             prospect, slot.team_abbr, slot.overall_pick, slot.round, season.league_seed, next_number,

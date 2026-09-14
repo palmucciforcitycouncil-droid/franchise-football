@@ -239,6 +239,11 @@ def _qb_class_strength(league_seed: int, season_number: int) -> str:
 
 
 def _group_for(position: Position) -> str:
+    # FB isn't in GROUP_POSITIONS (fullbacks aren't generated as prospects,
+    # see module docstring), but real rostered FBs still have to count
+    # toward a team's RB group -- they used to fall through to "OL".
+    if position == Position.FB:
+        return "RB"
     for group, positions in GROUP_POSITIONS.items():
         if position in positions:
             return group
@@ -421,8 +426,95 @@ def _all_teams_group_counts() -> dict[str, dict[str, int]]:
     return counts
 
 
+# Roughly the league's real average per-team count per group (measured off
+# the imported rosters, 2026-09-14: QB 3.0, RB 5.1, WR 6.6, TE 4.2, OL 10.8,
+# DL 11.9, LB 6.0, CB 7.0, S 5.3, K 1.2, P 1.0). A need is how far a team is
+# BELOW its typical depth at a group, not its raw count -- ranking raw counts
+# (the original rule) made K and P, which every team carries exactly one
+# of, the two "scarcest" groups on every roster in the league, so every
+# team treated a kicker and a punter as a top-3 need with its first pick
+# (Brian's report: a K at #2 and a P at #5).
+GROUP_ROSTER_TARGETS: dict[str, float] = {
+    "QB": 3, "RB": 5, "WR": 6.5, "TE": 4, "OL": 10.5, "DL": 11.5,
+    "LB": 6, "CB": 7, "S": 5, "K": 1, "P": 1,
+}
+
+
 def _needs_from_counts(counts: dict[str, int]) -> list[str]:
-    return sorted(GROUP_POSITIONS, key=lambda g: counts.get(g, 0))
+    return sorted(GROUP_POSITIONS, key=lambda g: counts.get(g, 0) / GROUP_ROSTER_TARGETS[g])
+
+
+# ---------------------------------------------------------------------------
+# Positional draft value (Brian's report, 2026-09-14: "A K and P were taken
+# in the first 5 picks"). ADDED on top of a prospect's (perceived) overall
+# when ranking who to take -- never replaces it, and never touches the
+# prospect's real OVR. Real NFL teams pay a premium for passers, pass
+# rushers, blindside tackles and corners, and almost never spend a Day 1-2
+# pick on a specialist; specialists here also carry an inflated OVR scale
+# (their profile is two +10-biased kicking attributes), which the heavy
+# discount absorbs.
+# ---------------------------------------------------------------------------
+POSITION_DRAFT_VALUE: dict[Position, float] = {
+    Position.QB: 8.0, Position.EDGE: 6.0, Position.T: 6.0, Position.CB: 5.0,
+    Position.WR: 2.0, Position.DT: 2.0, Position.HB: 1.0, Position.S: 1.0, Position.G: 1.0, Position.C: 1.0,
+    Position.TE: 0.0, Position.LB: 0.0, Position.FB: -4.0,
+    Position.K: -25.0, Position.P: -25.0,
+}
+SPECIALIST_POSITIONS = (Position.K, Position.P)
+SPECIALIST_EARLIEST_ROUND = 5      # no K/P is ever taken before this round
+SPECIALISTS_MAX_PER_ROUND = 2      # K+P combined, per round, league-wide
+NEED_BONUS = (5.0, 3.0, 2.0)       # OVR-point bonus for a team's 1st/2nd/3rd scarcest group
+
+
+def draft_value(prospect: ProspectDraft, evaluated_overall: float | None = None) -> float:
+    """The ranking score a front office drafts by: the prospect's overall
+    (or a team's own noisy read of it) plus that position's draft value."""
+    base = float(prospect.overall_rating) if evaluated_overall is None else evaluated_overall
+    return base + POSITION_DRAFT_VALUE.get(prospect.position, 0.0)
+
+
+def specialist_allowed(round_num: int | None, specialists_taken_this_round: int) -> bool:
+    if round_num is None:
+        return True
+    return round_num >= SPECIALIST_EARLIEST_ROUND and specialists_taken_this_round < SPECIALISTS_MAX_PER_ROUND
+
+
+def projected_rounds(prospects: list[ProspectDraft], rounds: int = ROUNDS, teams: int = 32) -> dict[int, int | None]:
+    """A consensus (noise-free, need-free) projection of where each prospect
+    goes, ranked by the same draft_value() the AI drafts by: rank / 32,
+    rounded up. None = projected undrafted. Specialists are never projected
+    earlier than SPECIALIST_EARLIEST_ROUND, matching the AI's hard rule."""
+    ranked = sorted(prospects, key=lambda p: (-draft_value(p), p.index))
+    out: dict[int, int | None] = {}
+    for rank, p in enumerate(ranked):
+        rnd = rank // teams + 1
+        if p.position in SPECIALIST_POSITIONS:
+            rnd = max(rnd, SPECIALIST_EARLIEST_ROUND)
+        out[p.index] = rnd if rnd <= rounds else None
+    return out
+
+
+def _choose_prospect(remaining: list[ProspectDraft], needs: list[str], round_num: int | None,
+                     specialists_taken_this_round: int, evaluate) -> ProspectDraft:
+    """Shared by simulate_draft() and resolve_one_pick(): best draft_value()
+    plus a need bonus for the team's top needs. K/P are removed from
+    consideration entirely before SPECIALIST_EARLIEST_ROUND or once this
+    round's specialist quota is used -- a hard rule, not just a score
+    penalty, so a team whose only kicker retired still waits.
+
+    Needs used to be a hard FILTER (only the top-3 need groups were even
+    considered). Kept as a filter, positional value could never matter
+    across groups: a team whose top needs were WR/OL/DL would pass on an
+    elite QB or CB every time, and in a league where most rosters share
+    the same shallowest groups whole first rounds went WR/G/C. A need is
+    now a bonus on top of the value score instead (NEED_BONUS, scarcest
+    first), so real need still tilts close calls without overriding a
+    clearly better prospect at a premium position."""
+    if not specialist_allowed(round_num, specialists_taken_this_round):
+        eligible = [p for p in remaining if p.position not in SPECIALIST_POSITIONS]
+        remaining = eligible or remaining
+    need_bonus = {group: NEED_BONUS[i] for i, group in enumerate(needs[:len(NEED_BONUS)])}
+    return max(remaining, key=lambda p: (draft_value(p, evaluate(p)) + need_bonus.get(p.group, 0.0), -p.index))
 
 
 # ---------------------------------------------------------------------------
@@ -491,11 +583,12 @@ def perceived_overall(prospect: ProspectDraft, team_abbr: str, league_seed: int,
 def simulate_draft(prospects: list[ProspectDraft], order: list[str], league_seed: int, season_number: int,
                    rounds: int = ROUNDS) -> DraftResult:
     """Greedy, deterministic, need-aware: on the clock, a team drafts the
-    best-PERCEIVED-overall prospect remaining at one of its 3 scarcest
-    position groups (using a real live roster count, fetched once up
-    front and updated in memory as this function's own picks land --
-    see _all_teams_group_counts()'s docstring for why), falling back to
-    best-perceived-remaining if none of its needs have anyone left.
+    prospect with the best PERCEIVED overall plus positional draft value
+    plus a need bonus for its 3 scarcest position groups (using a real live
+    roster count, fetched once up front and updated in memory as this
+    function's own picks land -- see _all_teams_group_counts()'s docstring
+    for why), with K/P held out until round 5 (_choose_prospect(); changed
+    2026-09-14 from a hard top-3-needs filter on raw OVR).
     "Perceived" (R13 Sec 5.3) is the prospect's true overall_rating plus
     that team's own Scouting-investment-scaled noise -- the drafted
     Player row itself still gets the prospect's real, true attributes;
@@ -516,18 +609,22 @@ def simulate_draft(prospects: list[ProspectDraft], order: list[str], league_seed
     picks: list[DraftPickResult] = []
     overall_pick = 1
     for rnd in range(1, rounds + 1):
+        specialists_this_round = 0
         for original_team_abbr in order:
             if not remaining:
                 break
             picking_team = owners.get((rnd, original_team_abbr), original_team_abbr)
             team_counts = counts.setdefault(picking_team, {group: 0 for group in GROUP_POSITIONS})
             needs = _needs_from_counts(team_counts)[:3]
-            candidates = [p for p in remaining.values() if p.group in needs]
-            pool = candidates or list(remaining.values())
-            best = max(pool, key=lambda p: (perceived_overall(p, picking_team, league_seed, season_number), -p.index))
+            best = _choose_prospect(
+                list(remaining.values()), needs, rnd, specialists_this_round,
+                lambda p, team=picking_team: perceived_overall(p, team, league_seed, season_number),
+            )
             picks.append(DraftPickResult(round=rnd, overall_pick=overall_pick, team_abbr=picking_team, prospect_index=best.index))
             del remaining[best.index]
             team_counts[best.group] += 1
+            if best.position in SPECIALIST_POSITIONS:
+                specialists_this_round += 1
             overall_pick += 1
     return DraftResult(order=order, picks=picks, undrafted_indexes=list(remaining.keys()))
 
@@ -584,6 +681,8 @@ def draft_slots(order: list[str], season_number: int | None = None, rounds: int 
 def resolve_one_pick(
     prospects_by_index: dict[int, ProspectDraft], drafted_indexes: set[int],
     team_abbr: str, group_counts: dict[str, dict[str, int]],
+    round_num: int | None = None, specialists_taken_this_round: int = 0,
+    league_seed: int | None = None, season_number: int | None = None,
 ) -> ProspectDraft:
     """The exact same needs-aware greedy choice simulate_draft() makes
     for one team's turn (see that function's own docstring), extracted
@@ -592,13 +691,22 @@ def resolve_one_pick(
     incremented) so the next call for this same team sees an accurate
     need, same as simulate_draft()'s own in-memory bookkeeping -- the
     caller owns this dict across calls (typically seeded once from
-    _all_teams_group_counts() at the start of a live draft)."""
+    _all_teams_group_counts() at the start of a live draft).
+
+    `round_num`/`specialists_taken_this_round` enforce the K/P hard rule
+    (see _choose_prospect); `league_seed`/`season_number`, when given, make
+    the choice off this team's own Scouting-noise read (perceived_overall)
+    exactly like simulate_draft() -- omitted, the true OVR is used."""
     team_counts = group_counts.setdefault(team_abbr, {group: 0 for group in GROUP_POSITIONS})
     needs = _needs_from_counts(team_counts)[:3]
     remaining = [p for i, p in prospects_by_index.items() if i not in drafted_indexes]
-    candidates = [p for p in remaining if p.group in needs]
-    pool = candidates or remaining
-    best = max(pool, key=lambda p: (p.overall_rating, -p.index))
+    if league_seed is not None and season_number is not None:
+        def evaluate(p):
+            return perceived_overall(p, team_abbr, league_seed, season_number)
+    else:
+        def evaluate(p):
+            return float(p.overall_rating)
+    best = _choose_prospect(remaining, needs, round_num, specialists_taken_this_round, evaluate)
     team_counts[best.group] += 1
     return best
 
@@ -614,7 +722,8 @@ def apply_single_pick_to_db(prospect: ProspectDraft, team_abbr: str, overall_pic
     from app.core.db import get_session
 
     salary = rookie_scale_aav(overall_pick, season_number)
-    player = _prospect_to_player(prospect, league_seed, season_number, team_abbr, salary, contract_years_remaining=4)
+    player = _prospect_to_player(prospect, league_seed, season_number, team_abbr, salary, contract_years_remaining=4,
+                                 draft_round=round_num, overall_pick=overall_pick)
     # player_id/full_name are both deterministic and known BEFORE the
     # insert (_player_id_for()/prospect's own name) -- read them off the
     # object before commit, not after: a SQLAlchemy Session expires an
@@ -700,8 +809,21 @@ def _player_id_for(league_seed: int, season_number: int, prospect_index: int) ->
 
 
 def _prospect_to_player(p: ProspectDraft, league_seed: int, season_number: int, team_abbr: str | None,
-                         salary: int, contract_years_remaining: int) -> Player:
+                         salary: int, contract_years_remaining: int,
+                         draft_round: int | None = None, overall_pick: int | None = None) -> Player:
+    from app.config import season_year
+
     kwargs = dict(p.attrs)
+    if team_abbr is not None and overall_pick is not None:
+        # Acquisition tracking (2026-09-14): a drafted rookie's origin is
+        # the draft itself. acquisition_season is the draft's own calendar
+        # year -- `season_number` here is the season the class is FOR (the
+        # Draft page's "2027 NFL Draft" for season_year(25)). Undrafted
+        # prospects stay None until someone actually signs them.
+        kwargs.update(
+            acquisition_type="Draft", acquisition_season=season_year(season_number),
+            acquisition_round=draft_round, acquisition_pick=overall_pick,
+        )
     return Player(
         player_id=_player_id_for(league_seed, season_number, p.index),
         first_name=p.first_name, last_name=p.last_name, position=p.position, team_abbr=team_abbr,
@@ -733,7 +855,8 @@ def apply_draft_to_db(prospects: list[ProspectDraft], result: DraftResult, leagu
         for pick in result.picks:
             prospect = by_index[pick.prospect_index]
             salary = rookie_scale_aav(pick.overall_pick, season_number)
-            player = _prospect_to_player(prospect, league_seed, season_number, pick.team_abbr, salary, contract_years_remaining=4)
+            player = _prospect_to_player(prospect, league_seed, season_number, pick.team_abbr, salary, contract_years_remaining=4,
+                                         draft_round=pick.round, overall_pick=pick.overall_pick)
             s.add(player)
             drafted_player_ids.append(player.player_id)
             picks_for_store.append({

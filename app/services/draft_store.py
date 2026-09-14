@@ -42,6 +42,12 @@ def get_draft(season_number: int, path: Path | None = None) -> dict | None:
     return _load(path).get(str(season_number))
 
 
+def recorded_seasons(path: Path | None = None) -> list[int]:
+    """Every season_number with a recorded draft, ascending (the Draft
+    page's year selector)."""
+    return sorted(int(k) for k in _load(path))
+
+
 def get_team_picks(season_number: int, team_abbr: str, path: Path | None = None) -> list[dict]:
     draft = get_draft(season_number, path)
     if draft is None:

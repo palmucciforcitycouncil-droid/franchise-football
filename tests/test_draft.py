@@ -15,6 +15,7 @@ from app.core.db import DB_PATH
 from app.engine import draft
 from app.engine.draft import GROUP_BANDS, GROUP_POSITIONS
 from app.models.coach import Coach, CoachRole, FOCUS_SCOUTING, FOCUS_DEVELOPMENT
+from app.models.player import Position
 from app.services.season_state import Season, WeekGame, TeamRecord
 from app.engine.game_state import GameResult
 from app.services import save_service, history_store, headlines_history, draft_store, undrafted_pool
@@ -353,6 +354,114 @@ def test_run_draft_for_season_consumes_that_seasons_pick_inventory():
         db_module.DB_PATH = real_db_path
         db_module._engine = None
         temp_db_path.unlink(missing_ok=True)
+
+
+# --- positional draft value (Brian's 2026-09-14 report: K at #2, P at #5) -------
+
+_TEAMS_32 = [f"T{i:02d}" for i in range(32)]
+# A realistic league: every team carries exactly one K and one P (the case
+# that used to make both of them a "top-3 need" for every team).
+_REALISTIC_COUNTS = {"QB": 3, "RB": 5, "WR": 6, "TE": 4, "OL": 10, "DL": 11, "LB": 6, "CB": 7, "S": 5, "K": 1, "P": 1}
+
+
+def _league_counts(seed: int) -> dict[str, dict[str, int]]:
+    """Deterministic, realistically varied roster depth per team (+-2 around
+    the league average per group; exactly one K and one P each)."""
+    import random
+    rng = random.Random(seed)
+    return {
+        t: {g: (c if g in ("K", "P") else max(1, c + rng.randint(-2, 2))) for g, c in _REALISTIC_COUNTS.items()}
+        for t in _TEAMS_32
+    }
+
+
+def _mock_draft_environment(monkeypatch, counts_seed: int = 0):
+    from app.services import draft_pick_store, coach_store as coach_store_module
+    monkeypatch.setattr(draft_pick_store, "owners_for_season", lambda season_number, path=None: {})
+    monkeypatch.setattr(draft, "_all_teams_group_counts", lambda: _league_counts(counts_seed))
+    monkeypatch.setattr(coach_store_module, "has_coaches", lambda: True)
+    monkeypatch.setattr(coach_store_module, "staff_for", lambda abbr: ())
+
+
+def test_simulated_drafts_keep_specialists_late_and_value_premium_positions(monkeypatch):
+    """Acceptance criteria for Brian's report: across several full,
+    deterministic 7-round drafts, no K/P in the first 100 overall picks,
+    none before round 5, at most SPECIALISTS_MAX_PER_ROUND per round, and a
+    real share of round 1 spent on QB/EDGE/T/CB."""
+    premium_total = 0
+    classes = [(2025, 1), (2025, 2), (7, 25), (123, 30), (99, 26), (5, 27)]
+    for i, (league_seed, season_number) in enumerate(classes):
+        _mock_draft_environment(monkeypatch, counts_seed=i)
+        prospects = draft.generate_draft_class(league_seed, season_number)
+        by_index = {p.index: p for p in prospects}
+        result = draft.simulate_draft(prospects, _TEAMS_32, league_seed=league_seed, season_number=season_number)
+        assert len(result.picks) == 32 * draft.ROUNDS
+
+        early = [by_index[pk.prospect_index].position for pk in result.picks if pk.overall_pick <= 100]
+        assert Position.K not in early and Position.P not in early
+
+        for rnd in range(1, draft.ROUNDS + 1):
+            specialists = [pk for pk in result.picks if pk.round == rnd
+                           and by_index[pk.prospect_index].position in draft.SPECIALIST_POSITIONS]
+            assert len(specialists) <= draft.SPECIALISTS_MAX_PER_ROUND
+            if rnd < draft.SPECIALIST_EARLIEST_ROUND:
+                assert specialists == []
+
+        round_one = [by_index[pk.prospect_index].position for pk in result.picks if pk.round == 1]
+        premium = sum(1 for pos in round_one if pos in (Position.QB, Position.EDGE, Position.T, Position.CB))
+        assert premium >= 6, f"only {premium}/32 premium-position picks in round 1: {round_one}"
+        premium_total += premium
+    # QB/EDGE/T/CB are ~26% of a generated class; value weighting should
+    # push their round-1 share clearly above that.
+    assert premium_total / (32 * len(classes)) >= 0.33
+
+
+def test_live_resolve_one_pick_obeys_the_same_specialist_rule(monkeypatch):
+    _mock_draft_environment(monkeypatch)
+    prospects = draft.generate_draft_class(2025, 1)
+    by_index = {p.index: p for p in prospects}
+    # A team with NO kicker or punter at all -- the strongest possible need.
+    counts = {"T00": {**_REALISTIC_COUNTS, "K": 0, "P": 0}}
+    for rnd in range(1, draft.SPECIALIST_EARLIEST_ROUND):
+        pick = draft.resolve_one_pick(by_index, set(), "T00", {k: dict(v) for k, v in counts.items()}, round_num=rnd)
+        assert pick.position not in draft.SPECIALIST_POSITIONS
+    # ...and the per-round quota still blocks one once it's used up.
+    pick = draft.resolve_one_pick(by_index, set(), "T00", {k: dict(v) for k, v in counts.items()},
+                                  round_num=draft.SPECIALIST_EARLIEST_ROUND,
+                                  specialists_taken_this_round=draft.SPECIALISTS_MAX_PER_ROUND)
+    assert pick.position not in draft.SPECIALIST_POSITIONS
+
+
+def test_needs_are_relative_to_typical_depth_not_raw_count():
+    needs = draft._needs_from_counts(dict(_REALISTIC_COUNTS))
+    assert "K" not in needs[:3] and "P" not in needs[:3]
+    assert draft._needs_from_counts({**_REALISTIC_COUNTS, "QB": 1})[0] == "QB"
+
+
+def test_fullbacks_count_toward_the_rb_group():
+    assert draft._group_for(Position.FB) == "RB"
+
+
+def test_projected_rounds_follow_draft_value_and_never_project_a_specialist_early():
+    prospects = draft.generate_draft_class(2025, 1)
+    proj = draft.projected_rounds(prospects)
+    assert set(proj) == {p.index for p in prospects}
+    for p in prospects:
+        if p.position in draft.SPECIALIST_POSITIONS and proj[p.index] is not None:
+            assert proj[p.index] >= draft.SPECIALIST_EARLIEST_ROUND
+    ranked = sorted(prospects, key=lambda p: -draft.draft_value(p))
+    assert proj[ranked[0].index] == 1
+    assert sum(1 for r in proj.values() if r == 1) == 32
+
+
+def test_drafted_player_gets_acquisition_fields_and_undrafted_does_not():
+    prospect = draft.generate_draft_class(2025, 1)[0]
+    drafted = draft._prospect_to_player(prospect, 2025, 25, "KC", 1_000_000, 4, draft_round=2, overall_pick=40)
+    assert drafted.acquisition_type == "Draft"
+    assert drafted.acquisition_season == 2027
+    assert drafted.acquisition_round == 2 and drafted.acquisition_pick == 40
+    undrafted = draft._prospect_to_player(prospect, 2025, 25, None, draft.LEAGUE_MINIMUM_BASE, 1)
+    assert undrafted.acquisition_type is None and undrafted.acquisition_season is None
 
 
 # --- undrafted pool expiration --------------------------------------------------
