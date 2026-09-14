@@ -188,10 +188,10 @@
     <h3>Team Schedule</h3>
     <div class="dashboard-scroll">
       {% for g in team_schedule %}
-      <div class="schedule-row {% if g.week == season.current_week %}current-week{% endif %} {% if g.result %}{{ 'tie' if g.result.tied else ('win' if g.result.won else 'loss') }}{% endif %}">
+      <div class="schedule-row {% if not g.is_preseason and g.week == season.current_week %}current-week{% endif %} {% if g.result %}{{ 'tie' if g.result.tied else ('win' if g.result.won else 'loss') }}{% endif %}">
         <div>
           <div>
-            <strong>Wk {{ g.week }}</strong>
+            <strong>{% if g.is_preseason %}PRE {{ g.week }}{% else %}Wk {{ g.week }}{% endif %}</strong>
             <span class="schedule-meta">{{ 'vs' if g.is_home else '@' }} {{ team_link(g.opponent_abbr) }}</span>
           </div>
           {% if g.result %}
@@ -243,7 +243,7 @@
         {% if scouting.summary.last3 %}
         <div class="dash-subhead">Last 3 Games</div>
         {% for g in scouting.summary.last3 %}
-        <div class="dash-stat-row"><span>{{ g.at }} {{ g.opponent }}</span><span class="{% if g.won %}winner{% endif %}">{{ 'W' if g.won else 'L' }} {{ g.my_score }}-{{ g.opp_score }}</span></div>
+        <div class="dash-stat-row"><span>{% if g.is_preseason %}<span class="muted">PRE</span> {% endif %}{{ g.at }} {{ g.opponent }}</span><span class="{% if g.won %}winner{% endif %}">{{ 'W' if g.won else 'L' }} {{ g.my_score }}-{{ g.opp_score }}</span></div>
         {% endfor %}
         {% else %}
         <p class="muted">No games played yet this season.</p>

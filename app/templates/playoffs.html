@@ -312,7 +312,7 @@
     <div class="dash-panel" data-panel="overview">
       {% if s.summary.last3 %}
       {% for g in s.summary.last3 %}
-      <div class="dash-stat-row"><span>{{ g.at }} {{ g.opponent }}</span><span class="{% if g.won %}winner{% endif %}">{{ 'W' if g.won else 'L' }} {{ g.my_score }}-{{ g.opp_score }}</span></div>
+      <div class="dash-stat-row"><span>{% if g.is_preseason %}<span class="muted">PRE</span> {% endif %}{{ g.at }} {{ g.opponent }}</span><span class="{% if g.won %}winner{% endif %}">{{ 'W' if g.won else 'L' }} {{ g.my_score }}-{{ g.opp_score }}</span></div>
       {% endfor %}
       {% else %}
       <p class="muted">No games played yet.</p>

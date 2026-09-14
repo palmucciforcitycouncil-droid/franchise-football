@@ -113,6 +113,15 @@ def _played_games(season, team_abbr: str) -> list[tuple[object, bool]]:
     return out
 
 
+def _preseason_game_ids(season) -> set[int]:
+    """id() of every WeekGame object in season.preseason_schedule, so a
+    game pulled out of _played_games()'s combined preseason+regular list
+    can be told apart from a real one (Brian's ask, 2026-09-13: Scouting
+    needs to visually flag preseason games instead of showing them
+    identically to a real Week 1 result)."""
+    return {id(g) for week in getattr(season, "preseason_schedule", None) or [] for g in week}
+
+
 def _offensive_plays(season, team_abbr: str):
     """team_abbr's own run/pass plays across every game it's played."""
     return [
@@ -306,11 +315,13 @@ class RecentGame:
     opp_score: int
     opponent: str
     at: str  # "vs" or "@"
+    is_preseason: bool = False
 
 
 def team_summary(season, team_abbr: str) -> dict:
     record = season.records[team_abbr]
     games = _played_games(season, team_abbr)
+    preseason_ids = _preseason_game_ids(season)
 
     recent: list[RecentGame] = []
     total_pass_yards = total_rush_yards = 0
@@ -322,7 +333,8 @@ def team_summary(season, team_abbr: str) -> dict:
         opponent = g.away_abbr if is_home else g.home_abbr
         won = (g.result.winner == "home") == is_home
         recent.append(RecentGame(won=won, my_score=my_score, opp_score=opp_score,
-                                  opponent=opponent, at="vs" if is_home else "@"))
+                                  opponent=opponent, at="vs" if is_home else "@",
+                                  is_preseason=id(g) in preseason_ids))
         my_tot = g.result.home_totals if is_home else g.result.away_totals
         opp_tot = g.result.away_totals if is_home else g.result.home_totals
         total_pass_yards += my_tot.pass_yards
