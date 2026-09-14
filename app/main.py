@@ -45,6 +45,7 @@ from app.services import (
     season_state, depth_chart, depth_chart_overrides, gameplan_store, history_store, power_rank_history,
     coach_store, coach_records, injury_store, coach_pool, award_race_history, save_manager, headlines_history,
     undrafted_pool, draft_store, draft_class_store, draft_board_store, draft_progress_store, offseason_recap_store,
+    honors_store, season_honors,
 )
 from app.engine import draft as draft_engine
 from app.engine import coach_hiring, coach_replacement
@@ -909,6 +910,25 @@ def _coach_card_json(coach: Coach) -> str:
         if afc or nfc or sb:
             titles_by_role.append([label, f"{afc} AFC, {nfc} NFC, {sb} SB"])
 
+    # Brian's ask, 2026-09-14: titles WITH years, e.g. "Super Bowl Champion
+    # x2 (2027, 2026)". Years come from honors_store (recorded as each
+    # title is won); the count is the larger of that and the Sec 7.9 career
+    # counter, so a title credited before dated honors existed still counts.
+    coach_rows = honors_store.coach_awards(coach.coach_id)
+    afc_total = sum(getattr(coach, f"{r}_afc_championships") for r in ("hc", "oc", "dc", "st", "ac"))
+    nfc_total = sum(getattr(coach, f"{r}_nfc_championships") for r in ("hc", "oc", "dc", "st", "ac"))
+    honors = []
+    for award, counter in (("Super Bowl Champion", coach.super_bowl_wins), ("AFC Champion", afc_total),
+                           ("NFC Champion", nfc_total), ("Coach of the Year", coach.coach_awards)):
+        years = sorted({r["year"] for r in coach_rows if r["award"] == award}, reverse=True)
+        count = max(counter, len(years))
+        if not count:
+            continue
+        label = award + (f" x{count}" if count > 1 else "")
+        if years:
+            label += f" ({', '.join(str(y) for y in years)})" if count > 1 else f" {years[0]}"
+        honors.append(label)
+
     generated_note = (
         "Ratings and tendencies are deterministically generated from this league's "
         "seed, not real data -- the real 2026 staff seed supplies only name, title "
@@ -942,6 +962,7 @@ def _coach_card_json(coach: Coach) -> str:
         "conference_titles": coach.conference_titles,
         "super_bowl_wins": coach.super_bowl_wins,
         "coach_awards": coach.coach_awards,
+        "honors": honors,
         "titles_by_role": titles_by_role,
         "season_history": history_rows,
         "rating_groups": [
@@ -1312,6 +1333,10 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
         headlines_history.get_week_headlines(season.season_number, just_completed_week)
         if just_completed_week >= 1 else None
     )
+    # Brian's ask, 2026-09-14: once the offseason begins, lead with the
+    # season's big results (Super Bowl, SB MVP, major awards) instead.
+    if season.offseason_stage is not None:
+        weekly_headlines = season_honors.offseason_headlines(season.season_number) or weekly_headlines
 
     return templates.TemplateResponse(
         request,
@@ -2316,10 +2341,48 @@ def _injury_summary_for(p: Player) -> dict | None:
     }
 
 
+def _acquisition_label(p: Player) -> str | None:
+    """Player Card header (Brian's ask, 2026-09-14): how this player joined
+    his current team, e.g. "Drafted 2027 · Round 2, Pick 45 (NE)" or
+    "FA Signing 2026". Display only -- the draft/FA/trade flows own
+    writing the acquisition_* fields. None (nothing shown) for a player
+    with no recorded acquisition, e.g. the original imported rosters."""
+    kind, year = p.acquisition_type, p.acquisition_season
+    if not kind:
+        return None
+    year_txt = f" {year}" if year else ""
+    if kind == "Draft":
+        label = f"Drafted{year_txt}"
+        if p.acquisition_round:
+            label += f" · Round {p.acquisition_round}"
+            if p.acquisition_pick:
+                label += f", Pick {p.acquisition_pick}"
+        if p.acquisition_team:
+            label += f" ({p.acquisition_team})"
+        return label
+    if kind == "Free Agent":
+        return f"FA Signing{year_txt}"
+    if kind == "Trade":
+        return f"Trade{year_txt}" + (f" (from {p.acquisition_team})" if p.acquisition_team else "")
+    return f"{kind}{year_txt}"
+
+
+def _honors_display(rows: list[dict]) -> list[str]:
+    """["MVP 2027", "Pro Bowl 2027, 2026", ...] -- grouped by award, years
+    newest first, most prestigious award first (honors_store.AWARD_ORDER)."""
+    return [
+        f"{g['award']}{' x' + str(g['count']) if g['count'] > 1 else ''} ({', '.join(str(y) for y in g['years'])})"
+        if g["count"] > 1 else f"{g['award']} {g['years'][0]}"
+        for g in honors_store.group_awards(rows)
+    ]
+
+
 def _player_card_json(p: Player) -> str:
     attrs = {ATTRIBUTE_LABELS.get(a, a): getattr(p, a) for a in PROGRESSED_ATTRIBUTES if a != "overall_rating"}
     season = season_state.get_season()
     return json.dumps({
+        "acquisition": _acquisition_label(p),
+        "honors": _honors_display(honors_store.player_awards(p.player_id)),
         "player_id": p.player_id,
         "name": p.full_name, "num": p.jersey_number, "pos": p.position.value,
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
@@ -2630,31 +2693,35 @@ def _team_history_for(team_abbr: str, full_history: list) -> list[dict]:
 
 @app.get("/awards", response_class=HTMLResponse)
 def awards_view(request: Request, tab: str = "season"):
-    """R8: Awards & Honors, 3 tabs -- Season Leaderboards (real-time,
-    reuses awards.py exactly like the Dashboard/Stats page's own Awards
-    Race sections already do, no new computation), Weekly Race Archive
-    (real per-week snapshots recorded by season_state.simulate_current_
-    week() into app/services/award_race_history.py), and Pro Bowl
-    Preview (awards.pro_bowl_starters(), a real but disclosed
-    overall_rating-based simplification -- see that function's own
-    docstring). GMOTY is dropped per this feature's own locked-in scope."""
+    """R8: Awards & Honors, 3 tabs -- Awards Race / Season Awards (top 10
+    per award: live from awards.py during the season, the frozen final
+    results from honors_store once the last regular-season week is
+    played), Weekly Race Archive (per-week snapshots recorded by
+    season_state.simulate_current_week() into award_race_history), and
+    Pro Bowl (the rosters selected once at the end of the regular season
+    -- nothing is shown before then). GMOTY is out of scope."""
     if tab not in ("season", "archive", "pro-bowl"):
         tab = "season"
 
     season = season_state.get_season()
-    season_awards = awards.season_awards(season)
-    oroy = awards.offensive_rookie_of_the_year(season)
-    droy = awards.defensive_rookie_of_the_year(season)
+    # Brian's ask, 2026-09-14: once the last regular-season game is played
+    # the race is over -- show the frozen final results (honors_store),
+    # never a recomputation that could drift as rosters change.
+    final_awards = honors_store.get_final_awards(season.season_number) if season.is_complete else None
+    award_lists = final_awards if final_awards is not None else awards.season_award_lists(season, awards.AWARDS_RACE_TOP_N)
+    pro_bowl = honors_store.get_pro_bowl(season.season_number) if season.is_complete else None
+
+    coty_cards = {}
+    for cand in award_lists.get("coty", []):
+        coach_id = cand["coach_id"] if isinstance(cand, dict) else cand.coach_id
+        coach = coach_store.by_id(coach_id)
+        if coach:
+            coty_cards[coach_id] = _coach_card_json(coach)
 
     weeks_recorded = award_race_history.get_all_weeks(season.season_number)
     weekly_races = [
         weeks_recorded[str(w)] for w in range(1, season.current_week) if str(w) in weeks_recorded
     ]
-
-    pro_bowl_preview = {
-        "AFC": awards.pro_bowl_starters(season, "AFC"),
-        "NFC": awards.pro_bowl_starters(season, "NFC"),
-    }
 
     return templates.TemplateResponse(
         request,
@@ -2662,11 +2729,12 @@ def awards_view(request: Request, tab: str = "season"):
         {
             "season": season,
             "tab": tab,
-            "season_awards": season_awards,
-            "oroy": oroy,
-            "droy": droy,
+            "award_lists": award_lists,
+            "is_final": final_awards is not None,
+            "coty_cards": coty_cards,
             "weekly_races": weekly_races,
-            "pro_bowl_preview": pro_bowl_preview,
+            "pro_bowl": pro_bowl,
+            "user_abbr": season.user_team_abbr,
         },
     )
 
@@ -3902,22 +3970,80 @@ def offseason_recap_view(request: Request, season_number: int | None = None):
     (current season_number - 1, since the franchise has already moved
     into its next season by the time this page is reachable)."""
     season = season_state.get_season()
-    target_season = season_number if season_number is not None else season.season_number - 1
+    if season_number is not None:
+        target_season = season_number
+    elif season.offseason_stage is not None:
+        # Mid-offseason: the season that just ended is still the current
+        # Season object -- its summary exists already, the movement recap
+        # below doesn't until the draft finishes.
+        target_season = season.season_number
+    else:
+        target_season = season.season_number - 1
     recap = offseason_recap_store.get_recap(target_season) if target_season >= 0 else None
+    summary = _season_summary(target_season) if target_season >= 0 else None
 
-    if recap is None:
+    if recap is None and summary is None:
         return templates.TemplateResponse(request, "coming_soon.html", {
             "title": "Offseason Recap",
             "gdd_section": "Brian's ask, 2026-09-13",
-            "summary": "No offseason recap yet -- the first one is saved automatically the first time a live "
-                       "draft finishes and the franchise moves into its next season.",
+            "summary": "No season summary or offseason recap yet -- the summary is saved as soon as a season's "
+                       "awards are decided, and the recap once a live draft finishes.",
         })
 
+    def _has_page(n: int) -> bool:
+        return n >= 0 and (offseason_recap_store.get_recap(n) is not None or honors_store.has_any_season_data(n))
+
     return templates.TemplateResponse(request, "offseason_recap.html", {
-        "recap": recap, "target_season": target_season, "user_abbr": season.user_team_abbr,
-        "has_prior_recap": offseason_recap_store.get_recap(target_season - 1) is not None,
-        "has_next_recap": offseason_recap_store.get_recap(target_season + 1) is not None,
+        "recap": recap, "summary": summary, "target_season": target_season, "user_abbr": season.user_team_abbr,
+        "has_prior_recap": _has_page(target_season - 1),
+        "has_next_recap": _has_page(target_season + 1),
     })
+
+
+def _season_summary(season_number: int) -> dict | None:
+    """End-of-season report (Brian's ask, 2026-09-14): Super Bowl champion
+    + score + MVP, both conference champions, the award winners with stat
+    lines, retired players, and the AFC/NFC Pro Bowl rosters -- all read
+    from the frozen honors_store, never recomputed. None when that season
+    has no honors recorded at all (e.g. one played before they existed)."""
+    sb = honors_store.get_super_bowl(season_number)
+    final = honors_store.get_final_awards(season_number)
+    pro_bowl = honors_store.get_pro_bowl(season_number)
+    retired = honors_store.get_retired_players(season_number)
+    if not any((sb, final, pro_bowl, retired)):
+        return None
+
+    records: dict[str, str] = {}
+    archived = next((r for r in history_store.get_history() if r.season_number == season_number), None)
+    if archived is not None:
+        records = {t.abbr: f"{t.wins}-{t.losses}" for t in archived.team_results}
+    else:
+        live = season_state.get_season()
+        if live.season_number == season_number:
+            records = {abbr: f"{r.wins}-{r.losses}" for abbr, r in live.records.items()}
+
+    winners = []
+    for key, label in (("mvp", "MVP"), ("opoy", "Offensive Player of the Year"), ("dpoy", "Defensive Player of the Year"),
+                       ("oroy", "Offensive Rookie of the Year"), ("droy", "Defensive Rookie of the Year")):
+        cands = (final or {}).get(key) or []
+        if cands:
+            winners.append({"label": label, "is_coach": False, **cands[0]})
+    coty = (final or {}).get("coty") or []
+    if coty:
+        winners.append({"label": "Coach of the Year", "is_coach": True, "position": "HC", **coty[0]})
+
+    conf_champions = []
+    if sb:
+        for conf in ("AFC", "NFC"):
+            abbr = sb.get(f"{conf.lower()}_champion_abbr")
+            if abbr:
+                conf_champions.append({"conference": conf, "abbr": abbr, "record": records.get(abbr, "")})
+
+    return {
+        "year": season_year(season_number), "super_bowl": sb, "records": records,
+        "conf_champions": conf_champions, "award_winners": winners,
+        "pro_bowl": pro_bowl, "retired_players": retired or [],
+    }
 
 
 PLAYOFF_VIEWS = ("full", "afc", "nfc", "superbowl")
@@ -4067,6 +4193,10 @@ def playoffs_view(request: Request, view: str = "full"):
         "view": view, "in_the_hunt": in_the_hunt, "division_standings": division_standings,
         "afc_rounds": afc_rounds, "nfc_rounds": nfc_rounds, "sb_matchup": sb_matchup,
         "teams_by_abbr": TEAMS_BY_ABBR,
+        # Brian's ask, 2026-09-14: Super Bowl numeral, final score and MVP
+        # (with stat line) under the champion -- frozen by season_honors
+        # the moment the game is played.
+        "sb_summary": honors_store.get_super_bowl(season.season_number) if bracket.is_complete else None,
     }
 
     if view == "full":
@@ -4088,13 +4218,9 @@ def playoffs_view(request: Request, view: str = "full"):
         # widget, not a second implementation), and -- once the game is
         # actually simulated -- a real final-score summary linking to the
         # full box score/play-by-play (playoffs_game_view below) rather
-        # than a second, duplicate inline copy of that same page. MVP is
-        # deliberately NOT included: no per-game "player of the game"
-        # stat exists anywhere in this engine (awards.py's MVP is a real,
-        # but SEASON-long, computation), and Figma's own MVP block is
-        # itself hardcoded demo data ("Tom Brady... Kansas City Chiefs"),
-        # not something a real API would ever return either -- faking a
-        # number here would be strictly worse than the source.
+        # than a second, duplicate inline copy of that same page. The
+        # Super Bowl MVP (sb_summary above) is chosen from that game's
+        # real box score -- see awards.super_bowl_mvp().
         ctx["afc_wc_preview"] = afc_rounds.get("WC", [])[:2]
         ctx["nfc_wc_preview"] = nfc_rounds.get("WC", [])[:2]
         if sb_matchup is not None:

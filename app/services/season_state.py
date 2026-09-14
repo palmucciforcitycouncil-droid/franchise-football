@@ -41,7 +41,7 @@ from app.engine.score_fidelity import SFSState
 from app.engine.playoffs import PlayoffBracket
 from app.services import (
     gameplan_store, history_store, power_rank_history, coach_store, coach_records, depth_chart, injury_store,
-    award_race_history, headlines_history, undrafted_pool,
+    award_race_history, headlines_history, undrafted_pool, season_honors,
 )
 from app.core.db import get_session
 from app.models.player import Player, Position
@@ -542,6 +542,12 @@ def simulate_current_week() -> int:
 
         season.current_week += 1
 
+        # Season honors (2026-09-14): the final regular-season week decides
+        # the season's awards and Pro Bowl rosters -- frozen now, not
+        # recomputed later (see app/services/season_honors.py).
+        if season.is_complete:
+            season_honors.finalize_regular_season(season)
+
         if week_total_teams:
             measured_ppg = week_total_points / week_total_teams
             score_fidelity.weekly_feedback_update(season.sfs, week_num, measured_ppg)
@@ -595,6 +601,8 @@ def simulate_playoff_round() -> str:
         # for WC/DIV, and Sec 7.9.2's idempotency requirement means a
         # replayed round credits nothing a second time.
         coach_records.credit_championship_round(season, round_name)
+        # Dated conference/Super Bowl titles + the Super Bowl result and MVP.
+        season_honors.record_playoff_round(season, round_name)
 
         if round_name != "SB":
             bracket.rounds.append(playoffs.build_next_round(bracket))
@@ -854,6 +862,12 @@ def begin_offseason() -> Season:
         if season.offseason_stage is not None:
             return season
 
+        # No-ops for any season that finalized normally; they backfill a
+        # season whose final week/Super Bowl was played before season
+        # honors existed. Must run before progression changes rookies/rosters.
+        season_honors.finalize_regular_season(season)
+        season_honors.record_playoff_round(season, "SB")
+
         history_store.archive_season(season)
         history_store.clear_career_stats_cache()
         season_stats.clear_current_season_cache()
@@ -882,6 +896,7 @@ def begin_offseason() -> Season:
         # the season boundary.
         injury_store.resolve_all_active()
         depth_chart.clear_starters_cache()
+        season_honors.record_offseason_headlines(season)
 
         season.offseason_stage = "staff"
         from app.services import save_service, save_manager
@@ -947,6 +962,12 @@ def finish_offseason(season: Season | None = None) -> Season:
             # simply moved on without re-signing -- still has a contract
             # at 0 years now really releases to free agency.
             free_agency.release_expired_contracts(players)
+            # Player retirement (2026-09-14). Here, not at begin_offseason():
+            # box scores resolve names through LIVE depth charts, so a
+            # retired team's only punter would break every later rebuild of
+            # the just-finished season's stats -- fill_roster_gaps() right
+            # below is what closes any hole a retirement leaves.
+            season_honors.retire_players(season, s, players)
 
             # Emergency AI fill (see free_agency.fill_roster_gaps' own
             # docstring): after enough offseasons of real contract churn,

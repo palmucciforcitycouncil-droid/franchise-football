@@ -194,6 +194,30 @@ def _record_from_dict(d: dict) -> SeasonRecord:
     )
 
 
+def _awards_for_archive(season) -> AwardsRace:
+    """The season's FROZEN final awards (app/services/honors_store.py,
+    decided the moment the regular season ended) when they exist, so
+    League History always matches what the Awards page announced; a live
+    recomputation otherwise (an incomplete smoke-test season, or one that
+    predates season honors). Top 5 per award, the archive's long-standing
+    depth -- the full top 10 stays in honors_store."""
+    from app.services import honors_store
+
+    final = honors_store.get_final_awards(season.season_number)
+    if not final:
+        return season_awards(season)
+
+    def players(key: str) -> list[AwardCandidate]:
+        return [AwardCandidate(name=c["name"], team_abbr=c["team_abbr"], position=c["position"],
+                               stat_line=c["stat_line"], score=c["score"]) for c in final.get(key, [])[:5]]
+
+    return AwardsRace(
+        mvp=players("mvp"), opoy=players("opoy"), dpoy=players("dpoy"), roy=players("roy"),
+        coty=[CoachAwardCandidate(**{k: c[k] for k in ("coach_id", "name", "team_abbr", "record", "stat_line", "score")})
+              for c in final.get("coty", [])[:5]],
+    )
+
+
 def archive_season(season, path: Path | None = None) -> SeasonRecord:
     """Snapshots `season` (the caller -- season_state.start_new_season()
     -- is responsible for calling this on the just-completed season
@@ -228,10 +252,9 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
     # this. Closes the "runner-up/final score not archived" disclosed
     # gap hof.html's old Super Bowl History table carried. Still no
     # quarter-by-quarter (this engine has no clock/quarter model
-    # anywhere, same disclosed gap as the Dashboard's Box Score box) and
-    # no Super Bowl MVP or winning-coach data (no per-game MVP stat and
-    # no Coach entity exist anywhere in this engine yet -- see
-    # ROADMAP.md's R3/R9 notes) -- neither is fabricated here.
+    # anywhere, same disclosed gap as the Dashboard's Box Score box). The
+    # Super Bowl MVP and dated coach/player titles live in
+    # app/services/honors_store.py (2026-09-14), not in this archive.
     afc_champion_abbr = nfc_champion_abbr = None
     sb_home_abbr = sb_away_abbr = None
     sb_home_score = sb_away_score = None
@@ -256,7 +279,7 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
         champion_abbr=champion_abbr,
         afc_seeds=afc_seeds,
         nfc_seeds=nfc_seeds,
-        awards=season_awards(season),
+        awards=_awards_for_archive(season),
         passing_leaders=sorted(passing.values(), key=lambda l: -l.yards),
         rushing_leaders=sorted(rushing.values(), key=lambda l: -l.yards),
         receiving_leaders=sorted(receiving.values(), key=lambda l: -l.yards),

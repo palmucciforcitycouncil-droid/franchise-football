@@ -1,41 +1,48 @@
 {% extends "base.html" %}
 {% block title %}Awards — Franchise Football{% endblock %}
 {% block content %}
+
+{% macro player_award_table(candidates) %}
+<table class="honors-table">
+  <tbody>
+    {% for c in candidates %}
+    <tr class="{% if loop.index == 1 and is_final %}winner{% endif %} {% if c.team_abbr == user_abbr %}honors-user-row{% endif %}">
+      <td class="col-rank">{{ loop.index }}</td>
+      <td>
+        {{ player_link_or_name(c.name, c.team_abbr) }}
+        <span class="honors-sub">{{ c.team_abbr }} &middot; {{ c.player_position or c.position }}{% if c.stat_line %} &middot; {{ c.stat_line }}{% endif %}</span>
+      </td>
+      <td class="col-score">{{ "%.3f"|format(c.score) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
 <div class="card">
-  <h2>Awards &amp; Honors</h2>
-  <p class="muted">Real-time leaderboards computed from this season's actual games (app/engine/awards.py) -- there's no "season complete" gate, so this doubles as an in-season Awards Race and a season-end result once the season finishes. Coach of the Year (GDD Sec 7.4.6) is included; General Manager of the Year is out of scope for now.</p>
+  <h2>Awards &amp; Honors &mdash; {{ season_year(season.season_number) }}</h2>
 </div>
 
 <div class="dash-tabs-grid cols-3" data-tabgroup="awards-main" style="margin-bottom: 1rem;">
-  <button type="button" class="dash-tab {% if tab != 'archive' and tab != 'pro-bowl' %}active{% endif %}" data-tab="season">Season Leaderboards</button>
+  <button type="button" class="dash-tab {% if tab != 'archive' and tab != 'pro-bowl' %}active{% endif %}" data-tab="season">{% if is_final %}Season Awards{% else %}Awards Race{% endif %}</button>
   <button type="button" class="dash-tab {% if tab == 'archive' %}active{% endif %}" data-tab="archive">Weekly Race Archive</button>
-  <button type="button" class="dash-tab {% if tab == 'pro-bowl' %}active{% endif %}" data-tab="pro-bowl">Pro Bowl Preview</button>
+  <button type="button" class="dash-tab {% if tab == 'pro-bowl' %}active{% endif %}" data-tab="pro-bowl">Pro Bowl</button>
 </div>
 
 <div class="dash-panel" data-panel="season" data-tabgroup-panel="awards-main" {% if tab in ('archive', 'pro-bowl') %}hidden{% endif %}>
   <div class="card">
-    <h3>Season Awards (through Week {{ season.current_week - 1 if season.current_week > 1 else 0 }})</h3>
-    <div class="division-standings-grid">
-      {% for label, candidates in [
-        ("MVP", season_awards.mvp), ("OPOY", season_awards.opoy), ("DPOY", season_awards.dpoy),
-        ("OROY", oroy), ("DROY", droy),
-      ] %}
+    {% if is_final %}
+    <h3>Season Awards &mdash; Final</h3>
+    {% else %}
+    <h3>Awards Race (through Week {{ season.current_week - 1 if season.current_week > 1 else 0 }})</h3>
+    {% endif %}
+    <div class="awards-grid">
+      {% for label, key in [("MVP", "mvp"), ("OPOY", "opoy"), ("DPOY", "dpoy"), ("OROY", "oroy"), ("DROY", "droy")] %}
+      {% set candidates = award_lists.get(key, []) %}
       <div>
         <h4 style="margin-bottom: 0.4rem;">{{ label }}</h4>
         {% if candidates %}
-        <table class="boxtable">
-          <tbody>
-            {% for c in candidates %}
-            <tr class="{% if loop.index == 1 %}winner{% endif %}">
-              <td>{{ loop.index }}</td>
-              <td>{{ player_link_or_name(c.name, c.team_abbr) }}</td>
-              <td class="muted">{{ c.team_abbr }}</td>
-              <td class="muted">{{ c.position }}</td>
-              <td class="muted">{{ "%.3f"|format(c.score) }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        {{ player_award_table(candidates) }}
         {% else %}
         <p class="muted">No qualifying candidates yet.</p>
         {% endif %}
@@ -44,22 +51,24 @@
 
       <div>
         <h4 style="margin-bottom: 0.4rem;">Coach of the Year</h4>
-        {% if season_awards.coty %}
-        <table class="boxtable">
+        {% set coty = award_lists.get("coty", []) %}
+        {% if coty %}
+        <table class="honors-table">
           <tbody>
-            {% for c in season_awards.coty %}
-            <tr class="{% if loop.index == 1 %}winner{% endif %}">
-              <td>{{ loop.index }}</td>
-              <td>{{ c.name }}</td>
-              <td class="muted">{{ c.team_abbr }}</td>
-              <td class="muted">{{ c.record }}</td>
-              <td class="muted">{{ "%.3f"|format(c.score) }}</td>
+            {% for c in coty %}
+            <tr class="{% if loop.index == 1 and is_final %}winner{% endif %} {% if c.team_abbr == user_abbr %}honors-user-row{% endif %}">
+              <td class="col-rank">{{ loop.index }}</td>
+              <td>
+                {% if coty_cards.get(c.coach_id) %}<span class="coach-name-link coach-link" data-coach-card='{{ coty_cards[c.coach_id] }}'>{{ c.name }}</span>{% else %}{{ c.name }}{% endif %}
+                <span class="honors-sub">{{ c.team_abbr }} &middot; {{ c.stat_line }}</span>
+              </td>
+              <td class="col-score">{{ "%.3f"|format(c.score) }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
         {% else %}
-        <p class="muted">No qualifying candidates yet{% if not season_awards.coty %} -- this database may have no coaches imported{% endif %}.</p>
+        <p class="muted">No qualifying candidates yet.</p>
         {% endif %}
       </div>
     </div>
@@ -110,22 +119,36 @@
 </div>
 
 <div class="dash-panel" data-panel="pro-bowl" data-tabgroup-panel="awards-main" {% if tab != 'pro-bowl' %}hidden{% endif %}>
+  {% if not pro_bowl %}
   <div class="card">
-    <h3>Pro Bowl Preview</h3>
-    <p class="muted">Disclosed simplification (app/engine/awards.py's pro_bowl_starters): no real Pro Bowl ballot exists in this engine, so "starters" here are simply each conference's own top real overall_rating at every position -- a genuine preview, since overall_rating only changes at the next Player Progression rollover, not mid-season.</p>
+    <h3>Pro Bowl</h3>
+    <p class="muted">Pro Bowl selections are announced after the final regular-season game.</p>
   </div>
-  <div class="dashboard-grid">
+  {% else %}
+  <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
     {% for conf in ["AFC", "NFC"] %}
     <div class="card">
-      <h3><span class="conf-badge {{ conf|lower }}">{{ conf }}</span></h3>
-      {% for side_label, side_key in [("Offense", "offense"), ("Defense", "defense"), ("Special Teams", "special")] %}
+      <h3><span class="conf-badge {{ conf|lower }}">{{ conf }}</span> Pro Bowl Roster</h3>
+      {% for side_label, side_key in [("Offense", "offense"), ("Defense", "defense"), ("Special Teams", "special"), ("Reserves", "reserves")] %}
       <div class="dash-subhead">{{ side_label }}</div>
-      {% for p in pro_bowl_preview[conf][side_key] %}
-      <div class="dash-stat-row"><span>{{ p.position }} &mdash; {{ player_link_or_name(p.name, p.team_abbr) }} ({{ p.team_abbr }})</span><span class="muted">{{ p.ovr }} OVR</span></div>
-      {% endfor %}
+      <table class="honors-table">
+        <tbody>
+          {% for p in pro_bowl[conf][side_key] %}
+          <tr class="{% if p.team_abbr == user_abbr %}honors-user-row{% endif %}">
+            <td class="col-pos">{{ p.position }}</td>
+            <td>
+              {{ player_link_or_name(p.name, p.team_abbr) }}
+              <span class="honors-sub">{{ p.team_abbr }}{% if p.stat_line %} &middot; {{ p.stat_line }}{% endif %}</span>
+            </td>
+            <td class="col-score">{{ p.ovr }} OVR</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
       {% endfor %}
     </div>
     {% endfor %}
   </div>
+  {% endif %}
 </div>
 {% endblock %}

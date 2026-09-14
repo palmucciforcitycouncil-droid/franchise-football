@@ -3,18 +3,126 @@
 {% block content %}
 
 <div class="card">
-  <h2>Offseason Recap &mdash; Season {{ target_season + 1 }}</h2>
+  <h2>{{ season_year(target_season) }} Season Summary &amp; Offseason Recap</h2>
+  {% if recap %}
   <p class="muted">
     What changed this offseason: real player progression deltas, real roster moves (free agency, the draft),
     and real team roster-strength shifts -- not a fabricated summary.
     <a href="/draft?season_param={{ target_season }}">View the full draft results &rarr;</a>
   </p>
+  {% endif %}
   <p class="row" style="gap: 1rem;">
-    {% if has_prior_recap %}<a href="/offseason/recap?season_number={{ target_season - 1 }}">&larr; Season {{ target_season }} Recap</a>{% endif %}
-    {% if has_next_recap %}<a href="/offseason/recap?season_number={{ target_season + 1 }}">Season {{ target_season + 2 }} Recap &rarr;</a>{% endif %}
+    {% if has_prior_recap %}<a href="/offseason/recap?season_number={{ target_season - 1 }}">&larr; {{ season_year(target_season - 1) }}</a>{% endif %}
+    {% if has_next_recap %}<a href="/offseason/recap?season_number={{ target_season + 1 }}">{{ season_year(target_season + 1) }} &rarr;</a>{% endif %}
   </p>
 </div>
 
+{% if summary %}
+{# End-of-season report (Brian's ask, 2026-09-14), Football-GM style.
+   Rows involving the user's own team get the subtle gold highlight. #}
+{% set sb = summary.super_bowl %}
+<div class="dash-tabs-grid cols-3">
+  <div class="card {% if sb and sb.winner_abbr == user_abbr %}honors-user-row{% endif %}">
+    <h3>Super Bowl Champion</h3>
+    {% if sb %}
+    <p style="font-size: 1.15rem; margin: 0 0 0.25rem;"><strong>{{ team_link(sb.winner_abbr) }}</strong> <span class="muted">{{ summary.records.get(sb.winner_abbr, '') }}</span></p>
+    <p class="muted" style="margin: 0 0 0.5rem;">Super Bowl {{ sb.numeral }}: {{ sb.winner_abbr }} {{ sb.winner_score }}, {{ sb.loser_abbr }} {{ sb.loser_score }}</p>
+    {% if sb.mvp %}
+    <p style="margin: 0;">Super Bowl MVP: {{ player_link_or_name(sb.mvp.name, sb.mvp.team_abbr) }}{% if sb.mvp.position %} ({{ sb.mvp.position }}){% endif %}</p>
+    {% if sb.mvp.stat_line %}<p class="muted" style="margin: 0;">{{ sb.mvp.stat_line }}</p>{% endif %}
+    {% endif %}
+    {% else %}<p class="muted">Not decided yet.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Conference Champions</h3>
+    {% if summary.conf_champions %}
+    <table class="honors-table">
+      <tbody>
+        {% for c in summary.conf_champions %}
+        <tr class="{% if c.abbr == user_abbr %}honors-user-row{% endif %}">
+          <td class="col-pos"><span class="conf-badge {{ c.conference|lower }}">{{ c.conference }}</span></td>
+          <td>{{ team_link(c.abbr) }}</td>
+          <td class="col-score">{{ c.record }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">Not decided yet.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Season Awards</h3>
+    {% if summary.award_winners %}
+    <table class="honors-table">
+      <tbody>
+        {% for w in summary.award_winners %}
+        <tr class="{% if w.team_abbr == user_abbr %}honors-user-row{% endif %}">
+          <td>
+            <span class="honors-sub">{{ w.label }}</span>
+            {% if w.is_coach %}{{ w.name }}{% else %}{{ player_link_or_name(w.name, w.team_abbr) }}{% endif %}
+            <span class="muted">({{ w.player_position or w.position }}, {{ w.team_abbr }})</span>
+            <span class="honors-sub">{{ w.stat_line }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">Not decided yet.</p>{% endif %}
+  </div>
+</div>
+
+{% if summary.pro_bowl %}
+<div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+  {% for conf in ["AFC", "NFC"] %}
+  <div class="card">
+    <h3><span class="conf-badge {{ conf|lower }}">{{ conf }}</span> Pro Bowl</h3>
+    {% for side_label, side_key in [("Offense", "offense"), ("Defense", "defense"), ("Special Teams", "special"), ("Reserves", "reserves")] %}
+    <div class="dash-subhead">{{ side_label }}</div>
+    <table class="honors-table">
+      <tbody>
+        {% for p in summary.pro_bowl[conf][side_key] %}
+        <tr class="{% if p.team_abbr == user_abbr %}honors-user-row{% endif %}">
+          <td class="col-pos">{{ p.position }}</td>
+          <td>{{ p.name }} <span class="muted">({{ p.team_abbr }})</span></td>
+          <td class="col-score">{{ p.ovr }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Retired Players</h3>
+  {% if summary.retired_players %}
+  {# Football-GM style "POS Name (TEAM, age yo, ...)"; a long list, so it
+     flows into columns instead of one very tall table. #}
+  <ul style="columns: 3 300px; column-gap: 1.5rem; list-style: none; margin: 0; padding: 0;">
+    {% for r in summary.retired_players %}
+    <li class="{% if r.team_abbr and r.team_abbr == user_abbr %}honors-user-row{% endif %}" style="break-inside: avoid; padding: 0.2rem 0.3rem;">
+      <span class="muted">{{ r.position }}</span> {{ r.name }}
+      <span class="muted">({{ r.team_abbr or 'FA' }}, {{ r.age }} yo, {{ r.overall_rating }} OVR, {{ r.years_pro }} yr{{ '' if r.years_pro == 1 else 's' }} pro)</span>
+      {% if r.honors %}<span class="muted" style="display: block; color: var(--gold);">{{ r.honors }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif sb %}
+  <p class="muted">Retirements are announced once the re-signing window closes and free agency opens.</p>
+  {% else %}
+  <p class="muted">No retirements.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not recap %}
+<div class="card">
+  <p class="muted">The offseason recap (player progression, free agency and draft movement) is saved once the draft finishes.</p>
+</div>
+{% else %}
 <div class="dash-tabs-grid cols-4">
   <div class="card">
     <h3>Top Players</h3>
@@ -163,4 +271,5 @@
     {% else %}<p class="muted">Nobody notable changed teams.</p>{% endif %}
   </div>
 </div>
+{% endif %}
 {% endblock %}

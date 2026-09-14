@@ -55,7 +55,23 @@
 {% endif %}
 {% endmacro %}
 
-{% macro full_tree(afc_rounds, nfc_rounds, afc_champion=None, nfc_champion=None, sb_matchup=None, is_complete=False, champion_abbr=None) %}
+{# Brian's ask, 2026-09-14: under the Super Bowl winner -- the game's
+   numeral, final score, and MVP with his stat line. #}
+{% macro sb_result_block(sb) %}
+{% if sb %}
+<div class="sb-result">
+  <div class="sb-result-title">SUPER BOWL {{ sb.numeral }}</div>
+  <div class="sb-result-score">{{ teams_by_abbr[sb.winner_abbr].location }} {{ sb.winner_score }}, {{ teams_by_abbr[sb.loser_abbr].location }} {{ sb.loser_score }}</div>
+  {% if sb.mvp %}
+  <div class="sb-result-mvp-label">Super Bowl MVP</div>
+  <div class="sb-result-mvp">{{ player_link_or_name(sb.mvp.name, sb.mvp.team_abbr) }}{% if sb.mvp.position %} ({{ sb.mvp.position }}){% endif %}</div>
+  {% if sb.mvp.stat_line %}<div class="sb-result-stats">{{ sb.mvp.stat_line }}</div>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro full_tree(afc_rounds, nfc_rounds, afc_champion=None, nfc_champion=None, sb_matchup=None, is_complete=False, champion_abbr=None, sb_summary=None) %}
 <div class="full-tree-grid">
   <div>
     <div class="tree-col-label"><span class="conf-badge afc">AFC</span> Wild Card</div>
@@ -77,7 +93,7 @@
     <div class="sb-card" style="padding: 0.75rem;">
       <h4 style="margin: 0 0 0.5rem; text-align: center;">Super Bowl</h4>
       {% if sb_matchup %}{{ matchup_card(sb_matchup, compact=True) }}{% else %}<p class="matchup-tbd">TBD</p>{% endif %}
-      {% if is_complete %}<div class="sb-champions-banner">&#127942; {{ champion_abbr }}</div>{% endif %}
+      {% if is_complete %}<div class="sb-champions-banner">&#127942; {{ champion_abbr }}</div>{{ sb_result_block(sb_summary) }}{% endif %}
     </div>
   </div>
   <div style="padding-top: 7.5rem;">
@@ -108,7 +124,7 @@
     <p class="muted">Check back after Week 4 &mdash; too few games played so far for a meaningful playoff picture. See the <a href="/season">Season</a> page to keep simulating weeks.</p>
     {% endif %}
   {% elif bracket.is_complete %}
-  <p class="muted">Champion: <strong>{{ bracket.champion_abbr }}</strong></p>
+  <p class="muted">Champion: <strong>{{ bracket.champion_abbr }}</strong>{% if season.offseason_stage %} &middot; <a href="/offseason/recap">{{ season_year(season.season_number) }} Season Summary &rarr;</a>{% endif %}</p>
   {% if season.offseason_stage == "staff" %}
   <p class="muted">The offseason is underway -- head to the <a href="/staff">Staff</a> page for Staff Decisions, then continue to free agency and the draft.</p>
   {% elif season.offseason_stage == "resign" %}
@@ -195,7 +211,7 @@
      centered Super Bowl card, mirroring the source's own layout without
      its SVG connector lines (see base.html's .full-tree-grid comment). -->
 <div class="card">
-  {{ full_tree(afc_rounds, nfc_rounds, afc_champion, nfc_champion, sb_matchup, bracket.is_complete, bracket.champion_abbr) }}
+  {{ full_tree(afc_rounds, nfc_rounds, afc_champion, nfc_champion, sb_matchup, bracket.is_complete, bracket.champion_abbr, sb_summary) }}
 </div>
 {% endif %}
 
@@ -266,9 +282,8 @@
      Wild Card previews flanking the SB card, a real Scouting Panel per
      team (build_scouting_report(), the same .dash-tab widget Dashboard
      already uses), and a real final-score summary linking to the full
-     game view once played. MVP is deliberately omitted -- see the
-     playoffs_view() docstring in main.py for why (no per-game MVP stat
-     exists, and Figma's own MVP block is itself hardcoded demo data). -->
+     game view once played, with the Super Bowl MVP from that game's own
+     box score (awards.super_bowl_mvp()). -->
 <div class="card">
   <div class="sb-wc-preview-grid">
     <div class="sb-wc-side">
@@ -282,6 +297,7 @@
         {{ matchup_card(sb_matchup) }}
         {% if bracket.is_complete %}
         <div class="sb-champions-banner">&#127942; Champions: {{ bracket.champion_abbr }}</div>
+        {{ sb_result_block(sb_summary) }}
         <p style="text-align: center; margin-top: 0.75rem;"><a href="/playoffs/game/{{ sb_matchup.round_name }}/{{ sb_matchup.home_abbr }}/{{ sb_matchup.away_abbr }}">Full box score &amp; play-by-play &rarr;</a></p>
         {% endif %}
       {% else %}
