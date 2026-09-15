@@ -1,0 +1,426 @@
+{# Propose Trade box (built for GM Desk 2026-09-14, extracted into its own
+   shared partial 2026-09-15 so the Draft page's trade panel can be the
+   exact same box instead of a second, picks-only implementation -- both
+   pages post to the same /gm-desk/trade route (return_to tells it where
+   to redirect back to) and hit the same /gm-desk/trade/side, /preview,
+   /counter fragment endpoints. Needs from the including page's context:
+   user_side/partner_side (main.py's _trade_side_context()), other_teams,
+   team_b, trade_window_open, and optionally preselect_player_id/
+   return_to (defaults to "gm-desk" server-side if the hidden input below
+   is omitted -- always include it explicitly here). gm-cap-used/gm-cap-
+   space are GM Desk-only elements; this box updates them if present and
+   no-ops otherwise, so it's safe to include on a page without them. #}
+{% from "_gm_trade_side.html" import trade_side %}
+<style>
+  .trade-board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 300px); gap: 1rem; margin-top: 0.5rem; align-items: start; }
+  @media (max-width: 900px) { .trade-board { grid-template-columns: minmax(0, 1fr); } }
+  .trade-side-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.35rem; font-size: 0.9rem; }
+  .trade-roster-wrap { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .trade-roster-table { font-size: 0.84rem; }
+  .trade-roster-table th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; padding: 0.3rem 0.45rem; text-align: left; border-bottom: 1px solid var(--border); z-index: 1; }
+  .trade-roster-table td { padding: 0.25rem 0.45rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .trade-row { cursor: pointer; }
+  .trade-row:hover { background: rgba(45, 74, 111, 0.3); }
+  .trade-row.selected { background: rgba(212, 175, 55, 0.18); }
+  .trade-picks-divider td { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; background: var(--bg); }
+  .trade-partner-picker { display: flex; align-items: center; gap: 0.5rem; margin: 0.9rem 0 0.5rem; }
+  .trade-empty { border: 1px dashed var(--border); border-radius: 8px; padding: 1.2rem; text-align: center; }
+  .trade-offer-panel { background: var(--bg); border-radius: 8px; padding: 0.75rem 0.9rem; position: sticky; top: 70px; }
+  .trade-offer-panel h4 { margin: 0 0 0.4rem; }
+  .trade-offer-label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; margin: 0.55rem 0 0.25rem; }
+  .trade-offer-list { list-style: none; margin: 0; padding: 0; min-height: 1.3rem; }
+  .trade-offer-list li { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem; font-size: 0.83rem; padding: 0.18rem 0; }
+  .trade-offer-list li small { display: block; color: var(--muted); }
+  .trade-offer-list li.trade-offer-empty { color: var(--muted); font-style: italic; }
+  .trade-offer-list button { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 0.2rem; font-size: 1rem; line-height: 1; }
+  .trade-wants ul { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; }
+  .trade-meter-bar { height: 10px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 0.25rem; }
+  .trade-meter-fill { height: 100%; width: 0; transition: width 0.25s ease, background 0.25s ease; background: var(--muted); }
+  .trade-meter-fill.meter-bad { background: #f87171; }
+  .trade-meter-fill.meter-mid { background: #facc15; }
+  .trade-meter-fill.meter-good { background: #4ade80; }
+  .trade-meter-text { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 0.2rem; }
+  #trade-verdict { margin: 0.6rem 0 0; font-size: 0.88rem; }
+  #trade-verdict small { display: block; font-weight: 400; margin-top: 0.15rem; }
+  .trade-offer-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+  .trade-offer-note { font-size: 0.74rem; margin: 0.5rem 0 0; }
+</style>
+
+<div class="card" id="propose-trade-card">
+  <h3>Propose Trade</h3>
+  {% if not trade_window_open %}
+  <p class="muted pc-injury-status">The trade window is closed for this season (deadline: week 8).</p>
+  {% endif %}
+  <div class="trade-board" id="trade-board" data-preselect="{{ preselect_player_id or '' }}" data-team-b="{{ team_b or '' }}">
+    <div class="trade-rosters">
+      <div id="trade-user-side">{{ trade_side(user_side) }}</div>
+      <div class="trade-partner-picker">
+        <label for="trade-partner-select">Trade with</label>
+        <select id="trade-partner-select">
+          <option value="">Choose a team&hellip;</option>
+          {% for t in other_teams %}
+          <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="trade-partner-side">
+        {% if partner_side %}{{ trade_side(partner_side) }}{% else %}<div class="trade-empty muted">Choose a team above to see their roster and draft picks.</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="trade-offer-panel">
+      <h4>Current Offer</h4>
+      <div class="trade-wants" id="trade-wants" {% if not partner_side %}hidden{% endif %}>
+        <div class="trade-offer-label" style="margin-top: 0;">What they're looking for</div>
+        <ul id="trade-wants-list">
+          {% if partner_side %}
+          <li>{{ partner_side.profile.mode_line }}</li>
+          {% for need in partner_side.profile.needs %}<li>{{ need }}</li>{% endfor %}
+          {% endif %}
+        </ul>
+      </div>
+      <div class="trade-offer-label">{{ user_side.abbr }} sends</div>
+      <ul class="trade-offer-list" data-offer-list="give"><li class="trade-offer-empty">Click your players or picks to offer them</li></ul>
+      <div class="trade-offer-label">in exchange for&hellip;</div>
+      <ul class="trade-offer-list" data-offer-list="get"><li class="trade-offer-empty">Click their players or picks to request them</li></ul>
+
+      <div class="trade-offer-label">Acceptance likelihood</div>
+      <div class="trade-meter-bar"><div class="trade-meter-fill" id="trade-meter-fill"></div></div>
+      <div class="trade-meter-text"><span id="trade-meter-label" class="muted">&mdash;</span><span id="trade-meter-pct" class="muted"></span></div>
+
+      <div id="trade-verdict" class="neg-result-message" hidden></div>
+
+      <div class="trade-offer-actions">
+        <button type="button" id="trade-submit-btn" {% if not trade_window_open %}disabled{% endif %}>Submit Offer</button>
+        <button type="button" id="trade-counter-btn">Get Counter Offer</button>
+        <button type="button" id="trade-clear-btn">Clear Offer</button>
+      </div>
+      <p class="muted trade-offer-note">Click a row to add or remove it; double-click a player for his Player Card. Future picks 3+ drafts out are valued at a league-average slot.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  function fmtMoney(n) {
+    if (n === null || n === undefined || n === '') { return '--'; }
+    return '$' + (Math.round(Number(n) / 1000) * 1000).toLocaleString('en-US');
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+  // Player Card JSON is fetched on demand rather than embedded per row.
+  function openCardById(playerId) {
+    if (!window.ffgOpenCard) { return; }
+    fetch('/gm-desk/player-card/' + encodeURIComponent(playerId)).then(function (r) {
+      if (!r.ok) { throw new Error('card failed'); }
+      return r.json();
+    }).then(function (card) { window.ffgOpenCard(card); }).catch(function (err) {
+      console.error('Failed to load player card', err);
+    });
+  }
+
+  // ---- Client-side table sorting (no reload, no jump) -- shared by
+  // both trade-side roster tables and any other data-sort-table on the
+  // including page (e.g. GM Desk's own Trade Block table). ----------
+  function cellValue(row, key, idx) {
+    if (row.dataset[key] !== undefined) { return row.dataset[key]; }
+    var cell = row.cells[idx];
+    return cell ? cell.textContent.trim().toLowerCase() : '';
+  }
+  document.addEventListener('click', function (e) {
+    var th = e.target.closest('th[data-sort]');
+    if (!th) { return; }
+    var table = th.closest('table[data-sort-table]');
+    var body = table && table.querySelector('tbody[data-sort-body]');
+    if (!body) { return; }
+    var key = th.dataset.sort;
+    var isText = th.dataset.type === 'text';
+    var dir = th.classList.contains('sort-desc') ? 'asc'
+            : th.classList.contains('sort-asc') ? 'desc'
+            : (isText ? 'asc' : 'desc');
+    table.querySelectorAll('th[data-sort]').forEach(function (h) { h.classList.remove('sort-asc', 'sort-desc'); });
+    th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+    var rows = Array.prototype.slice.call(body.rows);
+    rows.sort(function (a, b) {
+      var va = cellValue(a, key, idx), vb = cellValue(b, key, idx);
+      var cmp = isText ? va.localeCompare(vb) : ((parseFloat(va.replace(/[^0-9.\-]/g, '')) || 0) - (parseFloat(vb.replace(/[^0-9.\-]/g, '')) || 0));
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  });
+
+  // ---- Propose Trade box ----------------------------------------------
+  var board = document.getElementById('trade-board');
+  if (!board) { return; }
+  var userSideEl = document.getElementById('trade-user-side');
+  var partnerSideEl = document.getElementById('trade-partner-side');
+  var partnerSelect = document.getElementById('trade-partner-select');
+  var wantsEl = document.getElementById('trade-wants');
+  var wantsList = document.getElementById('trade-wants-list');
+  var meterFill = document.getElementById('trade-meter-fill');
+  var meterLabel = document.getElementById('trade-meter-label');
+  var meterPct = document.getElementById('trade-meter-pct');
+  var verdictEl = document.getElementById('trade-verdict');
+  var submitBtn = document.getElementById('trade-submit-btn');
+  var counterBtn = document.getElementById('trade-counter-btn');
+  var teamB = board.dataset.teamB || '';
+  var offer = {give: [], get: []};
+  var previewTimer = null;
+  var previewSeq = 0;
+
+  function rowFor(side, id) {
+    var root = side === 'give' ? userSideEl : partnerSideEl;
+    return root.querySelector('.trade-row[data-asset-id="' + CSS.escape(id) + '"]');
+  }
+  function inOffer(side, id) {
+    return offer[side].some(function (a) { return a.id === id; });
+  }
+  function addAsset(side, row) {
+    var id = row.dataset.assetId;
+    if (inOffer(side, id)) { return; }
+    offer[side].push({id: id, kind: row.dataset.assetKind, label: row.dataset.label, detail: row.dataset.detail});
+    row.classList.add('selected');
+  }
+  function removeAsset(side, id) {
+    offer[side] = offer[side].filter(function (a) { return a.id !== id; });
+    var row = rowFor(side, id);
+    if (row) { row.classList.remove('selected'); }
+  }
+  function clearVerdict() { verdictEl.hidden = true; verdictEl.innerHTML = ''; }
+  function showVerdict(kind, headline, reason) {
+    verdictEl.className = 'neg-result-message ' + kind;
+    verdictEl.innerHTML = esc(headline) + (reason ? '<small>' + esc(reason) + '</small>' : '');
+    verdictEl.hidden = false;
+  }
+
+  function renderOffer() {
+    ['give', 'get'].forEach(function (side) {
+      var list = board.querySelector('.trade-offer-list[data-offer-list="' + side + '"]');
+      if (!offer[side].length) {
+        list.innerHTML = '<li class="trade-offer-empty">' + (side === 'give'
+          ? 'Click your players or picks to offer them' : 'Click their players or picks to request them') + '</li>';
+        return;
+      }
+      list.innerHTML = offer[side].map(function (a) {
+        return '<li><span>' + esc(a.label) + '<small>' + esc(a.detail) + '</small></span>' +
+          '<button type="button" title="Remove" data-remove-side="' + side + '" data-remove-id="' + esc(a.id) + '">&times;</button></li>';
+      }).join('');
+    });
+  }
+
+  function proposalParams() {
+    var params = new URLSearchParams();
+    params.set('team_b', teamB);
+    offer.give.forEach(function (a) { params.append(a.kind === 'pick' ? 'give_picks' : 'give', a.id); });
+    offer.get.forEach(function (a) { params.append(a.kind === 'pick' ? 'get_picks' : 'get', a.id); });
+    return params;
+  }
+
+  function setMeter(likelihood, reason) {
+    meterFill.classList.remove('meter-bad', 'meter-mid', 'meter-good');
+    if (likelihood === null || likelihood === undefined) {
+      meterFill.style.width = '0';
+      meterLabel.textContent = teamB ? 'Add players or picks' : 'Choose a trade partner';
+      meterLabel.className = 'muted';
+      meterPct.textContent = '';
+      return;
+    }
+    var cls = likelihood >= 70 ? 'good' : likelihood >= 40 ? 'mid' : 'bad';
+    meterFill.classList.add('meter-' + cls);
+    meterFill.style.width = Math.max(3, likelihood) + '%';
+    meterLabel.textContent = (cls === 'good' ? 'Likely' : cls === 'mid' ? 'Possible' : 'Unlikely') +
+      (reason && cls !== 'good' ? ' -- ' + reason : '') +
+      (offer.give.length && !offer.get.length ? ' -- add something you want back' : '');
+    meterLabel.className = 'neg-reaction-' + cls;
+    meterPct.textContent = likelihood + '%';
+  }
+
+  function offerChanged() {
+    renderOffer();
+    clearVerdict();
+    if (previewTimer) { clearTimeout(previewTimer); }
+    if (!teamB || (!offer.give.length && !offer.get.length)) { setMeter(null); return; }
+    previewTimer = setTimeout(function () {
+      var seq = ++previewSeq;
+      meterLabel.textContent = 'Checking…';
+      fetch('/gm-desk/trade/preview?' + proposalParams().toString()).then(function (r) {
+        if (!r.ok) { throw new Error('preview failed'); }
+        return r.json();
+      }).then(function (data) {
+        if (seq !== previewSeq) { return; }
+        setMeter(data.likelihood, data.reason);
+      }).catch(function () { if (seq === previewSeq) { setMeter(null); } });
+    }, 200);
+  }
+
+  board.addEventListener('click', function (e) {
+    var removeBtn = e.target.closest('[data-remove-id]');
+    if (removeBtn) {
+      removeAsset(removeBtn.dataset.removeSide, removeBtn.dataset.removeId);
+      offerChanged();
+      return;
+    }
+    var row = e.target.closest('.trade-row');
+    if (!row) { return; }
+    var side = row.dataset.side;
+    if (inOffer(side, row.dataset.assetId)) { removeAsset(side, row.dataset.assetId); } else { addAsset(side, row); }
+    offerChanged();
+  });
+  board.addEventListener('dblclick', function (e) {
+    var row = e.target.closest('.trade-row[data-asset-kind="player"]');
+    if (row) { openCardById(row.dataset.assetId); }
+  });
+
+  function renderWants(wants) {
+    if (!wants) { wantsEl.hidden = true; wantsList.innerHTML = ''; return; }
+    wantsList.innerHTML = [wants.mode_line].concat(wants.needs).map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('');
+    wantsEl.hidden = false;
+  }
+
+  function loadSide(team) {
+    return fetch('/gm-desk/trade/side?team=' + encodeURIComponent(team)).then(function (r) {
+      if (!r.ok) { throw new Error('side failed'); }
+      return r.json();
+    });
+  }
+
+  function loadPartner(team) {
+    offer.get = [];
+    teamB = team;
+    board.dataset.teamB = team;
+    clearVerdict();
+    var url = new URL(window.location.href);
+    url.searchParams.delete('acquire');
+    url.searchParams.delete('trade_result');
+    if (team) { url.searchParams.set('team_b', team); } else { url.searchParams.delete('team_b'); }
+    history.replaceState(null, '', url.toString());
+    if (!team) {
+      partnerSideEl.innerHTML = '<div class="trade-empty muted">Choose a team above to see their roster and draft picks.</div>';
+      renderWants(null);
+      offerChanged();
+      return Promise.resolve();
+    }
+    partnerSideEl.innerHTML = '<div class="trade-empty muted">Loading…</div>';
+    return loadSide(team).then(function (data) {
+      if (teamB !== team) { return; }
+      partnerSideEl.innerHTML = data.html;
+      renderWants(data.wants);
+      offerChanged();
+    }).catch(function () {
+      partnerSideEl.innerHTML = '<div class="trade-empty muted">Couldn\'t load that roster -- try again.</div>';
+    });
+  }
+  partnerSelect.addEventListener('change', function () { loadPartner(partnerSelect.value); });
+
+  function scrollToTradeBox() {
+    var card = document.getElementById('propose-trade-card');
+    var header = document.querySelector('header');
+    var top = card.getBoundingClientRect().top + window.scrollY - (header ? header.getBoundingClientRect().height + 12 : 0);
+    window.scrollTo({top: top, behavior: 'smooth'});
+  }
+
+  // GM Desk's Trade Block "Trade For" links (if present on this page --
+  // a no-op elsewhere): load that partner in place and pre-add the player.
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('a[data-trade-for]');
+    if (!link) { return; }
+    e.preventDefault();
+    var team = link.dataset.tradeFor, pid = link.dataset.playerId;
+    partnerSelect.value = team;
+    loadPartner(team).then(function () {
+      var row = rowFor('get', pid);
+      if (row) { addAsset('get', row); offerChanged(); }
+      scrollToTradeBox();
+    });
+  });
+
+  document.getElementById('trade-clear-btn').addEventListener('click', function () {
+    offer.give.slice().forEach(function (a) { removeAsset('give', a.id); });
+    offer.get.slice().forEach(function (a) { removeAsset('get', a.id); });
+    offerChanged();
+  });
+
+  submitBtn.addEventListener('click', function () {
+    if (!teamB) { showVerdict('reject', 'Choose a trade partner first.'); return; }
+    if (!offer.give.length || !offer.get.length) {
+      showVerdict('reject', 'A trade needs something on both sides.');
+      return;
+    }
+    var body = proposalParams();
+    body.set('ajax', '1');
+    submitBtn.disabled = true;
+    fetch('/gm-desk/trade', {method: 'POST', body: body}).then(function (r) {
+      return r.json().then(function (data) { return {ok: r.ok, data: data}; });
+    }).then(function (res) {
+      if (!res.ok) { showVerdict('reject', 'Not submitted', res.data.detail || 'Something went wrong.'); return; }
+      var data = res.data;
+      if (!data.accepted) {
+        setMeter(data.likelihood, data.reason);
+        showVerdict('reject', data.headline, data.reason);
+        return;
+      }
+      // Accepted: both rosters (and the cap figures) changed for real --
+      // refresh them in place and start a fresh offer.
+      var headline = data.headline, reason = data.reason;
+      offer = {give: [], get: []};
+      Promise.all([loadSide(board.querySelector('#trade-user-side .trade-side').dataset.team), loadSide(teamB)]).then(function (sides) {
+        userSideEl.innerHTML = sides[0].html;
+        partnerSideEl.innerHTML = sides[1].html;
+        renderWants(sides[1].wants);
+        // GM Desk-only cap summary elements -- absent (and skipped) elsewhere.
+        var capUsedEl = document.getElementById('gm-cap-used');
+        if (capUsedEl) { capUsedEl.textContent = fmtMoney(sides[0].payroll); }
+        var spaceEl = document.getElementById('gm-cap-space');
+        if (spaceEl) {
+          var space = sides[0].cap - sides[0].payroll;
+          spaceEl.textContent = fmtMoney(space);
+          spaceEl.classList.toggle('pc-injury-status', space < 0);
+        }
+      }).finally(function () {
+        renderOffer();
+        setMeter(null);
+        showVerdict('accept', headline, reason);
+      });
+    }).catch(function () {
+      showVerdict('reject', 'Something went wrong submitting that offer -- try again.');
+    }).finally(function () {
+      submitBtn.disabled = {{ 'true' if not trade_window_open else 'false' }};
+    });
+  });
+
+  counterBtn.addEventListener('click', function () {
+    if (!teamB) { showVerdict('reject', 'Choose a trade partner first.'); return; }
+    counterBtn.disabled = true;
+    fetch('/gm-desk/trade/counter?' + proposalParams().toString()).then(function (r) {
+      if (!r.ok) { throw new Error('counter failed'); }
+      return r.json();
+    }).then(function (data) {
+      if (!data.possible) { showVerdict('reject', data.message); return; }
+      if (data.already_acceptable) { showVerdict('accept', data.message); return; }
+      data.add_give.forEach(function (id) { var row = rowFor('give', id); if (row) { addAsset('give', row); } });
+      data.add_give_picks.forEach(function (id) { var row = rowFor('give', id); if (row) { addAsset('give', row); } });
+      offerChanged();
+      showVerdict('counter', 'Counter offer', data.message);
+    }).catch(function () {
+      showVerdict('reject', 'Couldn\'t get a counter offer -- try again.');
+    }).finally(function () { counterBtn.disabled = false; });
+  });
+
+  var preselectId = board.dataset.preselect;
+  if (preselectId && teamB) {
+    var preRow = rowFor('get', preselectId);
+    if (preRow) {
+      addAsset('get', preRow);
+      offerChanged();
+      preRow.scrollIntoView({block: 'nearest'});
+      scrollToTradeBox();
+    }
+  } else {
+    setMeter(null);
+  }
+});
+</script>

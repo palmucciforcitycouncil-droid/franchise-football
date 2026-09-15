@@ -188,9 +188,12 @@ def test_full_season_honors_lifecycle(monkeypatch, tmp_path):
 
     season_state.begin_offseason()
     headlines = season_honors.offseason_headlines(sn)
-    assert headlines and "Super Bowl" in headlines[0]
+    # Offseason recap lines have no per-event user-team split (they're not
+    # produced by the HeadlineEvent pipeline) -- record_offseason_headlines
+    # stores them all under "league".
+    assert headlines and "Super Bowl" in headlines["league"][0]
     resp = client.get("/dashboard")
-    assert headlines[0].split(",")[0] in resp.text
+    assert headlines["league"][0].split(",")[0] in resp.text
 
     # Archived League History uses the frozen awards.
     archived = [r for r in history_store.get_history() if r.season_number == sn][0]

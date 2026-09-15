@@ -291,6 +291,10 @@ def retire_players(season, session, rostered_players: list) -> list[dict]:
 
 
 def record_offseason_headlines(season) -> list[str]:
+    """Season-end recap lines (Super Bowl, SB MVP, major awards) -- these
+    aren't produced by the per-event HeadlineEvent pipeline (no per-line
+    is_user_team), so they're all stored under the "league" column; the
+    "your team" column is simply empty for this entry."""
     from app.engine.offseason_headlines import season_end_headlines
     from app.services import headlines_history
 
@@ -299,10 +303,10 @@ def record_offseason_headlines(season) -> list[str]:
         honors_store.get_super_bowl(season.season_number),
         honors_store.get_final_awards(season.season_number),
     )
-    headlines_history.record_week_headlines(season.season_number, OFFSEASON_HEADLINES_WEEK, lines)
+    headlines_history.record_week_headlines(season.season_number, OFFSEASON_HEADLINES_WEEK, (lines, []))
     return lines
 
 
-def offseason_headlines(season_number: int) -> list[str] | None:
+def offseason_headlines(season_number: int) -> dict | None:
     from app.services import headlines_history
     return headlines_history.get_week_headlines(season_number, OFFSEASON_HEADLINES_WEEK)

@@ -124,10 +124,6 @@
   <p class="coach-role">{{ entry.title }}</p>
   {{ staff_error_box(entry.role) }}
   {% if is_user_team and entry.candidates %}
-  <p class="muted" style="font-size: 0.85rem;">
-    Fill Vacancy &mdash; real candidates, ranked by InterimPromotionScore (internal) or
-    HiringMerit (external), R3d &sect;4. Salary is what they'd cost in this role this season.
-  </p>
   {{ candidate_table(entry.candidates, entry.role) }}
   {% elif is_user_team %}
   <p class="muted">No willing candidates for this role right now.</p>
@@ -181,13 +177,6 @@
 
   <div class="card staff-span-2">
     <h3>Trait Effects</h3>
-    <p class="muted" style="font-size: 0.85rem;">
-      The real biases this staff feeds into the simulation right now (GDD &sect;9.2.5.1's
-      Trait Effects Matrix). These are the actual numbers
-      <code>app/engine/coaching.py</code> hands the play-calling AI &mdash; not a description
-      of what a coach could do. A league-average staff sits at 0% / 1.00x, so every value
-      here is this staff relative to the rest of the league.
-    </p>
     {% for label, value, consumer in effect_rows %}
     <div class="pc-row">
       <span class="pc-row-label">{{ label }}<br><span style="font-size: 0.75rem; opacity: 0.7;">{{ consumer }}</span></span>
@@ -246,7 +235,15 @@
           <td>{{ entry.coach.salary_aav | money }}</td>
           <td{% if entry.coach.contract_years <= 0 %} class="staff-contract-expired"{% endif %}>{{ entry.contract_status }}</td>
           {% if is_user_team %}
-          <td><button type="button" data-negotiate='{{ entry.negotiate }}'>Extend</button></td>
+          <td style="display: flex; gap: 6px;">
+            <button type="button" data-negotiate='{{ entry.negotiate }}'>Extend</button>
+            <form method="post" action="/staff/{{ team_abbr }}/fire" data-keep-scroll
+                  onsubmit="return confirm('Fire {{ entry.coach.full_name }} ({{ entry.coach.specialty or 'Assistant Coach' }})? This opens the seat immediately.');">
+              <input type="hidden" name="role" value="AC">
+              <input type="hidden" name="coach_id" value="{{ entry.coach.coach_id }}">
+              <button type="submit" style="background: #b23b3b; border-color: #b23b3b;">Fire</button>
+            </form>
+          </td>
           {% endif %}
         </tr>
         {% else %}
@@ -300,12 +297,28 @@
   </form>
 
   {% if search_results %}
+  <p class="dp-sub" id="fc-select-note" style="margin: 0 0 6px; font-size: 0.8rem;">Select coaches to compare</p>
   <div class="table-wrap">
-    <table>
-      <thead><tr><th>Coach</th><th>Title</th><th>Team</th><th>Age</th><th>OVR</th><th>Rep</th><th>Salary</th></tr></thead>
-      <tbody>
-        {% for entry in search_results %}
+    <table id="find-coaches-table" data-sort-table>
+      <thead>
         <tr>
+          <th class="nosort"></th>
+          <th data-sort="name" data-type="text">Coach <span class="arrow">&#8597;</span></th>
+          <th data-sort="title" data-type="text">Title <span class="arrow">&#8597;</span></th>
+          <th data-sort="team" data-type="text">Team <span class="arrow">&#8597;</span></th>
+          <th data-sort="age" data-type="num">Age <span class="arrow">&#8597;</span></th>
+          <th data-sort="ovr" data-type="num">OVR <span class="arrow">&#8597;</span></th>
+          <th data-sort="rep" data-type="num">Rep <span class="arrow">&#8597;</span></th>
+          <th data-sort="salary" data-type="num">Salary <span class="arrow">&#8597;</span></th>
+        </tr>
+      </thead>
+      <tbody data-sort-body>
+        {% for entry in search_results %}
+        <tr data-name="{{ entry.coach.full_name }}" data-title="{{ entry.coach.title }}"
+            data-team="{{ entry.coach.team_abbr or 'Free Agent' }}" data-age="{{ entry.coach.age }}"
+            data-ovr="{{ entry.coach.overall }}" data-rep="{{ entry.coach.reputation }}"
+            data-salary="{{ entry.coach.salary_aav if entry.coach.team_abbr else 0 }}">
+          <td><input type="checkbox" class="fc-cmp" aria-label="Compare {{ entry.coach.full_name }}"></td>
           <td><span class="coach-name-link coach-link" data-coach-card='{{ entry.card }}'>{{ entry.coach.full_name }}</span></td>
           <td>{{ entry.coach.title }}</td>
           <td>{{ entry.coach.team_abbr or "Free Agent" }}</td>
@@ -318,15 +331,104 @@
       </tbody>
     </table>
   </div>
+  <div id="fc-compare-actions" hidden style="margin-top: 8px;">
+    <button type="button" id="fc-compare-btn">Compare</button>
+    <button type="button" id="fc-compare-clear">Clear</button>
+  </div>
+  <dialog id="fc-compare-dialog" style="max-width: 90vw; width: 640px;">
+    <div class="pc-header">
+      <h3 style="margin: 0;">Compare Coaches</h3>
+      <button type="button" id="fc-compare-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="table-wrap">
+      <table id="fc-compare-table"><tbody></tbody></table>
+    </div>
+  </dialog>
   {% elif q or role or available %}
   <p class="muted">No coaches match that search.</p>
   {% endif %}
 
   <p class="coach-generated-note">
-    Hire/Fire/Promote and Extend Contract are real (R3d &sect;11) for your own team &mdash; use the
-    Fire button on any HC/OC/DC/ST box and the Fill Vacancy panel that appears once a seat opens.
-    Every hire and extension must fit the staff salary cap. Every AI team runs the identical
-    firing-probability/replacement math autonomously every offseason, and lightly in-season (&sect;10).
+    Hire/Fire/Promote and Extend Contract are available for your own team &mdash; use the Fire
+    button on any coach box and the Fill Vacancy panel that appears once a seat opens. Every
+    hire and extension must fit the staff salary cap.
   </p>
 </div>
+
+<script>
+(function () {
+  // ---- Find Coaches: client-side sort (same convention GM Desk's
+  // trade tables use, ported here since it's page-local JS) ----
+  function cellValue(row, key, idx) {
+    if (row.dataset[key] !== undefined) { return row.dataset[key]; }
+    var cell = row.cells[idx];
+    return cell ? cell.textContent.trim().toLowerCase() : '';
+  }
+  document.addEventListener('click', function (e) {
+    var th = e.target.closest('th[data-sort]');
+    if (!th) { return; }
+    var table = th.closest('table[data-sort-table]');
+    var body = table && table.querySelector('tbody[data-sort-body]');
+    if (!body) { return; }
+    var key = th.dataset.sort;
+    var isText = th.dataset.type === 'text';
+    var dir = th.classList.contains('sort-desc') ? 'asc'
+            : th.classList.contains('sort-asc') ? 'desc'
+            : (isText ? 'asc' : 'desc');
+    table.querySelectorAll('th[data-sort]').forEach(function (h) { h.classList.remove('sort-asc', 'sort-desc'); });
+    th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+    var rows = Array.prototype.slice.call(body.rows);
+    rows.sort(function (a, b) {
+      var va = cellValue(a, key, idx), vb = cellValue(b, key, idx);
+      var cmp = isText ? va.localeCompare(vb) : ((parseFloat(va) || 0) - (parseFloat(vb) || 0));
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  });
+
+  // ---- Find Coaches: compare (same idea as the Draft page's Compare
+  // Prospects, ported here rather than shared -- draft.html's version is
+  // wired to prospect-specific columns/dialog markup) ----
+  var actions = document.getElementById('fc-compare-actions');
+  var compareBtn = document.getElementById('fc-compare-btn');
+  var clearBtn = document.getElementById('fc-compare-clear');
+  var dialog = document.getElementById('fc-compare-dialog');
+  var closeBtn = document.getElementById('fc-compare-close');
+  if (!actions || !compareBtn || !dialog) { return; }
+
+  function checkedRows() {
+    return Array.prototype.slice.call(document.querySelectorAll('.fc-cmp:checked')).map(function (cb) {
+      return cb.closest('tr');
+    });
+  }
+  document.addEventListener('change', function (e) {
+    if (!e.target.classList.contains('fc-cmp')) { return; }
+    var n = document.querySelectorAll('.fc-cmp:checked').length;
+    actions.hidden = n < 2;
+  });
+  clearBtn.addEventListener('click', function () {
+    document.querySelectorAll('.fc-cmp:checked').forEach(function (cb) { cb.checked = false; });
+    actions.hidden = true;
+  });
+  var FIELDS = [
+    ['title', 'Title'], ['team', 'Team'], ['age', 'Age'],
+    ['ovr', 'OVR'], ['rep', 'Rep'], ['salary', 'Salary'],
+  ];
+  compareBtn.addEventListener('click', function () {
+    var rows = checkedRows();
+    var tbody = document.querySelector('#fc-compare-table tbody');
+    var html = '<tr><th></th>' + rows.map(function (r) { return '<th>' + r.dataset.name + '</th>'; }).join('') + '</tr>';
+    FIELDS.forEach(function (f) {
+      html += '<tr><td class="muted">' + f[1] + '</td>' + rows.map(function (r) {
+        var v = r.dataset[f[0]];
+        return '<td>' + (f[0] === 'salary' ? '$' + Number(v).toLocaleString() : v) + '</td>';
+      }).join('') + '</tr>';
+    });
+    tbody.innerHTML = html;
+    dialog.showModal();
+  });
+  closeBtn.addEventListener('click', function () { dialog.close(); });
+})();
+</script>
 {% endblock %}

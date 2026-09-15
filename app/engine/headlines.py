@@ -786,12 +786,19 @@ def entry_order(entry_key) -> int:
     return _PLAYOFF_ORDER.get(key, 100)
 
 
-def _render_events(events: list[HeadlineEvent], league_seed: int, season_number: int, entry_key) -> list[str]:
+def _render_events(events: list[HeadlineEvent], league_seed: int, season_number: int, entry_key) -> tuple[list[str], list[str]]:
     """Renders each event, choosing a phrasing variant that (a) wasn't used
     for the same headline type in the previous entry (last week/round) and
     (b) isn't already used by another event of that type this entry --
     whenever enough variants exist. Deterministic for a given seed and
-    prior entry. Persists what it used in headlines_history's meta."""
+    prior entry. Persists what it used in headlines_history's meta.
+
+    Returns (league_lines, user_team_lines): a rendered line goes to
+    user_team_lines if its own event.is_user_team is True, league_lines
+    otherwise -- so league_lines never contains a user-team storyline
+    (Brian's ask, 2026-09-15: split the Headlines card into a column that's
+    always league-wide and a column that's always about the user's own
+    team, rather than one flat mixed list)."""
     from app.services import headlines_history
 
     order = entry_order(entry_key)
@@ -800,7 +807,8 @@ def _render_events(events: list[HeadlineEvent], league_seed: int, season_number:
     prev_used = meta.get("last_variants", {}) if (prev_order is not None and prev_order < order) else {}
 
     used: dict[str, list[int]] = {}
-    lines = []
+    league_lines: list[str] = []
+    user_lines: list[str] = []
     for e in events:
         variants = TEMPLATES[e.template_key]
         n = len(variants)
@@ -809,10 +817,11 @@ def _render_events(events: list[HeadlineEvent], league_seed: int, season_number:
         candidates = [i for i in range(n) if i not in avoid] or [i for i in range(n) if i not in taken] or list(range(n))
         idx = candidates[stable_seed(league_seed, season_number, str(entry_key), e.event_key, e.template_key) % len(candidates)]
         used.setdefault(e.template_key, []).append(idx)
-        lines.append(variants[idx].format(**e.values))
+        line = variants[idx].format(**e.values)
+        (user_lines if e.is_user_team else league_lines).append(line)
 
     headlines_history.set_meta(season_number, {"last_order": order, "last_variants": used})
-    return lines
+    return league_lines, user_lines
 
 
 def render_headline(event: HeadlineEvent, league_seed: int, season_number: int, week_num) -> str:
@@ -824,12 +833,13 @@ def render_headline(event: HeadlineEvent, league_seed: int, season_number: int, 
 
 
 def weekly_headlines(season, week_num: int, prior_standings: dict, injuries_this_week: list,
-                     starter_ids: set[str] | None = None) -> list[str]:
+                     starter_ids: set[str] | None = None) -> tuple[list[str], list[str]]:
     """Orchestrates the whole pipeline for one just-simulated week.
     `prior_standings` is playoffs.final_division_standings(season)
     captured by the caller BEFORE this week's games were simulated;
     `starter_ids` from starter_ids_for_games() captured before injuries
-    were rolled."""
+    were rolled. Returns (league_lines, user_team_lines), see
+    _render_events()."""
     week_games = season.schedule[week_num - 1]
     events: list[HeadlineEvent] = []
     events += _detect_standings_events(season, prior_standings, season.user_team_abbr, week_num)
@@ -840,16 +850,17 @@ def weekly_headlines(season, week_num: int, prior_standings: dict, injuries_this
 
     selected = select_events(events, season.league_seed, season.season_number, week_num) + injury_events
     if not selected:
-        return [f"Week {week_num} is in the books around the league."]
+        return [f"Week {week_num} is in the books around the league."], []
     return _render_events(selected, season.league_seed, season.season_number, week_num)
 
 
 def preseason_round_headlines(season, round_idx: int, injuries_this_round: list,
-                              starter_ids: set[str] | None = None) -> list[str]:
+                              starter_ids: set[str] | None = None) -> tuple[list[str], list[str]]:
     """One preseason round: the round's biggest results/performances (with
     PRESEASON records -- these games never touch season.records) and any
     starter injuries. No upsets: every team enters preseason at the same
-    rating with no record, so nobody is a real favorite yet."""
+    rating with no record, so nobody is a real favorite yet. Returns
+    (league_lines, user_team_lines), see _render_events()."""
     games = season.preseason_schedule[round_idx - 1]
     rec_map = games_record_map(season.preseason_schedule[:round_idx])
     events = _detect_game_events(season, games, season.user_team_abbr, rec_map=rec_map, allow_upsets=False)
@@ -862,18 +873,19 @@ def preseason_round_headlines(season, round_idx: int, injuries_this_round: list,
     key = f"P{round_idx}"
     selected = select_events(events, season.league_seed, season.season_number, key) + injury_events
     if not selected:
-        return [f"Preseason Round {round_idx} is in the books."]
+        return [f"Preseason Round {round_idx} is in the books."], []
     return _render_events(selected, season.league_seed, season.season_number, key)
 
 
 MAX_PLAYOFF_STANDOUTS = 3
 
 
-def playoff_round_headlines(season, round_matchups: list) -> list[str]:
+def playoff_round_headlines(season, round_matchups: list) -> tuple[list[str], list[str]]:
     """Every result in a just-completed playoff round, named by round,
-    plus the round's top standout performers from the real box scores."""
+    plus the round's top standout performers from the real box scores.
+    Returns (league_lines, user_team_lines), see _render_events()."""
     if not round_matchups:
-        return []
+        return [], []
     round_name = round_matchups[0].round_name
     round_label = ROUND_LABELS.get(round_name, round_name)
     rec_map = season_record_map(season)

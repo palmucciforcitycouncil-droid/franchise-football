@@ -36,6 +36,9 @@
     {% else %}
     <h3>Awards Race (through Week {{ season.current_week - 1 if season.current_week > 1 else 0 }})</h3>
     {% endif %}
+    {% if not awards_ready %}
+    <p class="muted">Check back after Week 4 &mdash; too few games played so far to rank candidates meaningfully.</p>
+    {% else %}
     <div class="awards-grid">
       {% for label, key in [("MVP", "mvp"), ("OPOY", "opoy"), ("DPOY", "dpoy"), ("OROY", "oroy"), ("DROY", "droy")] %}
       {% set candidates = award_lists.get(key, []) %}
@@ -72,6 +75,7 @@
         {% endif %}
       </div>
     </div>
+    {% endif %}
   </div>
 </div>
 

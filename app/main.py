@@ -1071,11 +1071,6 @@ def _coach_card_json(coach: Coach) -> str:
                 ["Special Teams Focus", coach.special_teams_focus],
             ]},
         ],
-        "contract_note": (
-            "Salary is real (2026 staff seed). Contract length is a disclosed "
-            "placeholder until R4a builds real negotiated terms -- the same state "
-            "player contracts are in."
-        ),
         "generated_note": generated_note,
     })
 
@@ -1418,14 +1413,21 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     # points at the NEXT week to simulate, so the just-completed week
     # (if any) is current_week - 1; None before Week 1 finishes.
     headlines_key, headlines_label = _latest_headlines_entry(season)
-    weekly_headlines = (
+    headlines_entry = (
         headlines_history.get_week_headlines(season.season_number, headlines_key)
         if headlines_key is not None else None
     )
     # Brian's ask, 2026-09-14: once the offseason begins, lead with the
     # season's big results (Super Bowl, SB MVP, major awards) instead.
     if season.offseason_stage is not None:
-        weekly_headlines = season_honors.offseason_headlines(season.season_number) or weekly_headlines
+        headlines_entry = season_honors.offseason_headlines(season.season_number) or headlines_entry
+    # Brian's ask, 2026-09-15: split the Headlines card into two columns --
+    # league-wide storylines that never involve the user's own team, and a
+    # second column just for the user's team -- rather than one flat mixed
+    # list (see headlines_history.get_week_headlines()'s {"league",
+    # "user_team"} shape).
+    league_headlines = headlines_entry["league"] if headlines_entry else []
+    user_team_headlines = headlines_entry["user_team"] if headlines_entry else []
 
     return templates.TemplateResponse(
         request,
@@ -1449,7 +1451,9 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
             "top_performers_by_stat": top_performers_by_stat,
             "awards_race": awards_race,
             "coty_cards": coty_cards,
-            "weekly_headlines": weekly_headlines,
+            "league_headlines": league_headlines,
+            "user_team_headlines": user_team_headlines,
+            "team_injuries": _team_injuries_for_dashboard(user_abbr),
             "headlines_label": headlines_label,
             "clinch_marks": clinch.clinch_marks(season),
             "position_rank_rows": position_rank_rows,
@@ -2457,6 +2461,33 @@ def _injury_summary_for(p: Player) -> dict | None:
     }
 
 
+def _team_injuries_for_dashboard(team_abbr: str) -> list[str]:
+    """Small Dashboard box (Brian's ask, 2026-09-15): one line per active
+    injury on the user's team, worst/soonest-back first -- e.g. "D. Maye
+    (QB) -- 2 wks -- Sprained Ankle (Moderate)". injury_store.team_injury_
+    report() already returns exactly this team/ordering; this is its
+    first real caller (previously wired to nothing)."""
+    report = injury_store.team_injury_report(team_abbr)
+    if not report:
+        return []
+    with get_session() as s:
+        players = {p.player_id: p for p in s.exec(
+            select(Player).where(Player.player_id.in_([i.player_id for i in report]))
+        ).all()}
+    lines = []
+    for injury in report:
+        p = players.get(injury.player_id)
+        if p is None:
+            continue
+        initial = p.first_name[0] + "." if p.first_name else ""
+        weeks = f"{injury.weeks_out} wk" + ("s" if injury.weeks_out != 1 else "")
+        lines.append(
+            f"{initial} {p.last_name} ({p.position.value}) — {weeks} — "
+            f"{injury.injury_type.value.title()} ({injury.severity.value.title()})"
+        )
+    return lines
+
+
 def _acquisition_label(p: Player) -> str | None:
     """Player Card header (Brian's ask, 2026-09-14): how this player joined
     his current team, e.g. "Drafted 2027 · Round 2, Pick 45 (NE)" or
@@ -2855,6 +2886,12 @@ def awards_view(request: Request, tab: str = "season"):
             "weekly_races": weekly_races,
             "pro_bowl": pro_bowl,
             "user_abbr": season.user_team_abbr,
+            # Same Week-4 gate already applied to the Dashboard/Stats Awards
+            # Race widget and the Playoffs picture (STANDINGS_BASED_FEATURES_
+            # MIN_WEEK's own docstring) -- a 1-3-game sample makes candidate
+            # ranking just as misleading here as there; final (post-season)
+            # results are always shown regardless, same as those other pages.
+            "awards_ready": final_awards is not None or season.current_week >= STANDINGS_BASED_FEATURES_MIN_WEEK,
         },
     )
 
@@ -2989,19 +3026,24 @@ def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
     scouting_strength = draft_engine.team_scouting_strength(team_abbr)
     scouting_reduction = scouting_strength / (scouting_strength + draft_engine.SCOUTING_STRENGTH_K)
 
+    # 2026-09-15: captions name the coach RATING that drives each row
+    # (visible on that coach's own card) instead of the engine/GDD
+    # citation -- "make sure everything here is logical to coach
+    # ratings," Brian's ask -- so a player can trace a number back to a
+    # rating they can see, not an internal section reference.
     return [
-        ("Pass/run mix", pct(effect.pass_bias), "Play-calling (Sec 6.6.1)"),
-        ("Red-zone pass lean", pct(effect.rz_pass_bias), "Play-calling, inside the 20"),
-        ("4th-down aggression", pct(effect.fourth_down_bias), "4th-down decision (Sec 6.6.4)"),
-        ("Two-point tendency", pct(effect.two_point_bias), "PAT vs. 2-pt (Sec 6.8)"),
-        ("Blitz rate", pct(effect.blitz_bias), "Defensive call (Sec 6.6.3)"),
-        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "Coverage call (league default 40%)"),
-        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "Penalty system (Sec 7.7.4)"),
-        ("FG attempt range", f"{effect.fg_range_bonus:+.1f} yds", "Field-goal decision"),
-        ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "Offseason progression (Sec 7.6)"),
-        ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "Offseason progression (Sec 7.6)"),
-        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "Training focus -> injury system (R13)"),
-        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}%", "Scouting focus -> draft pick decisions (R13)"),
+        ("Pass/run mix", pct(effect.pass_bias), "From your offensive staff's Run/Pass Tendency"),
+        ("Red-zone pass lean", pct(effect.rz_pass_bias), "From your offensive staff's Red Zone Pass Lean"),
+        ("4th-down aggression", pct(effect.fourth_down_bias), "From your offensive staff's Offensive Aggression"),
+        ("Two-point tendency", pct(effect.two_point_bias), "From your offensive staff's Two-Point Tendency"),
+        ("Blitz rate", pct(effect.blitz_bias), "From your defensive staff's Blitz Rate"),
+        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "From your defensive staff's Coverage Mix (league default 40% man)"),
+        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "From your Head Coach's Discipline"),
+        ("FG attempt range", f"{effect.fg_range_bonus:+.1f} yds", "From your staff's Special Teams Focus"),
+        ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "From your offensive staff's Player Development rating"),
+        ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "From your defensive staff's Player Development rating"),
+        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "From staff focused on Training (Motivation/Chemistry)"),
+        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}%", "From staff focused on Scouting"),
     ]
 
 
@@ -3086,7 +3128,11 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
     room = coach_contracts.staff_cap_room(team_abbr, season.season_number)
     if coach_role is CoachRole.AC:
         rows = []
-        for candidate in sorted(coach_pool.candidates_for_role(CoachRole.AC), key=lambda c: (-c.overall, c.coach_id))[:8]:
+        # Brian's ask, 2026-09-15: every available candidate, not just the
+        # top 8 -- the Find Coaches table is sortable/comparable now, so a
+        # longer list is manageable, and the player should be able to see
+        # everyone who could fill the seat.
+        for candidate in sorted(coach_pool.candidates_for_role(CoachRole.AC), key=lambda c: (-c.overall, c.coach_id)):
             salary = _candidate_salary(candidate, coach_role, season.season_number)
             rows.append({
                 "coach_id": candidate.coach_id, "name": candidate.full_name,
@@ -3108,11 +3154,14 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
             "score": round(score), "background": candidate.background,
             "salary": salary, "affordable": salary <= room + candidate.salary_aav,
         })
-    turnover = coach_replacement.recent_hc_turnover_count(team_abbr, season.season_number)
     for candidate in coach_pool.candidates_for_role(coach_role):
-        if not coach_hiring.will_consider(candidate, team_abbr, season.season_number,
-                                           APPOINTMENT_PERMANENT, turnover):
-            continue
+        # Brian's ask, 2026-09-15: "the user should be able to select from
+        # any available coach that would take the job... if it's an HC
+        # vacancy, any available coach would take it, assuming a contract
+        # can be agreed to." will_consider()/CandidateInterest no longer
+        # gate list membership -- every available candidate is listed and
+        # scored; interest still shapes negotiation (execute_hire's own
+        # offer-acceptance math), it just doesn't hide a candidate outright.
         interest = coach_hiring.interest_score(candidate, team_abbr, season.season_number)
         merit = coach_hiring.hiring_merit(candidate, coach_role, team_abbr, season.season_number, interest)
         salary = _candidate_salary(candidate, coach_role, season.season_number)
@@ -3125,7 +3174,7 @@ def _staff_candidate_rows(team_abbr: str, coach_role: CoachRole, season) -> list
             "salary": salary, "affordable": salary <= room,
         })
     rows.sort(key=lambda r: -r["score"])
-    return rows[:8]
+    return rows
 
 
 def _candidate_salary(candidate: Coach, role: CoachRole, season_number: int) -> int:
@@ -3214,6 +3263,13 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
             "negotiate": _coach_negotiate_opts(holder, team_abbr, season.season_number) if (holder and is_user_team) else None,
             "contract_status": _contract_status(holder) if holder else "",
         })
+    # Brian's ask, 2026-09-15: a vacant seat should be the first thing you
+    # see, not buried among filled ones. Only the Coordinators sub-list
+    # (positions[1:] in the template) is reordered -- positions[0] is
+    # always HC (staff.html:180 renders it wide by fixed index) and stays
+    # pinned there regardless of vacancy. sorted() is stable, so OC/DC/ST
+    # keep their relative order among themselves either way.
+    positions[1:] = sorted(positions[1:], key=lambda e: 0 if e["coach"] is None else 1)
     assistant_rows = [
         {"coach": c, "card": _coach_card_json(c), "contract_status": _contract_status(c),
          "negotiate": _coach_negotiate_opts(c, team_abbr, season.season_number) if is_user_team else None}
@@ -3265,19 +3321,31 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
         "free_agent_count": len(coach_store.free_agents()),
         "is_user_team": is_user_team,
         "owner_pressure": round(owner_pressure_store.pressure_for(team_abbr)),
-        # HC/OC/DC/ST only -- R3d Sec 8 doesn't model AC firing.
+        # HC/OC/DC/ST only -- these are the coach_box() cards, one seat
+        # each; AC firing (2026-09-15) is a per-row button in the
+        # assistants table instead, since there's more than one AC.
         "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value, CoachRole.ST.value],
     })
 
 
 @app.post("/staff/{team_abbr}/fire")
-def staff_fire_coach(request: Request, team_abbr: str, role: str = Form(...)):
+def staff_fire_coach(request: Request, team_abbr: str, role: str = Form(...), coach_id: str = Form(None)):
     """R3d Sec 11: Fire button, user's own team only (the Staff page's
     button confirms via a native browser confirm() before submitting --
     no server-side confirmation step). Vacates the seat immediately and
     redirects back to a Staff page showing the real Fill Vacancy panel
     (coach_replacement's own internal/external candidate search -- the
-    identical math the AI autonomy loop uses for every other team)."""
+    identical math the AI autonomy loop uses for every other team).
+
+    2026-09-15: AC (position coach) is now fireable too, individually --
+    unlike HC/OC/DC/ST there's more than one AC on a staff, so "the"
+    coach in that role doesn't identify one (coach_in_role() assumes a
+    single seat per role); an AC fire posts coach_id instead and this
+    just looks that coach up directly. execute_fire() itself is already
+    role-agnostic (vacates the seat, returns the coach to the free-agent
+    pool) -- firing an AC needs no HC/OC/DC/ST replacement machinery,
+    it just opens a seat the existing Hire Assistant panel already
+    surfaces once open_assistant_seats > 0."""
     season = season_state.get_season()
     if season.user_team_abbr != team_abbr:
         raise HTTPException(404, "Not your team")
@@ -3286,10 +3354,15 @@ def staff_fire_coach(request: Request, team_abbr: str, role: str = Form(...)):
     except ValueError:
         raise HTTPException(422, "Invalid role")
     if coach_role is CoachRole.AC:
-        raise HTTPException(422, "Firing an individual assistant coach isn't a modeled control")
-    coach = coach_store.coach_in_role(team_abbr, coach_role)
-    if coach is None:
-        raise HTTPException(404, "No coach currently in that role")
+        if not coach_id:
+            raise HTTPException(422, "coach_id is required to fire a specific assistant coach")
+        coach = coach_store.by_id(coach_id)
+        if coach is None or coach.team_abbr != team_abbr or CoachRole(coach.role) is not CoachRole.AC:
+            raise HTTPException(404, "No such assistant coach on this team")
+    else:
+        coach = coach_store.coach_in_role(team_abbr, coach_role)
+        if coach is None:
+            raise HTTPException(404, "No coach currently in that role")
     coach_replacement.execute_fire(coach.coach_id)
     return RedirectResponse(url=f"/staff?team={team_abbr}", status_code=303)
 
@@ -4137,16 +4210,27 @@ def _short_player_label(name: str, position: str) -> str:
     return f"{first[:1]}. {last} ({position})" if last else f"{name} ({position})"
 
 
+# Brian's ask, 2026-09-15: browse 4 future draft years beyond the
+# upcoming one, not just next season's class -- matches the real 5-draft-
+# year tradeable pick window (draft_pick_store.FUTURE_DRAFTS_TRADEABLE).
+FUTURE_DRAFT_YEARS_BROWSABLE = 4
+
+
 def _draft_year_options(season, current_draft_season: int | None) -> list[dict]:
     """Figma's "Draft Year" selector, backed by real data only: every draft
-    this franchise actually recorded (read-only review) plus the upcoming
-    class, if one exists. No year appears that has nothing behind it."""
+    this franchise actually recorded (read-only review), the upcoming
+    class, if one exists, and FUTURE_DRAFT_YEARS_BROWSABLE years further
+    out -- generate_draft_class() is a pure function of (league_seed,
+    season_number), so a not-yet-reached year is always safe to preview,
+    same fallback pattern draft_class_store.get_class() already documents."""
     options = [
         {"season_number": n, "year": season_year(n), "url": f"/draft?season_param={n}"}
         for n in draft_store.recorded_seasons()
     ]
     if current_draft_season is not None and all(o["season_number"] != current_draft_season for o in options):
         options.append({"season_number": current_draft_season, "year": season_year(current_draft_season), "url": "/draft"})
+        for n in range(current_draft_season + 1, current_draft_season + 1 + FUTURE_DRAFT_YEARS_BROWSABLE):
+            options.append({"season_number": n, "year": season_year(n), "url": f"/draft?future_season={n}"})
     return sorted(options, key=lambda o: o["season_number"])
 
 
@@ -4208,11 +4292,63 @@ def _prospect_rows(prospects, projected: dict, need_groups: set[str], board_inde
     ]
 
 
+def _draft_future_response(request: Request, season, future_season: int):
+    """Browse-only preview of a class FUTURE_DRAFT_YEARS_BROWSABLE years
+    out (2026-09-15): generate_draft_class() is deterministic per
+    (league_seed, season_number), so this is always safe to render even
+    though the real live draft for that year is still seasons away --
+    saved via draft_class_store the first time so it's stable thereafter,
+    same fallback convention the live/prospects branches already use."""
+    next_number = season.season_number + 1
+    valid_range = range(next_number + 1, next_number + 1 + FUTURE_DRAFT_YEARS_BROWSABLE)
+    if future_season not in valid_range:
+        return RedirectResponse(url="/draft", status_code=303)
+
+    prospects = draft_class_store.get_class(future_season)
+    if prospects is None:
+        prospects = draft_engine.generate_draft_class(season.league_seed, future_season)
+        draft_class_store.save_class(future_season, prospects)
+
+    projected = draft_engine.projected_rounds(prospects)
+    rows = _prospect_rows(prospects, projected, need_groups=set(), board_indexes=set())
+    group_counts = {g: sum(1 for p in prospects if _prospect_matches_group(p, g)) for g in PROSPECT_GROUP_TABS}
+
+    return templates.TemplateResponse(request, "draft.html", {
+        "mode": "future",
+        "target_season": future_season,
+        "draft_year": season_year(future_season),
+        "year_options": _draft_year_options(season, next_number),
+        "user_abbr": season.user_team_abbr,
+        "your_turn": False,
+        "current_slot": None,
+        "total_slots": 0,
+        "picks_made": 0,
+        "rounds": {},
+        "active_round": 1,
+        "prospects": rows,
+        "rating_columns": PROSPECT_RATING_COLUMNS,
+        "group_tabs": PROSPECT_GROUP_TABS, "group_counts": group_counts,
+        "active_group": "ALL", "active_sort": "ovr", "active_dir": "desc",
+        "needs": [],
+        "team_picks": [],
+        "board": [],
+        "top_prospects": [],
+        "roster": [],
+        "other_teams": [],
+        "team_b": None,
+        "user_side": None, "partner_side": None,
+        "trade_window_open": False,
+        "trade_result": None,
+        "has_prior_draft": False,
+        "undrafted_count": 0,
+    })
+
+
 @app.get("/draft", response_class=HTMLResponse)
 def draft_view(
     request: Request, season_param: int | None = None, just_completed: int | None = None,
     group: str = "ALL", sort: str | None = None, dir: str = "desc",
-    team_b: str | None = None, trade_result: str | None = None,
+    team_b: str | None = None, trade_result: str | None = None, future_season: int | None = None,
 ):
     """R5 (docs/R5_DRAFT_SYSTEM_SPECIFICATION.md, ROADMAP.md Sec4f),
     rebuilt 2026-09-13 (Brian's ask) into three real modes, and laid out
@@ -4227,6 +4363,10 @@ def draft_view(
        real manual "Draft" action whenever it's the user's own turn.
     3. No `season_param`, no live draft -- the PROSPECTS view: next
        season's real class, browsable and board-able all season.
+    4. `future_season` given (2026-09-15): a browse-only preview of a
+       class FUTURE_DRAFT_YEARS_BROWSABLE years out -- no live order, no
+       team big board/needs (those depend on state that doesn't exist yet
+       that far out), just the prospect table itself.
 
     Sorting, position filtering, search and compare are all client-side
     (draft.html) -- `group`/`sort`/`dir` only seed the initial state -- and
@@ -4236,6 +4376,9 @@ def draft_view(
 
     if season_param is not None:
         return _draft_review_response(request, season, season_param, just_completed=False)
+
+    if future_season is not None:
+        return _draft_future_response(request, season, future_season)
 
     live = season.offseason_stage == "draft"
     if not live and just_completed:
@@ -4312,37 +4455,62 @@ def draft_view(
             "overall_rating": made["overall_rating"] if made else None,
         })
 
+    # Roster table (2026-09-15): the same sortable/filterable Attributes
+    # table the standalone Roster page uses -- starter highlighting, Team
+    # Quota pills, and Player Card -- reusing _depth_chart_groups_for_team/
+    # _slot_labels_from_groups/_QUOTA_GROUP_FOR_POSITION exactly as
+    # roster_view() does, just sorted client-side (data-sort-table, same
+    # generic handler _trade_box.html already brings onto this page)
+    # instead of roster_view()'s own GET-param-reload sort links, since
+    # everything else on this page is already client-side by design (see
+    # this function's own docstring).
     roster = []
+    depth_slot: dict[str, str] = {}
+    starters: set[str] = set()
+    last_starters: set[str] = set()
+    position_quotas: dict[str, dict] = {}
+    total_roster_count = 0
     if user_abbr:
         with get_session() as s:
             roster = sorted(
                 s.exec(select(Player).where(Player.team_abbr == user_abbr)).all(),
                 key=lambda p: (p.position.value, -p.overall_rating),
             )
+        depth_chart_groups = _depth_chart_groups_for_team(user_abbr, roster)
+        depth_slot = _slot_labels_from_groups(depth_chart_groups)
+        depth_rank: dict[str, int] = {}
+        for group in depth_chart_groups:
+            for i, p in enumerate(group["players"]):
+                depth_rank[p.player_id] = i
+                if i < group["starter_count"]:
+                    starters.add(p.player_id)
+            shown = group["players"][:group["starter_count"]]
+            if shown and len(group["players"]) > len(shown):
+                last_starters.add(shown[-1].player_id)
+        if depth_rank:
+            roster.sort(key=lambda p: (p.position.value, depth_rank.get(p.player_id, 0)))
+        total_roster_count = len(roster)
+        position_holes = free_agency.roster_shortfall(roster)
+        position_quotas = {
+            grp: {"current": sum(1 for p in roster if _QUOTA_GROUP_FOR_POSITION[p.position] == grp),
+                  "min": _ROSTER_POSITION_MINIMUMS.get(grp, 1),
+                  "short": any(_QUOTA_GROUP_FOR_POSITION[pos] == grp for pos in position_holes)}
+            for grp in QUOTA_GROUPS
+        }
 
-    # Trade panel (Brian's ask, 2026-09-14): picks-only trading right on
-    # the draft page -- posts to the SAME /gm-desk/trade route GM Desk's own
-    # Propose Trade panel uses (return_to=draft), so there's no second
-    # trade-evaluation implementation to keep in sync.
-    team_b_info = None
-    trade_partner_picks = []
-    user_tradeable_picks = []
+    # Trade panel (2026-09-15): the real GM Desk Propose Trade box, ported
+    # in via the shared _trade_box.html partial rather than the old
+    # picks-only panel -- same _trade_side_context()/trade_side() macro
+    # and the same /gm-desk/trade* endpoints gm_desk_view() uses, so
+    # there's no second trade-evaluation implementation to keep in sync.
+    user_side = None
+    partner_side = None
     if user_abbr:
-        from app.services import draft_pick_store
-        user_tradeable_picks = [
-            {"pick_id": pk.pick_id,
-             "label": f"{season_year(pk.season_number)} Round {pk.round}"
-                      + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != user_abbr else "")}
-            for pk in draft_pick_store.picks_owned_by(user_abbr)
-        ]
+        user_side = _trade_side_context(season, user_abbr, roster)
         if team_b and team_b in TEAMS_BY_ABBR and team_b != user_abbr:
-            trade_partner_picks = [
-                {"pick_id": pk.pick_id,
-                 "label": f"{season_year(pk.season_number)} Round {pk.round}"
-                          + (f" (via {pk.original_team_abbr})" if pk.original_team_abbr != team_b else "")}
-                for pk in draft_pick_store.picks_owned_by(team_b)
-            ]
-            team_b_info = TEAMS_BY_ABBR[team_b]
+            partner_side = _trade_side_context(season, team_b)
+        else:
+            team_b = None
 
     return templates.TemplateResponse(request, "draft.html", {
         "mode": "live" if live else "prospects",
@@ -4366,9 +4534,14 @@ def draft_view(
         "board": _prospect_rows(board, projected, need_groups, set(board_indexes)),
         "top_prospects": _prospect_rows(top_prospects, projected, need_groups, set(board_indexes)),
         "roster": roster,
+        "depth_slot": depth_slot, "starters": starters, "last_starters": last_starters,
+        "position_quotas": position_quotas, "total_roster_count": total_roster_count,
+        "max_roster_size": MAX_ROSTER_SIZE,
+        "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
         "other_teams": [t for t in TEAMS if t.abbr != user_abbr],
-        "team_b": team_b, "team_b_info": team_b_info,
-        "user_tradeable_picks": user_tradeable_picks, "trade_partner_picks": trade_partner_picks,
+        "team_b": team_b,
+        "user_side": user_side, "partner_side": partner_side,
+        "trade_window_open": trades.is_trade_window_open(season.current_week),
         "trade_result": trade_result,
         "has_prior_draft": draft_store.get_draft(season.season_number) is not None,
     })

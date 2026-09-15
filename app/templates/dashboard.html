@@ -6,18 +6,52 @@
      real event-detection + a deterministic template render, NOT a live
      Claude API call -- see app/engine/headlines.py's own module docstring
      for why (GDD Sec1.3's Determinism & Seeding Policy). Rendered once by
-     season_state.simulate_current_week() and read here, not recomputed. -->
-<div class="card headlines-card">
-  <h2>Headlines{% if weekly_headlines and headlines_label %} <span class="muted headlines-when">&mdash; {{ headlines_label }}</span>{% endif %}</h2>
-  {% if weekly_headlines %}
-  <ul class="headlines-list">
-    {% for line in weekly_headlines %}
-    <li>{{ line }}</li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="muted">No headlines yet &mdash; simulate a week to see this season's storylines here.</p>
-  {% endif %}
+     season_state.simulate_current_week() and read here, not recomputed.
+     2026-09-15: split into a League column (never the user's own team)
+     and a Your Team column, side by side with a small Team Injuries box. -->
+<div class="top-row">
+  <div class="card headlines-card">
+    <h2>Headlines{% if (league_headlines or user_team_headlines) and headlines_label %} <span class="muted headlines-when">&mdash; {{ headlines_label }}</span>{% endif %}</h2>
+    {% if league_headlines or user_team_headlines %}
+    <div class="headlines-columns">
+      <div>
+        <h3 class="headlines-col-title">League</h3>
+        <ul class="headlines-list">
+          {% for line in league_headlines %}
+          <li>{{ line }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <h3 class="headlines-col-title">{{ user_info.abbr if user_info else "Your Team" }}</h3>
+        {% if user_team_headlines %}
+        <ul class="headlines-list">
+          {% for line in user_team_headlines %}
+          <li>{{ line }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted" style="font-size: 0.82rem;">No storylines about your team this entry.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <p class="muted">No headlines yet &mdash; simulate a week to see this season's storylines here.</p>
+    {% endif %}
+  </div>
+
+  <div class="card injuries-card">
+    <h2>Team Injuries</h2>
+    {% if team_injuries %}
+    <ul class="injuries-list">
+      {% for row in team_injuries %}
+      <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted" style="font-size: 0.82rem;">No active injuries.</p>
+    {% endif %}
+  </div>
 </div>
 
 <div class="dashboard-grid">

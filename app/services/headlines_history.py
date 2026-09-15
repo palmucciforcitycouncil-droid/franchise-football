@@ -61,32 +61,55 @@ def entry_sort_key(key: str) -> tuple[int, int]:
     return (3, 0)
 
 
-def record_week_headlines(season_number: int, week_num, headlines: list[str], path: Path | None = None) -> None:
-    """`week_num` is any entry key -- an int week, "P2", "WC", ..."""
+def _as_entry(value) -> dict:
+    """Normalizes one stored entry to {"league": [...], "user_team": [...]}
+    -- entries recorded before the 2026-09-15 League/Your-Team split are a
+    plain list[str]; treated as all-league with no user-team column rather
+    than crashing or guessing which lines were about the user's team."""
+    if isinstance(value, list):
+        return {"league": value, "user_team": []}
+    return value
+
+
+def record_week_headlines(
+    season_number: int, week_num, headlines: tuple[list[str], list[str]], path: Path | None = None,
+) -> None:
+    """`week_num` is any entry key -- an int week, "P2", "WC", ... `headlines`
+    is (league_lines, user_team_lines), the shape every app.engine.headlines
+    render function returns (see headlines.py's _render_events())."""
+    league_lines, user_lines = headlines
     data = _load(path)
-    data.setdefault(str(season_number), {})[str(week_num)] = headlines
+    data.setdefault(str(season_number), {})[str(week_num)] = {"league": league_lines, "user_team": user_lines}
     _save(data, path)
 
 
-def append_headlines(season_number: int, entry_key, headlines: list[str], path: Path | None = None) -> None:
+def append_headlines(
+    season_number: int, entry_key, headlines: tuple[list[str], list[str]], path: Path | None = None,
+) -> None:
+    league_lines, user_lines = headlines
     data = _load(path)
-    entry = data.setdefault(str(season_number), {}).setdefault(str(entry_key), [])
-    entry.extend(h for h in headlines if h not in entry)
+    entry = _as_entry(data.setdefault(str(season_number), {}).setdefault(str(entry_key), {"league": [], "user_team": []}))
+    entry["league"].extend(h for h in league_lines if h not in entry["league"])
+    entry["user_team"].extend(h for h in user_lines if h not in entry["user_team"])
+    data[str(season_number)][str(entry_key)] = entry
     _save(data, path)
 
 
-def get_week_headlines(season_number: int, week_num, path: Path | None = None) -> list[str] | None:
-    """None if that entry was never recorded (before this store existed,
-    or later than anything simulated so far) -- the caller's job to show
-    "no headlines yet," not fabricate one."""
-    return _load(path).get(str(season_number), {}).get(str(week_num))
+def get_week_headlines(season_number: int, week_num, path: Path | None = None) -> dict | None:
+    """{"league": [...], "user_team": [...]} for that entry, or None if it
+    was never recorded (before this store existed, or later than anything
+    simulated so far) -- the caller's job to show "no headlines yet," not
+    fabricate one."""
+    entry = _load(path).get(str(season_number), {}).get(str(week_num))
+    return None if entry is None else _as_entry(entry)
 
 
-def get_all_weeks(season_number: int, path: Path | None = None) -> dict[str, list[str]]:
+def get_all_weeks(season_number: int, path: Path | None = None) -> dict[str, dict]:
     """Every recorded entry's headlines for one season, chronological
-    (preseason, weeks, playoff rounds) -- backs a Headlines Archive view."""
+    (preseason, weeks, playoff rounds), each normalized to {"league": [...],
+    "user_team": [...]} -- backs a Headlines Archive view."""
     weeks = _load(path).get(str(season_number), {})
-    return {k: weeks[k] for k in sorted(weeks, key=entry_sort_key)}
+    return {k: _as_entry(weeks[k]) for k in sorted(weeks, key=entry_sort_key)}
 
 
 def get_meta(season_number: int, path: Path | None = None) -> dict:

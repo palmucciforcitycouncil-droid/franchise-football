@@ -336,10 +336,12 @@ def test_simulate_playoff_round_end_to_end_reaches_a_champion():
     from app.services import headlines_history
     labels = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Championship", "SB": "Super Bowl"}
     for rn, label in labels.items():
-        lines = headlines_history.get_week_headlines(season.season_number, rn)
-        assert lines, rn
+        entry = headlines_history.get_week_headlines(season.season_number, rn)
+        assert entry, rn
+        lines = entry["league"] + entry["user_team"]
         assert any(label in line or (rn == "CONF" and "Super Bowl" in line) for line in lines), (rn, lines)
-    assert any(champion in line for line in headlines_history.get_week_headlines(season.season_number, "SB"))
+    sb_entry = headlines_history.get_week_headlines(season.season_number, "SB")
+    assert any(champion in line for line in sb_entry["league"] + sb_entry["user_team"])
 
 
 @pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")

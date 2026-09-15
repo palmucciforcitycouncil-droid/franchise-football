@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Draft — Franchise Football{% endblock %}
 {% block content %}
+{% from "macros.html" import player_link %}
 {#
   Laid out after Figma's DraftPageV2.tsx (the component App.tsx renders for
   the Draft tab) and its children (draft-v2/RoundTabs, StatusChip, BoardItem,
@@ -20,9 +21,9 @@
   .dp-title p { margin: 0.25rem 0 1.25rem; color: var(--muted); font-size: 0.875rem; }
   .dp-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; align-items: start; }
   .dp-col-2 { grid-column: span 2; } .dp-col-3 { grid-column: span 3; } .dp-col-4 { grid-column: span 4; }
-  .dp-col-5 { grid-column: span 5; } .dp-col-9 { grid-column: span 9; } .dp-col-12 { grid-column: span 12; }
+  .dp-col-5 { grid-column: span 5; } .dp-col-7 { grid-column: span 7; } .dp-col-9 { grid-column: span 9; } .dp-col-12 { grid-column: span 12; }
   @media (max-width: 1200px) {
-    .dp-col-2, .dp-col-3, .dp-col-4, .dp-col-5, .dp-col-9 { grid-column: span 12; }
+    .dp-col-2, .dp-col-3, .dp-col-4, .dp-col-5, .dp-col-7, .dp-col-9 { grid-column: span 12; }
   }
   .dp-panel { background: #1a2332; border: 1px solid #2d4a6f; border-radius: 8px; padding: 16px; min-width: 0; }
   .dp-panel.dp-stretch { height: 100%; }
@@ -200,6 +201,8 @@
         {% if current_slot %}&middot; Round {{ current_slot.round }} &middot; {{ picks_made }} of {{ total_slots }} picks made{% else %}&middot; Complete{% endif %}
       {% elif mode == "prospects" %}
         &middot; Prospects &middot; the live draft opens once the offseason reaches it
+      {% elif mode == "future" %}
+        &middot; Future Class Preview &mdash; browse only, no team needs or board yet this far out
       {% else %}
         &middot; Results &middot; {{ undrafted_count }} prospects went undrafted and joined free agency
       {% endif %}
@@ -217,7 +220,7 @@
   {% endif %}
 
   {# ---- Top row: Team Picks (9) + Team Needs (3) ---- #}
-  {% if user_abbr %}
+  {% if user_abbr and mode != "future" %}
   <div class="dp-grid">
     <section class="dp-panel dp-stretch {{ 'dp-col-9' if mode != 'review' else 'dp-col-12' }}">
       <h3>Team Picks ({{ team_picks | length }})</h3>
@@ -394,7 +397,7 @@
                 <div class="dp-pos-sub">{{ p.pos }} &middot; {{ p.college }}</div>
               </td>
               <td class="center">
-                {% if user_abbr %}
+                {% if user_abbr and mode != "future" %}
                 <form method="post" action="/draft/board/{{ 'remove' if p.on_board else 'add' }}" class="dp-inline-form">
                   <input type="hidden" name="prospect_index" value="{{ p.index }}">
                   <button type="submit" class="dp-btn" title="{{ 'Remove from' if p.on_board else 'Add to' }} Draft Board">{% if p.on_board %}&#10003; Board{% else %}+ Board{% endif %}</button>
@@ -430,7 +433,7 @@
     {% endif %}
   </div>
 
-  {% if mode != "review" %}
+  {% if mode not in ("review", "future") %}
   {# ---- Draft Board (5) + Trade (5) + Top Prospects (2) ---- #}
   <div class="dp-grid">
     {% if user_abbr %}
@@ -482,43 +485,9 @@
       </div>
     </section>
 
-    <section class="dp-panel dp-col-5" id="draft-trade-card">
-      <h3>Trade Picks</h3>
-      <p class="dp-sub" style="margin-bottom:10px;">Real draft-pick trading (GDD &sect;8.5) -- the same evaluation GM Desk's Propose Trade panel uses.</p>
-      <form method="get" action="/draft" data-soft-get>
-        <label for="draft-team-b">Trade with</label>
-        <select name="team_b" id="draft-team-b" style="font-size:0.9rem;">
-          <option value="">Choose a team&hellip;</option>
-          {% for t in other_teams %}
-          <option value="{{ t.abbr }}" {% if team_b == t.abbr %}selected{% endif %}>{{ t.location }} ({{ t.abbr }})</option>
-          {% endfor %}
-        </select>
-      </form>
-      {% if team_b_info %}
-      <form method="post" action="/gm-desk/trade">
-        <input type="hidden" name="team_b" value="{{ team_b }}">
-        <input type="hidden" name="return_to" value="draft">
-        <div style="display:flex; gap:1.5rem; align-items:flex-start; flex-wrap:wrap; margin-top:0.5rem;">
-          <div>
-            <h4 style="margin:0.4rem 0">{{ user_abbr }} sends</h4>
-            {% for pk in user_tradeable_picks %}
-            <label class="filter-checkbox" style="display:block;"><input type="checkbox" name="give_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
-            {% else %}<p class="dp-sub">No tradeable picks.</p>{% endfor %}
-          </div>
-          <div>
-            <h4 style="margin:0.4rem 0">{{ team_b_info.abbr }} sends</h4>
-            {% for pk in trade_partner_picks %}
-            <label class="filter-checkbox" style="display:block;"><input type="checkbox" name="get_picks" value="{{ pk.pick_id }}"> {{ pk.label }}</label>
-            {% else %}<p class="dp-sub">No tradeable picks.</p>{% endfor %}
-          </div>
-        </div>
-        <button type="submit" class="dp-btn gold" style="margin-top:0.75rem; font-size:0.85rem; padding:6px 14px;">Submit Offer</button>
-      </form>
-      {% endif %}
-    </section>
     {% endif %}
 
-    <section class="dp-dark {{ 'dp-col-2' if user_abbr else 'dp-col-12' }}" style="padding:16px;">
+    <section class="dp-dark {{ 'dp-col-7' if user_abbr else 'dp-col-12' }}" style="padding:16px;">
       <h3 style="font-size:0.875rem; text-transform:uppercase; letter-spacing:0.04em;">Top Prospects</h3>
       {% for p in top_prospects %}
       <div class="dp-top-item" data-idx="{{ p.index }}">
@@ -539,14 +508,62 @@
   </div>
 
   {% if user_abbr %}
+  {# Real draft-pick + player trading (GDD &sect;8.5) -- the exact same
+     Propose Trade box GM Desk uses (2026-09-15: was a picks-only panel
+     here; now a shared partial, see _trade_box.html). #}
+  {% include "_trade_box.html" %}
+  {% endif %}
+
+  {% if user_abbr %}
+  {# Same Roster page Attributes table (2026-09-15: was a bare 5-column
+     list) -- 18 columns, starter highlighting, Team Quota pills, Player
+     Card. Sorted client-side (data-sort-table) rather than roster_view()'s
+     own GET-param-reload sort, matching this whole page's already
+     client-side design (see this template's top comment). #}
   <section class="dp-panel" style="margin-bottom:16px;">
-    <h3>Your Roster ({{ roster | length }})</h3>
-    <div class="dashboard-scroll" style="max-height: 320px;">
-      <table class="boxtable">
-        <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th></tr></thead>
-        <tbody>
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
+      <h3 style="margin:0;">Your Roster ({{ roster | length }})</h3>
+      <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+        <span class="quota-pill {% if total_roster_count >= max_roster_size %}met{% else %}short{% endif %}">ALL {{ total_roster_count }}/{{ max_roster_size }}</span>
+        {% for grp, quota in position_quotas.items() %}
+        <span class="quota-pill {% if quota.short %}short{% else %}met{% endif %}">{{ grp }} {{ quota.current }}/{{ quota.min }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="dashboard-scroll" style="max-height: 420px;">
+      <table data-sort-table>
+        <thead>
+          <tr>
+            <th data-sort="name" data-type="text">Player</th>
+            {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
+            <th data-sort="{{ cid }}" {% if cid in ('pos', 'dep') %}data-type="text"{% endif %}>{{ label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody data-sort-body>
           {% for p in roster %}
-          <tr><td>{{ p.first_name }} {{ p.last_name }}</td><td>{{ p.position.value }}</td><td>{{ p.overall_rating }}</td><td>{{ p.potential }}</td><td>{{ p.age }}</td></tr>
+          {% set ovr = p.overall_rating %}
+          <tr class="{% if p.player_id in starters %}starter{% endif %}{% if p.player_id in last_starters %} starter-last{% endif %}" data-card='{{ p | player_card_json }}'>
+            <td>{{ player_link(p) }}</td>
+            <td>{{ p.position.value }}</td>
+            <td>{{ p.age }}</td>
+            <td><span class="ovr-badge {% if ovr >= 90 %}tier-elite{% elif ovr >= 80 %}tier-good{% elif ovr >= 70 %}tier-avg{% else %}tier-low{% endif %}">{{ ovr }}</span></td>
+            <td>{{ p.potential }}</td>
+            <td>{{ p.speed }}</td>
+            <td>{{ p.strength }}</td>
+            <td>{{ p.agility }}</td>
+            <td>{{ p.throw_power }}</td>
+            <td>{{ avg_throw_accuracy(p) }}</td>
+            <td>{{ p.catching }}</td>
+            <td>{{ p.tackle }}</td>
+            <td>{{ p.awareness }}</td>
+            <td>{{ p.stamina }}</td>
+            <td>{{ injury_risk(p) }}</td>
+            <td>{{ p.morale }}</td>
+            <td>{% if p.salary %}{{ p.salary | money }}{% else %}&mdash;{% endif %}</td>
+            <td>{{ p.years_pro }}</td>
+            <td>{{ depth_slot.get(p.player_id, '—') }}</td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>

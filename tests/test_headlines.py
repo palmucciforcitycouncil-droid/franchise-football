@@ -158,7 +158,8 @@ def test_consecutive_weeks_do_not_reuse_the_same_phrasing():
                                  values={"winner_label": "KC (5-1)", "loser_label": "LV (1-5)", "w_score": 40, "l_score": 10},
                                  event_key="blowout|KC|LV")
     headlines_history.DEFAULT_PATH.unlink(missing_ok=True)
-    lines = [headlines._render_events([ev], 2025, 77, week)[0] for week in range(1, 7)]
+    # ev.is_user_team is False, so every render lands in league_lines (index 0).
+    lines = [headlines._render_events([ev], 2025, 77, week)[0][0] for week in range(1, 7)]
     assert all(a != b for a, b in zip(lines, lines[1:]))
 
 
@@ -166,7 +167,8 @@ def test_same_week_events_of_one_type_get_different_phrasings():
     evs = [headlines.HeadlineEvent(tier=1, category="blowout", magnitude=1, is_user_team=False, template_key="blowout",
                                    values={"winner_label": w, "loser_label": "X (0-1)", "w_score": 40, "l_score": 10},
                                    event_key=f"blowout|{w}") for w in ("A (1-0)", "B (1-0)")]
-    a, b = headlines._render_events(evs, 2025, 78, 3)
+    league_lines, user_lines = headlines._render_events(evs, 2025, 78, 3)
+    a, b = league_lines
     assert a.replace("A (1-0)", "") != b.replace("B (1-0)", "")
 
 
@@ -203,7 +205,8 @@ def test_playoff_round_headlines_name_the_round_and_the_result():
     m = PlayoffMatchup(round_name="DIV", conference="AFC", home_abbr="KC", away_abbr="BUF", home_seed=1, away_seed=4,
                        result=GameResult(home_score=20, away_score=27, winner="away", events=[], plays=[]))
     headlines_history.DEFAULT_PATH.unlink(missing_ok=True)
-    lines = headlines.playoff_round_headlines(season, [m])
+    league_lines, user_lines = headlines.playoff_round_headlines(season, [m])
+    lines = league_lines + user_lines  # no user_team_abbr set on this season -- everything's league-wide
     assert len(lines) == 1
     assert "BUF (11-6)" in lines[0] and "KC (13-4)" in lines[0] and "27-20" in lines[0]
     assert "Divisional" in lines[0]
@@ -286,8 +289,9 @@ def test_weekly_headlines_end_to_end_through_a_real_simulated_week():
         season = season_state.get_season()
         season_state.simulate_current_week()
         season = season_state.get_season()
-        lines = headlines_history.get_week_headlines(season.season_number, 1)
-        assert lines is not None
+        entry = headlines_history.get_week_headlines(season.season_number, 1)
+        assert entry is not None
+        lines = entry["league"] + entry["user_team"]
         assert 1 <= len(lines) <= headlines.TARGET_TOTAL + headlines.MAX_INJURY_HEADLINES
         assert all(isinstance(line, str) and line for line in lines)
     finally:

@@ -824,12 +824,28 @@
        every item whole and the overflow scrolls vertically as intended. */
     .headlines-card h2 { font-size: 1rem; margin: 0 0 0.5rem; }
     .headlines-card .headlines-when { font-size: 0.8rem; font-weight: 400; }
+    /* 2026-09-15: split into a League column (never the user's own team)
+       and a Your Team column, each its own <ul> now instead of one list
+       CSS-grid-wrapped into two -- column-gap tightened per Brian's ask
+       to sit the two columns closer together. */
+    .headlines-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 0.85rem; }
+    .headlines-col-title { font-size: 0.78rem; margin: 0 0 0.25rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .headlines-list {
-      margin: 0; padding-left: 1.1rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-      column-gap: 2rem; align-content: start; max-height: 108px; overflow-y: auto; font-size: 0.82rem;
+      margin: 0; padding-left: 1.1rem; max-height: 108px; overflow-y: auto; font-size: 0.82rem;
     }
     .headlines-list li { margin-bottom: 0.3rem; line-height: 1.35; }
-    @media (max-width: 700px) { .headlines-list { grid-template-columns: 1fr; } }
+    @media (max-width: 700px) { .headlines-columns { grid-template-columns: 1fr; } }
+
+    /* Top row: Headlines (majority width) + a small Team Injuries box
+       (Brian's ask, 2026-09-15) -- roughly half a normal .dashboard-grid
+       cell's width, stacking below Headlines once the row gets tight. */
+    .top-row { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; align-items: stretch; }
+    .top-row .headlines-card { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+    .injuries-card { flex: 0 0 200px; min-width: 0; margin-bottom: 0; }
+    .injuries-card h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+    .injuries-list { margin: 0; padding-left: 1.1rem; max-height: 108px; overflow-y: auto; font-size: 0.78rem; color: #f87171; }
+    .injuries-list li { margin-bottom: 0.3rem; line-height: 1.35; }
+    @media (max-width: 900px) { .top-row { flex-wrap: wrap; } .injuries-card { flex-basis: 100%; } }
     /* Standings clinch marks (app/engine/clinch.py). */
     .clinch-mark { font-size: 0.72rem; font-weight: 700; margin-left: 0.25rem; color: var(--gold); vertical-align: super; }
     .clinch-legend { font-size: 0.75rem; margin: 0.5rem 0 0; }
@@ -1075,9 +1091,14 @@
                 {%- if s.current_week %} &middot; Week {{ s.current_week }}{% endif %}
               </div>
             </div>
-            <form method="post" action="/saves/{{ s.save_id }}/load">
-              <button type="submit">{% if s.save_id == hc.active_save_id %}Continue{% else %}Load{% endif %}</button>
-            </form>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <form method="post" action="/saves/{{ s.save_id }}/load">
+                <button type="submit">{% if s.save_id == hc.active_save_id %}Continue{% else %}Load{% endif %}</button>
+              </form>
+              <form method="post" action="/saves/{{ s.save_id }}/delete" onsubmit="return confirm('Delete &quot;{{ s.name }}&quot; permanently? This can\'t be undone.');">
+                <button type="submit" style="background:#5a2a2a; border-color:#5a2a2a; color:#fff;">Delete</button>
+              </form>
+            </div>
           </div>
           {% endfor %}
           {% endif %}
@@ -1951,9 +1972,6 @@
           }
         } else {
           career += '<p class="muted">No completed seasons on record yet.</p>';
-        }
-        if (card.contract_note) {
-          career += '<p class="coach-generated-note">' + card.contract_note + '</p>';
         }
         ccCareerEl.innerHTML = career;
 

@@ -1264,7 +1264,8 @@ def test_preseason_rounds_record_their_own_headlines():
     season_state.simulate_preseason()
     season = season_state.get_season()
     for r in range(1, season.preseason_total_rounds + 1):
-        lines = headlines_history.get_week_headlines(season.season_number, f"P{r}")
+        entry = headlines_history.get_week_headlines(season.season_number, f"P{r}")
+        lines = entry["league"] + entry["user_team"]
         assert lines and all(isinstance(line, str) and line for line in lines)
 
 
