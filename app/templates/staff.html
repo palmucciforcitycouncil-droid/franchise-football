@@ -12,11 +12,12 @@
   real system behind them (Hire/Fire/Negotiate), this page says so
   on-screen instead of rendering a button that does nothing.
 
-  Focus Area (R13, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md) is real: a
-  per-coach dropdown, editable for the user's own team only, posting to
-  /staff/{team_abbr}/{coach_id}/focus. AI teams' assistants are reassigned
-  autonomously every offseason instead (app/services/coach_ai.py's
-  run_focus_autonomy()) -- shown read-only for them.
+  Focus Area (R16, docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md) is
+  real: a per-coach dropdown, editable for the user's own team only,
+  posting to /staff/{team_abbr}/{coach_id}/focus, with each role's OWN
+  menu (focus_options_for()). AI teams get reassigned autonomously every
+  offseason instead (app/services/coach_ai.py's run_focus_autonomy())
+  -- shown read-only for them.
 #}
 
 {% macro coach_box(entry, wide=False) %}
@@ -60,7 +61,7 @@
   <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" style="margin-top: 6px;">
     <label for="focus-{{ entry.coach.coach_id }}" class="pc-row-label">Focus Area</label>
     <select name="focus_area" id="focus-{{ entry.coach.coach_id }}" onchange="this.form.submit()">
-      {% for fa in focus_areas %}
+      {% for fa in entry.focus_options %}
       <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
       {% endfor %}
     </select>
@@ -74,8 +75,8 @@
     <div class="row" style="gap: 6px;">
       <input type="number" name="aav" min="0" step="1000" placeholder="AAV $" required
              style="width: 45%;">
-      <input type="number" name="years" min="1" max="7" placeholder="Years" required
-             style="width: 30%;">
+      <input type="number" name="years" min="1" max="7" placeholder="Additional Years" required
+             style="width: 30%;" title="Years added on top of their current contract, not a replacement term">
       <button type="submit" style="width: 25%;">Offer</button>
     </div>
   </form>
@@ -199,10 +200,11 @@
   <h3>Assistant Coaches ({{ assistants | length }})</h3>
   <p class="muted" style="font-size: 0.85rem;">
     Every assistant's specialty is the real position-group title from the seed directory
-    (GDD &sect;7.7.2.1a). Focus Area (R13) decides which bucket their ratings actually feed
-    into &mdash; not every assistant contributes to player development anymore, only the ones
-    focused there. {% if is_user_team %}Editable below.{% else %}AI teams' assistants are
-    reassigned autonomously every offseason based on real team need
+    (GDD &sect;7.7.2.1a) &mdash; it can drift over a career if their ratings shift toward a
+    different group (R16). Focus Area decides which position group their ratings actually
+    boost, in-game and over the season &mdash; not every assistant contributes to player
+    development anymore, only the ones focused there. {% if is_user_team %}Editable below.
+    {% else %}AI teams' coaches are reassigned autonomously every offseason based on real team need
     (app/services/coach_ai.py's run_focus_autonomy()).{% endif %}
   </p>
   <div class="table-wrap">
@@ -223,7 +225,7 @@
             {% if is_user_team %}
             <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus">
               <select name="focus_area" onchange="this.form.submit()">
-                {% for fa in focus_areas %}
+                {% for fa in entry.focus_options %}
                 <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
                 {% endfor %}
               </select>
@@ -294,12 +296,12 @@
   {% endif %}
 
   <p class="coach-generated-note">
-    Hire/Fire/Promote are real (R3d &sect;11) for your own team &mdash; use the Fire button on any
-    HC/OC/DC/ST box and the Fill Vacancy panel that appears once a seat opens. Every AI team runs
-    the identical firing-probability/replacement math autonomously every offseason, and lightly
-    in-season (&sect;10). Not built: Extend Contract (&sect;11's JSS-volatility-reducing
-    re-negotiation) and coach salary negotiation (&sect;15 &mdash; disclosed out of scope, same as
-    the player Hiring Merit search's flat scheme-fit/org-philosophy terms).
+    Hire/Fire/Promote/Extend are all real (R3d &sect;11, R14) for your own team &mdash; use the Fire
+    button on any HC/OC/DC box and the Fill Vacancy panel that appears once a seat opens. Every AI
+    team runs the identical firing-probability/replacement math autonomously every offseason, and
+    lightly in-season (&sect;10). Not built: coach salary negotiation at hiring time (&sect;15
+    &mdash; disclosed out of scope, same as the player Hiring Merit search's flat scheme-fit/
+    org-philosophy terms).
   </p>
 </div>
 {% endblock %}

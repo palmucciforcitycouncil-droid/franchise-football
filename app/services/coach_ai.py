@@ -13,7 +13,12 @@ from __future__ import annotations
 from app.data.teams import TEAMS, TEAMS_BY_ABBR
 from app.engine import coach_contracts, coach_hiring, coach_progression, coach_replacement
 from app.engine.rng import RNG, stable_seed
-from app.models.coach import CoachRole, FOCUS_DEVELOPMENT, FOCUS_TRAINING, FOCUS_SCOUTING
+from app.models.coach import (
+    CoachRole, FOCUS_DEVELOPMENT, FOCUS_TRAINING, FOCUS_SCOUTING,
+    FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME, FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL,
+    FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE, FOCUS_DL, FOCUS_SECONDARY,
+    default_focus_area_for, focus_options_for, _rating_for_focus,
+)
 from app.services import coach_store, owner_pressure_store
 
 
@@ -142,43 +147,98 @@ def run_inseason_autonomy(season, week: int, exclude_team_abbr: str | None) -> l
     return log
 
 
-# R13 Sec 7: real thresholds for the AI Focus Autonomy pass below -- this
-# module's own documented choices, same category as firing_probability()'s
-# own week-modifier constants (the spec names the signals, not the cutoffs).
-_POINTS_FOR_BOTTOM_THIRD_RANK = 22  # rank > this (of 32) counts as a real offensive weakness
+# R16 Sec 10: real thresholds for the AI Focus Autonomy pass below --
+# this module's own documented choices, same category as firing_
+# probability()'s own week-modifier constants.
+_POINTS_FOR_BOTTOM_THIRD_RANK = 22   # rank > this (of 32) counts as a real offensive weakness
+_POINTS_AGAINST_BOTTOM_THIRD_RANK = 22  # rank > this counts as a real defensive weakness
+
+# R16 Sec 10: offense/defense-need-driven options for OC/DC/AC, split by
+# side -- reused when that side's real signal (offense_needs_help/
+# defense_needs_help) fires, spreading equal weight across all of them
+# rather than fabricating a false-precision "which one exactly" signal
+# (no per-subcategory rank -- run vs. pass weakness -- exists cheaply).
+_OFFENSE_NEED_OPTIONS = (FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME, FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL)
+_DEFENSE_NEED_OPTIONS = (FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE, FOCUS_DL, FOCUS_SECONDARY)
+# How much extra weight a coach's OWN best-rated available option gets --
+# "favor what they're good at" alongside team need. [tune].
+OWN_RATING_WEIGHT = 1.5
+
+
+def _weights_for_coach(coach, options: list[str], offense_needs_help: bool, defense_needs_help: bool,
+                        injury_prone: bool, rebuilding: bool) -> dict[str, float]:
+    """R16 Sec 10: this ONE coach's real weighted-choice distribution
+    over THEIR OWN available menu (`options`) -- blends real team-need
+    signals with the coach's own rating at each option (favor what
+    they're good at, not just what the team needs), and always keeps
+    their role-appropriate "home" option (Balanced/Offensive/Defensive
+    Gameplan for HC/OC/DC, Development for AC) as the real floor so the
+    AI doesn't need a signal to justify NOT moving someone."""
+    home = default_focus_area_for(CoachRole(coach.role), coach)
+    weights: dict[str, float] = {home: 1.0}
+
+    def bump(option: str, amount: float) -> None:
+        if option in options:
+            weights[option] = weights.get(option, 0.0) + amount
+
+    if offense_needs_help:
+        bump(FOCUS_DEVELOPMENT, 1.0)
+        for opt in _OFFENSE_NEED_OPTIONS:
+            bump(opt, 1.0 / len(_OFFENSE_NEED_OPTIONS))
+    if defense_needs_help:
+        bump(FOCUS_DEVELOPMENT, 1.0)
+        for opt in _DEFENSE_NEED_OPTIONS:
+            bump(opt, 1.0 / len(_DEFENSE_NEED_OPTIONS))
+    if injury_prone:
+        bump(FOCUS_TRAINING, 1.0)
+    if rebuilding:
+        bump(FOCUS_SCOUTING, 1.0)
+
+    # Favor whatever this coach is personally best at, among their own
+    # options -- the same "default to your best rating" logic AC's
+    # import-time default already uses, applied every offseason instead
+    # of only once at hire time.
+    best_option, best_rating = None, -1.0
+    for option in options:
+        rating = _rating_for_focus(coach, option)
+        if rating > best_rating:
+            best_option, best_rating = option, rating
+    if best_option is not None and best_rating > 0:
+        bump(best_option, OWN_RATING_WEIGHT)
+
+    return weights
 
 
 def run_focus_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
-    """R13 Sec 7: every offseason, each AI team's ASSISTANT coaches (only
-    -- HC/OC/DC/ST stay pinned to their natural lane forever, since
-    reassigning a Defensive Coordinator away from DF Gameplan makes no
-    narrative sense) get re-evaluated for Development/Training/Scouting
-    focus, using real signals from the season just finished:
+    """R16 Sec 10: every offseason, every AI team's coach -- HC, OC, DC,
+    AND AC (expanded from R13's assistants-only scope: "the AI should be
+    making the best decisions they can for their team") -- gets
+    re-evaluated for Focus Area, blending real team-need signals with
+    each coach's own rating at their available options:
 
-    - Points-for rank in the real bottom third (coach_progression.compute_
-      team_ranks(), the SAME ranks the firing pass already computes) biases
-      toward Development.
-    - This team's real injury count this season, above the league average
-      (injury_store.team_season_injury_count(), R1), biases toward Training.
+    - Points-for/points-against rank in the real bottom third
+      (coach_progression.compute_team_ranks()) biases toward the
+      relevant side's options (offense_needs_help/defense_needs_help).
+    - This team's real injury count this season, above the league
+      average (injury_store.team_season_injury_count(), R1), biases
+      toward Strength & Conditioning.
     - A real season outcome significantly/catastrophically below this
       team's own preseason expectation (coach_hiring.classify_season_
-      outcome(), the SAME bucketing OwnerWinPressure already uses) biases
-      toward Scouting -- an underperforming team leans harder on the draft.
+      outcome()) biases toward Scouting.
+    - Every coach's OWN rating at each of their menu options biases
+      toward whatever they're personally best at (Sec 4's "default to
+      your best rating" logic, reapplied every offseason).
 
-    Deterministic weighted-random selection (stable_seed-keyed per coach),
-    not a hard rule -- two teams with identical signals don't necessarily
-    make identical choices, same spirit as firing_probability()'s own rolls.
-    No cap on how many assistants move to the same bucket in one pass (R13
-    Sec 2: over-investing costs a team real OF/DF Gameplan and Development
-    influence automatically -- the same opportunity-cost guardrail applies
-    to the AI's own choices).
+    Deterministic weighted-random selection (stable_seed-keyed per
+    coach), not a hard rule. No cap on how many coaches move to the same
+    bucket in one pass -- over-investing costs the team real influence
+    elsewhere automatically (Sec 2's opportunity-cost guardrail).
 
     Called from season_state.apply_coach_offseason(), AFTER progression/
-    retirement (so ranks/ratings are this season's real, final numbers) and
-    AFTER run_offseason_autonomy() (so a coach hired/fired this pass is
-    evaluated in their real, current role). Only ASSISTANTS ever move, so a
-    coach fired-and-replaced this same offseason is simply skipped if the
-    replacement isn't an AC (HC/OC/DC/ST hires are never reassigned here)."""
+    retirement AND after this pass's own Coaching Tree drift/specialty
+    relabel (so ratings and specialties are this season's real, final
+    values), and AFTER run_offseason_autonomy() (so a coach hired/fired
+    this pass is evaluated in their real, current role)."""
     from app.core.db import get_session
     from app.models.coach import Coach as CoachModel
     from app.services import injury_store, team_expectations
@@ -191,7 +251,7 @@ def run_focus_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
 
     # Decide every reassignment first (pure, no DB writes), then apply them
     # all in ONE session at the end -- N individual sessions/commits for a
-    # 305-assistant staff would be exactly the per-row DB round-trip
+    # 433-coach league would be exactly the per-row DB round-trip
     # ROADMAP.md Sec4f's own draft-perf bug already caught once this session.
     reassignments: dict[str, str] = {}
     for team in TEAMS:
@@ -206,6 +266,10 @@ def run_focus_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
             team_ranks is not None and team_ranks.points_for_rank is not None
             and team_ranks.points_for_rank >= _POINTS_FOR_BOTTOM_THIRD_RANK
         )
+        defense_needs_help = (
+            team_ranks is not None and team_ranks.points_against_rank is not None
+            and team_ranks.points_against_rank >= _POINTS_AGAINST_BOTTOM_THIRD_RANK
+        )
         injury_prone = injury_counts.get(team.abbr, 0) > league_avg_injuries
 
         expectation = team_expectations.for_team(season.season_number, team.abbr)
@@ -213,25 +277,13 @@ def run_focus_autonomy(season, exclude_team_abbr: str | None) -> list[str]:
         outcome = coach_hiring.classify_season_outcome(record.win_pct, expected_win_pct)
         rebuilding = outcome in ("significantly_below", "catastrophic")
 
-        # Development is always the real floor -- the AI doesn't need a
-        # signal to justify NOT moving someone (R13 Sec 4's own default).
-        weights: dict[str, float] = {FOCUS_DEVELOPMENT: 1.0}
-        if offense_needs_help:
-            weights[FOCUS_DEVELOPMENT] = weights[FOCUS_DEVELOPMENT] + 1.0
-        if injury_prone:
-            weights[FOCUS_TRAINING] = 1.0
-        if rebuilding:
-            weights[FOCUS_SCOUTING] = 1.0
-
-        options = list(weights.keys())
-        probs = list(weights.values())
-
         for coach in coach_store.staff_for(team.abbr):
-            if CoachRole(coach.role) is not CoachRole.AC:
-                continue
+            options = focus_options_for(coach)
+            weights = _weights_for_coach(coach, options, offense_needs_help, defense_needs_help,
+                                         injury_prone, rebuilding)
             rng = RNG.with_seed(stable_seed(
                 "focus_ai", season.league_seed, season.season_number, team.abbr, coach.coach_id))
-            new_focus = rng.weighted_choice(options, probs)
+            new_focus = rng.weighted_choice(list(weights.keys()), list(weights.values()))
             if new_focus != coach.focus_area:
                 reassignments[coach.coach_id] = new_focus
                 log.append(f"{team.abbr}:{coach.coach_id}:focus_reassigned({coach.focus_area}->{new_focus})")

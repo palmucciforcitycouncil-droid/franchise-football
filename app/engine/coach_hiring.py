@@ -167,10 +167,6 @@ OC_WEIGHTS = {
     "efficiency": 0.10, "playcalling": 0.10, "hc_fit": 0.10,
 }
 DC_WEIGHTS = dict(OC_WEIGHTS)  # same shape, defense-side inputs
-ST_WEIGHTS = {
-    "performance": 0.35, "catastrophic": 0.25, "trend": 0.15,
-    "penalties": 0.10, "return_efficiency": 0.10, "hc_fit": 0.05,
-}
 
 
 def _weighted(components: dict[str, float], weights: dict[str, float]) -> float:
@@ -267,52 +263,9 @@ def compute_dc_jss(season, team_abbr: str, coach: Coach, team_ranks, current_pre
     return _unit_jss(season, team_abbr, coach, offense=False, team_ranks=team_ranks, current_pressure=current_pressure)
 
 
-def compute_st_jss(season, team_abbr: str, coach: Coach, current_pressure: float) -> tuple[float, dict[str, float]]:
-    from app.engine import scouting
-
-    fg = scouting.field_goal_accuracy_3bucket(season, team_abbr)
-    made = fg.get("made", 0) or 0
-    attempted = fg.get("attempted", 0) or 0
-    fg_pct = (100.0 * made / attempted) if attempted else 50.0
-
-    penalty = scouting.penalty_discipline(season, team_abbr)
-    per_game = penalty.get("per_game")
-    # Fewer penalties/game -> higher score. No real league-wide ST-only
-    # penalty split exists, so this reads the team's overall discipline
-    # rate, same real-substitute precedent as everything else here.
-    penalty_score = max(0.0, min(100.0, 100.0 - (per_game or 6.0) * 8.0))
-
-    trend = _trajectory_score(season.records[team_abbr].win_pct,
-                               _team_recent_hc_seasons(team_abbr, season.season_number))
-
-    # CatastrophicErrors (blocked kicks, return TDs allowed) and
-    # Return/Coverage Efficiency: no per-play special-teams-tackle or
-    # blocked-kick attribution is aggregated anywhere queryable per
-    # team/season (ROADMAP.md R2 is still only partially done -- no
-    # return-game tackle credit exists at all). Left neutral (50)
-    # rather than invented, same "no signal -> don't drift the rating"
-    # discipline app/engine/coach_progression.py already established.
-    catastrophic = 50.0
-    return_efficiency = 50.0
-
-    from app.services import coach_store
-    hc = coach_store.head_coach(team_abbr)
-    hc_fit = hc.motivation_chemistry if hc is not None else 50.0
-
-    components = {
-        "performance": fg_pct,
-        "catastrophic": catastrophic,
-        "trend": trend,
-        "penalties": penalty_score,
-        "return_efficiency": return_efficiency,
-        "hc_fit": hc_fit,
-    }
-    return _weighted(components, ST_WEIGHTS), components
-
-
 def compute_jss(season, team_abbr: str, coach: Coach, team_ranks=None) -> tuple[float, dict[str, float]]:
     """Single entry point coach_records.py calls -- dispatches on role.
-    AC has no Sec 3.1 formula (the spec gives HC/OC/DC/ST only); an AC's
+    AC has no Sec 3.1 formula (the spec gives HC/OC/DC only); an AC's
     stored job_security_score stays whatever the OLD, simpler
     job_security_score() computed, unaffected by R3d."""
     current_pressure = owner_pressure_store.pressure_for(team_abbr)
@@ -326,8 +279,6 @@ def compute_jss(season, team_abbr: str, coach: Coach, team_ranks=None) -> tuple[
         return compute_oc_jss(season, team_abbr, coach, team_ranks, current_pressure)
     if role is CoachRole.DC:
         return compute_dc_jss(season, team_abbr, coach, team_ranks, current_pressure)
-    if role is CoachRole.ST:
-        return compute_st_jss(season, team_abbr, coach, current_pressure)
     # AC: no bespoke formula in the spec -- fall back to a simple,
     # documented proxy (their own performance ratings + HC fit) rather
     # than reusing another role's weight table verbatim.
@@ -526,7 +477,7 @@ INTERIM_PROMOTION_WEIGHTS = {
 # Role seniority for "prior HC/coordinator experience" -- an internal
 # candidate already at OC/DC/ST is credited with real coordinator
 # experience for an HC vacancy; an AC is not.
-_SENIOR_ROLES = (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST)
+_SENIOR_ROLES = (CoachRole.HC, CoachRole.OC, CoachRole.DC)
 
 
 def interim_promotion_score(candidate: Coach, season_number: int) -> float:

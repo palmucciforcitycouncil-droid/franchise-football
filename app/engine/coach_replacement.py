@@ -32,7 +32,6 @@ from app.services import coach_store, coach_pool
 # (HC vacancy only).
 _OC_HIERARCHY = ["Quarterbacks", "Passing Game", "Running Backs"]
 _DC_HIERARCHY = ["Linebackers", "Secondary", "Cornerbacks", "Safeties", "Defensive Line"]
-_ST_HIERARCHY = ["Special Teams (Assistant)"]
 
 INTERNAL_PROMOTION_THRESHOLD = 55.0  # this module's own documented cutoff (spec gives the rule, no number)
 INTERIM_RETENTION_WIN_PCT = 0.5      # Sec 5: an interim who wins enough gets kept permanently
@@ -48,11 +47,11 @@ def _ac_rank(candidate: Coach, hierarchy: list[str]) -> int:
 def internal_candidates(team_abbr: str, vacant_role: CoachRole, exclude_coach_id: str) -> list[Coach]:
     staff = [c for c in coach_store.staff_for(team_abbr) if c.coach_id != exclude_coach_id]
     if vacant_role is CoachRole.HC:
-        coordinators = [c for c in staff if CoachRole(c.role) in (CoachRole.OC, CoachRole.DC, CoachRole.ST)]
+        coordinators = [c for c in staff if CoachRole(c.role) in (CoachRole.OC, CoachRole.DC)]
         qb_coach = [c for c in staff if CoachRole(c.role) is CoachRole.AC and c.specialty == "Quarterbacks"]
         other_ac = [c for c in staff if CoachRole(c.role) is CoachRole.AC and c.specialty != "Quarterbacks"]
         return coordinators + qb_coach + other_ac
-    hierarchy = {CoachRole.OC: _OC_HIERARCHY, CoachRole.DC: _DC_HIERARCHY, CoachRole.ST: _ST_HIERARCHY}.get(vacant_role)
+    hierarchy = {CoachRole.OC: _OC_HIERARCHY, CoachRole.DC: _DC_HIERARCHY}.get(vacant_role)
     if hierarchy is None:
         return []
     acs = [c for c in staff if CoachRole(c.role) is CoachRole.AC]
@@ -187,7 +186,7 @@ def execute_hire(team_abbr: str, role: CoachRole, coach_id: str, season_number: 
         # assistant would keep a stale AC-era focus (e.g. Training) after
         # becoming, say, the Offensive Coordinator, same class of gap
         # specialty/offensive_profile/defensive_profile already close below.
-        coach.focus_area = default_focus_area_for(role, coach.specialty)
+        coach.focus_area = default_focus_area_for(role, coach)
         # Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
         # Sec 11): a fresh real contract for the NEW role -- previously this
         # never set contract_years/salary_aav at all, silently leaving an
@@ -211,7 +210,7 @@ def execute_hire(team_abbr: str, role: CoachRole, coach_id: str, season_number: 
 def apply_new_hc_effect(team_abbr: str, new_hc_coach_id: str, season_number: int,
                          league_seed: int) -> list[tuple[str, str, str | None]]:
     """Sec 6: existing coordinators become immediately vulnerable to a
-    new HC -- each OC/DC/ST independently has a 50-70% (seeded, so a
+    new HC -- each OC/DC independently has a 50-70% (seeded, so a
     replay is identical) chance of being fired and replaced right away,
     offseason-style (Permanent, full market). Returns
     (role_value, fired_coach_id, new_coach_id_or_None) for each
@@ -221,7 +220,7 @@ def apply_new_hc_effect(team_abbr: str, new_hc_coach_id: str, season_number: int
     changed: list[tuple[str, str, str | None]] = []
     for coach in coach_store.staff_for(team_abbr):
         role = CoachRole(coach.role)
-        if role not in (CoachRole.OC, CoachRole.DC, CoachRole.ST) or coach.coach_id == new_hc_coach_id:
+        if role not in (CoachRole.OC, CoachRole.DC) or coach.coach_id == new_hc_coach_id:
             continue
         rng = RNG.with_seed(stable_seed("new_hc_coordinator_purge", league_seed, season_number, coach.coach_id))
         lo, hi = NEW_HC_COORDINATOR_VULNERABILITY

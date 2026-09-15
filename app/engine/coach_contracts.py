@@ -75,7 +75,6 @@ DEFAULT_CONTRACT_YEARS: dict[CoachRole, int] = {
     CoachRole.HC: 4,
     CoachRole.OC: 3,
     CoachRole.DC: 3,
-    CoachRole.ST: 3,
     CoachRole.AC: 2,
 }
 

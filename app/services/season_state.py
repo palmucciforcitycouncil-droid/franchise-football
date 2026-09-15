@@ -455,8 +455,19 @@ def simulate_current_week() -> int:
         this_week_headlines = headlines.weekly_headlines(season, week_num, prior_division_standings, new_injuries)
         headlines_history.record_week_headlines(season.season_number, week_num, this_week_headlines)
 
+        # R16 Sec 7: record this week's real Focus Area contributions per
+        # team per position group -- BEFORE this week's AI firing/hiring
+        # pass below, so a coach fired/hired mid-week still gets credit
+        # for the focus they actually held all week (Sec 7.7.3's "locked
+        # at kickoff" precedent). Every team, not just AI ones -- the
+        # user's own staff accumulates the exact same way.
+        from app.services import coach_focus_accumulator
+        for team in TEAMS:
+            coach_focus_accumulator.record_week(
+                season.season_number, team.abbr, coach_store.staff_for(team.abbr))
+
         # R3d Sec 10: "after each game, if JSS threshold triggers" --
-        # every AI team's HC/OC/DC/ST gets a real (seeded) firing-
+        # every AI team's HC/OC/DC gets a real (seeded) firing-
         # probability roll for the week just played. Sec 3.4's own
         # in-season week modifiers (as low as 0.05 through week 3-4) are
         # what keep this rare early, not a separate gate here. The
@@ -608,15 +619,33 @@ def apply_progression_to_roster(season: Season) -> int:
             pre_defensive_touches = line.solo_tackles + line.interceptions + line.forced_fumbles + line.passes_defended
             touches[key] = touches.get(key, 0) + round(pre_defensive_touches * PRESEASON_NUDGE_WEIGHT)
 
+    # R16 Sec 7: dev_multiplier_offense/defense's old blanket split is
+    # replaced by a per-position-group multiplier read from this
+    # season's real accumulated Focus Area investment (coach_focus_
+    # accumulator.py) -- memoized per (team, group) so a ~2000-player
+    # loop doesn't re-read the accumulator's JSON file per player.
+    from app.services import coach_focus_accumulator
+    from app.engine.draft import GROUP_POSITIONS
+    position_to_group = {pos: group for group, positions in GROUP_POSITIONS.items() for pos in positions}
+    dev_mult_cache: dict[tuple[str, str], float] = {}
+
+    def _dev_multiplier(team_abbr: str, position) -> float:
+        group = position_to_group.get(position)
+        if group is None:
+            return 1.0
+        key = (team_abbr, group)
+        if key not in dev_mult_cache:
+            dev_mult_cache[key] = coach_focus_accumulator.dev_multiplier_for_group(
+                season.season_number, team_abbr, group)
+        return dev_mult_cache[key]
+
     updated = 0
     with get_session() as s:
         players = s.exec(select(Player).where(Player.team_abbr != None)).all()  # noqa: E711
         for player in players:
             key = (player.team_abbr, player.full_name)
             rng = RNG.with_seed(stable_seed(season.league_seed, season.season_number, player.player_id, "progression"))
-            effect = coaching.staff_effect_for(player.team_abbr)
-            dev_mult = (effect.dev_multiplier_defense if player.position in DEFENSIVE_POSITIONS
-                        else effect.dev_multiplier_offense)
+            dev_mult = _dev_multiplier(player.team_abbr, player.position)
             result = progression.progress_player(player, touches.get(key), season.season_number, rng,
                                                   coach_dev_multiplier=dev_mult)
             progression.apply_progression(player, result)
@@ -681,9 +710,25 @@ def apply_coach_offseason(season: Season) -> int:
     did before."""
     from app.models.coach import Coach as CoachModel
     from sqlalchemy.exc import OperationalError
+    from app.services import coach_focus_accumulator, coach_ai as _coach_ai
+    from app.engine import coach_hiring
 
     coach_records.record_season_results(season)
     ranks = coach_progression.compute_team_ranks(season)
+
+    # R16 Sec 1/2: each team's real season-outcome inputs for reputation
+    # movement and the granular position-group ratings -- computed once
+    # per team, not per coach (identical for every coach on that staff).
+    achievement_by_team: dict[str, str | None] = {}
+    accumulator_by_team: dict[str, dict[str, float]] = {}
+    for team in TEAMS:
+        record = season.records.get(team.abbr)
+        if record is None or record.games_played == 0:
+            continue
+        playoff_outcome = coach_records._playoff_outcome_for(season, team.abbr)
+        achievement_by_team[team.abbr] = coach_hiring.best_achievement(
+            playoff_outcome, _coach_ai._is_division_champion(season, team.abbr))
+        accumulator_by_team[team.abbr] = coach_focus_accumulator.totals_for(season.season_number, team.abbr)
 
     updated = 0
     try:
@@ -693,6 +738,8 @@ def apply_coach_offseason(season: Season) -> int:
                 team_ranks = ranks.get(coach.team_abbr or "", coach_progression.TeamRanks())
                 result = coach_progression.progress_coach(
                     coach, team_ranks, season.season_number, season.league_seed,
+                    accumulator_totals=accumulator_by_team.get(coach.team_abbr or ""),
+                    achievement=achievement_by_team.get(coach.team_abbr or ""),
                 )
                 coach_progression.apply_coach_progression(coach, result)
                 # Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
@@ -715,6 +762,31 @@ def apply_coach_offseason(season: Season) -> int:
     except OperationalError:
         return 0
 
+    coach_store.clear_cache()
+    coaching.clear_cache()
+
+    # R16 Sec 3 (the Coaching Tree) + Sec 1 (specialty can change): a
+    # second, per-team pass -- needs every coach's FINAL post-progression
+    # ratings for the whole staff at once (drift compares a coordinator's
+    # updated ratings against the HC's, not last season's), so this can't
+    # happen inside the flat per-coach loop above. Runs BEFORE this
+    # offseason's hiring/firing reshuffles anyone -- the drift/relabel
+    # reflects the staff as it actually was the season just played.
+    try:
+        with get_session() as s:
+            coaches = s.exec(select(CoachModel).where(CoachModel.retired == False)).all()  # noqa: E712
+            by_team: dict[str, list] = {}
+            for coach in coaches:
+                if coach.team_abbr is not None:
+                    by_team.setdefault(coach.team_abbr, []).append(coach)
+            for team_abbr, staff in by_team.items():
+                coach_progression.apply_coaching_tree_drift(staff)
+                for coach in staff:
+                    coach_progression.relabel_specialty_if_needed(coach)
+                    s.add(coach)
+            s.commit()
+    except OperationalError:
+        pass
     coach_store.clear_cache()
     coaching.clear_cache()
 

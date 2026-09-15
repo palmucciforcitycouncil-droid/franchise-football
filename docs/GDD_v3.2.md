@@ -1778,7 +1778,7 @@ No reseeding on routine server start; no destructive deletes unless a dedicated 
 
 \- Players: first\_name, last\_name, position, age, attributes{…}, salary\_aav, contract\_years
 
-\- Coaches: first\_name, last\_name, role (HC | OC | DC | ST | AC), specialty (AC-only), scheme\_tendencies{run\_pass, aggression, pace} -- role list reconciled 2026-09-11 to match 7.7.2.1's canonical enum (this line previously said "STC" and omitted AC, an earlier-draft inconsistency)
+\- Coaches: first\_name, last\_name, role (HC | OC | DC | AC), specialty (AC-only), scheme\_tendencies{run\_pass, aggression, pace} -- role list reconciled 2026-09-11 to match 7.7.2.1's canonical enum (this line previously said "STC" and omitted AC, an earlier-draft inconsistency); ST (Special Teams Coordinator) removed as its own role 2026-09-15 (R16) -- every real ST coach is now an AC with specialty "Special Teams," see 7.7.2.1a
 
 \- Roster: team\_id, player\_id, depth\_slot
 
@@ -7800,7 +7800,7 @@ Policy: All ratings below are active in MVP and may be referenced by OVR and the
 
 \- \*\*coach\_id (int), team\_id (int | null if FA)\*\*
 
-\- \*\*role (enum: HC | OC | DC | ST | AC)\*\* -- ST (Special Teams Coordinator) added 2026-09-11 as its own role, split out of the original AC catch-all, per the real seed doc (every team's staff directory lists a distinct Special Teams Coordinator, same organizational tier as OC/DC). See \*\*7.7.2.1a\*\* for how every other title in the real seed collapses into AC.
+\- \*\*role (enum: HC | OC | DC | AC)\*\* -- ST (Special Teams Coordinator) was added 2026-09-11 as its own role, split out of the original AC catch-all, per the real seed doc; removed again 2026-09-15 (R16, docs/R16\_COACH\_POSITION\_IMPACT\_SPECIFICATION.md) -- every real Special Teams Coordinator is now an AC with specialty "Special Teams," a real org-chart demotion, not a firing. See \*\*7.7.2.1a\*\* for how every other title in the real seed collapses into AC.
 
 \- \*\*specialty (str | null, AC-only)\*\* -- free-text position-group/focus tag for AC-role coaches (e.g. "Quarterbacks", "Running Backs", "Offensive Line", "Secondary"), added alongside ST. Null for HC/OC/DC/ST (their role already says what they do). See \*\*7.7.2.1a\*\*.
 
@@ -7832,9 +7832,9 @@ The real seed (see 3.6.1) lists far more titles per team than the 5-value role e
 
 \- \*\*Defensive Coordinator\*\* -\\> role = DC.
 
-\- \*\*Special Teams Coordinator\*\* -\\> role = ST (the coordinator only -- not their assistants, see below).
+\- \*\*Special Teams Coordinator\*\* -\\> role = AC, specialty = "Special Teams" (changed 2026-09-15, R16 -- was its own ST role from 2026-09-11 through R16; removed as a coordinator-tier role, the real ST Coordinator becomes an AC instead, distinct from the lower "Special Teams (Assistant)" title below).
 
-\- \*\*Everything else\*\* -\\> role = AC, with \`specialty\` set to the real listed title/position group (e.g. "Quarterbacks", "Passing Game", "Running Backs", "Wide Receivers", "Tight Ends", "Offensive Line", "Defensive Line", "Linebackers", "Secondary"). This explicitly includes \*\*Assistant Special Teams Coach / Assistant Special Teams Coordinator\*\* (specialty = "Special Teams (Assistant)") and \*\*Assistant Quarterbacks Coach\*\* (specialty = "Quarterbacks (Assistant)") -- both stay AC even though they sit on the ST/QB coordinator's staff, per Brian's explicit instruction, not promoted to ST/OC.
+\- \*\*Everything else\*\* -\\> role = AC, with \`specialty\` set to the real listed title/position group (e.g. "Quarterbacks", "Passing Game", "Running Backs", "Wide Receivers", "Tight Ends", "Offensive Line", "Defensive Line", "Linebackers", "Secondary", "Special Teams"). This explicitly includes \*\*Assistant Special Teams Coach / Assistant Special Teams Coordinator\*\* (specialty = "Special Teams (Assistant)") and \*\*Assistant Quarterbacks Coach\*\* (specialty = "Quarterbacks (Assistant)") -- both stay AC, distinct from their coordinator's own "Special Teams"/plain specialty, not merged into it.
 
 \- \*\*Dual-titled entries\*\* (e.g. a position coach who's also "Assistant Head Coach"): role = AC, specialty = the primary functional position-group title only -- decided 2026-09-11 (e.g. BUF's real "Linebackers Coach / Assistant Head Coach" becomes role=AC, specialty="Linebackers"). The secondary "Assistant Head Coach" tag is dropped entirely, not stored as a second field.
 

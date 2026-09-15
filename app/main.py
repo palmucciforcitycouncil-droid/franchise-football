@@ -50,7 +50,7 @@ from app.engine import coach_hiring, coach_replacement
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
 from app.models.player import Player, Position
-from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT, FOCUS_AREAS
+from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT, focus_options_for
 from sqlmodel import select
 
 app = FastAPI(title="Franchise Football")
@@ -835,7 +835,7 @@ def _coach_card_json(coach: Coach) -> str:
         })
 
     titles_by_role = []
-    for r, label in (("hc", "HC"), ("oc", "OC"), ("dc", "DC"), ("st", "ST"), ("ac", "AC")):
+    for r, label in (("hc", "HC"), ("oc", "OC"), ("dc", "DC"), ("ac", "AC")):
         afc = getattr(coach, f"{r}_afc_championships")
         nfc = getattr(coach, f"{r}_nfc_championships")
         sb = getattr(coach, f"{r}_super_bowl_wins")
@@ -865,6 +865,11 @@ def _coach_card_json(coach: Coach) -> str:
         "defensive_profile": coach.defensive_profile,
         "job_security": f"{coach.job_security_score:.0f}",
         "focus_area": coach.focus_area,
+        # R16 Sec 1: a quick-glance "what is this coach really best at"
+        # tag, purely from their own ratings (see Coach.primary_side's
+        # own docstring) -- the 8 granular ratings themselves render via
+        # rating_groups below.
+        "primary_side": coach.primary_side,
         "appointment_type": coach.appointment_type,
         "background": coach.background,
         "salary": _money(coach.salary_aav),
@@ -879,12 +884,21 @@ def _coach_card_json(coach: Coach) -> str:
         "season_history": history_rows,
         "rating_groups": [
             {"heading": "Performance & Management (Sec 7.7.2.3)", "rows": [
-                ["Player Dev (Off)", coach.player_dev_offense],
-                ["Player Dev (Def)", coach.player_dev_defense],
                 ["Discipline", coach.discipline],
                 ["Motivation / Chemistry", coach.motivation_chemistry],
                 ["Red Zone Offense", coach.red_zone_offense],
                 ["Red Zone Defense", coach.red_zone_defense],
+            ]},
+            # R16 Sec 1: the 8 granular position-group coaching ratings,
+            # replacing the old broad Player Dev (Off)/(Def) pair (now
+            # computed averages of these, not stored fields) -- this is
+            # what a coach's Focus Area default and the Coaching Tree
+            # actually read.
+            {"heading": "Position-Group Coaching (R16)", "rows": [
+                ["QB", coach.qb_coaching], ["Running Backs", coach.rb_coaching],
+                ["Receivers (WR/TE)", coach.wr_coaching], ["Offensive Line", coach.ol_coaching],
+                ["Defensive Line", coach.dl_coaching], ["Linebackers", coach.lb_coaching],
+                ["Secondary", coach.secondary_coaching], ["Special Teams", coach.st_coaching],
             ]},
             {"heading": "Strategic Tendencies (Sec 7.7.2.2)", "rows": [
                 ["Pass Tendency", coach.run_pass_tendency],
@@ -2645,41 +2659,66 @@ def hof_view_redirect(pos: str = "all", q: str = ""):
 # - "Background" / "Attitude" / "Style" (source fields). No real source
 #   and no sim consumer; the real scheme-profile tags cover the same
 #   ground with something the engine actually reads.
-STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST]
+STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC]
 
 
 def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
     """GDD Sec 9.2.5.1's "Trait Effects Matrix", built from the REAL
-    biases this staff feeds into the sim (app/engine/coaching.py), so
-    the panel shows what the staff is actually doing this season rather
-    than a static description of what a coach could theoretically do.
-    Each row is (label, value, which engine system consumes it).
+    numbers this staff feeds into the sim, so the panel shows what the
+    staff is actually doing right now rather than a static description
+    of what a coach could theoretically do. Each row is (label, value,
+    which engine system consumes it).
 
-    R13: injury_risk_multiplier and the Scouting readout follow the exact
-    same "prove it's doing something" precedent as every row above --
-    added here rather than a second panel."""
-    from app.engine import draft as draft_engine
+    R16 split this into two real halves (docs/R16_COACH_POSITION_IMPACT_
+    SPECIFICATION.md Sec 8): the play-calling rows below are driven by
+    ROLE (an OC's/DC's own tendencies, independent of anyone's Focus
+    Area -- app/engine/coaching.py's build_staff_effect()); the
+    position-group rows are Focus Area's real job now -- this week's
+    active this-game boost per group (compounded across every coach
+    focused there) and this season's accumulated development total per
+    group, so changing a coach's focus and resubmitting visibly moves
+    the relevant row (review's own ask: "easily see... moving")."""
+    from app.engine import coaching, draft as draft_engine
+    from app.services import coach_store, coach_focus_accumulator
 
     def pct(x):
         return f"{x * 100:+.1f}%"
 
+    season = season_state.get_season()
+    staff = coach_store.staff_for(team_abbr)
+    this_week_boosts = coaching._team_group_boosts(staff, coaching.league_baseline()) if staff else {}
+    season_totals = coach_focus_accumulator.totals_for(season.season_number, team_abbr)
+
+    rows = [
+        ("Pass/run mix", pct(effect.pass_bias), "Play-calling by role (OC), Sec 6.6.1"),
+        ("Red-zone pass lean", pct(effect.rz_pass_bias), "Play-calling by role (OC), inside the 20"),
+        ("4th-down aggression", pct(effect.fourth_down_bias), "4th-down decision by role (OC), Sec 6.6.4"),
+        ("Two-point tendency", pct(effect.two_point_bias), "PAT vs. 2-pt by role (OC), Sec 6.8"),
+        ("Blitz rate", pct(effect.blitz_bias), "Defensive call by role (DC), Sec 6.6.3"),
+        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "Coverage call by role (DC), league default 40%"),
+        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "Penalty system -- HC discipline, Sec 7.7.4"),
+        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "Strength & Conditioning focus -> injury system"),
+        ("Stamina recovery", f"{effect.stamina_recovery_multiplier:.2f}x", "Strength & Conditioning focus -> fatigue/rotation"),
+    ]
+    for group in ("QB", "RB", "WR", "TE", "OL", "DL", "LB", "CB", "S", "K", "P"):
+        boost = this_week_boosts.get(group, 0.0)
+        season_pts = season_totals.get(group, 0.0)
+        if boost == 0.0 and season_pts == 0.0:
+            continue
+        rows.append((
+            f"{group} this-game boost", f"{boost:+.1f} pts",
+            f"Focus Area -> {group} player attributes, this game only",
+        ))
+        rows.append((
+            f"{group} season development", f"{season_pts:.1f} pts accumulated",
+            f"Focus Area -> {group} progression at rollover",
+        ))
+
     scouting_strength = draft_engine.team_scouting_strength(team_abbr)
     scouting_reduction = scouting_strength / (scouting_strength + draft_engine.SCOUTING_STRENGTH_K)
-
-    return [
-        ("Pass/run mix", pct(effect.pass_bias), "Play-calling (Sec 6.6.1)"),
-        ("Red-zone pass lean", pct(effect.rz_pass_bias), "Play-calling, inside the 20"),
-        ("4th-down aggression", pct(effect.fourth_down_bias), "4th-down decision (Sec 6.6.4)"),
-        ("Two-point tendency", pct(effect.two_point_bias), "PAT vs. 2-pt (Sec 6.8)"),
-        ("Blitz rate", pct(effect.blitz_bias), "Defensive call (Sec 6.6.3)"),
-        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "Coverage call (league default 40%)"),
-        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "Penalty system (Sec 7.7.4)"),
-        ("FG attempt range", f"{effect.fg_range_bonus:+.1f} yds", "Field-goal decision"),
-        ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "Offseason progression (Sec 7.6)"),
-        ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "Offseason progression (Sec 7.6)"),
-        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "Training focus -> injury system (R13)"),
-        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}%", "Scouting focus -> draft pick decisions (R13)"),
-    ]
+    rows.append(("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}%",
+                 "Scouting focus -> draft pick decisions"))
+    return rows
 
 
 # Stats page Coach tab (GDD Sec 7.6's Coach stat catalog / Figma
@@ -2821,6 +2860,9 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "",
             "title": ROLE_TITLES[r],
             "coach": holder,
             "card": _coach_card_json(holder) if holder else None,
+            # R16: each role's OWN focus menu (app/models/coach.py's
+            # FOCUS_OPTIONS_BY_ROLE), not one shared global list.
+            "focus_options": focus_options_for(holder) if holder else [],
             # R3d Sec 11: the Fill Vacancy candidate list only ever
             # computed for the user's own team's own vacant seat --
             # every AI team's vacancy is filled autonomously the same
@@ -2828,7 +2870,8 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "",
             "candidates": _staff_candidate_rows(team_abbr, r, season) if (holder is None and is_user_team) else [],
         })
     assistant_rows = [
-        {"coach": c, "card": _coach_card_json(c)} for c in by_role.get(CoachRole.AC, [])
+        {"coach": c, "card": _coach_card_json(c), "focus_options": focus_options_for(c)}
+        for c in by_role.get(CoachRole.AC, [])
     ]
 
     effect = coaching.staff_effect_for(team_abbr)
@@ -2858,17 +2901,16 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "",
         "staff_size": len(staff),
         "payroll": _money(sum(c.salary_aav for c in staff)),
         "effect_rows": _staff_effect_rows(effect, team_abbr),
-        "focus_areas": FOCUS_AREAS,
         "search_results": search_results,
         "q": q,
         "role": role,
         "role_options": [(r.value, ROLE_TITLES[r]) for r in
-                          (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC)],
+                          (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.AC)],
         "free_agent_count": len(coach_store.free_agents()),
         "is_user_team": is_user_team,
         "owner_pressure": round(owner_pressure_store.pressure_for(team_abbr)),
-        # HC/OC/DC/ST only -- R3d Sec 8 doesn't model AC firing.
-        "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value, CoachRole.ST.value],
+        # HC/OC/DC only -- R3d Sec 8 doesn't model AC firing.
+        "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value],
         "extend_feedback": extend_feedback,
     })
 
@@ -2928,25 +2970,24 @@ def staff_hire_coach(request: Request, team_abbr: str, role: str = Form(...), co
 
 @app.post("/staff/{team_abbr}/{coach_id}/focus")
 def staff_set_focus_area(request: Request, team_abbr: str, coach_id: str, focus_area: str = Form(...)):
-    """R13 (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 6): the real
-    Focus Area dropdown -- user's own team only (AI teams' assistants are
+    """R16 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 4): the
+    real Focus Area dropdown -- user's own team only (AI teams get
     reassigned autonomously every offseason instead, coach_ai.run_focus_
-    autonomy()). Any coach on the roster can be reassigned, not just
-    assistants -- the HC/OC/DC/ST can all freely pick, same rule as
-    everyone else (Sec 2's settled decision)."""
+    autonomy()). Every role can freely pick from ITS OWN menu
+    (focus_options_for()) -- not a shared global list anymore."""
     from app.engine import coaching
-    from app.models.coach import FOCUS_AREAS, Coach as CoachModel
+    from app.models.coach import Coach as CoachModel, focus_options_for as _focus_options_for
 
     season = season_state.get_season()
     if season.user_team_abbr != team_abbr:
         raise HTTPException(404, "Not your team")
-    if focus_area not in FOCUS_AREAS:
-        raise HTTPException(422, "Invalid focus area")
 
     with get_session() as s:
         coach = s.get(CoachModel, coach_id)
         if coach is None or coach.team_abbr != team_abbr:
             raise HTTPException(404, "No such coach on this team")
+        if focus_area not in _focus_options_for(coach):
+            raise HTTPException(422, "Invalid focus area for this coach's role")
         coach.focus_area = focus_area
         s.add(coach)
         s.commit()
@@ -2986,7 +3027,11 @@ def staff_extend_coach(request: Request, team_abbr: str, coach_id: str,
 
         if result.verdict == coach_contracts.ExtensionVerdict.ACCEPT:
             coach.salary_aav = aav
-            coach.contract_years = years
+            # Sec 11's "Extend Contract" is additive, real-world extension
+            # semantics -- a "1-year extension" on a coach with 4 years
+            # left means 5 total, not a reset to 1 (a real, reported bug:
+            # this used to overwrite contract_years outright).
+            coach.contract_years = coach.contract_years + years
             s.add(coach)
             s.commit()
 

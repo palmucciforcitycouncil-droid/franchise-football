@@ -32,7 +32,7 @@ from app.models.coach import Coach, CoachRole
 
 # Display order for a staff listing: head coach, then the three
 # coordinator-tier roles, then assistants.
-ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC]
+ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.AC]
 _ROLE_RANK = {role: i for i, role in enumerate(ROLE_ORDER)}
 
 

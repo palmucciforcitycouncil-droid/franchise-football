@@ -20,14 +20,17 @@ comment, and the Staff page/Coach Card surface it on-screen -- the same
 disclosed-gap discipline M8 (real salary, disclosed-missing contract
 term) and M13 (real stats only, no fabricated columns) already set.
 
-The one generated field with a real anchor is `reputation`: it is the
-coach's `salary_aav` percentile **within their own role tier** (HC pool
-vs. OC/DC/ST pool vs. AC pool -- comparing an assistant's salary against
-a head coach's would be meaningless), mapped onto 40-99. Real
-compensation genuinely does encode relative standing (Andy Reid at $20M
-vs. a $450K assistant), so this is the single seeded attribute that
-traces back to something real, and it anchors the performance ratings
-rather than those being drawn blind.
+The one generated field with a real anchor is `reputation`: it STARTS as
+the coach's `salary_aav` percentile **within their own role tier** (HC
+pool vs. OC/DC pool vs. AC pool -- comparing an assistant's salary
+against a head coach's would be meaningless), mapped onto 40-99, and it
+anchors the OTHER generated ratings rather than those being drawn blind.
+As of R16 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md), reputation
+no longer freezes at that import-time snapshot -- it's real and EARNED
+from then on: `coach_progression.py` moves it every offseason based on
+real win_pct and a discrete bonus for a conference title/Super Bowl won
+that season, so a coach's market value (which reads `overall`, itself
+half-weighted on `reputation`) genuinely rises with real success.
 
 Career accounting (the `*_afc_championships`/`*_nfc_championships`/
 `*_super_bowl_wins` counters and CoachSeasonStats) implements GDD Sec
@@ -44,15 +47,16 @@ from sqlmodel import SQLModel, Field
 
 
 class CoachRole(str, Enum):
-    """GDD Sec 7.7.2.1. ST (Special Teams Coordinator) was split out of
-    the original AC catch-all on 2026-09-11 -- the real seed lists a
-    distinct Special Teams Coordinator on every one of the 32 teams, at
-    the same organizational tier as OC/DC. See Sec 7.7.2.1a for how
-    every other real title collapses into AC + a `specialty` tag."""
+    """GDD Sec 7.7.2.1. ST (Special Teams Coordinator) existed as its own
+    coordinator-tier role from 2026-09-11 through R16, when it was
+    removed outright (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md):
+    every real Special Teams Coordinator becomes an AC with specialty
+    "Special Teams" instead -- a real org-chart demotion, not a firing.
+    See Sec 7.7.2.1a for how every other real AC title collapses into
+    AC + a `specialty` tag."""
     HC = "HC"
     OC = "OC"
     DC = "DC"
-    ST = "ST"
     AC = "AC"
 
 
@@ -60,7 +64,6 @@ ROLE_TITLES: dict[CoachRole, str] = {
     CoachRole.HC: "Head Coach",
     CoachRole.OC: "Offensive Coordinator",
     CoachRole.DC: "Defensive Coordinator",
-    CoachRole.ST: "Special Teams Coordinator",
     CoachRole.AC: "Assistant Coach",
 }
 
@@ -79,15 +82,14 @@ def tier_key(role: CoachRole) -> str:
     """Which organizational tier `role` belongs to for anything that
     compares coaches' pay/quality against their real peers -- comparing
     an assistant's $450K to a head coach's $20M would be meaningless.
-    OC/DC/ST share one tier (the same organizational level; GDD Sec
-    7.9.5's HOF weighting already treats ST as OC/DC's peer). Originally
+    OC/DC share one tier (the same organizational level). Originally
     scripts/import_coaches.py's own private `_tier_key` (reputation
     percentile at import time); promoted here so app/engine/coach_
     contracts.py's coach_market_value() can share the identical grouping
     at negotiation time instead of a second, potentially-drifting copy."""
     if role is CoachRole.HC:
         return "HC"
-    if role in (CoachRole.OC, CoachRole.DC, CoachRole.ST):
+    if role in (CoachRole.OC, CoachRole.DC):
         return "COORD"
     return "AC"
 
@@ -102,64 +104,166 @@ APPOINTMENT_TYPES = [
     APPOINTMENT_PERMANENT, APPOINTMENT_INTERIM, APPOINTMENT_ACTING, APPOINTMENT_TEMPORARY_PROMOTION,
 ]
 
-# R13 (Coach Focus Areas, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md) --
-# turns the Figma source's per-coach "Focus Area" dropdown (a real, disclosed
-# no-op through R3c: "nothing in the engine reads a focus area") into a real,
-# consumed choice. `app/engine/coaching.py`'s `build_staff_effect()` groups a
-# staff's ratings by each coach's OWN focus_area instead of hardcoding by
-# role -- Focus Area REALLOCATES an existing coach's influence, it never adds
-# power (keeps the module's own LeagueBaseline calibration guarantee intact).
-# `2 Min Offense` (a real Figma source option) is deliberately NOT included --
-# this engine has no clock/2-minute-drill model anywhere, same reason
-# `clock_management`/`challenge_sense` were deleted from this model outright.
-FOCUS_OF_GAMEPLAN = "OF Gameplan"
-FOCUS_DF_GAMEPLAN = "DF Gameplan"
-# A coach here contributes to BOTH OF Gameplan and DF Gameplan simultaneously,
-# at a reduced weight on each (app/engine/coaching.py's BALANCE_SPLIT_FACTOR)
-# -- real influence on both sides, smaller than fully focusing on just one.
-# The Head Coach's own default (see default_focus_area_for() below).
-FOCUS_BALANCED_GAMEPLAN = "Balanced Gameplan"
-FOCUS_DEVELOPMENT = "Development"
-FOCUS_SPECIAL_TEAMS = "Special Teams Work"
-FOCUS_TRAINING = "Training"
-FOCUS_SCOUTING = "Scouting"
-FOCUS_AREAS = [
-    FOCUS_OF_GAMEPLAN, FOCUS_DF_GAMEPLAN, FOCUS_BALANCED_GAMEPLAN, FOCUS_DEVELOPMENT,
-    FOCUS_SPECIAL_TEAMS, FOCUS_TRAINING, FOCUS_SCOUTING,
-]
+# R16 (Coach Position-Group Impact, docs/R16_COACH_POSITION_IMPACT_
+# SPECIFICATION.md) -- supersedes R13's mechanism entirely. Focus Area no
+# longer touches play-calling at all (app/engine/coaching.py's tendency
+# sliders now drive AI play-calling directly by ROLE again, decoupled from
+# focus_area -- see that module's own docstring). A coach's chosen focus
+# instead drives two things, both keyed off the SAME position-group
+# taxonomy (app/engine/draft.py's GROUP_POSITIONS): a this-game player
+# boost to the targeted group (app/engine/coaching.py) and a running
+# seasonal development total (app/services/coach_focus_accumulator.py).
+#
+# Every role gets its OWN menu (Sec 3) -- narrower options target one
+# group at higher magnitude, broader ones spread across more groups at
+# lower magnitude (Sec 5's mapping table). `2 Min Offense` (a real Figma
+# source option, R13-era) stays excluded -- no clock/2-minute-drill model
+# exists anywhere in this engine.
+FOCUS_BALANCED_GAMEPLAN = "Balanced Gameplan"          # HC only
+FOCUS_OFFENSIVE_GAMEPLAN = "Offensive Gameplan"        # HC, OC
+FOCUS_DEFENSIVE_GAMEPLAN = "Defensive Gameplan"        # HC, DC
+FOCUS_RUNNING_GAME = "Running Game"                    # OC, AC
+FOCUS_PASSING_GAME = "Passing Game"                    # OC, AC
+FOCUS_RUN_DEFENSE = "Run Defense"                      # DC, AC
+FOCUS_PASS_DEFENSE = "Pass Defense"                    # DC, AC
+FOCUS_QB_PRESSURE = "QB Pressure"                      # DC, AC
+FOCUS_QB = "QB"                                        # OC, AC
+FOCUS_RECEIVERS = "Receivers"                          # OC, AC
+FOCUS_OL = "OL"                                        # OC, AC
+FOCUS_DL = "DL"                                        # AC only
+FOCUS_SECONDARY = "Secondary"                          # AC only
+FOCUS_SPECIAL_TEAMS = "Special Teams"                  # HC, AC (was "Special Teams Work")
+FOCUS_DEVELOPMENT = "Development"                      # every role
+FOCUS_SCOUTING = "Scouting"                            # every role
+FOCUS_TRAINING = "Strength & Conditioning"             # every role (was "Training")
+
+# Per-role menus, ordered widest -> narrowest (Sec 4). One stored string
+# per concept -- OC's and AC's "Running Game"/"Passing Game"/etc. are the
+# exact same bucket, not two spellings of it.
+FOCUS_OPTIONS_BY_ROLE: dict[CoachRole, list[str]] = {
+    CoachRole.HC: [
+        FOCUS_BALANCED_GAMEPLAN, FOCUS_OFFENSIVE_GAMEPLAN, FOCUS_DEFENSIVE_GAMEPLAN,
+        FOCUS_SPECIAL_TEAMS, FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING,
+    ],
+    CoachRole.DC: [
+        FOCUS_DEFENSIVE_GAMEPLAN, FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE,
+        FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING,
+    ],
+    CoachRole.OC: [
+        FOCUS_OFFENSIVE_GAMEPLAN, FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME,
+        FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL,
+        FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING,
+    ],
+    CoachRole.AC: [
+        FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE,
+        FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME,
+        FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL, FOCUS_DL, FOCUS_SECONDARY, FOCUS_SPECIAL_TEAMS,
+        FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING,
+    ],
+}
+
+# Every focus bucket's own driving rating(s) -- Sec 5's mapping table.
+# Narrow buckets read one rating directly; medium ones are a weighted
+# blend of two; the broad Gameplan buckets are an unweighted average of
+# every rating on that side. Weights marked [tune] in the spec -- real
+# structure, not yet playtested magnitudes.
+_OFFENSE_RATINGS = ("qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching")
+_DEFENSE_RATINGS = ("dl_coaching", "lb_coaching", "secondary_coaching")
+
+# focus -> (position groups touched, [(rating, weight), ...])
+FOCUS_RATING_WEIGHTS: dict[str, list[tuple[str, float]]] = {
+    FOCUS_OFFENSIVE_GAMEPLAN: [(r, 1.0) for r in _OFFENSE_RATINGS],
+    FOCUS_DEFENSIVE_GAMEPLAN: [(r, 1.0) for r in _DEFENSE_RATINGS],
+    FOCUS_RUNNING_GAME: [("rb_coaching", 0.6), ("ol_coaching", 0.4)],
+    FOCUS_PASSING_GAME: [("qb_coaching", 0.5), ("wr_coaching", 0.5)],
+    FOCUS_RUN_DEFENSE: [("dl_coaching", 0.6), ("lb_coaching", 0.4)],
+    FOCUS_PASS_DEFENSE: [("lb_coaching", 0.3), ("secondary_coaching", 0.7)],
+    FOCUS_QB_PRESSURE: [("dl_coaching", 0.65), ("lb_coaching", 0.35)],
+    FOCUS_QB: [("qb_coaching", 1.0)],
+    FOCUS_RECEIVERS: [("wr_coaching", 1.0)],
+    FOCUS_OL: [("ol_coaching", 1.0)],
+    FOCUS_DL: [("dl_coaching", 1.0)],
+    FOCUS_SECONDARY: [("secondary_coaching", 1.0)],
+    FOCUS_SPECIAL_TEAMS: [("st_coaching", 1.0)],
+}
+
+# focus -> the app.engine.draft.GROUP_POSITIONS keys it targets (Sec 5).
+FOCUS_POSITION_GROUPS: dict[str, list[str]] = {
+    FOCUS_OFFENSIVE_GAMEPLAN: ["QB", "RB", "WR", "TE", "OL"],
+    FOCUS_DEFENSIVE_GAMEPLAN: ["DL", "LB", "CB", "S"],
+    FOCUS_RUNNING_GAME: ["RB", "OL"],
+    FOCUS_PASSING_GAME: ["QB", "WR", "TE"],
+    FOCUS_RUN_DEFENSE: ["DL", "LB"],
+    FOCUS_PASS_DEFENSE: ["LB", "CB", "S"],
+    FOCUS_QB_PRESSURE: ["DL", "LB"],
+    FOCUS_QB: ["QB"],
+    FOCUS_RECEIVERS: ["WR", "TE"],
+    FOCUS_OL: ["OL"],
+    FOCUS_DL: ["DL"],
+    FOCUS_SECONDARY: ["CB", "S"],
+    FOCUS_SPECIAL_TEAMS: ["K", "P"],
+}
+
+# Breadth tier -- Sec 5/6: narrower buckets get a bigger this-game boost
+# per player than broad ones ("DEF Gameplan boosts everyone but less than
+# a DL-targeted focus"). Values are relative boost multipliers [tune].
+FOCUS_BREADTH_MULTIPLIER: dict[str, float] = {
+    FOCUS_OFFENSIVE_GAMEPLAN: 0.4, FOCUS_DEFENSIVE_GAMEPLAN: 0.4,
+    FOCUS_RUNNING_GAME: 0.7, FOCUS_PASSING_GAME: 0.7, FOCUS_RUN_DEFENSE: 0.7,
+    FOCUS_PASS_DEFENSE: 0.7, FOCUS_QB_PRESSURE: 0.7,
+    FOCUS_QB: 1.0, FOCUS_RECEIVERS: 1.0, FOCUS_OL: 1.0, FOCUS_DL: 1.0,
+    FOCUS_SECONDARY: 1.0, FOCUS_SPECIAL_TEAMS: 1.0,
+}
 
 
-def default_focus_area_for(role: CoachRole, specialty: Optional[str]) -> str:
-    """The sensible starting focus_area for a freshly-imported or freshly-
-    migrated coach (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 4).
-    Shared by scripts/import_coaches.py (fresh imports/template rebuilds) and
-    scripts/migrate_add_r13_focus_area.py (the existing live DB) so both
-    paths produce identical defaults -- one heuristic, not two that could
-    drift apart.
+def focus_options_for(coach: "Coach") -> list[str]:
+    """The real menu this coach's role offers (Sec 4) -- every role gets
+    the identical list regardless of specialty, since specialty no
+    longer gates which focuses are even selectable (only the DEFAULT
+    does, see default_focus_area_for())."""
+    return FOCUS_OPTIONS_BY_ROLE[CoachRole(coach.role)]
 
-    HC defaults to Balanced Gameplan (not a single side) -- an earlier draft
-    of this spec defaulted HC to one side, which silently zeroed their
-    contribution to the OTHER side; Balanced Gameplan is the real design fix,
-    not a compatibility patch. AC defaults key off the real seed's own
-    specialty text where it plausibly says something ("special teams",
-    "strength"/"conditioning"); every other AC (the real position coaches --
-    QB/WR/OL/DL/LB/DB/etc.) defaults to Development, matching how every
-    assistant was already pooled into player development before this system
-    existed."""
+
+def _rating_for_focus(coach: "Coach", focus: str) -> float:
+    weights = FOCUS_RATING_WEIGHTS.get(focus)
+    if not weights:
+        return 0.0
+    total_w = sum(w for _, w in weights)
+    return sum(getattr(coach, rating) * w for rating, w in weights) / total_w
+
+
+def default_focus_area_for(role: CoachRole, coach: Optional["Coach"] = None) -> str:
+    """The sensible starting focus_area for a freshly-imported, freshly-
+    migrated, or freshly-hired/promoted coach
+    (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 4).
+
+    HC/OC/DC get a fixed role default (Balanced/Offensive/Defensive
+    Gameplan) -- their job description IS that broad lane, not a
+    position specialty to rate against.
+
+    An AC defaults to whichever of their OWN menu options they're rated
+    highest at (Sec 4's explicit design: "the focus of assistants should
+    default to whichever they have the highest rating"), tie-broken
+    toward Development -- requires the real Coach row (its 8 granular
+    ratings), not just role, so `coach` is required for AC and ignored
+    for every other role."""
     if role is CoachRole.OC:
-        return FOCUS_OF_GAMEPLAN
+        return FOCUS_OFFENSIVE_GAMEPLAN
     if role is CoachRole.DC:
-        return FOCUS_DF_GAMEPLAN
-    if role is CoachRole.ST:
-        return FOCUS_SPECIAL_TEAMS
+        return FOCUS_DEFENSIVE_GAMEPLAN
     if role is CoachRole.HC:
         return FOCUS_BALANCED_GAMEPLAN
-    text = (specialty or "").lower()
-    if "special team" in text:
-        return FOCUS_SPECIAL_TEAMS
-    if "strength" in text or "conditioning" in text:
-        return FOCUS_TRAINING
-    return FOCUS_DEVELOPMENT
+    assert coach is not None, "AC default requires the real Coach row"
+    options = FOCUS_OPTIONS_BY_ROLE[CoachRole.AC]
+    best = FOCUS_DEVELOPMENT
+    best_rating = _rating_for_focus(coach, FOCUS_DEVELOPMENT)  # 0.0 -- Development has no rating weight
+    for option in options:
+        if option in (FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING):
+            continue  # no position-group rating backs these -- never the "best" pick here
+        rating = _rating_for_focus(coach, option)
+        if rating > best_rating:
+            best, best_rating = option, rating
+    return best
 
 
 # R3d's Tier 3 candidate pool (app/services/coach_pool.py) -- real named
@@ -182,8 +286,10 @@ class Coach(SQLModel, table=True):
     last_name: str
     role: CoachRole
     # AC-only free-text position-group tag ("Quarterbacks", "Offensive
-    # Line", "Special Teams (Assistant)"). Null for HC/OC/DC/ST, whose
-    # role already says what they do -- GDD Sec 7.7.2.1a.
+    # Line", "Special Teams (Assistant)"). Null for HC/OC/DC, whose
+    # role already says what they do -- GDD Sec 7.7.2.1a. R16: this can
+    # now change over a coach's career (see coach_progression.py's
+    # specialty-relabeling pass) if their ratings drift somewhere else.
     specialty: Optional[str] = None
     team_abbr: Optional[str] = Field(default=None, index=True)  # None = free agent
     # Real, from the seed doc. The only imported number that isn't generated.
@@ -218,12 +324,30 @@ class Coach(SQLModel, table=True):
     # --- Performance & management ratings, 0-99 (GDD Sec 7.7.2.3) ---
     # Quality: these ARE anchored to `reputation` (plus bounded seeded
     # variance), so the real salary signal actually means something.
-    player_dev_offense: int = 50
-    player_dev_defense: int = 50
     discipline: int = 50
     motivation_chemistry: int = 50
     red_zone_offense: int = 50
     red_zone_defense: int = 50
+
+    # --- R16: per-position-group coaching quality, 0-99, same anchored-
+    # to-reputation generation as the ratings above (docs/R16_COACH_
+    # POSITION_IMPACT_SPECIFICATION.md Sec 1). Every coach carries all 8
+    # regardless of role, exactly like offensive_profile/defensive_profile
+    # already do -- only the USE of each rating varies by role/focus.
+    # `wr_coaching` covers WR AND TE; `dl_coaching` covers edge rushers
+    # (this engine's Position enum files LE/RE under DL, not LB -- see
+    # app/engine/draft.py's GROUP_POSITIONS). player_dev_offense/defense
+    # (read by season_state.py/free_agency.py) are now COMPUTED from
+    # these below, not stored -- see the properties near the bottom of
+    # this class.
+    qb_coaching: int = 50
+    rb_coaching: int = 50
+    wr_coaching: int = 50
+    ol_coaching: int = 50
+    dl_coaching: int = 50
+    lb_coaching: int = 50
+    secondary_coaching: int = 50
+    st_coaching: int = 50
 
     # --- Lifecycle & outcome counters (GDD Sec 7.7.2.4) ---
     # All start at zero at league seed -- no real career-history source.
@@ -260,9 +384,9 @@ class Coach(SQLModel, table=True):
     # import and none is fabricated for them.
     background: Optional[str] = None
 
-    # R13: which bucket this coach's ratings feed into (see FOCUS_AREAS
+    # Which bucket this coach's focus feeds into (see FOCUS_OPTIONS_BY_ROLE
     # above). Real, changeable via the Staff page for the user's own team;
-    # AI teams' assistants get reassigned autonomously every offseason
+    # AI teams get reassigned autonomously every offseason
     # (app/services/coach_ai.py's run_focus_autonomy()).
     focus_area: str = FOCUS_DEVELOPMENT
 
@@ -276,9 +400,6 @@ class Coach(SQLModel, table=True):
     dc_afc_championships: int = 0
     dc_nfc_championships: int = 0
     dc_super_bowl_wins: int = 0
-    st_afc_championships: int = 0
-    st_nfc_championships: int = 0
-    st_super_bowl_wins: int = 0
     ac_afc_championships: int = 0
     ac_nfc_championships: int = 0
     ac_super_bowl_wins: int = 0
@@ -308,7 +429,6 @@ class Coach(SQLModel, table=True):
             self.hc_afc_championships + self.hc_nfc_championships
             + self.oc_afc_championships + self.oc_nfc_championships
             + self.dc_afc_championships + self.dc_nfc_championships
-            + self.st_afc_championships + self.st_nfc_championships
             + self.ac_afc_championships + self.ac_nfc_championships
         )
 
@@ -316,14 +436,44 @@ class Coach(SQLModel, table=True):
     def super_bowl_wins(self) -> int:
         return (
             self.hc_super_bowl_wins + self.oc_super_bowl_wins
-            + self.dc_super_bowl_wins + self.st_super_bowl_wins
-            + self.ac_super_bowl_wins
+            + self.dc_super_bowl_wins + self.ac_super_bowl_wins
         )
 
     @property
     def win_pct(self) -> float:
         total = self.career_wins + self.career_losses
         return self.career_wins / total if total else 0.0
+
+    @property
+    def player_dev_offense(self) -> float:
+        """R16: computed, not stored -- the offense-side average of the
+        8 granular position-group ratings (qb/rb/wr/ol_coaching), same
+        pool `Sec 5's Offensive Gameplan focus averages. Replaces the old
+        directly-generated field of the same name; every reader (this
+        class's own `overall`, season_state.apply_progression_to_roster(),
+        free_agency.fill_roster_gaps()) is unaffected by the rename to a
+        property."""
+        return (self.qb_coaching + self.rb_coaching + self.wr_coaching + self.ol_coaching) / 4.0
+
+    @property
+    def player_dev_defense(self) -> float:
+        """R16: computed, not stored -- the defense-side average of the
+        8 granular position-group ratings (dl/lb/secondary_coaching)."""
+        return (self.dl_coaching + self.lb_coaching + self.secondary_coaching) / 3.0
+
+    @property
+    def primary_side(self) -> str:
+        """R16: which side of the ball this coach is really best at,
+        purely from their own ratings -- whichever of {offense average,
+        defense average, st_coaching} is highest. Used two ways (Sec 1):
+        a quick-glance "Offense"/"Defense"/"Special Teams" tag on the
+        Staff page, and the Coaching Tree's alignment signal (Sec 3) --
+        deliberately rating-based rather than a specialty-text lookup,
+        so it can never disagree with the numbers actually driving
+        everything else."""
+        sides = {"Offense": self.player_dev_offense, "Defense": self.player_dev_defense,
+                 "Special Teams": float(self.st_coaching)}
+        return max(sides, key=lambda k: sides[k])
 
     @property
     def overall(self) -> int:

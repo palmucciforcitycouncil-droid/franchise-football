@@ -59,14 +59,16 @@ DEFAULT_SOURCE = Path("data/raw/coaches/Comprehensive NFL Coaching Staff Directo
 _TEAM_RE = re.compile(r"^###\s+\*\*(.+?)\*\*\s*$")
 _ENTRY_RE = re.compile(r"^>\s*\*\s*\*\*(.+?):\*\*\s*(.+?)\s*\(\s*Salary:\s*\$([\d,]+)\s*\)\s*$")
 
-# GDD Sec 7.7.2.1a. Only these four titles get a coordinator-tier role;
+# GDD Sec 7.7.2.1a. Only these three titles get a coordinator-tier role;
 # every other real title in the seed falls through to AC with the
-# position group kept as `specialty`.
+# position group kept as `specialty`. R16 (docs/R16_COACH_POSITION_
+# IMPACT_SPECIFICATION.md Sec 9): Special Teams Coordinator moved from
+# its own coordinator-tier role into `_SPECIALTY_BY_TITLE` below -- a
+# real org-chart demotion to AC, not a firing.
 _ROLE_BY_TITLE: dict[str, CoachRole] = {
     "head coach": CoachRole.HC,
     "offensive coordinator": CoachRole.OC,
     "defensive coordinator": CoachRole.DC,
-    "special teams coordinator": CoachRole.ST,
 }
 
 # Real AC titles -> the `specialty` string stored for them. Every entry
@@ -88,6 +90,11 @@ _SPECIALTY_BY_TITLE: dict[str, str] = {
     "secondary coach": "Secondary",
     "safeties coach": "Safeties",
     "cornerbacks coach": "Cornerbacks",
+    # R16: the real Special Teams Coordinator title, formerly its own
+    # CoachRole.ST -- distinct specialty from the lower "(Assistant)"
+    # titles below, same "senior job keeps the plain title" convention
+    # dedupe_entries()/_specificity() already use elsewhere.
+    "special teams coordinator": "Special Teams",
     "assistant special teams coach": "Special Teams (Assistant)",
     "assistant special teams coordinator": "Special Teams (Assistant)",
 }
@@ -108,7 +115,6 @@ _AGE_WINDOW: dict[CoachRole, tuple[int, int]] = {
     CoachRole.HC: (42, 66),
     CoachRole.OC: (36, 60),
     CoachRole.DC: (38, 62),
-    CoachRole.ST: (36, 60),
     CoachRole.AC: (30, 58),
 }
 
@@ -216,6 +222,57 @@ def _draw(rng: RNG, center: float, spread: float, lo: int, hi: int) -> int:
     return int(round(max(lo, min(hi, rng.gauss(center, spread)))))
 
 
+# R16 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 1): a real
+# specialty coach needs to actually be BEST, more often than not, at the
+# granular rating matching their own real job -- without this, the 8
+# ratings are pure independent noise and "an Offensive Line Coach whose
+# highest rating is secondary_coaching" becomes the common case instead
+# of a rare, real outlier.
+#
+# NOT a flat bonus added on top of `reputation` -- a real bug caught via
+# live verification: for any coach with reputation above roughly 75, a
+# +25 bonus and a plain 0 bonus both clamp to the same 99 ceiling, so
+# EVERY rating on a highly-paid coach converges to 99 regardless of
+# specialty, silently destroying the exact correlation this is supposed
+# to create for the league's most notable coaches. Instead, every
+# NON-matching rating is drawn from a LOWERED center (a real penalty,
+# not a bonus to the matching one) -- this preserves real separation at
+# any reputation level, including 99, since the penalized ratings still
+# have headroom below the ceiling even when the matching one is clamped.
+_OFF_SPECIALTY_PENALTY = 20.0
+_COORDINATOR_OFF_SIDE_PENALTY = 8.0
+_AC_SPECIALTY_GROUPS: dict[str, tuple[str, ...]] = {
+    "Quarterbacks": ("qb_coaching",), "Quarterbacks (Assistant)": ("qb_coaching",),
+    "Running Backs": ("rb_coaching",),
+    "Wide Receivers": ("wr_coaching",), "Tight Ends": ("wr_coaching",),
+    "Offensive Line": ("ol_coaching",), "Offensive Line (Assistant)": ("ol_coaching",),
+    "Defensive Line": ("dl_coaching",), "Linebackers": ("lb_coaching",),
+    "Secondary": ("secondary_coaching",), "Safeties": ("secondary_coaching",),
+    "Cornerbacks": ("secondary_coaching",),
+    "Special Teams": ("st_coaching",), "Special Teams (Assistant)": ("st_coaching",),
+}
+_ALL_GROUP_RATINGS = ("qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching",
+                      "dl_coaching", "lb_coaching", "secondary_coaching", "st_coaching")
+_OFFENSE_GROUP_RATINGS = ("qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching")
+_DEFENSE_GROUP_RATINGS = ("dl_coaching", "lb_coaching", "secondary_coaching")
+
+
+def _rating_penalty_for(role: CoachRole, specialty: str | None) -> dict[str, float]:
+    """Returns {rating: penalty_to_subtract_from_center} for every rating
+    that DOESN'T match this coach's own real job -- see module note above
+    for why this is a penalty on the others, not a bonus on the match."""
+    if role is CoachRole.OC:
+        return {r: _COORDINATOR_OFF_SIDE_PENALTY for r in _DEFENSE_GROUP_RATINGS + ("st_coaching",)}
+    if role is CoachRole.DC:
+        return {r: _COORDINATOR_OFF_SIDE_PENALTY for r in _OFFENSE_GROUP_RATINGS + ("st_coaching",)}
+    if role is CoachRole.AC:
+        matched = set(_AC_SPECIALTY_GROUPS.get(specialty or "", ()))
+        if not matched:
+            return {}
+        return {r: _OFF_SPECIALTY_PENALTY for r in _ALL_GROUP_RATINGS if r not in matched}
+    return {}
+
+
 def _generate_profile(coach: Coach, league_seed: int) -> None:
     """Fills every field with no real-world source, deterministically.
 
@@ -255,9 +312,18 @@ def _generate_profile(coach: Coach, league_seed: int) -> None:
                  "red_zone_defense_bias", "special_teams_focus"):
         setattr(coach, attr, _draw(rng, 50, 20, 5, 95))
 
-    for attr in ("player_dev_offense", "player_dev_defense", "discipline", "motivation_chemistry",
-                 "red_zone_offense", "red_zone_defense"):
+    for attr in ("discipline", "motivation_chemistry", "red_zone_offense", "red_zone_defense"):
         setattr(coach, attr, _draw(rng, coach.reputation, 8, 20, 99))
+
+    # R16: the 8 granular position-group ratings (app/models/coach.py
+    # Sec 1) replace the old player_dev_offense/defense pair -- same
+    # anchored-to-reputation generation, plus a real off-specialty
+    # penalty (see _rating_penalty_for()'s own docstring for why it's a
+    # penalty, not a bonus) so a coach is USUALLY, not randomly, best at
+    # their own real job.
+    penalty = _rating_penalty_for(role, coach.specialty)
+    for attr in _ALL_GROUP_RATINGS:
+        setattr(coach, attr, _draw(rng, coach.reputation - penalty.get(attr, 0.0), 8, 20, 99))
 
     coach.offensive_profile = rng.choice(OFFENSIVE_PROFILES) if role in _OFFENSIVE_ROLES else "Balanced"
     coach.defensive_profile = rng.choice(DEFENSIVE_PROFILES) if role in _DEFENSIVE_ROLES else "Balanced"
@@ -268,7 +334,7 @@ def _generate_profile(coach: Coach, league_seed: int) -> None:
 # senior job is the one they actually hold (GDD Sec 7.7.2.1a's own
 # dual-title principle -- keep the primary role, drop the secondary tag).
 _ROLE_RANK: dict[CoachRole, int] = {
-    CoachRole.HC: 4, CoachRole.OC: 3, CoachRole.DC: 3, CoachRole.ST: 3, CoachRole.AC: 1,
+    CoachRole.HC: 4, CoachRole.OC: 3, CoachRole.DC: 3, CoachRole.AC: 1,
 }
 
 
@@ -347,9 +413,12 @@ def build_coaches(entries: list[SeedEntry], league_seed: int) -> list[Coach]:
             team_abbr=r.entry.team_abbr,
             salary_aav=r.entry.salary_aav,
             reputation=reputation_from_salary(r.entry.salary_aav, tier_salaries[tier_key(r.role)]),
-            focus_area=default_focus_area_for(r.role, r.specialty),
         )
         _generate_profile(coach, league_seed)
+        # R16: an AC's default focus needs their own generated ratings to
+        # compare (default_focus_area_for() picks whichever they're rated
+        # highest at) -- must run AFTER _generate_profile(), not before.
+        coach.focus_area = default_focus_area_for(r.role, coach)
         coaches.append(coach)
     return coaches
 
@@ -413,9 +482,10 @@ def main() -> None:
                          "run_pass_tendency", "offensive_aggression", "pace",
                          "red_zone_offense_bias", "two_point_tendency", "blitz_rate",
                          "coverage_mix", "fourth_down_defense", "red_zone_defense_bias",
-                         "special_teams_focus", "player_dev_offense", "player_dev_defense",
-                         "discipline", "motivation_chemistry",
-                         "red_zone_offense", "red_zone_defense"):
+                         "special_teams_focus", "discipline", "motivation_chemistry",
+                         "red_zone_offense", "red_zone_defense",
+                         "qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching",
+                         "dl_coaching", "lb_coaching", "secondary_coaching", "st_coaching"):
                 setattr(prior, attr, getattr(coach, attr))
             session.add(prior)
             updated += 1
