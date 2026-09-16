@@ -10,6 +10,7 @@ from app.main import app
 from app.services import (
     season_state, save_service, gameplan_store, history_store, power_rank_history,
     award_race_history, headlines_history, draft_class_store, draft_board_store, draft_progress_store,
+    roster_prep,
 )
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.data.teams import TEAMS
@@ -373,6 +374,11 @@ def test_sim_week_button_returns_to_the_page_it_was_clicked_from():
     doesn't lose your place -- confirms the redirect actually goes back
     to redirect_to, not always to /season."""
     season_state.set_user_team("KC")
+    # R16 Sec 8: a real import carries 54-72 players per team -- KC needs
+    # the same one-time, position-need-aware trim to 53 a fresh-load AI
+    # team gets automatically, or the over-53 gate fires here instead of
+    # the flow this test checks.
+    roster_prep.auto_cut_team_to_limits("KC")
     resp = client.post("/season/simulate-week", data={"redirect_to": "/roster"}, follow_redirects=False)
     assert resp.status_code == 303
     assert resp.headers["location"] == "/roster"
@@ -1043,6 +1049,9 @@ def test_simulate_next_preseason_round_plays_exactly_one_round_at_a_time():
 
 def test_simulate_week_route_plays_preseason_rounds_before_the_regular_season():
     season_state.set_user_team("KC")
+    # R16 Sec 8: see test_sim_week_button_returns_to_the_page_it_was_clicked_from's
+    # own comment -- KC's real 62-man import needs the same one-time trim.
+    roster_prep.auto_cut_team_to_limits("KC")
     for expected_round in (1, 2, 3, 4):
         resp = client.post("/season/simulate-week", data={"redirect_to": "/season"}, follow_redirects=False)
         assert resp.status_code == 303

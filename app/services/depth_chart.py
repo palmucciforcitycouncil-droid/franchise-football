@@ -145,8 +145,18 @@ def _load_roster(team_abbr: str) -> list[Player]:
     from app.engine import injuries
     from app.services import injury_store
 
+    from app.models.player import RosterStatus
+
     with get_session() as s:
-        roster = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+        # R16 (docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md Sec 9):
+        # a practice-squad or IR player is never depth-chart-eligible; an
+        # ELEVATED one is eligible for the current week only (the caller
+        # is responsible for reverting ELEVATED back to PRACTICE_SQUAD
+        # after that week's games -- see season_state.py's post-sim step).
+        roster = list(s.exec(select(Player).where(
+            Player.team_abbr == team_abbr,
+            Player.roster_status.in_([RosterStatus.ACTIVE, RosterStatus.ELEVATED]),
+        )))
 
     rtp = injury_store.rtp_penalties()
     if rtp:

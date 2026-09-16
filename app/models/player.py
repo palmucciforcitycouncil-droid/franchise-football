@@ -66,6 +66,20 @@ def normalize_position(code: str) -> Position:
     return Position(LEGACY_POSITION_MAP.get(code, code))
 
 
+class RosterStatus(str, Enum):
+    """R16 (docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md Sec 3.1):
+    a real 53-man active roster, 16-slot practice squad, and Injured
+    Reserve, enforced for the first time -- MAX_ROSTER_SIZE has existed
+    (app/main.py) but nothing ever cut anyone down to it. Every existing
+    player defaults to ACTIVE (see the migration in app/core/db.py) so
+    every currently-oversized team hits the new over-53 gate on next
+    load, deliberately -- see the spec's Sec 4.1/Sec 10."""
+    ACTIVE = "ACTIVE"
+    PRACTICE_SQUAD = "PRACTICE_SQUAD"
+    IR = "IR"
+    ELEVATED = "ELEVATED"
+
+
 class Player(SQLModel, table=True):
     player_id: str = Field(primary_key=True)
 
@@ -113,6 +127,32 @@ class Player(SQLModel, table=True):
     acquisition_round: Optional[int] = None   # draft only
     acquisition_pick: Optional[int] = None    # draft only, overall pick
     acquisition_team: Optional[str] = None    # trade: team he came from
+
+    # R16 (docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md Sec 3.1):
+    # 53-man active roster / 16-slot practice squad / Injured Reserve.
+    # `roster_status` stored as plain TEXT (SQLModel's Enum-as-name
+    # convention, matching `position`/`role` elsewhere), not a DB-level
+    # enum. Every existing player defaults to ACTIVE, deliberately (see
+    # RosterStatus's own docstring) -- the migration in app/core/db.py
+    # sets this on every pre-existing row too.
+    roster_status: RosterStatus = RosterStatus.ACTIVE
+    # Sec 5.1's 3-game rule, both directions: set when a player is
+    # poached onto a new team's 53, OR when his original team promotes
+    # him to block a poach -- the week number (relative to the CURRENT
+    # season) before which he can't move to the practice squad.
+    roster_lock_until_week: Optional[int] = None
+    # Set only on a poached player; cleared once his lock expires. If
+    # he's released before then, he reverts to THIS team's practice
+    # squad instead of the free-agent pool (Sec 5.1.5).
+    poached_from_team_abbr: Optional[str] = None
+    # This week's practice-squad protection pick (Sec 5.1.1) -- carries
+    # over by default (decision #16): nothing resets this weekly: the
+    # user (or AI) explicitly flips it.
+    ps_protected: bool = False
+    # The week (relative to the current season) this player was placed
+    # on IR -- reactivation is gated on `current_week - ir_placed_week
+    # >= 4` (Sec 7).
+    ir_placed_week: Optional[int] = None
 
     # Physical
     speed: int

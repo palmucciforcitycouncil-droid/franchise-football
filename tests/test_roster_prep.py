@@ -111,6 +111,22 @@ def _release_all(team_abbr: str, position: Position) -> int:
     return len(rows)
 
 
+def _trim_active_to(team_abbr: str, target: int) -> None:
+    """Releases this team's worst-rated players (any position) down to
+    exactly `target` active bodies -- used to simulate "the user already
+    trimmed to 53 (or below)" without going through auto_cut_team_to_
+    limits()'s own blunt rating-only cut, which can itself create a
+    position hole (R16 Sec 8, see prepare_ai_rosters()'s own docstring
+    for the real LV/Center bug this exact behavior caused)."""
+    with get_session() as s:
+        roster = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+        roster.sort(key=lambda p: p.overall_rating)
+        for p in roster[: max(0, len(roster) - target)]:
+            p.team_abbr = None
+            s.add(p)
+        s.commit()
+
+
 def _delete_free_agents(position: Position) -> None:
     with get_session() as s:
         for p in s.exec(select(Player).where(Player.team_abbr == None, Player.position == position)):  # noqa: E711
@@ -154,20 +170,30 @@ def test_auto_fill_user_roster_fills_user_first_then_the_league():
     assert all(p.acquisition_type in ("Free Agent", "Undrafted FA") for p in tes)
 
 
-def test_preseason_gate_redirects_to_roster_then_auto_fill_unblocks_it():
+def test_preseason_gate_redirects_to_gm_desk_then_auto_fill_unblocks_it():
+    """R16 Sec 10/decision #18: the shortfall gate now lands on GM Desk
+    (signing happens there), not /roster (which is for trimming an
+    over-53 roster instead) -- see _preseason_roster_gate_redirect()."""
     season = season_state.reset_season()
     season_state.set_user_team("KC")
     _release_all("KC", Position.EDGE)
+    # A real import carries 54-72 players per team -- releasing 6 EDGEs
+    # alone still leaves KC over 53, which would trip the OTHER gate
+    # first (decision #18's own stated order). Trim to 50 (leaving room
+    # for the 3 EDGE signings Auto-Fill is about to make) so this test
+    # exercises the shortfall gate in isolation, without landing back on
+    # the over-53 gate the moment the shortfall is fixed.
+    _trim_active_to("KC", 50)
 
     resp = client.post("/season/simulate-week", follow_redirects=False)
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/roster?team_abbr=KC&roster_gate=1")
+    assert resp.headers["location"].startswith("/gm-desk?roster_gate=1")
     assert season_state.get_season().preseason_rounds_played == 0
 
     resp = client.post("/season/simulate-preseason", follow_redirects=False)
-    assert resp.headers["location"].startswith("/roster?")
+    assert resp.headers["location"].startswith("/gm-desk?")
 
-    page = client.get("/roster?team_abbr=KC&roster_gate=1").text
+    page = client.get("/gm-desk?roster_gate=1").text
     assert "Roster Holes" in page and "3 EDGE" in page and "AUTO-FILL ROSTER" in page
 
     resp = client.post("/roster/auto-fill-holes", follow_redirects=False)

@@ -61,6 +61,10 @@ def _migrate_schema(engine) -> None:
             if column not in existing:
                 conn.exec_driver_sql(f"ALTER TABLE player ADD COLUMN {column} {ddl}")
                 conn.commit()
+        for column, ddl in _PLAYER_COLUMNS_ADDED_2026_09_15:
+            if column not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE player ADD COLUMN {column} {ddl}")
+                conn.commit()
         coach_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(coach)")}
         if coach_cols and "focus_area" not in coach_cols:
             conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN focus_area TEXT NOT NULL DEFAULT 'Development'")
@@ -81,6 +85,18 @@ _PLAYER_COLUMNS_ADDED_2026_09_14: list[tuple[str, str]] = [
     ("acquisition_round", "INTEGER"),
     ("acquisition_pick", "INTEGER"),
     ("acquisition_team", "TEXT"),
+]
+
+# R16 (docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md Sec 3.1) --
+# every existing player defaults to ACTIVE, deliberately: every
+# currently-oversized team (54-72 real players, nothing ever enforced
+# the 53-man cap before this) hits the new over-53 gate on next load.
+_PLAYER_COLUMNS_ADDED_2026_09_15: list[tuple[str, str]] = [
+    ("roster_status", "TEXT NOT NULL DEFAULT 'ACTIVE'"),
+    ("roster_lock_until_week", "INTEGER"),
+    ("poached_from_team_abbr", "TEXT"),
+    ("ps_protected", "INTEGER NOT NULL DEFAULT 0"),
+    ("ir_placed_week", "INTEGER"),
 ]
 
 

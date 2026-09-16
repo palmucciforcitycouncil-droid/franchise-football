@@ -44,22 +44,14 @@
 </div>
 
 {% if team %}
-{% if roster_gate_banner %}
-<!-- Preseason roster gate (Brian's ask, 2026-09-14): app/main.py's
-     _preseason_roster_gate_redirect() sends a short-handed user here
-     before the season's first game. -->
-<div class="card roster-gate {% if roster_gate_banner.holes %}roster-gate-short{% else %}roster-gate-ready{% endif %}" id="roster-gate">
-  {% if roster_gate_banner.holes %}
-  <h3 style="margin-top: 0;">Roster Holes</h3>
-  <p>You need: <strong>{{ roster_gate_banner.holes }}</strong> to meet minimum requirements before the preseason can begin.</p>
-  <p class="muted">Sign free agents yourself from Top Free Agents below, or Auto-Fill: your front office signs the best affordable free agent into every hole (the same logic AI teams use), then every other team fixes its own roster and depth chart.</p>
-  <form method="post" action="/roster/auto-fill-holes" class="sim-week-form">
-    <button type="submit">AUTO-FILL ROSTER</button>
-  </form>
-  {% else %}
-  <h3 style="margin-top: 0;">Roster Ready</h3>
-  <p>{% if roster_gate_banner.autofilled %}Signed {{ roster_gate_banner.autofilled }} free agent{{ '' if roster_gate_banner.autofilled == 1 else 's' }}. {% endif %}Your roster meets every minimum requirement{% if roster_gate_banner.can_sim %} &mdash; you're clear to sim the preseason{% endif %}.</p>
-  {% endif %}
+{% if over_roster_banner %}
+<!-- R16 Sec 10/decision #18: the TRIM side of the two-gate split -- an
+     over-53 user roster lands here (the shortfall/sign-side gate lives
+     on GM Desk instead, see gm_desk.html). -->
+<div class="card roster-gate roster-gate-short" id="roster-gate">
+  <h3 style="margin-top: 0;">Trim Your Roster</h3>
+  <p>You're <strong>{{ over_roster_banner.over_by }}</strong> player{{ '' if over_roster_banner.over_by == 1 else 's' }} over the 53-man active limit. Release or Send to PS enough players below before the preseason can begin.</p>
+  <p class="muted">Use the Release or Send to PS button on each player's row (or their Player Card) to get down to 53.</p>
 </div>
 {% endif %}
 
@@ -90,6 +82,14 @@
   .depth-autofill-form button { flex: 0 0 auto; width: auto; }
   .roster-gate-short { border-left: 4px solid #f87171; }
   .roster-gate-ready { border-left: 4px solid #4ade80; }
+
+  /* R16 Sec 10: inline row actions (Release/Send to PS/Promote), shared
+     by the active-roster table and the new PS/IR boxes below. */
+  .roster-actions { display: flex; gap: 0.35rem; flex-wrap: nowrap; }
+  .roster-actions form { margin: 0; }
+  .roster-action-btn { width: auto; padding: 0.15rem 0.55rem; font-size: 0.78rem; }
+  .roster-action-danger { background: #b23b3b; border-color: #b23b3b; }
+  .ps-lock-tag { color: var(--gold); font-size: 0.78rem; }
 </style>
 
 <div class="card" id="roster-depth-card">
@@ -207,6 +207,7 @@
         {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
         <th><a href="{{ sort_links[cid] }}" data-roster-swap class="stats-sort-link {% if sort == cid %}active-sort{% endif %}">{{ label }}{% if sort == cid %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
         {% endfor %}
+        {% if is_user_team and team.abbr != 'FA' %}<th></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -232,6 +233,18 @@
         <td>{% if p.salary %}{{ p.salary | money }}{% else %}&mdash;{% endif %}</td>
         <td>{{ p.years_pro }}</td>
         <td>{{ depth_slot.get(p.player_id, '—') }}</td>
+        {% if is_user_team and team.abbr != 'FA' %}
+        <td>
+          <div class="roster-actions">
+            <form method="post" action="/roster/{{ team.abbr }}/{{ p.player_id }}/send-to-ps" data-keep-scroll onsubmit="return confirm('Send {{ p.full_name }} to the practice squad?');">
+              <button type="submit" class="roster-action-btn">To PS</button>
+            </form>
+            <form method="post" action="/roster/{{ team.abbr }}/{{ p.player_id }}/release" data-keep-scroll onsubmit="return confirm('Release {{ p.full_name }}? He becomes an immediate free agent.');">
+              <button type="submit" class="roster-action-btn roster-action-danger">Release</button>
+            </form>
+          </div>
+        </td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>
@@ -287,6 +300,94 @@
      ROADMAP.md §2b's GM Desk audit note). Top Free Agents and Find
      Player both use real league data. -->
 <div class="roster-quick-boxes">
+  {% if team.abbr != 'FA' %}
+  <!-- R16 Sec 10: the two new roster boxes -- PS protection/poaching-lock
+       status and IR weeks-remaining are shown even before Steps 3/4
+       (IR placement, poaching) exist; they'll just always read empty/
+       unlocked until those steps land, per the step-2-is-shippable-alone
+       build order. -->
+  <div class="card" id="practice-squad-box">
+    <div class="gm-card-head">
+      <h3 style="margin: 0;">Practice Squad ({{ ps_players|length }}/{{ practice_squad_size }})</h3>
+      {% if is_user_team %}
+      <form method="post" action="/roster/auto-fill-practice-squad" data-keep-scroll>
+        <button type="submit" style="width: auto;">Auto-Fill PS</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if ps_players %}
+    <div class="gm-compact-scroll">
+    <table class="gm-compact">
+      <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Status</th>{% if is_user_team %}<th></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for p in ps_players %}
+        <tr data-card='{{ p | player_card_json }}'>
+          <td>{{ player_link(p) }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>
+            {% if p.ps_protected %}Protected
+            {% elif p.roster_lock_until_week and p.roster_lock_until_week > current_week %}<span class="ps-lock-tag">Locked (poached, thru wk {{ p.roster_lock_until_week }})</span>
+            {% else %}&mdash;{% endif %}
+          </td>
+          {% if is_user_team %}
+          <td>
+            <div class="roster-actions">
+              <form method="post" action="/roster/{{ team.abbr }}/{{ p.player_id }}/promote-to-53" data-keep-scroll onsubmit="return confirm('Promote {{ p.full_name }} to the active 53?');">
+                <button type="submit" class="roster-action-btn">Promote</button>
+              </form>
+              <form method="post" action="/roster/{{ team.abbr }}/{{ p.player_id }}/release" data-keep-scroll onsubmit="return confirm('Release {{ p.full_name }}? He becomes an immediate free agent.');">
+                <button type="submit" class="roster-action-btn roster-action-danger">Release</button>
+              </form>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="muted">No practice squad players.</p>
+    {% endif %}
+  </div>
+
+  <div class="card" id="injured-reserve-box">
+    <h3 style="margin: 0 0 0.75rem;">Injured Reserve ({{ ir_players|length }})</h3>
+    {% if ir_players %}
+    <div class="gm-compact-scroll">
+    <table class="gm-compact">
+      <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th>Weeks Left</th>{% if is_user_team %}<th></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for p in ir_players %}
+        {% set weeks_left = 4 - (current_week - (p.ir_placed_week or current_week)) %}
+        <tr data-card='{{ p | player_card_json }}'>
+          <td>{{ player_link(p) }}</td>
+          <td>{{ p.position.value }}</td>
+          <td>{{ p.overall_rating }}</td>
+          <td>{% if weeks_left > 0 %}{{ weeks_left }}{% else %}Eligible{% endif %}</td>
+          {% if is_user_team %}
+          <td>
+            {% if weeks_left <= 0 %}
+            <form method="post" action="/roster/{{ team.abbr }}/{{ p.player_id }}/promote-to-53" data-keep-scroll onsubmit="return confirm('Reactivate {{ p.full_name }} to the active 53?');">
+              <button type="submit" class="roster-action-btn">Reactivate</button>
+            </form>
+            {% else %}
+            <span class="muted">&mdash;</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="muted">No players on IR.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="card" id="free-agents-box">
     <h3 style="margin: 0 0 0.75rem;">{% if fa_status == 'SOON' %}Soon-to-be Free Agents{% else %}Top Free Agents{% endif %}</h3>
     <form method="get" action="/roster" data-preserve-scroll="free-agents-box">

@@ -273,10 +273,21 @@ ROSTER_REQUIREMENTS: dict[Position, int] = {
 ACQ_FREE_AGENT = "Free Agent"
 ACQ_UNDRAFTED_FA = "Undrafted FA"
 
+# R16 (docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md Sec 2, decisions
+# #1/#2): the real 53-man active-roster cap (moved here from app/main.py,
+# where it lived as an unenforced display-only constant -- ENFORCED for
+# the first time by this feature) and the 16-slot practice squad.
+MAX_ROSTER_SIZE = 53
+PRACTICE_SQUAD_SIZE = 16
+
 
 def roster_shortfall(roster: list[Player], requirements: dict[Position, int] | None = None) -> dict[Position, int]:
     """{position: how many more players `roster` needs}, only positions
-    actually short, in the requirement table's own order."""
+    actually short, in the requirement table's own order. R16: callers
+    building `roster` must already filter to roster_status == ACTIVE --
+    this function itself stays a pure count over whatever list it's
+    given, same as before (see this module's own R16 call sites, and
+    app/services/roster_prep.py's, for the real filtering)."""
     requirements = ROSTER_REQUIREMENTS if requirements is None else requirements
     counts = Counter(p.position for p in roster)
     return {pos: need - counts.get(pos, 0) for pos, need in requirements.items() if counts.get(pos, 0) < need}
@@ -322,10 +333,19 @@ def fill_roster_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list
     post-draft pool guarantee in roster_prep.py is what keeps that from
     happening in practice)."""
     from app.config import season_year
+    from app.models.player import RosterStatus
 
     requirements = MIN_ROSTER_COUNTS if requirements is None else requirements
     undrafted_ids = undrafted_ids or set()
-    shortfall = roster_shortfall(roster, requirements)
+    # R16 Sec 9: shortfall counts ACTIVE bodies only (a full practice
+    # squad must never silently satisfy a position minimum) -- but
+    # `roster` itself stays the FULL roster (ACTIVE + PS + IR) for cap
+    # math right below, since PS/IR salaries count against the cap too
+    # (decision #3/#12). Filtering `roster` itself for this whole
+    # function would be the exact wrong-direction mistake the spec
+    # warns about.
+    active_roster = [p for p in roster if p.roster_status == RosterStatus.ACTIVE]
+    shortfall = roster_shortfall(active_roster, requirements)
     slots_left = sum(shortfall.values())
     cap_space = contracts.team_cap_space(roster, season_number)
     signed: list[Player] = []
@@ -345,10 +365,56 @@ def fill_roster_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list
                 choice = min(candidates, key=lambda p: (market[p.player_id], -p.overall_rating, p.player_id))
                 salary = max(contracts.veteran_minimum(choice.years_pro, season_number), min(market[choice.player_id], budget))
             choice.team_abbr = team_abbr
+            choice.roster_status = RosterStatus.ACTIVE  # R16: this fills an ACTIVE-roster hole, never PS/IR
             choice.salary = round(salary)
             choice.contract_years_remaining = 2 if choice.overall_rating >= 65 else 1
             mark_free_agent_acquisition(choice, season_year(season_number), choice.player_id in undrafted_ids)
             cap_space -= choice.salary
             free_agent_pool.remove(choice)
             signed.append(choice)
+    return signed
+
+
+def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list[Player],
+                              season_number: int) -> list[Player]:
+    """R16 Sec 4.3: the practice-squad sibling to fill_roster_gaps() --
+    same "best-rated fit from the shared pool" selection, but targets
+    open PS slots (up to PRACTICE_SQUAD_SIZE) rather than a position
+    shortfall, and signs at the flat league minimum (decision #10:
+    veteran_minimum(0, ...) -- the SAME real minimum-salary floor
+    fill_roster_gaps() already anchors to, at 0 years of service so
+    it's flat regardless of the signee's real experience) instead of
+    market value. No cap-juggling needed in practice (PS minimums are
+    small relative to the cap), but still deducted from cap room per
+    decision #3/#12 -- a team already tight on cap space can still run
+    out of room for practice-squad bodies, same as any other signing.
+
+    Removes each signee from `free_agent_pool` in place, same contract
+    as fill_roster_gaps(). Best-rated-first across ALL open positions
+    (not position-need-aware like the active-roster fill -- a practice
+    squad's whole point is organizational depth, not filling a specific
+    need)."""
+    from app.config import season_year
+    from app.models.player import RosterStatus
+
+    open_slots = PRACTICE_SQUAD_SIZE - sum(1 for p in roster if p.roster_status == RosterStatus.PRACTICE_SQUAD)
+    if open_slots <= 0:
+        return []
+    cap_space = contracts.team_cap_space(roster, season_number)
+    flat_salary = round(contracts.veteran_minimum(0, season_number))
+    pool = sorted(free_agent_pool, key=lambda p: (-p.overall_rating, p.player_id))
+    signed: list[Player] = []
+    for choice in pool:
+        if len(signed) >= open_slots:
+            break
+        if flat_salary > cap_space:
+            break
+        choice.team_abbr = team_abbr
+        choice.roster_status = RosterStatus.PRACTICE_SQUAD
+        choice.salary = flat_salary
+        choice.contract_years_remaining = 1
+        mark_free_agent_acquisition(choice, season_year(season_number), was_undrafted=False)
+        cap_space -= flat_salary
+        free_agent_pool.remove(choice)
+        signed.append(choice)
     return signed

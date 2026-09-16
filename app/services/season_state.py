@@ -22,6 +22,7 @@ team with 20 wins in an 18-week season, current_week at 21) is what
 _STATE_LOCK below fixes -- every mutating call now fully serializes."""
 from __future__ import annotations
 import threading
+from collections import defaultdict
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -44,7 +45,7 @@ from app.services import (
     award_race_history, headlines_history, undrafted_pool, season_honors,
 )
 from app.core.db import get_session
-from app.models.player import Player, Position
+from app.models.player import Player, Position, RosterStatus
 from sqlmodel import select
 
 
@@ -1202,6 +1203,45 @@ def advance_draft_pick(chosen_prospect_index: int | None = None) -> dict:
         return pick
 
 
+def _reset_roster_bookkeeping_for_new_league_year() -> None:
+    """R16 Sec 3.2: clears every in-season-only roster field for every
+    real player -- `roster_lock_until_week`/`poached_from_team_abbr`/
+    `ir_placed_week` (poaching locks and IR clocks are meaningless across
+    a season boundary) and `ps_protected` (decision #16's "carries over
+    by default" is a within-season convenience, not a promise across
+    years). A player still on IR when the season ends returns to ACTIVE
+    for the new league year (or PRACTICE_SQUAD if his team's 53 is
+    already full without him) -- a season ending doesn't heal anyone,
+    but the real NFL doesn't carry IR status into a new league year
+    either. `ELEVATED` never legitimately persists this far (the
+    post-sim auto-revert already handles it in-season), but is reset
+    defensively rather than trusted."""
+    from app.engine.free_agency import MAX_ROSTER_SIZE
+
+    with get_session() as s:
+        players = list(s.exec(select(Player)).all())
+        active_counts: dict[str, int] = defaultdict(int)
+        for p in players:
+            if p.team_abbr and p.roster_status == RosterStatus.ACTIVE:
+                active_counts[p.team_abbr] += 1
+        for p in players:
+            was_ir = p.roster_status == RosterStatus.IR
+            p.roster_lock_until_week = None
+            p.poached_from_team_abbr = None
+            p.ir_placed_week = None
+            p.ps_protected = False
+            if was_ir:
+                if p.team_abbr and active_counts[p.team_abbr] < MAX_ROSTER_SIZE:
+                    p.roster_status = RosterStatus.ACTIVE
+                    active_counts[p.team_abbr] += 1
+                else:
+                    p.roster_status = RosterStatus.PRACTICE_SQUAD
+            elif p.roster_status == RosterStatus.ELEVATED:
+                p.roster_status = RosterStatus.PRACTICE_SQUAD
+            s.add(p)
+        s.commit()
+
+
 def complete_draft_and_advance_season(season: Season | None = None) -> Season:
     """Runs once the live draft's last slot resolves -- called
     automatically by advance_draft_pick(), not normally called directly.
@@ -1239,6 +1279,13 @@ def complete_draft_and_advance_season(season: Season | None = None) -> Season:
         draft_board_store.clear_season(next_number)
 
         undrafted_pool.decrement_and_expire()
+        # R16 Sec 3.2: every in-season roster-bookkeeping field (practice-
+        # squad protection, poaching locks, IR clocks) resets at a new
+        # league year -- these have no meaning across a season boundary.
+        # Runs before the free-agent pool guarantee below so a player
+        # returned from IR to PRACTICE_SQUAD here is already counted
+        # correctly if that guarantee ever reads roster composition.
+        _reset_roster_bookkeeping_for_new_league_year()
         # Brian's ask, 2026-09-14: "always enough free agents to fill holes"
         # -- runs after expiry (which deletes old undrafted rows) so the
         # guarantee is measured against the pool that actually remains.
