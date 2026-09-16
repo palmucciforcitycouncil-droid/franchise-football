@@ -167,7 +167,12 @@ def test_simulate_week_advances_and_updates_standings():
     season = season_state.get_season()
     total_wins = sum(r.wins for r in season.records.values())
     total_losses = sum(r.losses for r in season.records.values())
-    assert total_wins == 16  # one winner per game, 16 games in week 1
+    # Bye-week timing isn't constrained to a fixed window (see
+    # app/engine/schedule.py's module docstring), so week 1 doesn't
+    # always have all 32 teams playing -- assert against the actual
+    # game count rather than assuming a fixed 16.
+    games_in_week_1 = len(season.schedule[0])
+    assert total_wins == games_in_week_1  # one winner per game
     assert total_wins == total_losses
 
 
