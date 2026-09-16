@@ -139,6 +139,12 @@ def season_to_dict(season) -> dict:
         "records": {
             abbr: asdict(rec) for abbr, rec in season.records.items()
         },
+        # R16 Sec 5.2: the pending weekly poach gate, and the guard that
+        # keeps re-clicking Sim Week from re-rolling this week's AI
+        # poaching decisions -- both must survive a save/reload like
+        # every other in-progress gate state here.
+        "pending_poach": getattr(season, "pending_poach", None),
+        "poaching_evaluated_through_week": getattr(season, "poaching_evaluated_through_week", 0),
     }
 
 
@@ -189,6 +195,11 @@ def season_from_dict(d: dict):
         # old boolean "awaiting_resign" key from this feature's first,
         # single-stage cut) -- both treated as "not in the offseason".
         offseason_stage=d.get("offseason_stage") or ("resign" if d.get("awaiting_resign") else None),
+        # .get(...) fallback: a save file from before R16 poaching existed
+        # won't have these keys -- "no pending poach, nothing evaluated
+        # yet" is the correct read for an old save either way.
+        pending_poach=d.get("pending_poach"),
+        poaching_evaluated_through_week=d.get("poaching_evaluated_through_week", 0),
     )
 
 

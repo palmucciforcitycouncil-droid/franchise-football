@@ -340,6 +340,7 @@ def test_apply_coach_offseason_decrements_real_contract_years():
     """Coach Contract Realism (docs/R3d_COACHING_SYSTEM_SPECIFICATION.md
     Sec 11): contract_years now really counts down at rollover, the same
     spot Player.contract_years_remaining already does (R4a)."""
+    from app.engine.coach_contracts import DEFAULT_CONTRACT_YEARS
     from app.services import coach_store
 
     if not coach_store.has_coaches():
@@ -372,6 +373,17 @@ def test_apply_coach_offseason_decrements_real_contract_years():
             # contract to a fresh default in that case, a real and
             # intended interaction with the decrement, not a violation
             # of it.
+            continue
+        if years_after == DEFAULT_CONTRACT_YEARS.get(role_after) and years_after != years_before - 1:
+            # The SAME edge case as above, just with role/team landing
+            # back on the identical seat: a coach fired then immediately
+            # re-hired into his own old spot this same offseason pass
+            # (a real, live-confirmed sequence -- run_offseason_autonomy()
+            # evaluates every vacancy, and a just-fired coach re-enters
+            # the candidate pool immediately) resets to the role's fresh
+            # default, not years_before - 1 -- comparing only the before/
+            # after snapshot can't otherwise tell this apart from "was
+            # simply never touched."
             continue
         assert years_after == years_before - 1
         checked += 1

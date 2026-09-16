@@ -3758,10 +3758,18 @@ def _trade_side_context(season, team_abbr: str, roster: list[Player] | None = No
     profile = None
     if team_abbr != season.user_team_abbr:
         profile = trades.team_trade_profile(team_abbr, season)
+    # R16 Sec 4.1/decision #15: practice-squad players are not tradeable
+    # -- only active-53 and IR players ever were (same as before this
+    # feature). ELEVATED excluded too (he's fundamentally still a PS
+    # player for the week, not really on the 53). `payroll` right below
+    # deliberately stays on the FULL `roster` param, unfiltered -- PS/IR
+    # salaries still count against the cap (decision #3/#12); only the
+    # tradeable-assets LIST changes here.
+    tradeable = [p for p in roster if p.roster_status not in (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED)]
     return {
         "abbr": team_abbr, "info": TEAMS_BY_ABBR[team_abbr],
         "side": "give" if team_abbr == season.user_team_abbr else "get",
-        "players": sorted(roster, key=lambda p: -p.overall_rating),
+        "players": sorted(tradeable, key=lambda p: -p.overall_rating),
         "picks": picks,
         "payroll": round(sum(p.salary for p in roster)), "cap": round(cap),
         "profile": profile,
@@ -3796,6 +3804,14 @@ def _resolve_trade_proposal(user_abbr: str, team_b: str, give, get, give_picks, 
             raise HTTPException(404, "One of your offered players wasn't found on your roster")
         if any(p is None or p.team_abbr != team_b for p in get_players):
             raise HTTPException(404, "One of the requested players wasn't found on that roster")
+        # R16 Sec 4.1/decision #15: practice-squad players are not
+        # tradeable (only active-53 and IR are) -- _trade_side_context()
+        # already excludes them from what the UI ever offers, but a real
+        # submit re-checks server-side too, same defense-in-depth every
+        # other strict-mode check here already applies.
+        untradeable_statuses = (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED)
+        if any(p.roster_status in untradeable_statuses for p in give_players + get_players):
+            raise HTTPException(422, "A practice-squad player can't be traded")
     give_players = [p for p in give_players if p is not None and p.team_abbr == user_abbr]
     get_players = [p for p in get_players if p is not None and p.team_abbr == team_b]
     return give_players, get_players, give_pick_refs, get_pick_refs
@@ -5150,6 +5166,18 @@ def season_simulate_week(redirect_to: str | None = Form(None)):
         season_state.simulate_next_preseason_round()
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
     if not season.is_complete:
+        # R16 Sec 5.2: weekly poaching evaluation runs before this week's
+        # games -- if an AI team decided to poach one of the user's own
+        # unprotected PS players, that's a pending decision gating the
+        # rest of Sim Week (same "stop and ask" shape as the preseason
+        # roster gate above), not something to resolve silently.
+        pending_poach = roster_prep.run_weekly_poaching(season)
+        if pending_poach is not None:
+            from app.services import save_service
+            save_service.save_season(season)
+            save_manager.sync_active_save_summary()
+            params = urlencode({"redirect_to": redirect_to}) if redirect_to else ""
+            return RedirectResponse(url=f"/poaching-alert?{params}" if params else "/poaching-alert", status_code=303)
         season_state.simulate_current_week()
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
     if season.playoffs is None or not season.playoffs.is_complete:
@@ -5250,11 +5278,30 @@ def roster_release_player(team_abbr: str, player_id: str):
     the team that just released him. User's own team only (an AI team's
     releases happen via its own autonomous cut logic, Sec 8); the
     Roster page/Player Card button both confirm before POSTing, same
-    convention as Fire/Delete Save."""
+    convention as Fire/Delete Save.
+
+    R16 Sec 5.1.5: EXCEPT a still-locked poached-in player -- releasing
+    him before his 3-game lock expires reverts him to his ORIGINAL
+    team's practice squad instead, not the free-agent pool (closes the
+    "poach him, immediately cut him loose" loophole that would otherwise
+    let a team dodge the guaranteed-salary/lock rule entirely)."""
     season = season_state.get_season()
     _user_owned_player_or_404(season, team_abbr, player_id)
     with get_session() as s:
         player = s.get(Player, player_id)
+        if (player.poached_from_team_abbr and player.roster_lock_until_week
+                and season.current_week <= player.roster_lock_until_week):
+            player.team_abbr = player.poached_from_team_abbr
+            player.roster_status = RosterStatus.PRACTICE_SQUAD
+            player.salary = round(contracts.veteran_minimum(0, season.season_number))
+            player.contract_years_remaining = 1
+            player.roster_lock_until_week = None
+            player.poached_from_team_abbr = None
+            player.ps_protected = False
+            s.add(player)
+            s.commit()
+            clear_starters_cache()
+            return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
         player.team_abbr = None
         player.roster_status = RosterStatus.ACTIVE
         player.roster_lock_until_week = None
@@ -5267,18 +5314,81 @@ def roster_release_player(team_abbr: str, player_id: str):
     return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
 
 
+@app.post("/roster/{team_abbr}/{player_id}/place-on-ir")
+def roster_place_on_ir(team_abbr: str, player_id: str):
+    """R16 Sec 7: the user's manual equivalent of the AI's auto-IR
+    (roster_prep.auto_place_ai_players_on_ir) -- only enabled for a
+    player with a CURRENT Injury row where placed_on_ir is already True
+    (computed at injury-generation time, weeks_out >= 4 -- no new
+    threshold check needed here). ACTIVE or PRACTICE_SQUAD -> IR; a
+    no-op if already on IR. Doesn't touch salary/contract (unlike
+    Send to PS) -- an injured player's deal is untouched by injury,
+    same as today's existing (pre-R16) injury system."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    injury = injury_store.injury_for_player(player_id)
+    if injury is None or not injury.placed_on_ir:
+        raise HTTPException(409, "This player doesn't have a qualifying injury for IR")
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player.roster_status == RosterStatus.IR:
+            return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+        player.roster_status = RosterStatus.IR
+        player.ir_placed_week = season.current_week
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/{player_id}/elevate")
+def roster_elevate_player(team_abbr: str, player_id: str):
+    """R16 Sec 6/decision #9: any PRACTICE_SQUAD player -> ELEVATED for
+    the current week's sim -- same depth-chart eligibility as ACTIVE
+    (app/services/depth_chart.py's own _load_roster() already includes
+    ELEVATED), auto-reverting to PRACTICE_SQUAD right after that week's
+    games simulate (roster_prep.revert_elevated_players(), called from
+    season_state.simulate_current_week()). Manual, user's team only, no
+    per-game/per-season limit -- deliberately simpler than the real
+    NFL's 2-per-game/3-per-season caps. Doesn't touch the 53-man cap
+    check at all (active_roster_count() counts ACTIVE only, not
+    ELEVATED) -- the whole point is squeezing value from a cap-limited
+    roster, not another way onto the real 53."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player.roster_status != RosterStatus.PRACTICE_SQUAD:
+            raise HTTPException(409, "Only a practice-squad player can be elevated")
+        player.roster_status = RosterStatus.ELEVATED
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
 @app.post("/roster/{team_abbr}/{player_id}/send-to-ps")
 def roster_send_to_practice_squad(team_abbr: str, player_id: str):
     """R16 Sec 4.2: ACTIVE (or IR) -> PRACTICE_SQUAD, salary drops to the
     flat PS minimum and the contract resets to 1 year (decision #10) --
     a no-op on someone already on the PS. Blocked if the PS is already
-    full (16, decision #1)."""
+    full (16, decision #1). An IR player is subject to the same Sec 7
+    4-simulated-week minimum stay as reactivating straight to the active
+    53 -- moving to PS is still "coming off IR," not a way around the
+    minimum-stay rule. A poached-in or defensively-block-promoted player
+    is equally locked to the active 53 for Sec 5.1's own 3-game window
+    (decision #17) -- otherwise "promote for a week, restash" would
+    dodge the whole rule this field exists to close."""
     season = season_state.get_season()
     _user_owned_player_or_404(season, team_abbr, player_id)
     with get_session() as s:
         player = s.get(Player, player_id)
         if player.roster_status == RosterStatus.PRACTICE_SQUAD:
             return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+        if player.roster_status == RosterStatus.IR and season.current_week - (player.ir_placed_week or 0) < 4:
+            raise HTTPException(409, "Not yet eligible to come off IR -- needs 4 simulated weeks")
+        if player.roster_lock_until_week and season.current_week <= player.roster_lock_until_week:
+            raise HTTPException(409, f"Locked to the active roster through week {player.roster_lock_until_week}")
         ps_count = len(s.exec(select(Player).where(
             Player.team_abbr == team_abbr, Player.roster_status == RosterStatus.PRACTICE_SQUAD)).all())
         if ps_count >= free_agency.PRACTICE_SQUAD_SIZE:
@@ -5287,6 +5397,8 @@ def roster_send_to_practice_squad(team_abbr: str, player_id: str):
         player.salary = round(contracts.veteran_minimum(0, season.season_number))
         player.contract_years_remaining = 1
         player.ir_placed_week = None
+        player.roster_lock_until_week = None
+        player.poached_from_team_abbr = None
         s.add(player)
         s.commit()
     clear_starters_cache()
@@ -5320,6 +5432,118 @@ def roster_promote_to_active(team_abbr: str, player_id: str):
         s.commit()
     clear_starters_cache()
     return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/protect-ps")
+def roster_protect_ps(team_abbr: str, protected: list[str] = Form(default=[])):
+    """R16 Sec 5.1.1/decision #16: the user's own weekly protection pick
+    -- up to 4 of their 16 PS slots. Carries over by default (nothing
+    resets it week to week); this route only fires when the user
+    actively changes their picks. An AI team's own equivalent
+    (auto_protect_ai_ps) recomputes fresh every week instead, since it
+    has no "leave it alone" convenience to preserve."""
+    season = season_state.get_season()
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    if len(protected) > 4:
+        raise HTTPException(422, "You can protect at most 4 practice squad players")
+    protected_set = set(protected)
+    with get_session() as s:
+        ps = list(s.exec(select(Player).where(
+            Player.team_abbr == team_abbr, Player.roster_status == RosterStatus.PRACTICE_SQUAD)))
+        for p in ps:
+            want = p.player_id in protected_set
+            if p.ps_protected != want:
+                p.ps_protected = want
+                s.add(p)
+        s.commit()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.get("/poaching-alert", response_class=HTMLResponse)
+def poaching_alert_view(request: Request, redirect_to: str | None = None):
+    """R16 Sec 5.2: the weekly gate's own screen -- an AI team wants to
+    sign one of the user's unprotected PS players. Two choices: let it
+    happen, or block by promoting him to the user's own 53 (which itself
+    carries the same 3-game lock, Sec 5.1.7). No pending decision (the
+    common case, or it was already resolved) just sends the player back
+    on to wherever Sim Week would otherwise have taken them."""
+    season = season_state.get_season()
+    if season.pending_poach is None:
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    pending = season.pending_poach
+    poacher = TEAMS_BY_ABBR.get(pending["to_team"])
+    return templates.TemplateResponse(request, "poaching_alert.html", {
+        "pending": pending,
+        "poacher_name": poacher.location if poacher else pending["to_team"],
+        "redirect_to": redirect_to,
+    })
+
+
+@app.post("/poaching-alert/resolve")
+def poaching_alert_resolve(action: str = Form(...), redirect_to: str | None = Form(None)):
+    season = season_state.get_season()
+    pending = season.pending_poach
+    if pending is None:
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    if action == "allow":
+        roster_prep.execute_poach(pending["player_id"], pending["to_team"], pending["week"])
+    elif action == "block":
+        roster_prep.block_poach(pending["player_id"], pending["week"])
+    else:
+        raise HTTPException(422, "Invalid action")
+    season.pending_poach = None
+    clear_starters_cache()
+    from app.services import save_service
+    save_service.save_season(season)
+    save_manager.sync_active_save_summary()
+    return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+
+
+@app.get("/practice-squad-market", response_class=HTMLResponse)
+def practice_squad_market_view(request: Request):
+    """R16 Sec 5.1.8/decision #21: the user's own anytime poaching
+    surface -- every OTHER team's unprotected PS player, league-wide,
+    same "one sortable table" convention Staff's Find Coaches already
+    established. Own team's PS is excluded (nothing to poach from
+    yourself)."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        return RedirectResponse(url="/team-select", status_code=303)
+    user_abbr = season.user_team_abbr
+    with get_session() as s:
+        ps_players = list(s.exec(select(Player).where(Player.roster_status == RosterStatus.PRACTICE_SQUAD)))
+    eligible = sorted(
+        (p for p in ps_players if p.team_abbr != user_abbr and not p.ps_protected),
+        key=lambda p: -p.overall_rating,
+    )
+    user_active = roster_prep.active_roster_count(user_abbr)
+    return templates.TemplateResponse(request, "practice_squad_market.html", {
+        "players": eligible, "user_team_abbr": user_abbr,
+        "user_active_count": user_active, "max_roster_size": free_agency.MAX_ROSTER_SIZE,
+        "has_room": user_active < free_agency.MAX_ROSTER_SIZE,
+    })
+
+
+@app.post("/practice-squad-market/{team_abbr}/{player_id}/poach")
+def practice_squad_market_poach(team_abbr: str, player_id: str):
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    user_abbr = season.user_team_abbr
+    if team_abbr == user_abbr:
+        raise HTTPException(422, "Can't poach your own practice squad")
+    with get_session() as s:
+        player = s.get(Player, player_id)
+    if player is None or player.team_abbr != team_abbr or player.roster_status != RosterStatus.PRACTICE_SQUAD:
+        raise HTTPException(404, "That player is no longer available to poach")
+    if player.ps_protected:
+        raise HTTPException(409, f"{player.full_name} is protected this week")
+    if roster_prep.active_roster_count(user_abbr) >= free_agency.MAX_ROSTER_SIZE:
+        raise HTTPException(409, "Your active roster is already full (53) -- cut someone first")
+    roster_prep.execute_poach(player_id, user_abbr, season.current_week)
+    clear_starters_cache()
+    return RedirectResponse(url="/practice-squad-market", status_code=303)
 
 
 @app.post("/season/reset")

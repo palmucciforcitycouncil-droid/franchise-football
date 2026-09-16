@@ -733,6 +733,56 @@ def test_gm_desk_trade_route_accepts_a_pick_for_pick_swap():
         assert draft_pick_store.owner_of(buf_pick.season_number, buf_pick.round, buf_pick.original_team_abbr) == "KC"
 
 
+def test_trade_side_excludes_practice_squad_players():
+    """R16 Sec 4.1/decision #15: PS players aren't tradeable -- only
+    active-53 and IR are, same as before this feature."""
+    from app.core.db import get_session
+    from app.models.player import Player, RosterStatus
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        kc_roster = list(s.exec(select(Player).where(Player.team_abbr == "KC")))
+    ps_player = kc_roster[0]
+    ir_player = kc_roster[1]
+    with get_session() as s:
+        p = s.get(Player, ps_player.player_id)
+        p.roster_status = RosterStatus.PRACTICE_SQUAD
+        s.add(p)
+        p2 = s.get(Player, ir_player.player_id)
+        p2.roster_status = RosterStatus.IR
+        s.add(p2)
+        s.commit()
+
+    side_html = client.get("/gm-desk/trade/side", params={"team": "KC"}).json()["html"]
+    assert ps_player.player_id not in side_html  # PS is excluded from the tradeable list
+    assert ir_player.player_id in side_html      # IR stays tradeable, same as before R16
+
+
+def test_gm_desk_trade_route_rejects_offering_a_practice_squad_player():
+    from app.core.db import get_session
+    from app.models.player import Player, RosterStatus
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        kc = list(s.exec(select(Player).where(Player.team_abbr == "KC")))
+        buf_best = max(s.exec(select(Player).where(Player.team_abbr == "BUF")), key=lambda p: p.overall_rating)
+    ps_player = kc[0]
+    with get_session() as s:
+        p = s.get(Player, ps_player.player_id)
+        p.roster_status = RosterStatus.PRACTICE_SQUAD
+        s.add(p)
+        s.commit()
+
+    resp = client.post("/gm-desk/trade", data={
+        "team_b": "BUF", "give": [ps_player.player_id], "get": [buf_best.player_id],
+    })
+    assert resp.status_code == 422
+
+
 def test_gm_desk_trade_route_rejects_a_pick_not_owned_by_the_offering_team():
     from app.services import draft_pick_store
 

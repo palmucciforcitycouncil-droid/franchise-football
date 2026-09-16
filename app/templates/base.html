@@ -372,6 +372,13 @@
     .pc-roster-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
     .pc-roster-actions .pc-negotiate-btn { margin-top: 0; }
     .pc-roster-action-danger { background: #b23b3b; border-color: #b23b3b; }
+    /* R16 Sec 10: inline row actions (Release/Send to PS/Promote/Place on
+       IR/Poach) -- global (not roster.html-scoped) since the Practice
+       Squad Market page uses the same buttons outside that page. */
+    .roster-actions { display: flex; gap: 0.35rem; flex-wrap: nowrap; }
+    .roster-actions form { margin: 0; }
+    .roster-action-btn { width: auto; padding: 0.15rem 0.55rem; font-size: 0.78rem; }
+    .roster-action-danger { background: #b23b3b; border-color: #b23b3b; }
     .pc-acquire-btn {
       display: inline-block; margin-top: 0.5rem; padding: 0.3rem 0.8rem;
       background: var(--gold); color: #1a1200; border: none; border-radius: 6px;
@@ -1853,8 +1860,21 @@
           buttons += actionForm('send-to-ps', 'To PS', false, 'Send ' + card.name + ' to the practice squad?');
         } else if (card.roster_status === 'PRACTICE_SQUAD') {
           buttons += actionForm('promote-to-53', 'Promote to 53', false, 'Promote ' + card.name + ' to the active 53?');
+          buttons += actionForm('elevate', 'Elevate', false,
+            'Elevate ' + card.name + ' for this week only? He reverts to the practice squad automatically after this week\'s game(s).');
         } else if (card.roster_status === 'IR' && card.ir_reactivate_eligible) {
+          // R16 Sec 7: "surfaced as an explicit user choice if both are
+          // open" -- reactivating off IR can land on the active 53 OR
+          // back on the practice squad, same two options the Roster
+          // page's IR box row offers.
           buttons += actionForm('promote-to-53', 'Reactivate', false, 'Reactivate ' + card.name + ' to the active 53?');
+          buttons += actionForm('send-to-ps', 'To PS', false, 'Send ' + card.name + ' to the practice squad?');
+        }
+        // R16 Sec 7: Place on IR is offered alongside whichever of the
+        // above already applies -- a qualifying injury (weeks_out >= 4,
+        // injury.placed_on_ir) can hit an ACTIVE or PRACTICE_SQUAD player.
+        if (card.roster_status !== 'IR' && card.injury && card.injury.ir) {
+          buttons += actionForm('place-on-ir', 'Place on IR', false, 'Place ' + card.name + ' on IR?');
         }
         buttons += actionForm('release', 'Release', true, 'Release ' + card.name + '? He becomes an immediate free agent.');
         return '<div class="pc-roster-actions">' + buttons + '</div>';

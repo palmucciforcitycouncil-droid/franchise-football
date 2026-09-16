@@ -274,3 +274,244 @@ def auto_fill_user_roster(league_seed: int, season_number: int, user_team_abbr: 
     depth_chart.clear_starters_cache()
     prepare_ai_rosters(league_seed, season_number, user_team_abbr)
     return user_signed
+
+
+def auto_place_ai_players_on_ir(new_injuries: list, user_team_abbr: str | None, week_num: int) -> list[str]:
+    """R16 Sec 7/Sec 8: "auto-place at the weeks_out >= 4 threshold, no
+    user-style manual judgment call" -- every AI team's own equivalent of
+    the user's manual Place on IR button. `injury.placed_on_ir` is
+    already computed at injury-generation time (injuries.py), so this is
+    pure wiring: any brand-new injury this week that qualifies, on a
+    player who isn't the user's own (the user's Roster/Player Card gets
+    the manual control instead, Sec 11's usual "manual for the user,
+    autonomous for AI" split), moves that player off the active 53 --
+    freeing his slot exactly the way a real team activates a replacement
+    -- without signing anyone new: this feature's AI never re-fills a
+    hole mid-season (prepare_ai_rosters() only ever runs once, before the
+    season's first game, same as every other roster gap already left
+    unaddressed mid-season pre-R16). Returns the names moved, for
+    an optional headline hook.
+
+    Only ACTIVE/PRACTICE_SQUAD players move -- a fresh injury can't hit
+    someone already on IR (one active injury per player, injuries.py's
+    own roll_injuries_for_week() docstring)."""
+    moved: list[str] = []
+    with get_session() as s:
+        for injury in new_injuries:
+            if not injury.placed_on_ir:
+                continue
+            player = s.get(Player, injury.player_id)
+            if player is None or player.team_abbr is None or player.team_abbr == user_team_abbr:
+                continue
+            if player.roster_status not in (RosterStatus.ACTIVE, RosterStatus.PRACTICE_SQUAD):
+                continue
+            player.roster_status = RosterStatus.IR
+            player.ir_placed_week = week_num
+            s.add(player)
+            moved.append(player.full_name)
+        s.commit()
+    return moved
+
+
+# --- R16 Sec 5: Poaching -----------------------------------------------
+
+POACH_LOCK_WEEKS = 3
+# A poach candidate must clear the poacher's own weakest ACTIVE group
+# rating by this many points to count as a "clear upgrade" (Sec 8) --
+# disclosed tuning knob, not a spec-locked number (the spec names the
+# RULE, not a magnitude -- Brian's own playtesting note elsewhere in
+# this project applies here too).
+POACH_UPGRADE_MARGIN = 8.0
+
+
+def _team_players(s, team_abbr: str) -> list[Player]:
+    return list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+
+
+def weakest_active_need(team_abbr: str) -> tuple[str, float] | None:
+    """R16 Sec 8: the AI poacher's own target -- the lowest-rated
+    QUOTA_GROUPS group among this team's ACTIVE roster only (a deep
+    practice squad at a position doesn't mean the team isn't starting a
+    real stopgap there right now, and PS/IR players don't play).
+    roster_strength.compute_group_ratings() already does the real
+    snap-share-weighted math; this just calls it with an ACTIVE-only
+    roster instead of that function's own (deliberately broader, used
+    elsewhere for prestige/trade-value purposes) full-roster default."""
+    from app.engine import roster_strength
+
+    with get_session() as s:
+        active = [p for p in _team_players(s, team_abbr) if p.roster_status == RosterStatus.ACTIVE]
+    ratings = roster_strength.compute_group_ratings(team_abbr, active)
+    if not ratings:
+        return None
+    return min(ratings.items(), key=lambda kv: kv[1])
+
+
+def _unprotected_ps_by_team() -> dict[str, list[Player]]:
+    with get_session() as s:
+        players = list(s.exec(select(Player).where(Player.roster_status == RosterStatus.PRACTICE_SQUAD)))
+    by_team: dict[str, list[Player]] = defaultdict(list)
+    for p in players:
+        if not p.ps_protected:
+            by_team[p.team_abbr].append(p)
+    return by_team
+
+
+def find_poach_candidate(poacher_abbr: str, unprotected_by_team: dict[str, list[Player]]) -> Player | None:
+    """The single best available upgrade for `poacher_abbr` at their own
+    weakest ACTIVE group, across every OTHER team's unprotected PS --
+    None if nobody clears POACH_UPGRADE_MARGIN. Best-rated pick within
+    the qualifying group, ties broken by id for determinism."""
+    from app.engine.position_groups import POSITION_TO_GROUP
+
+    need = weakest_active_need(poacher_abbr)
+    if need is None:
+        return None
+    group, need_rating = need
+    candidates = [
+        p for team_abbr, players in unprotected_by_team.items() if team_abbr != poacher_abbr
+        for p in players if POSITION_TO_GROUP.get(p.position) == group
+    ]
+    if not candidates:
+        return None
+    best = max(candidates, key=lambda p: (p.overall_rating, p.player_id))
+    if best.overall_rating - need_rating >= POACH_UPGRADE_MARGIN:
+        return best
+    return None
+
+
+def execute_poach(player_id: str, poacher_abbr: str, week_num: int) -> None:
+    """R16 Sec 5.1: signs an unprotected PS player STRAIGHT to the
+    poaching team's own 53 (never their PS, decision #6) -- caller's job
+    to have already confirmed an open slot and that the player is a
+    real, still-unprotected target (both AI and user poaching routes
+    check this themselves, right before calling, so the check lives
+    there rather than silently no-op'ing here on a stale target).
+    3-simulated-week lock either direction (decision #17) via the same
+    `roster_lock_until_week` field a defensive block-promotion also
+    sets. Salary/contract are left exactly as they were on the PS (the
+    flat league minimum, decision #10) -- "guaranteed 3 weeks of salary"
+    (Sec 5.1.4) is about that deal surviving the move, not a raise."""
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        player.poached_from_team_abbr = player.team_abbr
+        player.team_abbr = poacher_abbr
+        player.roster_status = RosterStatus.ACTIVE
+        player.ps_protected = False
+        player.roster_lock_until_week = week_num + POACH_LOCK_WEEKS
+        s.add(player)
+        s.commit()
+
+
+def block_poach(player_id: str, week_num: int) -> None:
+    """R16 Sec 5.1.7: the original team pre-empts a poach by promoting
+    the targeted player to their OWN 53 first -- same 3-game lock as an
+    actual poach (decision #17, closing the "promote for a week,
+    restash" loophole), but no poached_from_team_abbr (he never left his
+    own team)."""
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        player.roster_status = RosterStatus.ACTIVE
+        player.ps_protected = False
+        player.roster_lock_until_week = week_num + POACH_LOCK_WEEKS
+        s.add(player)
+        s.commit()
+
+
+def clear_expired_poach_locks(week_num: int) -> None:
+    """R16 Sec 3: "poached_from_team_abbr... cleared once his lock
+    expires" -- run weekly so a player's post-lock state (both fields
+    clear) is real and current, not just implied by comparing two
+    fields everywhere they're read."""
+    with get_session() as s:
+        expired = list(s.exec(select(Player).where(
+            Player.roster_lock_until_week != None, Player.roster_lock_until_week < week_num)))  # noqa: E711
+        for p in expired:
+            p.roster_lock_until_week = None
+            p.poached_from_team_abbr = None
+            s.add(p)
+        s.commit()
+
+
+def auto_protect_ai_ps(team_abbrs: list[str]) -> None:
+    """R16 Sec 8: "auto-protect the 4 highest-rated unprotected PS
+    players" -- recomputed fresh each week (cheap, and correctly reacts
+    to PS composition changes from a poach/promotion/release since the
+    last pass) rather than a one-time pick with manual upkeep, since an
+    AI team has no equivalent of the user's own "carries over until
+    changed" convenience (decision #16 is explicitly about not
+    forcing the USER to re-pick every week -- the AI has no such
+    friction to spare it from)."""
+    with get_session() as s:
+        for team_abbr in team_abbrs:
+            ps = [p for p in _team_players(s, team_abbr) if p.roster_status == RosterStatus.PRACTICE_SQUAD]
+            ps.sort(key=lambda p: (-p.overall_rating, p.player_id))
+            for i, p in enumerate(ps):
+                want_protected = i < 4
+                if p.ps_protected != want_protected:
+                    p.ps_protected = want_protected
+                    s.add(p)
+        s.commit()
+
+
+def run_weekly_poaching(season) -> dict | None:
+    """R16 Sec 5.2: the weekly AI poaching pass -- runs once per week
+    (guarded by `season.poaching_evaluated_through_week`, so re-hitting
+    /season/simulate-week after resolving a pending decision, or just a
+    stray double-click, never re-rolls the same week's AI decisions).
+    AI-vs-AI poaches resolve immediately; the first AI decision to
+    target the USER's own PS becomes `season.pending_poach` and gates
+    the rest of Sim Week (app/main.py's own route checks this return
+    value) -- deliberately capped at one pending user-facing poach per
+    week, same "simple heuristic, not exhaustive" spirit as the rest of
+    this feature's AI tier. Returns the pending decision, or None."""
+    week_num = season.current_week
+    if season.poaching_evaluated_through_week >= week_num:
+        return season.pending_poach
+    clear_expired_poach_locks(week_num)
+    ai_teams = [t.abbr for t in TEAMS if t.abbr != season.user_team_abbr]
+    auto_protect_ai_ps(ai_teams)
+    unprotected_by_team = _unprotected_ps_by_team()
+    pending: dict | None = None
+    for poacher_abbr in ai_teams:
+        if active_roster_count(poacher_abbr) >= free_agency.MAX_ROSTER_SIZE:
+            continue
+        target = find_poach_candidate(poacher_abbr, unprotected_by_team)
+        if target is None:
+            continue
+        # One attempt per player per week regardless of outcome -- keeps
+        # a second poacher from also going after the same just-targeted
+        # player in this same pass.
+        unprotected_by_team[target.team_abbr] = [
+            p for p in unprotected_by_team[target.team_abbr] if p.player_id != target.player_id
+        ]
+        if target.team_abbr == season.user_team_abbr:
+            if pending is None:
+                pending = {
+                    "player_id": target.player_id, "player_name": target.full_name,
+                    "position": target.position.value, "from_team": target.team_abbr,
+                    "to_team": poacher_abbr, "week": week_num,
+                }
+            continue  # awaits the user's own allow/block decision
+        execute_poach(target.player_id, poacher_abbr, week_num)
+    season.pending_poach = pending
+    season.poaching_evaluated_through_week = week_num
+    return pending
+
+
+# --- R16 Sec 6: Game-Day Elevation --------------------------------------
+
+def revert_elevated_players() -> None:
+    """R16 Sec 6: "auto-reverts to PRACTICE_SQUAD immediately after that
+    week's game(s) simulate" -- unlimited manual uses (decision #9) only
+    stays a real weekly choice if elevation doesn't quietly become a
+    permanent promotion. User's team only in practice (no AI equivalent,
+    Sec 6's own last bullet -- nothing ever sets ELEVATED for an AI
+    team), but this scans every team's roster rather than assuming
+    that, so it stays correct even if that ever changes."""
+    with get_session() as s:
+        elevated = list(s.exec(select(Player).where(Player.roster_status == RosterStatus.ELEVATED)))
+        for p in elevated:
+            p.roster_status = RosterStatus.PRACTICE_SQUAD
+            s.add(p)
+        s.commit()

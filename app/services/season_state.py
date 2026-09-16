@@ -112,6 +112,16 @@ class Season:
     # See season_state.begin_offseason()/advance_offseason_stage()/
     # finish_offseason().
     offseason_stage: str | None = None
+    # R16 Sec 5.2: a pending AI-vs-user poach that gates the rest of Sim
+    # Week until resolved -- {player_id, player_name, position, from_team
+    # (the user), to_team (the poaching AI team), week}. None the rest of
+    # the time (the common case -- most weeks nobody poaches the user).
+    pending_poach: dict | None = None
+    # R16 Sec 5.2: the last week weekly poaching evaluation actually ran,
+    # so re-POSTing /season/simulate-week after resolving a pending_poach
+    # (or just re-clicking Sim Week) doesn't re-roll this week's AI
+    # poaching decisions a second time.
+    poaching_evaluated_through_week: int = 0
 
     @property
     def is_complete(self) -> bool:
@@ -459,6 +469,13 @@ def _after_preseason_round(season: Season, round_idx: int) -> None:
     round_games = season.preseason_schedule[round_idx - 1]
     starter_ids = headlines.starter_ids_for_games(round_games)
     new_injuries = injuries.roll_injuries_for_preseason_round(season, round_idx)
+    # R16 Sec 7/Sec 8: same AI IR autonomy as the regular season (see
+    # simulate_current_week()'s own comment) -- a preseason injury is a
+    # real injury too. ir_placed_week uses season.current_week (still 1
+    # here, preseason hasn't advanced it) rather than round_idx, matching
+    # that field's own "week relative to the season" meaning.
+    from app.services import roster_prep
+    roster_prep.auto_place_ai_players_on_ir(new_injuries, season.user_team_abbr, season.current_week)
     depth_chart.clear_starters_cache()
     headlines_history.record_week_headlines(
         season.season_number, f"P{round_idx}",
@@ -568,6 +585,15 @@ def simulate_current_week() -> int:
         # brand-new injuries immediately.
         starter_ids = headlines.starter_ids_for_games(week_games)  # kickoff lineups, before injuries change them
         new_injuries = injuries.roll_injuries_for_week(season, week_num)
+        # R16 Sec 7/Sec 8: every AI team's own IR autonomy -- a brand-new
+        # injury that already qualifies (weeks_out >= 4, computed at
+        # generation time) moves that AI player off the active 53 right
+        # away, no separate weekly check needed. The user's own team is
+        # excluded -- Sec 11's manual Place on IR button is their
+        # equivalent, same "manual for the user, autonomous for AI" split
+        # every other R16 action already follows.
+        from app.services import roster_prep
+        roster_prep.auto_place_ai_players_on_ir(new_injuries, season.user_team_abbr, week_num)
         depth_chart.clear_starters_cache()
 
         # R9 (GDD Sec 12, ROADMAP.md Sec4e): real event detection + a
@@ -592,6 +618,13 @@ def simulate_current_week() -> int:
         from app.services import coach_ai
         coach_ai.run_inseason_autonomy(season, week_num, season.user_team_abbr)
         coach_store.clear_cache()
+
+        # R16 Sec 6: game-day elevation auto-reverts to PRACTICE_SQUAD
+        # immediately after that week's games simulate -- unlimited
+        # uses (decision #9) only works if it's back to a real weekly
+        # choice, not a permanent promotion by omission.
+        roster_prep.revert_elevated_players()
+        depth_chart.clear_starters_cache()
 
         season.current_week += 1
 

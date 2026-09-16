@@ -110,7 +110,17 @@ def _top(players: list[Player], position: Position, n: int, team_abbr: str) -> l
     than crashing an empty starter slot -- caught via two real
     IndexErrors on this feature's own first live full-season runs (an
     all-hurt single-starter position, then an under-filled 2-starter
-    one)."""
+    one).
+
+    R16: `players` (from `_load_roster()`) is already ACTIVE/ELEVATED
+    only -- an IR'd player (unlike a merely-OUT one) isn't in it at all
+    anymore, which can empty out a thin position entirely (a real crash
+    caught the same way as the two above: an AI team's whole QB room
+    landing on IR the same week). Last-resort backfill from the team's
+    FULL roster (any roster_status) closes that gap the exact same
+    "field an available body" way -- an AI team has no elevation to
+    reach for instead (Sec 8: "No AI equivalent"), so this is the only
+    thing standing between a real injury cluster and a crash."""
     from app.services import injury_store
 
     pool = [p for p in players if p.position == position]
@@ -121,6 +131,13 @@ def _top(players: list[Player], position: Position, n: int, team_abbr: str) -> l
         candidates = healthy + [p for p in pool if p.player_id not in healthy_ids]
     else:
         candidates = healthy
+    if len(candidates) < n:
+        with get_session() as s:
+            full_roster = list(s.exec(select(Player).where(
+                Player.team_abbr == team_abbr, Player.position == position)))
+        seen_ids = {p.player_id for p in candidates}
+        full_roster.sort(key=lambda p: -p.overall_rating)
+        candidates = candidates + [p for p in full_roster if p.player_id not in seen_ids]
     candidates = depth_chart_overrides.resolve_order(team_abbr, position.value, candidates)
     return candidates[:n]
 

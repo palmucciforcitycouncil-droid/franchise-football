@@ -9888,3 +9888,28 @@ Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts 
 ### S.11 Known gaps (not built)
 - Tied games are still recorded as a home win in W-L standings (no ties column).
 - Acquisition history for players rostered before the franchise began is blank (to back-fill later).
+
+## Appendix T. September 15-16, 2026: Practice Squad, 53-Man Roster & IR (implemented, R16)
+
+*Implementation status: fully built and tested (see ROADMAP.md §4m and `docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md` for the complete 21-decision spec and build order). This supersedes any earlier reference elsewhere in this document to `MAX_ROSTER_SIZE = 53` being display-only — the cap is real and enforced now.*
+
+### T.1 Roster statuses
+Every `Player` carries a real `roster_status`: `ACTIVE` (counts toward the 53), `PRACTICE_SQUAD` (16 slots, cap-counted per decision #3 but not a shortfall/depth-chart body), `IR` (doesn't count toward the 53; real 4-simulated-week minimum stay tied to the existing injury system's `Injury.placed_on_ir` field), or `ELEVATED` (a practice-squad player made depth-chart-eligible for one week only, auto-reverting after that week's games). A real imported roster (54-72 players) hits a one-time, position-need-aware cut to 53 the first time it's found over the limit — each `ROSTER_REQUIREMENTS` position minimum is filled from that position's own best players first, then the rest of the 53 by best-overall; overflow goes to the practice squad (best-rated first, up to 16), and anyone still left over is released outright to the free-agent pool.
+
+### T.2 The two roster gates
+Before a season's first game, an over-53 user roster routes to the Roster page with a "Trim Your Roster" banner (Release/Send-to-PS enough players); a user roster that's at/under 53 but short of a position minimum instead routes to GM Desk with a "Roster Holes" banner (sign free agents, or Auto-Fill). These are two separate, mutually exclusive gates — a team can't be shown both in the same visit.
+
+### T.3 Practice squad mechanics
+Release, Send to PS, and Promote to 53 are available both inline on the Roster page's active-roster/PS/IR tables and on the Player Card modal, for the user's own team only (AI teams manage all of this autonomously). A dedicated "Auto-Fill Practice Squad" action signs the best available free agents into open PS slots at the flat league-minimum salary (a 1-year deal) — separate from the existing active-roster Auto-Fill, which prices at real market value.
+
+### T.4 Injured Reserve
+"Place on IR" is enabled only for a player with a current injury already flagged IR-eligible (`weeks_out >= 4` at the moment of injury — no new threshold). Reactivation (to either the active 53 or back to the practice squad, the user's own choice) requires 4 simulated weeks on IR. AI teams auto-place any of their own players who cross the same threshold; the user's own team gets a manual button instead (this feature's usual "manual for the user, autonomous for AI" split).
+
+### T.5 Poaching
+Modeled on the real CBA rule. Each week the user (and each AI team) protects up to 4 of their 16 practice-squad players; any unprotected PS player is poachable straight onto another team's active 53 (never their own practice squad), with a 3-simulated-week roster lock on the poaching team and a matching lock if the original team pre-empts the poach by promoting him to their own 53 first. Released early during that lock, a poached player reverts to his original team's practice squad rather than hitting free agency. AI teams poach opportunistically (a real upgrade at their own weakest active position group, reusing `roster_strength.py`'s rating math) only when they have an open 53 slot. If an AI team wants to poach one of the user's own unprotected PS players, Sim Week pauses on a real decision screen (let it happen, or block by promoting him first) before that week's games simulate. The user has their own anytime "Browse Practice Squads" surface to poach from any other team.
+
+### T.6 Game-day elevation
+The user can elevate any of their own practice-squad players to depth-chart eligibility for the current week only, unlimited times per game/season (a deliberate simplification of the real NFL's 2-per-game/3-per-season caps) — no AI equivalent. An elevated player automatically reverts to the practice squad once that week's games are simulated, and never counts toward the 53-man cap while elevated.
+
+### T.7 Trades
+Practice-squad players are not tradeable — trades only ever involve active-53 and IR players, same as before this feature. Payroll/cap-space math for a trade still includes every player regardless of roster status (practice-squad and IR salaries count against the cap throughout).

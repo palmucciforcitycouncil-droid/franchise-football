@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Poaching Alert — Franchise Football{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 640px; margin: 0 auto;">
+  <h2 style="margin-top: 0;">Poaching Alert</h2>
+  <p>
+    <strong>{{ poacher_name }}</strong> wants to sign <strong>{{ pending.player_name }}</strong>
+    ({{ pending.position }}) off your practice squad.
+  </p>
+  <p class="muted">
+    He's unprotected this week. Let it happen and he joins {{ poacher_name }}'s active 53 (guaranteed
+    3 weeks of salary there, per the real CBA-style rule) — or promote him to your own 53 right now to
+    block the poach. Either way, he's locked to whichever 53 he ends up on for the next 3 simulated weeks.
+  </p>
+  <div style="display: flex; gap: 0.75rem; margin-top: 1.25rem;">
+    <form method="post" action="/poaching-alert/resolve" style="flex: 1;">
+      <input type="hidden" name="action" value="allow">
+      {% if redirect_to %}<input type="hidden" name="redirect_to" value="{{ redirect_to }}">{% endif %}
+      <button type="submit" style="width: 100%; background: transparent; border: 1px solid var(--border); color: var(--text);">Let It Happen</button>
+    </form>
+    <form method="post" action="/poaching-alert/resolve" style="flex: 1;">
+      <input type="hidden" name="action" value="block">
+      {% if redirect_to %}<input type="hidden" name="redirect_to" value="{{ redirect_to }}">{% endif %}
+      <button type="submit" style="width: 100%;">Block — Promote to My 53</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
