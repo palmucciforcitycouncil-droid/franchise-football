@@ -1252,7 +1252,7 @@
       <div class="pc-row"><span class="pc-row-label">Market Value</span><span id="neg-market-value"></span></div>
       <h4 style="margin: 1rem 0 0.5rem;">Your Offer</h4>
       <div class="neg-slider-row">
-        <div class="neg-slider-label"><span>Contract Length</span><span id="neg-years-value"></span></div>
+        <div class="neg-slider-label"><span id="neg-years-label">Contract Length</span><span id="neg-years-value"></span></div>
         <input type="range" id="neg-years" min="1" max="10" step="1">
       </div>
       <div class="neg-slider-row">
@@ -1452,6 +1452,7 @@
       var negMarketValueEl = document.getElementById('neg-market-value');
       var negYearsInput = document.getElementById('neg-years');
       var negYearsValueEl = document.getElementById('neg-years-value');
+      var negYearsLabelEl = document.getElementById('neg-years-label');
       var negAavInput = document.getElementById('neg-aav');
       var negAavValueEl = document.getElementById('neg-aav-value');
       var negGuaranteedInput = document.getElementById('neg-guaranteed-pct');
@@ -1589,6 +1590,7 @@
         // guaranteed-money slider, a 7-year max, "Coach Reaction".
         negGuaranteedRowEl.hidden = !!opts.hideGuaranteed;
         negYearsInput.max = opts.maxYears || 10;
+        negYearsLabelEl.textContent = opts.yearsLabel || 'Contract Length';
         negReactionLabelEl.textContent = opts.reactionLabel || 'Player Reaction';
         negMoodEl.textContent = '—';
         negMoodEl.className = '';

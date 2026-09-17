@@ -3289,6 +3289,12 @@ def _coach_negotiate_opts(coach: Coach, team_abbr: str, season_number: int) -> s
         "expectedValue": market, "defaultAav": coach.salary_aav or market,
         "defaultYears": coach_contracts.DEFAULT_CONTRACT_YEARS[CoachRole(coach.role)],
         "maxYears": COACH_EXTENSION_MAX_YEARS, "hideGuaranteed": True, "reactionLabel": "Coach Reaction",
+        # Sec 11's "Extend Contract" is additive real-world extension
+        # semantics (a "3-year extension" adds 3 to whatever's left, it
+        # doesn't reset the deal) -- unlike a player free-agent signing's
+        # "Contract Length", which IS the whole new term. Distinct label
+        # so the user isn't guessing which behavior they're getting.
+        "yearsLabel": "Additional Years",
     })
 
 
