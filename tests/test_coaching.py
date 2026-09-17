@@ -27,7 +27,7 @@ from app.engine.awards import (
 )
 from app.models.coach import (
     Coach, CoachRole, CoachSeasonStats,
-    FOCUS_OF_GAMEPLAN, FOCUS_DF_GAMEPLAN, FOCUS_BALANCED_GAMEPLAN, FOCUS_DEVELOPMENT,
+    FOCUS_OFFENSIVE_GAMEPLAN, FOCUS_DEFENSIVE_GAMEPLAN, FOCUS_BALANCED_GAMEPLAN, FOCUS_DEVELOPMENT,
     FOCUS_SPECIAL_TEAMS, FOCUS_TRAINING, FOCUS_SCOUTING, default_focus_area_for,
 )
 from app.services import coach_store, coach_records, season_state
@@ -66,11 +66,14 @@ def test_parse_seed_reads_name_title_and_salary_for_every_line():
     )
 
 
-def test_only_the_four_coordinator_titles_map_to_their_own_role():
+def test_only_the_three_coordinator_titles_map_to_their_own_role():
+    """R16 removed the ST role outright -- Special Teams Coordinator now
+    maps to AC + a "Special Teams" specialty, same shape as any other
+    coordinator-ish AC title."""
     assert map_title("Head Coach") == (CoachRole.HC, None)
     assert map_title("Offensive Coordinator") == (CoachRole.OC, None)
     assert map_title("Defensive Coordinator") == (CoachRole.DC, None)
-    assert map_title("Special Teams Coordinator") == (CoachRole.ST, None)
+    assert map_title("Special Teams Coordinator") == (CoachRole.AC, "Special Teams")
 
 
 def test_assistants_to_a_coordinator_stay_ac_not_promoted():
@@ -133,7 +136,7 @@ def test_the_real_seed_imports_all_32_staffs_with_one_of_each_coordinator():
     assert errors == []
     coaches = build_coaches(entries, league_seed=2025)
     assert len({c.team_abbr for c in coaches}) == 32
-    for role in (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST):
+    for role in (CoachRole.HC, CoachRole.OC, CoachRole.DC):
         assert sum(1 for c in coaches if CoachRole(c.role) is role) == 32, role
 
 
@@ -156,15 +159,16 @@ def _coach(role: CoachRole, **overrides) -> Coach:
     """A neutral coach (every slider and rating at a league-average 50)
     so a test only has to state the one field it's actually exercising.
 
-    R13: defaults `focus_area` to this role's own real Sec 4 default
-    (default_focus_area_for) rather than the model's bare "Development"
-    fallback -- an OC/DC/ST built here contributes to the bucket its role
-    name implies unless a test explicitly overrides focus_area to test
-    reassignment itself."""
+    R16: `focus_area` defaults to plain Development -- play-calling no
+    longer reads it at all (Sec 8), so unlike R13 there's no "role's own
+    lane" to default into here; a test that cares about focus_area passes
+    it explicitly. (An AC's REAL default now requires a real Coach row
+    with real ratings -- see default_focus_area_for()'s own tests --
+    which this bare neutral helper can't compute for itself.)"""
     fields = dict(
         coach_id=f"test_{role.value.lower()}", first_name="Test", last_name=role.value,
         role=role, team_abbr="TST", salary_aav=1_000_000, reputation=50,
-        focus_area=default_focus_area_for(role, None),
+        focus_area=FOCUS_DEVELOPMENT,
     )
     fields.update(overrides)
     return Coach(**fields)
@@ -179,12 +183,11 @@ def test_an_empty_staff_produces_exactly_no_bias():
     assert effect.fourth_down_bias == 0.0
     assert effect.blitz_bias == 0.0
     assert effect.penalty_rate_multiplier == 1.0
-    assert effect.dev_multiplier_offense == 1.0
     assert effect.man_coverage_prob is None
 
 
 def test_a_league_average_staff_also_produces_no_bias():
-    staff = [_coach(r) for r in (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST)]
+    staff = [_coach(r) for r in (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.AC)]
     effect = coaching.build_staff_effect("TST", staff)
     assert effect.pass_bias == pytest.approx(0.0)
     assert effect.blitz_bias == pytest.approx(0.0)
@@ -195,18 +198,17 @@ def test_a_league_average_staff_also_produces_no_bias():
     assert effect.man_coverage_prob == pytest.approx(0.40)
 
 
-def test_a_pass_happy_coordinator_outweighs_the_head_coach():
-    """Sec 7.7.2.2's run_pass_tendency, blended 60/40 toward whoever
-    actually calls that side of the ball -- both coaches focused directly
-    on OF Gameplan here (not the HC's own Balanced-Gameplan default, which
-    has its own dedicated split-weight test below)."""
+def test_the_ocs_own_tendency_drives_pass_bias_not_the_head_coachs():
+    """R16 Sec 8: play-calling is read by ROLE, a deliberate revert of
+    R13's focus-gated blend -- the OC's own run_pass_tendency drives
+    pass_bias entirely; the HC's value (even wildly different) has zero
+    influence, whatever either coach's focus_area happens to be."""
     staff = [
-        _coach(CoachRole.HC, run_pass_tendency=50, focus_area=FOCUS_OF_GAMEPLAN),
-        _coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_OF_GAMEPLAN),
+        _coach(CoachRole.HC, run_pass_tendency=0),
+        _coach(CoachRole.OC, run_pass_tendency=100),
     ]
     effect = coaching.build_staff_effect("TST", staff)
-    # blend = 0.6*100 + 0.4*50 = 80 -> slider 0.6 -> 0.6 * PASS_MIX_SCALE
-    assert effect.pass_bias == pytest.approx(0.6 * coaching.PASS_MIX_SCALE)
+    assert effect.pass_bias == pytest.approx(coaching.PASS_MIX_SCALE)
     assert effect.pass_bias > 0
 
 
@@ -232,40 +234,29 @@ def test_head_coach_discipline_drives_the_penalty_rate_in_the_right_direction():
     assert strict.penalty_rate_multiplier == pytest.approx(coaching.PENALTY_RATE_AT_MAX_DISCIPLINE, abs=0.02)
 
 
-def test_penalty_and_dev_multipliers_are_measured_against_the_league_not_a_hardcoded_50():
+def test_penalty_rate_is_measured_against_the_league_not_a_hardcoded_50():
     """Regression test for a real calibration bug found during this
     system's first live verification: the generated quality ratings are
     centered on `reputation`, whose league mean is ~70 (it's a salary
     percentile mapped onto 40-99), not 50. Centering on a hardcoded 50
-    gave EVERY team a ~0.8x penalty multiplier and a ~1.10x development
-    multiplier -- a league-wide shift to rates tuning.py and
-    test_stat_realism.py have calibrated, rather than the per-team
-    differentiation this system is for."""
-    baseline = coaching.LeagueBaseline(discipline=70.0, dev_offense=70.0, dev_defense=70.0, tendency=50.0)
+    gave EVERY team a ~0.8x penalty multiplier -- a league-wide shift
+    tuning.py and test_stat_realism.py have calibrated, rather than the
+    per-team differentiation this system is for. (Player development is
+    no longer part of StaffEffect at all -- R16 moved it to a seasonal
+    accumulator, app/services/coach_focus_accumulator.py.)"""
+    baseline = coaching.LeagueBaseline(discipline=70.0, tendency=50.0)
     average_for_this_league = coaching.build_staff_effect(
-        "TST", [_coach(CoachRole.HC, discipline=70, player_dev_offense=70, player_dev_defense=70,
-                       focus_area=FOCUS_DEVELOPMENT)],
-        baseline,
+        "TST", [_coach(CoachRole.HC, discipline=70)], baseline,
     )
     assert average_for_this_league.penalty_rate_multiplier == pytest.approx(1.0)
-    assert average_for_this_league.dev_multiplier_offense == pytest.approx(1.0)
 
 
-def test_special_teams_focus_moves_field_goal_range():
-    """Sec 7.7.2.2: special_teams_focus "affects ... average FG try
-    distances"."""
-    timid = coaching.build_staff_effect("TST", [_coach(CoachRole.ST, special_teams_focus=0)])
-    keen = coaching.build_staff_effect("TST", [_coach(CoachRole.ST, special_teams_focus=100)])
-    assert keen.fg_range_bonus > 0 > timid.fg_range_bonus
-
-
-def test_dev_multipliers_stay_inside_their_documented_bounds():
-    best = coaching.build_staff_effect(
-        "TST", [_coach(CoachRole.HC, player_dev_offense=99, player_dev_defense=99)])
-    worst = coaching.build_staff_effect(
-        "TST", [_coach(CoachRole.HC, player_dev_offense=0, player_dev_defense=0)])
-    assert coaching.DEV_MULTIPLIER_MIN <= worst.dev_multiplier_offense <= 1.0
-    assert 1.0 <= best.dev_multiplier_offense <= coaching.DEV_MULTIPLIER_MAX
+    # R16 retired fg_range_bonus and the flat dev_multiplier_offense/
+    # defense split from StaffEffect entirely -- Special Teams and Player
+    # Development are now Focus Area position-group boosts/accumulator
+    # entries instead (app/services/coach_focus_accumulator.py), not
+    # per-game coaching-staff biases. No direct replacement test exists
+    # here yet; that module needs its own dedicated test coverage.
 
 
 def test_short_yardage_run_commitment_only_applies_in_short_yardage():
@@ -282,51 +273,28 @@ def test_none_effect_is_a_no_op_at_every_accessor():
     assert coaching.defense_blitz_bias(None, in_red_zone=True) == 0.0
     assert coaching.defense_coverage_man_prob(None) is None
     assert coaching.penalty_rate_multiplier(None) == 1.0
-    assert coaching.fg_range_bonus(None) == 0.0
     assert coaching.injury_risk_multiplier(None) == 1.0
 
 
 # --------------------------------------------------------------------
-# R13: Coach Focus Areas (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md)
+# R16: Focus Area no longer touches play-calling at all (Sec 8) -- a
+# deliberate revert of R13's focus-gated blend, replaced by the plain
+# role-based read covered above. Focus Area's real effect now (a
+# this-game position-group boost + seasonal development) lives in
+# app/services/coach_focus_accumulator.py, which needs its own tests.
 # --------------------------------------------------------------------
 
-def test_reassigning_focus_away_zeroes_that_buckets_contribution():
-    """The whole point of R13: a coach whose focus points elsewhere
-    contributes NOTHING to a bucket, even if their own rating there is
-    extreme -- reallocation, not free power."""
-    staff = [
-        _coach(CoachRole.HC, run_pass_tendency=50, focus_area=FOCUS_DEVELOPMENT),
-        _coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_SCOUTING),
-    ]
-    effect = coaching.build_staff_effect("TST", staff)
-    # nobody is focused on OF Gameplan at all -> falls back to neutral
-    assert effect.pass_bias == pytest.approx(0.0)
-
-
-def test_balanced_gameplan_contributes_to_both_sides_at_reduced_weight():
-    """Brian's own design (2026-09-13): a Balanced Gameplan coach helps
-    BOTH OF and DF Gameplan, at a smaller weight on each than the same
-    coach fully focused on just one side would carry."""
-    oc = _coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_OF_GAMEPLAN)
-    dc = _coach(CoachRole.DC, blitz_rate=100, focus_area=FOCUS_DF_GAMEPLAN)
-    balanced_hc = _coach(CoachRole.HC, run_pass_tendency=0, blitz_rate=0, focus_area=FOCUS_BALANCED_GAMEPLAN)
-    solo_of_hc = _coach(CoachRole.HC, run_pass_tendency=0, blitz_rate=0, focus_area=FOCUS_OF_GAMEPLAN)
-    dc_alone = coaching.build_staff_effect("TST", [dc])
-
-    with_balanced = coaching.build_staff_effect("TST", [oc, dc, balanced_hc])
-    with_solo_of = coaching.build_staff_effect("TST", [oc, dc, solo_of_hc])
-
-    # A Balanced HC pulls the OF blend toward their own 0 less hard than a
-    # fully OF-focused HC would (their weight there is halved) -> pass_bias
-    # stays closer to the OC's own full-strength number.
-    assert with_balanced.pass_bias > with_solo_of.pass_bias > 0
-
-    # solo_of_hc contributes NOTHING to DF Gameplan at all, so the DC calls
-    # it alone there -- identical to a staff with no HC whatsoever.
-    assert with_solo_of.blitz_bias == pytest.approx(dc_alone.blitz_bias)
-    # The SAME Balanced HC still pulls on the DF side too (their 0 drags
-    # the blend down from the DC's own 100), just not all the way to zero.
-    assert 0 < with_balanced.blitz_bias < with_solo_of.blitz_bias
+def test_focus_area_has_zero_influence_on_play_calling():
+    """The direct regression test for R16 Sec 8's revert: an OC fully
+    focused on Scouting (nothing to do with play-calling) still drives
+    pass_bias exactly as strongly as one focused on Offensive Gameplan --
+    focus_area is irrelevant to this system now, only role and the
+    coach's own tendency rating matter."""
+    on_gameplan = coaching.build_staff_effect(
+        "TST", [_coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_OFFENSIVE_GAMEPLAN)])
+    on_scouting = coaching.build_staff_effect(
+        "TST", [_coach(CoachRole.OC, run_pass_tendency=100, focus_area=FOCUS_SCOUTING)])
+    assert on_gameplan.pass_bias == pytest.approx(on_scouting.pass_bias)
 
 
 def test_training_focus_moves_injury_risk_in_the_right_direction():
@@ -351,18 +319,34 @@ def test_a_coach_not_focused_on_training_does_not_affect_injury_risk():
     assert effect.injury_risk_multiplier == pytest.approx(1.0)
 
 
-def test_default_focus_area_for_matches_the_spec_table():
-    """docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 4's default table,
-    asserted directly against the real function every import/migration
-    script shares."""
-    assert default_focus_area_for(CoachRole.OC, None) == FOCUS_OF_GAMEPLAN
-    assert default_focus_area_for(CoachRole.DC, None) == FOCUS_DF_GAMEPLAN
-    assert default_focus_area_for(CoachRole.ST, None) == FOCUS_SPECIAL_TEAMS
-    assert default_focus_area_for(CoachRole.HC, None) == FOCUS_BALANCED_GAMEPLAN
-    assert default_focus_area_for(CoachRole.AC, "Special Teams (Assistant)") == FOCUS_SPECIAL_TEAMS
-    assert default_focus_area_for(CoachRole.AC, "Strength and Conditioning") == FOCUS_TRAINING
-    assert default_focus_area_for(CoachRole.AC, "Quarterbacks") == FOCUS_DEVELOPMENT
-    assert default_focus_area_for(CoachRole.AC, None) == FOCUS_DEVELOPMENT
+def test_default_focus_area_for_gives_hc_oc_dc_their_fixed_role_lane():
+    """docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 4: HC/OC/DC get
+    a fixed role default -- their job description IS that broad lane, not
+    a rating to compare against a menu. `coach` is ignored for these
+    three roles entirely."""
+    assert default_focus_area_for(CoachRole.OC) == FOCUS_OFFENSIVE_GAMEPLAN
+    assert default_focus_area_for(CoachRole.DC) == FOCUS_DEFENSIVE_GAMEPLAN
+    assert default_focus_area_for(CoachRole.HC) == FOCUS_BALANCED_GAMEPLAN
+
+
+def test_default_focus_area_for_an_assistant_picks_their_own_best_rating():
+    """Sec 4: an AC defaults to whichever of their OWN menu options they
+    have the highest real granular rating at -- a QB-coaching standout
+    lands on FOCUS_QB even though their other ratings (and Development,
+    which has no rating weight at all) are all left at the neutral 50."""
+    qb_specialist = _coach(CoachRole.AC, focus_area=FOCUS_DEVELOPMENT, qb_coaching=99)
+    from app.models.coach import FOCUS_QB
+    assert default_focus_area_for(CoachRole.AC, qb_specialist) == FOCUS_QB
+
+    # An all-neutral coach (every granular rating at the default 50) ties
+    # across every rated option -- strict `>` means the FIRST option in
+    # the AC menu that beats Development's fixed 0.0 baseline wins the
+    # tie (Run Defense, first in FOCUS_OPTIONS_BY_ROLE[AC]), not
+    # Development itself: Development only wins if every real rating
+    # were somehow at or below 0, which never happens with real data.
+    generalist = _coach(CoachRole.AC, focus_area=FOCUS_DEVELOPMENT)
+    from app.models.coach import FOCUS_RUN_DEFENSE
+    assert default_focus_area_for(CoachRole.AC, generalist) == FOCUS_RUN_DEFENSE
 
 
 # --------------------------------------------------------------------
@@ -543,14 +527,15 @@ def test_championship_credit_lands_on_every_role_and_is_idempotent(completed_sea
         assert coach.super_bowl_wins == 1, coach.full_name
         assert coach.conference_titles == 1, coach.full_name
     # Every role tier CURRENTLY STAFFED is represented (Sec 7.9.2's "for
-    # each of HC, OC, DC, ST, and all ACs") -- HC is required (the game
-    # can't simulate without one), but R3d's real firing/replacement
-    # market (ROADMAP.md Sec 4d) can leave a coordinator seat genuinely
-    # vacant if a fired coach's replacement search comes up empty, so a
-    # missing OC/DC/ST isn't itself a bug to assert against here.
+    # each of HC, OC, DC, and all ACs" -- R16 removed ST outright) -- HC
+    # is required (the game can't simulate without one), but R3d's real
+    # firing/replacement market (ROADMAP.md Sec 4d) can leave a
+    # coordinator seat genuinely vacant if a fired coach's replacement
+    # search comes up empty, so a missing OC/DC isn't itself a bug to
+    # assert against here.
     roles_present = {CoachRole(c.role) for c in staff}
     assert CoachRole.HC in roles_present
-    assert roles_present <= {CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC}
+    assert roles_present <= {CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.AC}
     # ...and each ring is recorded against the role actually held.
     hc = coach_store.head_coach(champion)
     assert hc.hc_super_bowl_wins == 1

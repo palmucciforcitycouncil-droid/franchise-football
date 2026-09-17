@@ -546,16 +546,20 @@ def _decide_fourth_down(
 
     `offense_staff` is the real coaching staff's own contribution
     (app/engine/coaching.py): GDD Sec 7.7.2.2's offensive_aggression
-    slider on the go-for-it chance, and the special-teams coordinator's
-    special_teams_focus on how far out this staff will try a field goal.
-    This finally fills the hook simulate_drive()'s own docstring flagged
-    -- `aggression` was described there as "a coaching-tendency proxy
-    until a real Coach entity exists"; the proxy stays as the
-    ratings-derived floor, with the real staff adding to it."""
-    # GDD Sec 7.7.2.2: special_teams_focus "affects ... average FG try
-    # distances". A focused ST staff will try from a few yards further out.
-    fg_range_bonus = coaching.fg_range_bonus(offense_staff)
-    in_fg_range = pos >= 62 - fg_range_bonus  # roughly a <=55-yard attempt
+    slider on the go-for-it chance. This finally fills the hook
+    simulate_drive()'s own docstring flagged -- `aggression` was
+    described there as "a coaching-tendency proxy until a real Coach
+    entity exists"; the proxy stays as the ratings-derived floor, with
+    the real staff adding to it.
+
+    R16 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 8): Special
+    Teams focus no longer widens FG-attempt range as a DECISION bias --
+    it boosts the kicker's own attributes instead (app/engine/coaching.py's
+    apply_focus_boosts(), consumed via the real kicker rating already
+    read elsewhere in this module's _attempt_field_goal()/_kicker_
+    adjusted_prob()), so this decision point no longer takes a staff
+    input at all."""
+    in_fg_range = pos >= 62  # roughly a <=55-yard attempt
     short_yardage = distance <= 2
 
     go_chance = (P.fourth_down_boost + 0.05 * (aggression - 0.5)

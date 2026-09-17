@@ -83,7 +83,6 @@ DEFAULT_CONTRACT_YEARS: dict[CoachRole, int] = {
     CoachRole.HC: 4,
     CoachRole.OC: 3,
     CoachRole.DC: 3,
-    CoachRole.ST: 3,
     CoachRole.AC: 2,
 }
 
@@ -102,7 +101,6 @@ ROLE_SALARY_RANGE_2026: dict[CoachRole, tuple[int, int, int]] = {
     CoachRole.HC: (4_000_000, 7_000_000, 10_000_000),
     CoachRole.OC: (1_000_000, 1_500_000, 2_500_000),
     CoachRole.DC: (1_000_000, 1_500_000, 2_500_000),
-    CoachRole.ST: (700_000, 1_000_000, 1_500_000),
     CoachRole.AC: (200_000, 500_000, 800_000),
 }
 

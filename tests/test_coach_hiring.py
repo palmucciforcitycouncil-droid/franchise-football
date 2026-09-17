@@ -245,7 +245,6 @@ def test_coordinator_jss_weights_have_no_direct_team_win_term():
     OC without mechanically touching the DC's or HC's own terms."""
     assert "win" not in coach_hiring.OC_WEIGHTS
     assert "win" not in coach_hiring.DC_WEIGHTS
-    assert "win" not in coach_hiring.ST_WEIGHTS
     assert "win" in coach_hiring.HC_WEIGHTS
 
 
@@ -341,7 +340,7 @@ def test_internal_hc_candidates_prefer_coordinators_over_assistants():
         pytest.skip("KC has no HC in this database")
     candidates = coach_replacement.internal_candidates("KC", CoachRole.HC, hc.coach_id)
     roles = [CoachRole(c.role) for c in candidates]
-    coordinator_positions = [i for i, r in enumerate(roles) if r in (CoachRole.OC, CoachRole.DC, CoachRole.ST)]
+    coordinator_positions = [i for i, r in enumerate(roles) if r in (CoachRole.OC, CoachRole.DC)]
     ac_positions = [i for i, r in enumerate(roles) if r is CoachRole.AC]
     if coordinator_positions and ac_positions:
         assert max(coordinator_positions) < min(ac_positions)

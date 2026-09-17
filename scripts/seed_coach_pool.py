@@ -252,9 +252,20 @@ def build_candidate_coach(candidate: Candidate, league_seed: int) -> Coach:
                  "two_point_tendency", "blitz_rate", "coverage_mix", "fourth_down_defense",
                  "red_zone_defense_bias", "special_teams_focus"):
         setattr(coach, attr, _draw(rng, 50, 20, 5, 95))
-    for attr in ("player_dev_offense", "player_dev_defense", "discipline", "motivation_chemistry",
-                 "red_zone_offense", "red_zone_defense"):
+    for attr in ("discipline", "motivation_chemistry", "red_zone_offense", "red_zone_defense"):
         setattr(coach, attr, _draw(rng, reputation, 8, 20, 99))
+    # R16: a real OC/DC candidate leans toward their own side's granular
+    # ratings via a PENALTY on the off-side ones (not a bonus on-side --
+    # see scripts/import_coaches.py's _rating_penalty_for() docstring for
+    # why a bonus silently washes out at the 99 ceiling for high-
+    # reputation candidates). This pool has no AC candidates, so only the
+    # coordinator off-side penalty applies here.
+    offense_ratings = ("qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching")
+    off_side_penalty = 8.0
+    for attr in (*offense_ratings, "dl_coaching", "lb_coaching", "secondary_coaching", "st_coaching"):
+        off_side = (candidate.role is CoachRole.OC and attr not in offense_ratings) \
+            or (candidate.role is CoachRole.DC and (attr in offense_ratings or attr == "st_coaching"))
+        setattr(coach, attr, _draw(rng, reputation - (off_side_penalty if off_side else 0.0), 8, 20, 99))
     coach.offensive_profile = rng.choice(OFFENSIVE_PROFILES) if candidate.role in (CoachRole.HC, CoachRole.OC) else "Balanced"
     coach.defensive_profile = rng.choice(DEFENSIVE_PROFILES) if candidate.role in (CoachRole.HC, CoachRole.DC) else "Balanced"
     return coach

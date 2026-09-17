@@ -69,6 +69,38 @@ def _migrate_schema(engine) -> None:
         if coach_cols and "focus_area" not in coach_cols:
             conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN focus_area TEXT NOT NULL DEFAULT 'Development'")
             conn.commit()
+        for column in _COACH_COLUMNS_ADDED_2026_09_15:
+            if coach_cols and column not in coach_cols:
+                conn.exec_driver_sql(f"ALTER TABLE coach ADD COLUMN {column} INTEGER DEFAULT 50")
+                conn.commit()
+        # R16 ST role removal (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md
+        # Sec 9): every existing 'ST' row becomes an AC with a "Special
+        # Teams" specialty -- a real org-chart demotion, not a firing, so
+        # their salary/contract/tenure are all left untouched. Idempotent
+        # (a no-op once no ST rows remain); CoachRole itself no longer HAS
+        # an ST member, so leaving a stale row unmigrated isn't just
+        # cosmetic -- SQLAlchemy raises a LookupError deserializing ANY
+        # query that touches it. This can leave a team at 5 ACs (one over
+        # MAX_ASSISTANTS) right after migration -- same "grandfathered
+        # over the new cap until it naturally resolves" precedent as the
+        # 53-man roster cap's own migration (nothing forces a fire here).
+        if coach_cols:
+            conn.exec_driver_sql(
+                "UPDATE coach SET role = 'AC', specialty = 'Special Teams' WHERE role = 'ST'")
+            conn.commit()
+        # R16 renamed 3 of the R13-era focus_area string values (the
+        # taxonomy redesign kept the underlying concept but not always
+        # the label) -- an existing coach's stored value otherwise keeps
+        # the pre-R16 string forever, which is invisible in the UI (it's
+        # just displayed as-is) but breaks anything that compares against
+        # the current FOCUS_* constants by value, e.g. "is this HC
+        # currently on their fixed role default." Idempotent, same
+        # LEGACY_POSITION_MAP-style UPDATE pattern as position
+        # unification below.
+        if coach_cols:
+            for old, new in _LEGACY_FOCUS_AREA_MAP.items():
+                conn.exec_driver_sql("UPDATE coach SET focus_area = ? WHERE focus_area = ?", (new, old))
+            conn.commit()
         # 2026-09-14 position unification: idempotent -- a no-op once no
         # legacy left/right codes remain. SQLModel stores the Enum NAME,
         # which equals the value for every Position member.
@@ -98,6 +130,32 @@ _PLAYER_COLUMNS_ADDED_2026_09_15: list[tuple[str, str]] = [
     ("ps_protected", "INTEGER NOT NULL DEFAULT 0"),
     ("ir_placed_week", "INTEGER"),
 ]
+
+# R16 Coaching Overhaul (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md
+# Sec 1) -- the 8 granular position-group coaching ratings replacing the
+# old flat player_dev_offense/defense split (now computed properties, not
+# stored columns -- see app/models/coach.py). Every existing coach
+# defaults to a neutral 50, same convention as every other rating here.
+# This was missing from the original commit that introduced these
+# columns (ceea89b5), which only ever ran against a freshly created
+# table -- any pre-existing coach table silently kept the old schema and
+# every Coach query failed with "no such column," caught by coach_store's
+# own OperationalError-tolerant has_coaches()/all_coaches() and
+# misreported as "no coaches imported."
+_COACH_COLUMNS_ADDED_2026_09_15: list[str] = [
+    "qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching",
+    "dl_coaching", "lb_coaching", "secondary_coaching", "st_coaching",
+]
+
+# R16's Focus Area taxonomy redesign renamed these 3 string values (see
+# app/models/coach.py's FOCUS_* constants); everything else kept its
+# R13-era label unchanged.
+_LEGACY_FOCUS_AREA_MAP: dict[str, str] = {
+    "OF Gameplan": "Offensive Gameplan",
+    "DF Gameplan": "Defensive Gameplan",
+    "Special Teams Work": "Special Teams",
+    "Training": "Strength & Conditioning",
+}
 
 
 def get_session() -> Session:

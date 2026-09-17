@@ -138,8 +138,17 @@ def test_schedule_generation_reliable_across_many_seeds():
     _try_place_attempt) has internal randomness and isn't guaranteed to
     succeed on a given attempt -- it retries with different seeds until
     one works. This checks that it actually does converge, and stays
-    fast, across a spread of league seeds and season numbers, not just
-    the one or two used in the other tests above."""
+    reasonably fast, across a spread of league seeds and season numbers,
+    not just the one or two used in the other tests above.
+
+    Budget widened 30 -> 60s: _try_place_attempt's repair pass was
+    upgraded from a one-level Kempe-chain swap to an arbitrary-depth
+    relocation search (ensure_free()), fixing real game sets that used
+    to deterministically exhaust all 2000 random-seed attempts and
+    crash a season rollover outright. A real (measured) cost increase
+    to ~30-32s for these 24 combinations, worth paying for actual
+    convergence -- see schedule.py's own module docstring/commit for
+    the full account."""
     import time
 
     t0 = time.time()
@@ -150,7 +159,7 @@ def test_schedule_generation_reliable_across_many_seeds():
             total = sum(len(week) for week in schedule)
             assert total == 272
     elapsed = time.time() - t0
-    assert elapsed < 30, f"schedule generation took {elapsed:.1f}s for 24 combinations -- too slow"
+    assert elapsed < 60, f"schedule generation took {elapsed:.1f}s for 24 combinations -- too slow"
 
 
 def test_season_page_loads():

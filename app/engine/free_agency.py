@@ -6,9 +6,11 @@ Builds directly on R4a's `app/engine/contracts.py`: `AAV_anchor` is
 reusing `roster_strength.POSITION_WEIGHTS`), `TeamQuality` is
 `roster_strength.team_rating` (see contracts.py's own docstring for why
 that's the real substitute for "prior-year power ranking" here), and
-`CoachDev` is `app.engine.coaching.staff_effect_for()`'s real
-`dev_multiplier_offense`/`dev_multiplier_defense` -- three already-real,
-already-tuned numbers, not new ones invented for this formula alone.
+`CoachDev` is `app.services.coach_focus_accumulator.dev_multiplier_for_
+group()` (R16 -- was `coaching.staff_effect_for()`'s blanket offense/
+defense split before the granular per-position-group Focus Area rework)
+-- three already-real, already-tuned numbers, not new ones invented for
+this formula alone.
 
 **Deliberate scope cut from Sec 8.4's fuller design, disclosed:** no
 multi-team AI bidding war. Sec 8.4's "Tick Logic" (a player reviews
@@ -37,7 +39,7 @@ from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 
-from app.engine import coaching, contracts
+from app.engine import contracts
 from app.engine.position_groups import POSITION_TO_GROUP
 from app.engine.rng import RNG, stable_seed
 from app.models.player import Player, Position
@@ -153,9 +155,16 @@ def evaluate_fa_offer(
     role_fit = role_fit_for(player, current_group_rating)
     team_quality = min(1.1, max(0.6, team_rating / 90.0))  # Sec 8.4: "0.6-1.1"
 
-    effect = coaching.staff_effect_for(team_abbr)
-    from app.services.season_state import DEFENSIVE_POSITIONS
-    coach_dev = effect.dev_multiplier_defense if player.position in DEFENSIVE_POSITIONS else effect.dev_multiplier_offense
+    # R16 Sec 7: dev_multiplier_offense/defense's old blanket split is
+    # replaced by this team's real accumulated Focus Area investment for
+    # the free agent's OWN position group this season -- no longer reads
+    # coaching.staff_effect_for() at all for this term.
+    from app.services import coach_focus_accumulator
+    from app.engine.draft import GROUP_POSITIONS
+    position_to_group = {pos: group for group, positions in GROUP_POSITIONS.items() for pos in positions}
+    group = position_to_group.get(player.position)
+    coach_dev = (coach_focus_accumulator.dev_multiplier_for_group(season_number, team_abbr, group)
+                 if group is not None else 1.0)
 
     total_value = offered_aav * offered_years
     guaranteed_fraction = (offered_guaranteed / total_value) if total_value else 0.0

@@ -229,6 +229,11 @@ def test_coach_extension_over_the_staff_cap_is_refused_with_a_message():
 
 
 def test_hiring_a_fifth_assistant_is_blocked():
+    """R16 removed the ST role: every real team was migrated from 4 ACs
+    + 1 ST to 5 ACs (a real, disclosed, one-time cap overage -- see
+    app/core/db.py's _migrate_schema comment), so KC starts here AT OR
+    OVER cap already, not exactly at it. Either way, hiring one more must
+    still be blocked."""
     from app.engine import coach_contracts
     from app.models.coach import CoachRole
     from app.services import coach_store
@@ -236,7 +241,8 @@ def test_hiring_a_fifth_assistant_is_blocked():
         pytest.skip("no coaches imported")
     season_state.reset_season()
     season_state.set_user_team("KC")
-    assert len(coach_store.assistants("KC")) == coach_contracts.MAX_ASSISTANTS
+    starting_count = len(coach_store.assistants("KC"))
+    assert starting_count >= coach_contracts.MAX_ASSISTANTS
     candidate = next((c for c in coach_store.free_agents() if CoachRole(c.role) is CoachRole.AC), None)
     if candidate is None:
         pytest.skip("no free-agent assistants")
@@ -244,12 +250,17 @@ def test_hiring_a_fifth_assistant_is_blocked():
     assert resp.status_code == 303
     assert "staff_error" in resp.headers["location"]
     coach_store.clear_cache()
-    assert len(coach_store.assistants("KC")) == coach_contracts.MAX_ASSISTANTS
+    assert len(coach_store.assistants("KC")) == starting_count
     # The page itself never offers a 5th assistant.
     assert "Hire Assistant" not in client.get("/staff").text
 
 
 def test_an_open_assistant_seat_can_be_filled_within_the_cap():
+    """R16's ST-removal migration leaves every real team AT OR OVER
+    MAX_ASSISTANTS already (see test_hiring_a_fifth_assistant_is_blocked's
+    own docstring) -- fires enough of them to land strictly BELOW cap
+    (a real open seat), however many that takes, rather than assuming a
+    fixed starting count."""
     from app.engine import coach_contracts, coach_replacement
     from app.models.coach import CoachRole
     from app.services import coach_store
@@ -257,16 +268,18 @@ def test_an_open_assistant_seat_can_be_filled_within_the_cap():
         pytest.skip("no coaches imported")
     season = season_state.reset_season()
     season_state.set_user_team("KC")
-    fired = coach_store.assistants("KC")[0]
-    coach_replacement.execute_fire(fired.coach_id)
+    to_fire = len(coach_store.assistants("KC")) - coach_contracts.MAX_ASSISTANTS + 1
+    fired_ids = {coach.coach_id for coach in list(coach_store.assistants("KC"))[:to_fire]}
+    for coach_id in fired_ids:
+        coach_replacement.execute_fire(coach_id)
     page = client.get("/staff").text
     assert "Hire Assistant" in page
-    # Excludes the just-fired coach: re-hiring THEM specifically is a
-    # different, legitimate scenario (they now price at fresh market
+    # Excludes the just-fired coaches: re-hiring one of THEM specifically
+    # is a different, legitimate scenario (they now price at fresh market
     # value, which can genuinely exceed the room freed by their own
     # below-market exit) -- not what this test is checking.
     candidate = max((c for c in coach_store.free_agents()
-                      if CoachRole(c.role) is CoachRole.AC and c.coach_id != fired.coach_id),
+                      if CoachRole(c.role) is CoachRole.AC and c.coach_id not in fired_ids),
                     key=lambda c: c.overall, default=None)
     if candidate is None:
         pytest.skip("no free-agent assistants")
@@ -284,7 +297,10 @@ def test_hiring_an_assistant_right_after_firing_one_via_the_routes_is_not_blocke
     immediately hiring a replacement THROUGH /staff/{team}/hire, in the
     same request cycle a real user would do it in, must not be blocked by
     a stale MAX_ASSISTANTS read -- the fire frees a seat that the very
-    next request needs to see."""
+    next request needs to see. Fires enough coaches (R16's ST-removal
+    migration leaves every real team AT OR OVER cap already -- see
+    test_hiring_a_fifth_assistant_is_blocked's own docstring) to land
+    strictly below cap first, so there's a genuine seat to fill."""
     from app.engine import coach_contracts
     from app.models.coach import CoachRole
     from app.services import coach_store
@@ -292,15 +308,17 @@ def test_hiring_an_assistant_right_after_firing_one_via_the_routes_is_not_blocke
         pytest.skip("no coaches imported")
     season_state.reset_season()
     season_state.set_user_team("KC")
-    fired = coach_store.assistants("KC")[0]
-    fire_resp = client.post("/staff/KC/fire", data={"role": "AC", "coach_id": fired.coach_id}, follow_redirects=False)
-    assert fire_resp.status_code == 303
-    # Excludes the just-fired coach: re-hiring THEM specifically is a
-    # different, legitimate scenario (they now price at fresh market
+    to_fire = len(coach_store.assistants("KC")) - coach_contracts.MAX_ASSISTANTS + 1
+    fired_ids = {coach.coach_id for coach in list(coach_store.assistants("KC"))[:to_fire]}
+    for coach_id in fired_ids:
+        fire_resp = client.post("/staff/KC/fire", data={"role": "AC", "coach_id": coach_id}, follow_redirects=False)
+        assert fire_resp.status_code == 303
+    # Excludes the just-fired coaches: re-hiring one of THEM specifically
+    # is a different, legitimate scenario (they now price at fresh market
     # value, which can genuinely exceed the room freed by their own
     # below-market exit) -- not what this test is checking.
     candidate = next((c for c in coach_store.free_agents()
-                       if CoachRole(c.role) is CoachRole.AC and c.coach_id != fired.coach_id), None)
+                       if CoachRole(c.role) is CoachRole.AC and c.coach_id not in fired_ids), None)
     if candidate is None:
         pytest.skip("no free-agent assistants")
     hire_resp = client.post("/staff/KC/hire", data={"role": "AC", "coach_id": candidate.coach_id}, follow_redirects=False)
@@ -312,12 +330,22 @@ def test_hiring_an_assistant_right_after_firing_one_via_the_routes_is_not_blocke
 
 
 def test_ai_backfill_restores_four_assistants_and_respects_the_cap():
+    """R16's ST-removal migration leaves every real team AT OR OVER
+    MAX_ASSISTANTS already (see test_hiring_a_fifth_assistant_is_blocked's
+    own docstring) -- fires enough of BUF's assistants to land strictly
+    below cap, however many that takes, before checking that AI backfill
+    tops back up to exactly the cap."""
     from app.engine import coach_contracts, coach_replacement, contracts
     from app.services import coach_ai, coach_store
     if not coach_store.has_coaches():
         pytest.skip("no coaches imported")
     season = season_state.reset_season()
-    for coach in list(coach_store.assistants("BUF"))[:2]:
+    starting_count = len(coach_store.assistants("BUF"))
+    # Leaves exactly 2 on staff, same as this test always has -- just
+    # computed relative to the real starting count instead of assuming
+    # it's always 4.
+    to_fire = starting_count - 2
+    for coach in list(coach_store.assistants("BUF"))[:to_fire]:
         coach_replacement.execute_fire(coach.coach_id)
     assert len(coach_store.assistants("BUF")) == 2
     coach_ai.backfill_assistants(season, exclude_team_abbr="KC")

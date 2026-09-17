@@ -531,15 +531,19 @@ MAX_SCOUTING_NOISE = 12.0   # stddev, overall_rating units -- nobody focused on 
 MIN_SCOUTING_NOISE = 3.0    # stddev floor -- scouting uncertainty never fully disappears
 SCOUTING_STRENGTH_K = 40.0  # saturating-curve constant: strength / (strength + K) -> noise-reduction fraction
 
+# Role-tier weight for Scouting -- reuses app/models/coach.py's own
+# tier_key() grouping (HC / COORD / AC, the same tiers coach_contracts.py
+# negotiates salary within) rather than inventing a second scheme. R13
+# originally shared literal weight constants with coaching.py's now-
+# retired focus-gated play-calling blend (R16 removed that mechanism
+# entirely); Scouting's own tiering is unrelated to play-calling and
+# keeps the same real HC > coordinator > assistant shape independently.
+_SCOUTING_TIER_WEIGHT = {"HC": 0.4, "COORD": 0.6, "AC": 0.3}
+
+
 def _scouting_role_weight(role: CoachRole) -> float:
-    """Role-tier weight, reusing coaching.py's own R13 three-tier scheme
-    (HC > coordinator > assistant) rather than inventing a second one."""
-    from app.engine import coaching
-    if role is CoachRole.HC:
-        return coaching.HC_TIER_WEIGHT
-    if role is CoachRole.AC:
-        return coaching.ASSISTANT_TIER_WEIGHT
-    return coaching.COORDINATOR_TIER_WEIGHT
+    from app.models.coach import tier_key
+    return _SCOUTING_TIER_WEIGHT[tier_key(role)]
 
 
 def team_scouting_strength(team_abbr: str) -> float:
