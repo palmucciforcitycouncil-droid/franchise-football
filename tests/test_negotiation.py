@@ -257,10 +257,16 @@ def test_an_open_assistant_seat_can_be_filled_within_the_cap():
         pytest.skip("no coaches imported")
     season = season_state.reset_season()
     season_state.set_user_team("KC")
-    coach_replacement.execute_fire(coach_store.assistants("KC")[0].coach_id)
+    fired = coach_store.assistants("KC")[0]
+    coach_replacement.execute_fire(fired.coach_id)
     page = client.get("/staff").text
     assert "Hire Assistant" in page
-    candidate = max((c for c in coach_store.free_agents() if CoachRole(c.role) is CoachRole.AC),
+    # Excludes the just-fired coach: re-hiring THEM specifically is a
+    # different, legitimate scenario (they now price at fresh market
+    # value, which can genuinely exceed the room freed by their own
+    # below-market exit) -- not what this test is checking.
+    candidate = max((c for c in coach_store.free_agents()
+                      if CoachRole(c.role) is CoachRole.AC and c.coach_id != fired.coach_id),
                     key=lambda c: c.overall, default=None)
     if candidate is None:
         pytest.skip("no free-agent assistants")
@@ -270,6 +276,38 @@ def test_an_open_assistant_seat_can_be_filled_within_the_cap():
     hired = coach_store.by_id(candidate.coach_id)
     assert hired.team_abbr == "KC" and hired.salary_aav > 0
     assert coach_contracts.staff_cap_room("KC", season.season_number) >= 0
+    assert len(coach_store.assistants("KC")) == coach_contracts.MAX_ASSISTANTS
+
+
+def test_hiring_an_assistant_right_after_firing_one_via_the_routes_is_not_blocked():
+    """task_c3da5c81: firing THROUGH the /staff/{team}/fire route and then
+    immediately hiring a replacement THROUGH /staff/{team}/hire, in the
+    same request cycle a real user would do it in, must not be blocked by
+    a stale MAX_ASSISTANTS read -- the fire frees a seat that the very
+    next request needs to see."""
+    from app.engine import coach_contracts
+    from app.models.coach import CoachRole
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    fired = coach_store.assistants("KC")[0]
+    fire_resp = client.post("/staff/KC/fire", data={"role": "AC", "coach_id": fired.coach_id}, follow_redirects=False)
+    assert fire_resp.status_code == 303
+    # Excludes the just-fired coach: re-hiring THEM specifically is a
+    # different, legitimate scenario (they now price at fresh market
+    # value, which can genuinely exceed the room freed by their own
+    # below-market exit) -- not what this test is checking.
+    candidate = next((c for c in coach_store.free_agents()
+                       if CoachRole(c.role) is CoachRole.AC and c.coach_id != fired.coach_id), None)
+    if candidate is None:
+        pytest.skip("no free-agent assistants")
+    hire_resp = client.post("/staff/KC/hire", data={"role": "AC", "coach_id": candidate.coach_id}, follow_redirects=False)
+    assert hire_resp.status_code == 303
+    assert "staff_error" not in hire_resp.headers["location"]
+    coach_store.clear_cache()
+    assert coach_store.by_id(candidate.coach_id).team_abbr == "KC"
     assert len(coach_store.assistants("KC")) == coach_contracts.MAX_ASSISTANTS
 
 

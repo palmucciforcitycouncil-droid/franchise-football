@@ -20,6 +20,7 @@ data/saves/games/
 data/saves/registry.json
 data/franchise_template.db
 data/franchise_template_history.json
+data/_test_*.db
 
 # Local env & coverage
 .venv/
