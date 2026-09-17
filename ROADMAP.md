@@ -615,6 +615,72 @@ deleted `coaching.fg_range_bonus()`, and `coach_progression.py`'s old
 `RATING_SOURCES` table still tried to `setattr()` the now-read-only
 `player_dev_offense`/`player_dev_defense` properties.
 
+### 4k-addendum. Folded into `claude/practice-squad-r16` and hardened for real, pre-existing saves (2026-09-17)
+
+This branch (`claude/vigorous-lamport-061490`) was a clean, recent fork
+(1 commit ahead of a point well within `practice-squad-r16`'s own
+history), so it merged properly rather than needing a cherry-pick —
+real conflicts in `coaching.py`, `main.py`, `coach_ai.py`,
+`season_state.py`, and `staff.html`, resolved by taking the new role-
+based/accumulator design throughout and combining both sides'
+independent additions where they didn't overlap.
+
+**The merge surfaced three real gaps that only show up against a
+pre-existing database** (this branch's own verification above only
+ever exercised a from-scratch one): no schema migration for the 8 new
+`*_coaching` columns (every Coach query raised "no such column,"
+silently swallowed by `coach_store`'s own error-tolerant `has_coaches()`
+and misreported as "no coaches imported"); no data migration for
+existing `role='ST'` rows (`CoachRole` no longer has an `ST` member, so
+SQLAlchemy raised a `LookupError` on ANY query touching one); no data
+migration for 3 renamed R13-era `focus_area` strings (`OF Gameplan` ->
+`Offensive Gameplan`, `DF Gameplan` -> `Defensive Gameplan`,
+`Special Teams Work` -> `Special Teams`, `Training` -> `Strength &
+Conditioning`). All three added to `app/core/db.py`'s `_migrate_schema()`,
+idempotent, same pattern as every existing migration there. The ST
+migration (a real org-chart demotion, not a firing — salary/contract/
+tenure untouched) leaves every real team at 5 ACs, one over
+`MAX_ASSISTANTS`, right after migration — same "grandfathered over a
+retroactive cap" precedent as the 53-man roster cap's own rollout;
+nothing forces a fire, existing hire-blocking logic just stops it
+getting worse. Confirmed live: the Staff page already had an honest
+"Assistant Coaches (5 of 4)" label for exactly this state.
+
+Also fixed a live bug the migration surfaced: `main.py`'s coach honors
+panel still summed `st_afc_championships`/`st_nfc_championships` across
+a role-prefix tuple that still included `"st"` — that field no longer
+exists on `Coach` at all, an `AttributeError` on every `/staff` load for
+a coach with a populated career-totals row.
+
+**`tests/test_coaching.py` rewritten** (the taxonomy rewrite this
+branch's own section above tracked as not-done): ~15 tests that covered
+now-removed behavior (the old focus-gated play-calling blend,
+`dev_multiplier_offense`/`defense` and `fg_range_bonus` as `StaffEffect`
+fields, the old `default_focus_area_for(role, specialty_string)` shape)
+rewritten to test the real, current system instead of being left broken
+or silently deleted. Fixed cascading breakage in `test_coach_hiring.py`
+and `test_negotiation.py` from the ST->AC migration (every team now
+legitimately starts at 5 assistants, not 4 — several tests hardcoded
+the old baseline).
+
+Also restored Part C's "Additional Years" label, lost when the
+`staff.html` conflict was resolved in favor of the current negotiate-
+modal UI over the incoming branch's older raw `<form>` (which is where
+that label used to live) — wired via a new `yearsLabel` option on the
+shared Negotiation modal, same pattern as its existing `reactionLabel`/
+`hideGuaranteed`, so a player free-agent signing's modal (where years
+IS the whole new term) is unaffected.
+
+**Verified:** full `pytest tests/` twice — 723 passed, 1 skipped, 0
+failed both times (one schedule-generation timing-budget fix in
+between, see §4l's own commit — a real, disclosed cost from the
+schedule-fix fold-in, not related to this merge). Live-verified via a
+throwaway save's `/staff` page: role-correct Focus Area menus, the
+"5 of 4" assistant-cap label, Dave Toub (formerly KC's ST) correctly
+showing as an AC with "Special Teams" specialty, real Trait Effects
+numbers, and the "Additional Years" label on a coach's Extend Contract
+modal. No console errors.
+
 ---
 
 ## 5. How to actually run this efficiently (the token-saving playbook)
