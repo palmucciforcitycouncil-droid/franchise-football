@@ -391,6 +391,33 @@ def test_playoffs_page_renders_before_and_after_the_bracket_exists():
     assert season_state.get_season().playoffs is not None
 
 
+@pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
+def test_playoffs_in_progress_points_sim_week_at_the_dashboard_not_season():
+    """Real playtester report: a bye week in the playoffs' first round
+    made the Weekly Gameplan box (which only lives on /dashboard) seem to
+    stop working for the rest of the postseason. Root cause was
+    navigational, not a Gameplan bug: this page used to tell the player
+    to go simulate on /season instead, which has no Gameplan box either
+    -- and a bye is exactly the moment a player checks /playoffs instead
+    of /dashboard, so every subsequent Sim Week click bounced between
+    /season and /playoffs with nothing ever routing them back. Confirms
+    the in-progress-round copy now points at /dashboard, where the
+    header's persistent Sim Week control (base.html) actually lands the
+    player back where Gameplan is visible."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    season_state.reset_season()
+    from app.engine.schedule import N_WEEKS
+    for _ in range(N_WEEKS):
+        season_state.simulate_current_week()
+
+    resp = client.get("/playoffs")  # builds the WC round on first visit
+    assert resp.status_code == 200
+    assert 'Press "Sim Week" on the <a href="/dashboard">Dashboard</a> page' in resp.text
+
+
 def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
     """GDD Sec 10.4.6: Full Bracket / AFC / NFC / Super Bowl tab views
     (item 32-equivalent redesign) -- each tab's real data (In The Hunt,

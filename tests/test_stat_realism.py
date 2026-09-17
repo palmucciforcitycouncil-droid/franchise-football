@@ -104,6 +104,32 @@ TFL_HEADROOM = 1.5
 REAL_SACKS_PER_TEAM_PER_GAME = (1.6, 3.4)  # generous band around the real ~2.4-2.6 average
 MAX_SINGLE_RECEIVER_TARGET_SHARE = 0.45     # real #1 WRs top out ~25-30%; generous ceiling
 
+# Added after a real playtester report: a QB finished a season with 878
+# pass attempts (real full-season starters run ~500-600) while breaking
+# receiving records too, and this file's existing checks -- all built
+# around yards/TD/count OUTPUTS, never the underlying VOLUME that
+# produces them -- didn't catch it. An inflated-volume, normal-efficiency
+# season sails right under the yardage caps above. See rating.py's
+# pace_drives() and tuning.py's mix.pass for the actual fix; these are
+# the tests that guard it from regressing.
+REAL_PASS_ATTEMPTS_RECORD = 727    # Matthew Stafford, 2012
+REAL_RUSH_CARRIES_RECORD = 416     # Larry Johnson, 2006
+REAL_TARGETS_RECORD = 205          # no official record kept; generous ceiling for a true #1 WR's season
+REAL_COMPLETION_PCT_BAND = (0.45, 0.80)  # generous band around single-season completion-rate history
+REAL_PASSES_DEFENDED_CEILING = 35   # no official record kept; generous ceiling
+REAL_FORCED_FUMBLES_CEILING = 12    # no official record kept; generous ceiling (real standouts run ~8-11)
+REAL_FUMBLE_RECOVERIES_CEILING = 10  # no official record kept; generous ceiling
+
+# Team-level total offensive volume -- the most direct check against this
+# whole CLASS of bug: every check above is a downstream individual-leader
+# or distribution check, exactly what let a volume bug hide behind
+# normal-looking yardage. This catches it at the source. "Plays" here
+# means pass attempts + rush attempts (drive_sim.py's own definition of
+# offensive snaps), not GameResult.plays, which also includes special-
+# teams snaps (punts, field goals) within the same drive loop.
+REAL_TEAM_PLAYS_PER_GAME = (48, 80)   # generous band around the real ~63-65 average
+REAL_TEAM_YARDS_PER_GAME = (230, 460)  # generous band around the real ~330-350 average
+
 # Distribution-shape benchmarks: (n qualified players, mean, median),
 # computed directly from this project's own imported real NFL season
 # data (data/saves/history.json's most recent real season, "n" via the
@@ -152,6 +178,16 @@ def test_full_season_leaders_and_rates_stay_within_real_nfl_bounds():
     max_int = max(d.interceptions for d in defense.values())
     max_solo_tackles = max(d.solo_tackles for d in defense.values())
     max_tfl = max(d.tackles_for_loss for d in defense.values())
+    # Volume, not just the yards/TDs/counts it produces -- see this
+    # file's REAL_PASS_ATTEMPTS_RECORD comment for why this class of
+    # check was missing entirely until now.
+    max_pass_attempts = max(p.attempts for p in passing.values())
+    max_carries = max(r.carries for r in rushing.values())
+    max_targets = max(r.targets for r in receiving.values())
+    max_fumbles_lost = max(r.fumbles_lost for r in rushing.values())
+    max_passes_defended = max(d.passes_defended for d in defense.values())
+    max_forced_fumbles = max(d.forced_fumbles for d in defense.values())
+    max_fumble_recoveries = max(d.fumble_recoveries for d in defense.values())
 
     assert max_pass_yards <= REAL_PASSING_YARDS_RECORD * HEADROOM, \
         f"passing yards leader {max_pass_yards} is more than {HEADROOM}x the real record {REAL_PASSING_YARDS_RECORD}"
@@ -171,6 +207,31 @@ def test_full_season_leaders_and_rates_stay_within_real_nfl_bounds():
         f"solo tackle leader {max_solo_tackles} exceeds the generous realistic ceiling {REAL_SOLO_TACKLES_CEILING}"
     assert max_tfl <= REAL_TFL_CEILING * TFL_HEADROOM, \
         f"TFL leader {max_tfl} is more than {TFL_HEADROOM}x the realistic ceiling {REAL_TFL_CEILING} -- see this file's TFL_HEADROOM comment"
+    assert max_pass_attempts <= REAL_PASS_ATTEMPTS_RECORD * HEADROOM, \
+        f"pass attempts leader {max_pass_attempts} is more than {HEADROOM}x the real record {REAL_PASS_ATTEMPTS_RECORD}"
+    assert max_carries <= REAL_RUSH_CARRIES_RECORD * HEADROOM, \
+        f"carries leader {max_carries} is more than {HEADROOM}x the real record {REAL_RUSH_CARRIES_RECORD}"
+    assert max_targets <= REAL_TARGETS_RECORD * HEADROOM, \
+        f"targets leader {max_targets} is more than {HEADROOM}x the realistic ceiling {REAL_TARGETS_RECORD}"
+    assert max_fumbles_lost <= 15, f"fumbles-lost leader {max_fumbles_lost} exceeds a generous realistic ceiling"
+    assert max_passes_defended <= REAL_PASSES_DEFENDED_CEILING, \
+        f"passes-defended leader {max_passes_defended} exceeds the generous realistic ceiling {REAL_PASSES_DEFENDED_CEILING}"
+    assert max_forced_fumbles <= REAL_FORCED_FUMBLES_CEILING, \
+        f"forced-fumbles leader {max_forced_fumbles} exceeds the generous realistic ceiling {REAL_FORCED_FUMBLES_CEILING}"
+    assert max_fumble_recoveries <= REAL_FUMBLE_RECOVERIES_CEILING, \
+        f"fumble-recoveries leader {max_fumble_recoveries} exceeds the generous realistic ceiling {REAL_FUMBLE_RECOVERIES_CEILING}"
+
+    # Completion % for qualified passers (100+ attempts, same-order
+    # threshold as the QB distribution-shape check below) -- catches a
+    # broken completion mechanic that a raw attempts/yards check alone
+    # wouldn't (e.g. every attempt completing, or almost none).
+    qualified_passers = [p for p in passing.values() if p.attempts >= 100]
+    assert qualified_passers, "no qualified passer (100+ attempts) -- volume check above should have already failed"
+    lo, hi = REAL_COMPLETION_PCT_BAND
+    for p in qualified_passers:
+        pct = p.completions / p.attempts
+        assert lo <= pct <= hi, \
+            f"{p.name} ({p.team_abbr}) completed {pct:.1%} of {p.attempts} attempts -- outside the realistic {lo:.0%}-{hi:.0%} band"
 
     # Target-share concentration: no single receiver should be soaking up
     # a hugely disproportionate share of his own team's targets -- the
@@ -308,6 +369,64 @@ def test_sacks_per_game_rate_and_shape_resemble_a_poisson_process():
     dispersion = variance / mean if mean else 0
     assert 0.5 <= dispersion <= 2.2, \
         f"sacks/game variance-to-mean ratio {dispersion:.2f} doesn't look like a Poisson-ish process (want ~0.5-2.2)"
+
+    for p in (save_service.DEFAULT_SAVE_PATH, history_store.DEFAULT_PATH, gameplan_store.DEFAULT_PATH):
+        p.unlink(missing_ok=True)
+
+
+@needs_db
+def test_team_plays_and_yards_per_game_stay_within_real_nfl_bounds():
+    """The most fundamental gap this file had: every check above is a
+    downstream individual-leader or distribution check, which is exactly
+    what let an inflated-volume, normal-efficiency season (the real
+    878-pass-attempt playtester report) sail through undetected. A direct
+    team-level total-plays/game and total-yards/game check catches this
+    whole CLASS of bug at the source, not just this one instance -- see
+    rating.py's pace_drives() and tuning.py's mix.pass for the actual
+    volume fix."""
+    from app.services import season_state, save_service, history_store, gameplan_store
+    from app.engine.schedule import N_WEEKS
+
+    save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_stat_realism_volume_season.json")
+    history_store.DEFAULT_PATH = Path("data/saves/_test_stat_realism_volume_history.json")
+    gameplan_store.DEFAULT_PATH = Path("data/saves/_test_stat_realism_volume_gameplans.json")
+    for p in (save_service.DEFAULT_SAVE_PATH, history_store.DEFAULT_PATH, gameplan_store.DEFAULT_PATH):
+        p.unlink(missing_ok=True)
+
+    season_state.reset_season()
+    for _ in range(N_WEEKS):
+        season_state.simulate_current_week()
+    season = season_state.get_season()
+
+    # "Plays" is pass attempts + rush attempts (drive_sim.py/game_sim.py's
+    # own definition of an offensive snap) -- deliberately NOT
+    # GameResult.plays, which also counts special-teams snaps (punts,
+    # field goals) taken within the same drive loop, so it isn't
+    # comparable to the real "offensive plays/game" stat this is checking
+    # against. "Yards" is pass + rush yards, matching how scouting.py's
+    # own pass_ypg/rush_ypg are computed elsewhere in this codebase.
+    plays_per_team_game: list[int] = []
+    yards_per_team_game: list[int] = []
+    for week in season.schedule:
+        for g in week:
+            if g.result is None:
+                continue
+            for tot in (g.result.home_totals, g.result.away_totals):
+                plays_per_team_game.append(tot.pass_attempts + tot.rush_attempts)
+                yards_per_team_game.append(tot.pass_yards + tot.rush_yards)
+
+    n = len(plays_per_team_game)
+    assert n > 100, "not enough simulated team-games to check a rate"
+
+    mean_plays = sum(plays_per_team_game) / n
+    mean_yards = sum(yards_per_team_game) / n
+
+    lo, hi = REAL_TEAM_PLAYS_PER_GAME
+    assert lo <= mean_plays <= hi, \
+        f"mean team offensive plays/game {mean_plays:.1f} is outside the real ~{lo}-{hi} band"
+    lo, hi = REAL_TEAM_YARDS_PER_GAME
+    assert lo <= mean_yards <= hi, \
+        f"mean team total yards/game {mean_yards:.1f} is outside the real ~{lo}-{hi} band"
 
     for p in (save_service.DEFAULT_SAVE_PATH, history_store.DEFAULT_PATH, gameplan_store.DEFAULT_PATH):
         p.unlink(missing_ok=True)
