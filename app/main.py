@@ -3340,11 +3340,37 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
     staff_payroll = sum(c.salary_aav for c in staff)
     staff_cap = contracts.coach_salary_cap_for_season(season.season_number)
 
+    # Brian's playtest ask (2026-09-20): "the hiring should take place
+    # from the find coach box" -- a player was finding a replacement in
+    # Find Coaches, then having to go back to the Fill Vacancy panel to
+    # actually hire them. This reuses the EXACT same eligible-candidate
+    # rows already computed above for positions[]/assistant_candidates
+    # (role eligibility via coach_replacement.internal_candidates/
+    # coach_pool.candidates_for_role, and staff-cap affordability via
+    # coach_contracts.staff_cap_room -- all inside _staff_candidate_rows)
+    # so Find Coaches' Hire button can never diverge from Fill Vacancy's
+    # notion of who's eligible for the user's own open seat(s). A coach
+    # not in one of these rows (e.g. under contract with another team,
+    # or wrong role for the current vacancy) gets no Hire button there,
+    # same as they'd never appear in the Fill Vacancy panel either.
+    eligible_hires: dict[str, list[dict]] = {}
+    if is_user_team:
+        open_role_candidates = {p["role"]: p["candidates"] for p in positions if p["coach"] is None and p["candidates"]}
+        if open_assistant_seats and assistant_candidates:
+            open_role_candidates["AC"] = assistant_candidates
+        for role_value, cand_rows in open_role_candidates.items():
+            for c in cand_rows:
+                eligible_hires.setdefault(c["coach_id"], []).append({
+                    "role": role_value,
+                    "role_label": ROLE_TITLES[CoachRole(role_value)],
+                    "affordable": c["affordable"],
+                })
+
     effect = coaching.staff_effect_for(team_abbr)
     search_results = []
     if q or role or available:
         search_results = [
-            {"coach": c, "card": _coach_card_json(c)}
+            {"coach": c, "card": _coach_card_json(c), "hire_options": eligible_hires.get(c.coach_id, [])}
             for c in coach_store.search(q, role=role, available_only=available, limit=40)
         ]
 

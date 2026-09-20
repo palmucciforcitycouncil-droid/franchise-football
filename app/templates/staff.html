@@ -330,6 +330,7 @@
           <th data-sort="ovr" data-type="num">OVR <span class="arrow">&#8597;</span></th>
           <th data-sort="rep" data-type="num">Rep <span class="arrow">&#8597;</span></th>
           <th data-sort="salary" data-type="num">Salary <span class="arrow">&#8597;</span></th>
+          {% if is_user_team %}<th class="nosort"></th>{% endif %}
         </tr>
       </thead>
       <tbody data-sort-body>
@@ -346,6 +347,21 @@
           <td><span class="coach-ovr">{{ entry.coach.overall }}</span></td>
           <td>{{ entry.coach.reputation }}</td>
           <td>{% if entry.coach.team_abbr %}{{ entry.coach.salary_aav | money }}{% else %}--{% endif %}</td>
+          {% if is_user_team %}
+          <td>
+            {% for opt in entry.hire_options %}
+            {% if opt.affordable %}
+            <form method="post" action="/staff/{{ team_abbr }}/hire" data-keep-scroll>
+              <input type="hidden" name="role" value="{{ opt.role }}">
+              <input type="hidden" name="coach_id" value="{{ entry.coach.coach_id }}">
+              <button type="submit">Hire{% if entry.hire_options|length > 1 %} ({{ opt.role_label }}){% endif %}</button>
+            </form>
+            {% else %}
+            <button type="button" disabled title="This salary would put your staff over its salary cap">Over cap{% if entry.hire_options|length > 1 %} ({{ opt.role_label }}){% endif %}</button>
+            {% endif %}
+            {% endfor %}
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -370,7 +386,8 @@
 
   <p class="coach-generated-note">
     Hire/Fire/Promote and Extend Contract are available for your own team &mdash; use the Fire
-    button on any coach box and the Fill Vacancy panel that appears once a seat opens. Every
+    button on any coach box to open a seat, then hire straight from these search results (when a
+    candidate is eligible for your open seat) or from the Fill Vacancy panel below it. Every
     hire and extension must fit the staff salary cap.
   </p>
 </div>

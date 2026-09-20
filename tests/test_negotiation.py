@@ -307,6 +307,95 @@ def test_an_open_assistant_seat_can_be_filled_within_the_cap():
     assert len(coach_store.assistants("KC")) == coach_contracts.MAX_ASSISTANTS
 
 
+def test_find_coaches_shows_a_hire_button_for_an_eligible_candidate_on_an_open_seat():
+    """Brian's playtest ask (2026-09-20): "the hiring should take place
+    from the find coach box." With an AC seat open, an eligible free-
+    agent AC found via Find Coaches' own search box gets a real Hire
+    form -- posting to the exact same /staff/{team}/hire route the Fill
+    Vacancy panel already uses, not a second endpoint."""
+    from app.engine import coach_replacement
+    from app.models.coach import CoachRole
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    coach_replacement.execute_fire(coach_store.assistants("KC")[0].coach_id)
+    coach_store.clear_cache()
+    candidate = max((c for c in coach_store.free_agents() if CoachRole(c.role) is CoachRole.AC),
+                    key=lambda c: c.overall, default=None)
+    if candidate is None:
+        pytest.skip("no free-agent assistants")
+    page = client.get("/staff", params={"team": "KC", "role": "AC", "available": "1"}).text
+    assert 'id="find-coaches-card"' in page
+    find_coaches_html = page.split('id="find-coaches-card"', 1)[1]
+    assert candidate.full_name in find_coaches_html
+    assert 'action="/staff/KC/hire"' in find_coaches_html
+    assert f'name="coach_id" value="{candidate.coach_id}"' in find_coaches_html
+    assert '<input type="hidden" name="role" value="AC">' in find_coaches_html
+
+
+def test_hiring_from_the_find_coaches_hire_button_actually_hires_and_closes_the_seat():
+    """The Find Coaches Hire button must be a real form posting to the
+    live hire route -- clicking it (simulated here as posting exactly
+    what that form submits) hires the coach into the open seat and
+    closes it, the same end state as hiring through Fill Vacancy."""
+    from app.engine import coach_contracts, coach_replacement
+    from app.models.coach import CoachRole
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    coach_replacement.execute_fire(coach_store.assistants("KC")[0].coach_id)
+    coach_store.clear_cache()
+    candidate = max((c for c in coach_store.free_agents() if CoachRole(c.role) is CoachRole.AC),
+                    key=lambda c: c.overall, default=None)
+    if candidate is None:
+        pytest.skip("no free-agent assistants")
+    page = client.get("/staff", params={"team": "KC", "role": "AC", "available": "1"}).text
+    find_coaches_html = page.split('id="find-coaches-card"', 1)[1]
+    assert f'name="coach_id" value="{candidate.coach_id}"' in find_coaches_html
+
+    resp = client.post("/staff/KC/hire", data={"role": "AC", "coach_id": candidate.coach_id},
+                       follow_redirects=False)
+    assert resp.status_code == 303
+    coach_store.clear_cache()
+    hired = coach_store.by_id(candidate.coach_id)
+    assert hired.team_abbr == "KC" and CoachRole(hired.role) is CoachRole.AC
+    assert len(coach_store.assistants("KC")) == coach_contracts.MAX_ASSISTANTS
+    page_after = client.get("/staff", params={"team": "KC"}).text
+    assert "Hire Assistant" not in page_after
+
+
+def test_find_coaches_hides_the_hire_button_for_a_candidate_not_eligible_for_the_open_seat():
+    """Only an AC seat is open (HC/OC/DC/ST all stay filled). An HC
+    candidate found via Find Coaches isn't eligible for that seat --
+    same "not eligible for this seat" rule the Fill Vacancy panel
+    already enforces via _staff_candidate_rows -- so no Hire button
+    should render for them, even though they show up in the search
+    results themselves."""
+    from app.engine import coach_replacement
+    from app.models.coach import CoachRole
+    from app.services import coach_store
+    if not coach_store.has_coaches():
+        pytest.skip("no coaches imported")
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    coach_replacement.execute_fire(coach_store.assistants("KC")[0].coach_id)
+    coach_store.clear_cache()
+    hc_candidate = next((c for c in coach_store.free_agents() if CoachRole(c.role) is CoachRole.HC), None)
+    if hc_candidate is None:
+        pytest.skip("no free-agent head coaches")
+    page = client.get("/staff", params={"team": "KC", "role": "HC", "available": "1"}).text
+    assert 'id="find-coaches-card"' in page
+    find_coaches_html = page.split('id="find-coaches-card"', 1)[1]
+    # They show up in the search results themselves...
+    assert hc_candidate.full_name in find_coaches_html
+    # ...but with no hire form for them (the only open seat is AC, not HC).
+    assert f'name="coach_id" value="{hc_candidate.coach_id}"' not in find_coaches_html
+
+
 def test_ai_backfill_restores_four_assistants_and_respects_the_cap():
     from app.engine import coach_contracts, coach_replacement, contracts
     from app.services import coach_ai, coach_store
