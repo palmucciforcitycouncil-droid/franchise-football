@@ -33,10 +33,14 @@ from app.engine import draft, free_agency
 from app.models.player import Player, Position
 
 POOL_BUFFER_FRACTION = 0.20
-# A position the league is NOT short at still keeps a couple of bodies
-# available, so a mid-preseason release/injury or a manual user search
-# never meets an empty list.
-POOL_FLOOR = 2
+# A position the league is NOT short at still keeps a real, browsable
+# handful of bodies available, so a mid-preseason release/injury or a
+# manual user search never meets an empty list. Raised from 2 to 6
+# (2026-09-20, Brian's playtest report: "0 free agents" in a season-2
+# preseason) -- 2 wasn't a real floor in practice anyway, see
+# prepare_ai_rosters()'s own comment on why the guarantee needs to be
+# re-checked AFTER AI teams consume from the same top-up pass.
+POOL_FLOOR = 6
 
 
 def team_holes(team_abbr: str) -> dict[Position, int]:
@@ -141,6 +145,15 @@ def prepare_ai_rosters(league_seed: int, season_number: int, user_team_abbr: str
     ensure_free_agent_pool_depth(league_seed, season_number)
     ai_teams = [t.abbr for t in TEAMS if t.abbr != user_team_abbr]
     signed = _fill_teams(ai_teams, season_number)
+    # 2026-09-20 fix (Brian's playtest report: free agent pool showed
+    # ZERO players at every position in a season-2 preseason). The FIRST
+    # ensure_free_agent_pool_depth() call above only guarantees POOL_FLOOR
+    # exists the MOMENT it's generated -- the very next line then lets all
+    # 31 AI teams draw from that same pool in one pass, which can (and,
+    # by season 2, reliably did) consume it right back down to empty.
+    # Re-checking the guarantee AFTER AI consumption is what actually
+    # keeps something real behind for the user to browse.
+    ensure_free_agent_pool_depth(league_seed, season_number)
 
     with get_session() as s:
         rosters: dict[str, dict[Position, list[Player]]] = {abbr: defaultdict(list) for abbr in ai_teams}

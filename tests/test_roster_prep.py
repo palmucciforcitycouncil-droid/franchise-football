@@ -134,6 +134,24 @@ def test_pool_guarantee_generates_enough_undrafted_free_agents_and_is_idempotent
     assert roster_prep.ensure_free_agent_pool_depth(2025, 25) == {}
 
 
+def test_prepare_ai_rosters_leaves_a_real_pool_behind_after_ai_teams_sign():
+    """2026-09-20 fix (Brian's playtest report: free agent pool showed
+    ZERO players at every position in a season-2 preseason). The pool
+    guarantee used to only check POOL_FLOOR the MOMENT it topped the pool
+    up, then immediately let every AI team draw from that same pool in
+    one pass -- a league-wide shortage could (and did) consume the whole
+    top-up, leaving nothing for the user to browse afterward."""
+    _release_all("KC", Position.K)
+    _release_all("BUF", Position.K)
+    _delete_free_agents(Position.K)
+
+    roster_prep.prepare_ai_rosters(2025, 25, user_team_abbr="KC")
+
+    with get_session() as s:
+        fa_kickers = list(s.exec(select(Player).where(Player.team_abbr == None, Player.position == Position.K)))  # noqa: E711
+    assert len(fa_kickers) >= roster_prep.POOL_FLOOR
+
+
 def test_prepare_ai_rosters_fixes_every_ai_team_but_never_touches_the_user_team():
     _release_all("KC", Position.QB)
     _release_all("BUF", Position.CB)
