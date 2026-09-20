@@ -150,9 +150,43 @@ def _free_agent():
         return s.exec(select(Player).where(Player.team_abbr == None).order_by(Player.overall_rating.desc())).first()  # noqa: E711
 
 
+def _team_with_cap_room() -> str:
+    """A real team currently under its own salary cap -- needed because
+    this test wants to exercise the REJECT/REFUSED negotiation-mood flow
+    on a $1 lowball offer, not the /free-agency/offer route's separate
+    OVER_CAP guardrail (app/engine/free_agency.py's evaluate_fa_offer:
+    a team already over cap can't make ANY new offer, not even $1, so
+    picking an over-cap team here would short-circuit straight to
+    OVER_CAP before the mood logic ever runs). Hardcoding "KC" used to be
+    safe when every real team's committed payroll sat under the
+    deliberately-inflated $450M cap (2026-09-14 to 2026-09-19); now that
+    the cap is the real $301.2M (contracts.py's SALARY_CAP_2026), a real
+    minority of teams -- KC included -- are realistically over it on a
+    fresh save (see docs/GDD_v3.2.md Appendix T.1), so this picks
+    whichever real team actually has room rather than assuming any one
+    team always does."""
+    from app.core.db import get_session
+    from app.data.teams import TEAMS
+    from app.engine import contracts
+    from app.models.player import Player
+    # >$55M, not just >$0: this test's own final assertion previews a
+    # $50M-AAV/3yr offer, and /free-agency/offer's OVER_CAP guardrail
+    # checks the offered AAV against CURRENT room (evaluate_fa_offer) --
+    # a team barely over $0 would still OVER_CAP on that preview and
+    # short-circuit to a hardcoded "refused": False, unrelated to the
+    # real mood-refusal state this test is actually checking.
+    season = season_state.get_season()
+    with get_session() as s:
+        for team in TEAMS:
+            roster = list(s.exec(select(Player).where(Player.team_abbr == team.abbr)))
+            if roster and contracts.team_cap_space(roster, season.season_number) > 55_000_000:
+                return team.abbr
+    return TEAMS[0].abbr  # fallback: every team over cap, just pick one (shouldn't happen)
+
+
 def test_free_agency_rejections_rotate_and_refusal_greys_out_further_offers():
     season_state.reset_season()
-    season_state.set_user_team("KC")
+    season_state.set_user_team(_team_with_cap_room())
     fa = _free_agent()
     if fa is None:
         pytest.skip("no free agents in this database")

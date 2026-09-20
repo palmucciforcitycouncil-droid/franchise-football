@@ -61,6 +61,72 @@ def _migrate_schema(engine) -> None:
             if column not in existing:
                 conn.exec_driver_sql(f"ALTER TABLE player ADD COLUMN {column} {ddl}")
                 conn.commit()
+        if "legacy_salary_rescaled" not in existing:
+            # One-time real-dollar cap rescale (Brian's ask, 2026-09-19) --
+            # see app/engine/contracts.py's SALARY_CAP_2026 comment for the
+            # full why. Guarded by column existence, same idempotency
+            # pattern as guaranteed_money above: this whole block (the
+            # ALTER + the data UPDATE) can only ever run once per DB file,
+            # ever, because the column it adds is what the guard checks
+            # for -- a second app boot against an already-migrated file
+            # sees the column already present and skips straight past,
+            # so salaries can never be silently halved twice. Deliberately
+            # placed AFTER the acquisition_type loop just above: that
+            # column must exist before this block's UPDATE can reference
+            # it (a DB file old enough to predate acquisition_type entirely
+            # would otherwise fail here with "no such column").
+            #
+            # `legacy_salary_rescaled` is not read anywhere else in the
+            # app -- it exists purely as this migration's own historical
+            # marker (0 = never touched by this pass, either because the
+            # row didn't need it or didn't exist yet; 1 = this row's
+            # salary/guaranteed_money WAS scaled down by this pass).
+            #
+            # Which rows count as "legacy" (still on the old, ~1.25x-
+            # inflated scale) vs. "real" (already on the real $301.2M
+            # scale expected_market_value()/rookie_scale_aav() target):
+            # acquisition_type IS NULL (the original imported roster,
+            # never touched by a real transaction) OR acquisition_type =
+            # 'Trade'. Trade is included deliberately, NOT treated as
+            # already-real: app/engine/trades.py's execute_trade() only
+            # ever rewrites team_abbr/acquisition_*, it never rewrites
+            # salary -- a traded player's salary is exactly whatever it
+            # was pre-trade, so acquisition_type='Trade' says nothing
+            # about scale. 'Free Agent'/'Undrafted FA' (free_agency.py's
+            # mark_free_agent_acquisition) and 'Draft' (draft.py's
+            # rookie-scale contracts) ARE excluded -- both those paths
+            # compute salary from the real-scale formulas directly.
+            #
+            # Known, disclosed gap: a re-signed player (main.py's
+            # gm_desk_offer ACCEPT) gets a real-scale salary written but
+            # acquisition_type is deliberately left unchanged (it still
+            # records the player's ORIGINAL acquisition, by design -- see
+            # free_agency.mark_free_agent_acquisition's own docstring).
+            # A legacy player who was re-signed before this migration
+            # ever ran would still show acquisition_type IS NULL and get
+            # rescaled here even though their current salary is already
+            # real -- a one-time ~20% haircut on that handful of players,
+            # not a repeat/compounding error (this block never runs
+            # again for this row). Real production data checked
+            # 2026-09-19 shows this population is tiny to begin with (a
+            # handful of Free Agent/Trade rows per save, out of ~2000
+            # players) and GM Desk re-signs are a deliberate user action
+            # on their own roster, so the realistic blast radius is small;
+            # flagged here rather than silently assumed away.
+            conn.exec_driver_sql(
+                "ALTER TABLE player ADD COLUMN legacy_salary_rescaled INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
+            from app.engine.contracts import LEGACY_SALARY_RESCALE_FACTOR
+            conn.exec_driver_sql(
+                "UPDATE player SET "
+                "salary = CAST(ROUND(salary * ?) AS INTEGER), "
+                "guaranteed_money = CAST(ROUND(guaranteed_money * ?) AS INTEGER), "
+                "legacy_salary_rescaled = 1 "
+                "WHERE acquisition_type IS NULL OR acquisition_type = 'Trade'",
+                (LEGACY_SALARY_RESCALE_FACTOR, LEGACY_SALARY_RESCALE_FACTOR),
+            )
+            conn.commit()
         coach_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(coach)")}
         if coach_cols and "focus_area" not in coach_cols:
             conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN focus_area TEXT NOT NULL DEFAULT 'Development'")

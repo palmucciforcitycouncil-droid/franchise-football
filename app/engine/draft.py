@@ -53,17 +53,17 @@ the full account):
   modest noise -- real variance, position-flavored, just not hand-tuned
   per attribute per position.
 - **Rookie-scale AAV uses the spec's own Sec 8.1 real-dollar anchor
-  points** (pick 1 = $13.64M, etc.), scaled by this project's REAL
-  SALARY_CAP_BASE ($720M, contracts.py) rather than Sec 8.1's literal
-  $302M divisor -- that divisor is the real-world 2026 NFL cap figure,
-  numerically incompatible with this project's own rescaled cap for the
-  exact reason contracts.py's own SALARY_CAP_BASE comment documents
-  (Sec 8.3's real dollar anchor is incompatible with this project's
-  Madden-derived player-salary scale). Individual real-dollar salary
-  figures elsewhere in this project (e.g. M8's real Mahomes contract)
-  stay on the real scale -- it's only ever the CAP CEILING that gets
-  rescaled -- so anchoring rookie growth to SALARY_CAP_BASE keeps this
-  internally consistent with every other contract calculation.
+  points** (pick 1 = $13.64M, etc.), grown season-over-season by
+  `salary_cap_for_season(season_number) / SALARY_CAP_BASE` --
+  contracts.py's own real +7.5%/year growth ratio, not Sec 8.1's literal
+  $302M divisor. That ratio is invariant to SALARY_CAP_BASE's actual
+  value, so it stayed correct unchanged through both cap rescales this
+  project has had: when SALARY_CAP_BASE was a deliberately-inflated
+  $450M/$720M (see contracts.py's own SALARY_CAP_2026 comment for why,
+  and for its 2026-09-19 fix), and now that it's the real $301.2M anchor.
+  The anchor dollar figures above ($13.64M for pick 1, etc.) are real
+  2026 rookie-scale numbers either way -- it's only ever been the CAP
+  CEILING that was rescaled, never these.
 - **Undrafted-pool cleanup is Tier-1-only** (hard delete at
   years_remaining == 0), not the spec's fuller two-tier percentile
   pruning (Sec 9.2's "delete bottom 25%/10%"). A real, simpler rule in

@@ -9835,9 +9835,9 @@ Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts 
 - Starters per position: WR 3, T 2, G 2, C 1, EDGE 2, DT 2, LB 3, CB 2, S 2, others 1. Sec 6.6.2's zone blocking still has left/right sides: the 1st starter at T/G/EDGE plays the left side, the 2nd the right.
 - Roster requirements (single table, `free_agency.ROSTER_REQUIREMENTS`): QB2 HB2 WR5 TE2 T3 G3 C2 EDGE3 DT3 LB4 CB4 S3 K1 P1.
 
-### S.2 Salary caps (supersedes the $720M rescale in Sec 8.3)
-- The cap is anchored to the calendar year (`season_year`), not season_number (which starts at 2002; the old formula compounded 25 years of growth for a 2026 save). **Player cap $450M in 2026** (smallest round number every imported real-salary roster fits under), **+7.5%/yr**.
-- Player market value stays on the real-world $301.2M scale × the same growth, so demands escalate with the cap.
+### S.2 Salary caps (supersedes the $720M rescale in Sec 8.3; itself superseded 2026-09-19 by Appendix T.1 -- see that section for the current real numbers)
+- The cap is anchored to the calendar year (`season_year`), not season_number (which starts at 2002; the old formula compounded 25 years of growth for a 2026 save). Player cap was **$450M in 2026** (smallest round number every imported real-salary roster fit under) between 2026-09-14 and 2026-09-19, **+7.5%/yr** -- a deliberate, disclosed temporary inflation, not the real NFL number. **Appendix T.1 folds this back to the real $301.2M cap.**
+- Player market value stayed on the real-world $301.2M scale × the same growth throughout, so demands already escalated with the cap; as of Appendix T.1 the cap and market-value scales are the same number, not two.
 - **Coaching staff cap $15M in 2026**, same growth, covering all coach salaries combined. Enforced for user hires/extensions and AI hires/renewals (AI trims salary to the room left).
 - Coach salary ranges (2026 dollars, grow with the cap): HC $4–10M (median 7), OC/DC $1–2.5M (1.5), ST $0.7–1.5M (1.0), AC $0.2–0.8M (0.5). Market value = percentile of `overall` within role, mapped onto the range.
 
@@ -9886,5 +9886,22 @@ Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts 
 - Staff page: "Coach Salary $X / $15.0M" beside the team picker; real salary and "N years remaining" / "Contract expired" on coach cards; no "/99" rating suffixes.
 
 ### S.11 Known gaps (not built)
-- Tied games are still recorded as a home win in W-L standings (no ties column).
 - Acquisition history for players rostered before the franchise began is blank (to back-fill later).
+
+---
+
+## Appendix T. September 19, 2026 Game Fixes (implemented)
+
+### T.1 One-time real-dollar salary cap rescale (supersedes S.2's $450M cap)
+
+Brian confirmed a real one-time data fix after being shown the numbers below -- the $450M/$301.2M split cap (S.2) was a deliberate but temporary call, not a long-term answer, and a 3-season isolated simulation showed it doesn't self-correct (20-25 of 32 teams stayed over the real $301.2M cap every season, no downward trend).
+
+**What the real DB showed (2026-09-19, `data/franchise_football.db`, 2003 players/32 teams, read-only investigation):** at the unscaled 2026-09-14 salary figures, only 11/32 teams have full-roster committed payroll ≤ $301.2M (13/32 on a top-53-only measure) -- confirming the overage is genuine per-player salary inflation (top-53 payroll for PHI $434M, GB $423M, etc.), not just a roster-size artifact (real rosters here carry 54-72 players, but even restricted to the top 53 highest-paid, most of the same teams are still over).
+
+**The fix:** `app/core/db.py::_migrate_schema()`'s `legacy_salary_rescaled` block multiplies every "legacy" player's `salary` and `guaranteed_money` by **`contracts.LEGACY_SALARY_RESCALE_FACTOR = 0.80`** (a flat 20% cut), exactly once per DB file, automatically the next time that file is opened (template, live DB, every save's own `franchise.db`) -- no separate migration script, same as every other schema/data fix in this project. "Legacy" = `acquisition_type IS NULL` (the originally-imported roster) OR `= 'Trade'` (trades never rewrite salary, so a traded player's salary is exactly as legacy or real as it was pre-trade -- acquisition_type alone is not a reliable scale signal). Real-scale salaries (`'Draft'`, `'Free Agent'`, `'Undrafted FA'` -- all computed directly from the real $301.2M-anchored `expected_market_value()`/`rookie_scale_aav()`) are left untouched. Idempotency is a column-existence guard (`legacy_salary_rescaled`), the same pattern this file's own migrations already use elsewhere -- a second app boot against an already-migrated file can never halve salaries twice.
+
+**Result (measured against copies of the real DB, template, and 2 in-progress saves, never the originals):** full-roster cap compliance rose from 11/32 (34%) to 23-25/32 (72-78%) across every file tested; top-53-only compliance rose from 12-13/32 to 24-25/32. The remaining over-cap teams (the league's most expensive rosters -- PHI, GB, DET, SEA, BAL and similar) are realistically over on day one, same as a real NFL team that has to restructure -- not a bug, the explicit target (some teams over is fine; zero teams ever over was never the goal).
+
+`SALARY_CAP_2026`/`SALARY_CAP_BASE`/`REAL_WORLD_CAP_2026` (three names, two of them for one already-inflated number) are now one real number: **`SALARY_CAP_2026 = SALARY_CAP_BASE = $301,200,000`**, still **+7.5%/yr**. `expected_market_value()` (free agency/re-sign/extension offers) and `rookie_scale_aav()` (draft contracts) needed no code changes -- both already targeted this real scale or a cap-relative ratio invariant to it.
+
+**Known, disclosed gap:** a re-signed player (GM Desk extension, `main.py`'s `gm_desk_offer` ACCEPT) gets a real-scale salary written but keeps his ORIGINAL `acquisition_type` by design (see `free_agency.mark_free_agent_acquisition`'s own docstring) -- so a legacy player re-signed before this migration ever ran would show `acquisition_type IS NULL` and take one more 20% cut here even though his current salary was already real. Real production data checked 2026-09-19 shows this edge case's population is small (the entire real-scale population across the checked saves was a handful of Free Agent/Trade rows out of ~2000 players each), so the realistic blast radius is a few players getting a one-time, non-repeating haircut -- flagged, not silently assumed away. See `app/core/db.py`'s own migration comment for the full reasoning.

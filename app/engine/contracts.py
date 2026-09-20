@@ -53,30 +53,79 @@ from app.engine.position_groups import POSITION_TO_GROUP
 from app.engine.roster_strength import POSITION_WEIGHTS
 from app.models.player import Player
 
-# Salary cap, re-anchored 2026-09-14 (Brian: GM Desk "still showing $700M").
+# Salary cap, re-anchored 2026-09-14 (Brian: GM Desk "still showing $700M"),
+# then rescaled to the real number 2026-09-19.
 #
 # History: the cap was once rescaled to $720M because the ORIGINAL Madden
 # salary column ran on a non-NFL scale (single players at $190M). The
-# 2026-09-13 real-salary import replaced that data with real AAVs
-# (Mahomes $64M; team payrolls $199M-$441M, top-53 max $434M), so the
-# $720M figure no longer described anything. It was ALSO applied with the
-# wrong year anchor: `season_number` 0 is 2002 (app/config.py), so a new
-# save's first season (season_number 24 = 2026) was compounding 25 years
-# of growth -- a ~$4.4B cap and quarterback "market values" near $900M.
+# 2026-09-13 real-salary import replaced that data with real-LOOKING per-
+# player AAVs (Mahomes $64M; team payrolls $199M-$441M, top-53 max $434M),
+# but that import's numbers were still individually inflated relative to
+# real 2026 NFL contracts, not just a roster-size artifact -- confirmed
+# 2026-09-19 by comparing TOP-53 (not full-roster) payroll against the
+# real $301.2M cap: 19 of 32 teams were still over cap even restricted to
+# each team's own 53 highest-paid players (PHI top-53 $434M, GB $423M vs.
+# a $301.2M cap -- both would need roughly a 30% cut, not a rounding
+# error). So on 2026-09-14 the cap itself was inflated to $450M instead
+# (deliberately, disclosed in ROADMAP.md Sec4m as a temporary call) --
+# "the smallest round number every imported roster fits under" -- while
+# `expected_market_value()` below was pointed at the real $301.2M scale
+# for every NEW contract (free agency, re-signs, rookie deals) going
+# forward. That produced two live populations in the same save: legacy
+# salaries from the original import (still ~1.25x real scale) and
+# post-2026-09-14 gameplay salaries (genuinely real scale) -- a split a
+# 3-season isolated sim confirmed doesn't self-correct (20-25/32 teams
+# stayed over the real cap every season with no downward trend). Brian
+# confirmed (2026-09-19) this needed a real one-time data fix rather than
+# staying split forever: `app/core/db.py::_migrate_schema()`'s
+# `legacy_salary_rescaled` block below multiplies every legacy salary
+# (and its paired `guaranteed_money`) by LEGACY_SALARY_RESCALE_FACTOR,
+# ONE time, the next time each DB file (template, live, every save) is
+# opened -- see that function for the idempotency guard and the "which
+# rows count as legacy" logic (acquisition_type NULL OR 'Trade' --
+# `execute_trade()` never rewrites salary, so a traded player's salary
+# is exactly as legacy/real as it was pre-trade, making acquisition_type
+# alone an unreliable signal; see that function's own comment for the
+# full reasoning, including the GM-Desk-re-sign edge case that couldn't
+# be fully closed retroactively).
 #
-# Now: the cap is anchored to a real calendar year via season_year().
-# SALARY_CAP_2026 is the smallest round number every imported roster fits
-# under (real rosters carry 54-68 players here, not 53, and real AAVs
-# ignore bonus proration, so the real $301.2M cap would leave 29 of 32
-# teams permanently over). Player *market value* stays on the real-world
-# $301.2M scale so demands track real contracts. Both grow at the same
-# real +7.5%/year, so every salary demand escalates with the cap.
+# It was ALSO applied with the wrong year anchor at one point: `season_
+# number` 0 is 2002 (app/config.py), so a new save's first season
+# (season_number 24 = 2026) was compounding 25 years of growth -- a
+# ~$4.4B cap and quarterback "market values" near $900M. Fixed 2026-09-14
+# by anchoring to a real calendar year via season_year(), unrelated to
+# and unaffected by this scale fix.
+#
+# Now (2026-09-19): SALARY_CAP_2026 IS the real $301.2M anchor -- no more
+# split scale. Every salary (legacy, rescaled once; every post-2026-09-14
+# gameplay salary, already real) and the cap itself grow at the same real
+# +7.5%/year, so every salary demand escalates with the cap.
 CAP_ANCHOR_YEAR = 2026
-SALARY_CAP_2026 = 450_000_000
-REAL_WORLD_CAP_2026 = 301_200_000
-# Kept as a name for callers that measure growth as cap / SALARY_CAP_BASE.
+SALARY_CAP_2026 = 301_200_000
+# Kept as a name for callers that measure growth as cap / SALARY_CAP_BASE
+# (app/engine/draft.py's rookie scale, coach cap, etc.) -- now the same
+# real number as SALARY_CAP_2026, not a second inflated figure.
 SALARY_CAP_BASE = SALARY_CAP_2026
 SALARY_CAP_GROWTH = 0.075
+# One-time rescale factor for legacy (pre-2026-09-14) salaries -- see the
+# History note above and app/core/db.py::_migrate_schema()'s
+# `legacy_salary_rescaled` block, the actual migration this feeds.
+# Derived 2026-09-19 from the real live DB (data/franchise_football.db,
+# 2003 players, 32 teams): at factor 1.0 (i.e. today, unscaled), only
+# 11/32 teams have full-roster committed payroll <= $301.2M (13/32 on a
+# top-53-only measure). 0.80 -- a flat 20% cut, not a guess: it's the
+# roundest factor that clears a real majority without overcorrecting the
+# already-cheap teams -- gets 24/32 compliant (full roster) / 25/32
+# (top-53), leaving the most expensive rosters (PHI, GB, DET, SEA, BAL...)
+# realistically over cap on day one, same as a real NFL team that has to
+# restructure -- not zero teams over, which was never the goal (see
+# Brian's own framing: some teams over on day one is realistic and fine).
+# A single global factor, not team-by-team: team-specific factors would
+# make two otherwise-identical players earn different real dollars purely
+# because of which team originally imported them, which isn't how real
+# money works and wasn't needed here (a flat factor alone gets a large
+# majority compliant).
+LEGACY_SALARY_RESCALE_FACTOR = 0.80
 # Coaching staff cap (Brian's ask, 2026-09-14): all coach salaries
 # combined, $15M in 2026, growing at the player cap's own rate.
 COACH_SALARY_CAP_2026 = 15_000_000
@@ -100,10 +149,11 @@ def coach_salary_cap_for_season(season_number: int) -> float:
 
 
 VETERAN_MIN_BASE = 840_000  # Sec 8.3.2: $0.84M at 0 years of service, 2025 -- kept at the GDD's literal
-# real-world value even though SALARY_CAP_BASE above was rescaled to this project's own data: at that
-# rescaled cap, this floor is low enough to almost never bind (real imported salaries run well above
-# it), which is fine -- it's a floor, not a target, and staying inert here beats fabricating a second,
-# unrelated rescaled number with no real anchor at all.
+# real-world value. Now that SALARY_CAP_BASE is genuinely the real $301.2M cap (2026-09-19), this floor
+# reads correctly on its own terms; it still rarely binds (most real/rescaled salaries run above it),
+# which is fine -- it's a floor, not a target. Note the 2026-09-19 legacy rescale did NOT enforce this
+# floor on the small number of already-below-veteran-minimum legacy salaries it touched (a pre-existing
+# import quirk, not something the rescale introduced) -- see that migration's own comment for why.
 # This module's own choice (not in the GDD): each year of service adds
 # ~4% of the base, capped at 10 years -- a real ladder, not a flat number,
 # without a documented per-year table to import.
@@ -150,7 +200,7 @@ def expected_market_value(player: Player, season_number: int) -> float:
     group = POSITION_TO_GROUP[player.position]
     position_mult = POSITION_WEIGHTS[group] / POSITION_WEIGHTS["QB"]  # 0..1, QB = 1.0
     ovr_frac = max(0.0, (player.overall_rating - 40) / 59.0)  # 40 OVR floor -> 0, 99 -> 1
-    base_value = REAL_WORLD_CAP_2026 * cap_growth_factor(season_number) * 0.20  # a QB1 at 99 OVR, prime age, caps near 20% of the cap -- real NFL's actual top-of-market QB share
+    base_value = SALARY_CAP_2026 * cap_growth_factor(season_number) * 0.20  # a QB1 at 99 OVR, prime age, caps near 20% of the cap -- real NFL's actual top-of-market QB share
     value = base_value * (ovr_frac ** 1.6) * position_mult * _age_value_multiplier(player.age)
     return max(value, veteran_minimum(player.years_pro, season_number))
 
