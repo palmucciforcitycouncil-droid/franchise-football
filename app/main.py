@@ -2655,6 +2655,13 @@ def _grouped_teams() -> dict[str, dict[str, list[TeamInfo]]]:
 
 ROUND_LABELS = {"WC": "Wild Card", "DIV": "Divisional", "CONF": "Conference Championship", "SB": "Super Bowl"}
 
+# playoffs.html's own explicit "Sim <round>" button label (2026-09-20 fix:
+# viewing /playoffs used to silently simulate a round as a GET-time side
+# effect -- see playoffs_view()'s docstring). "Conference Championship" and
+# "Super Bowl" already read as a round name on their own; WC/DIV need the
+# word "Round" appended to read the same way.
+SIM_ROUND_BUTTON_LABELS = {"WC": "Sim Wild Card Round", "DIV": "Sim Divisional Round", "CONF": "Sim Conference Championship", "SB": "Sim Super Bowl"}
+
 
 def _hof_new_inductee_keys(full_history: list, full_inductee_keys: set[tuple[str, str]]) -> set[tuple[str, str]]:
     """Which of `full_inductee_keys` (the CURRENT Hall of Fame class,
@@ -4872,8 +4879,29 @@ def playoffs_view(request: Request, view: str = "full"):
             "projected_afc_rounds": projected_afc_rounds, "projected_nfc_rounds": projected_nfc_rounds,
         })
     if season.playoffs is None:
-        season_state.simulate_playoff_round()  # builds the Wild Card round on first visit
-        season = season_state.get_season()
+        # Brian's report, 2026-09-20: this used to call
+        # season_state.simulate_playoff_round() right here, which doesn't
+        # just build an empty bracket -- it immediately simulates every
+        # Wild Card matchup too. That meant merely VIEWING the Playoffs
+        # page (a GET, a side-effect-free page load in every user's
+        # mental model) silently played out the entire Wild Card round
+        # before the page even rendered. Build the real, final-seeded
+        # Wild Card matchups for DISPLAY ONLY instead, via the same pure
+        # build_wild_card_round() the pre-completion preview above
+        # already uses -- same real seeding/matchups, just no results.
+        # Actually playing the round now requires the explicit "Sim Wild
+        # Card Round" button below (POST /season/simulate-week, same
+        # route/button convention as every other in-season sim action --
+        # see base.html's header and season.html), not a page view.
+        pending_bracket = build_wild_card_round(season)
+        return templates.TemplateResponse(request, "playoffs.html", {
+            "season": season, "bracket": None, "round_labels": ROUND_LABELS, "view": view,
+            "preview": None, "clinch_marks": clinch.clinch_marks(season),
+            "pending_round_name": "WC",
+            "sim_round_button_label": SIM_ROUND_BUTTON_LABELS["WC"],
+            "pending_afc_rounds": _rounds_by_conference(pending_bracket, "AFC"),
+            "pending_nfc_rounds": _rounds_by_conference(pending_bracket, "NFC"),
+        })
     bracket = season.playoffs
     in_the_hunt, division_standings = _conference_hunt_and_standings(season, bracket.afc_seeds, bracket.nfc_seeds)
     afc_rounds = _rounds_by_conference(bracket, "AFC")
@@ -4890,6 +4918,10 @@ def playoffs_view(request: Request, view: str = "full"):
         # (with stat line) under the champion -- frozen by season_honors
         # the moment the game is played.
         "sb_summary": honors_store.get_super_bowl(season.season_number) if bracket.is_complete else None,
+        # 2026-09-20 fix: same explicit "Sim <round>" button as the
+        # pending-Wild-Card state above, for every later round too (DIV/
+        # CONF/SB) -- None once the bracket's fully decided.
+        "sim_round_button_label": SIM_ROUND_BUTTON_LABELS.get(bracket.current_round_name) if not bracket.is_complete else None,
     }
 
     if view == "full":

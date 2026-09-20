@@ -385,9 +385,21 @@ def test_playoffs_page_renders_before_and_after_the_bracket_exists():
     for _ in range(N_WEEKS):
         season_state.simulate_current_week()
 
-    resp = client.get("/playoffs")  # builds the WC round on first visit
+    # 2026-09-20 fix: viewing the Playoffs page right after the regular
+    # season ends must NOT auto-simulate the Wild Card round -- it used to
+    # (Brian's report: checking seeding on the Playoffs tab silently played
+    # out the whole round). The real, final-seeded matchups show up for
+    # display only, with season.playoffs staying None until the explicit
+    # "Sim Wild Card Round" button (POST /season/simulate-week) is used.
+    resp = client.get("/playoffs")
     assert resp.status_code == 200
     assert "Wild Card" in resp.text
+    assert "Sim Wild Card Round" in resp.text
+    assert season_state.get_season().playoffs is None
+
+    resp = client.post("/season/simulate-week", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/playoffs"
     assert season_state.get_season().playoffs is not None
 
 
@@ -404,7 +416,17 @@ def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
     for _ in range(N_WEEKS):
         season_state.simulate_current_week()
 
-    resp = client.get("/playoffs")  # default view=full, builds WC round
+    # 2026-09-20 fix: GET /playoffs right after the regular season ends no
+    # longer auto-simulates the Wild Card round (that used to be a GET-time
+    # side effect -- Brian's report: checking seeding silently played the
+    # round out). Explicitly sim it before checking the real-bracket views
+    # below, same as a user clicking the page's "Sim Wild Card Round" button.
+    resp = client.get("/playoffs")
+    assert resp.status_code == 200
+    assert season_state.get_season().playoffs is None
+    season_state.simulate_playoff_round()  # WC
+
+    resp = client.get("/playoffs")  # default view=full, real bracket now built
     assert resp.status_code == 200
     # M12: Full Bracket is a real connected 9-column tree now (real source:
     # FullPlayoffTree.tsx), not two "American/National Conference" prose

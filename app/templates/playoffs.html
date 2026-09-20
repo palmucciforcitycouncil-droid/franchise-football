@@ -153,7 +153,13 @@
 <div class="card">
   <h2>Playoffs</h2>
   {% if bracket is none %}
-    {% if preview %}
+    {% if pending_round_name %}
+    <p class="muted">The regular season is complete &mdash; real seeding, real matchups below for the {{ round_labels[pending_round_name] }} round (GDD &sect;7.3). Nothing's been played yet; press the button below when you're ready to sim it.</p>
+    <form method="post" action="/season/simulate-week" class="sim-week-form">
+      <input type="hidden" name="redirect_to" value="/playoffs">
+      <button type="submit">{{ sim_round_button_label }}</button>
+    </form>
+    {% elif preview %}
     <p class="muted">The real bracket (seeds, matchups) is only set once the regular season finishes (GDD &sect;7.3) &mdash; below is the current playoff picture if the season ended today, from real standings. See the <a href="/season">Season</a> page to keep simulating weeks &mdash; Week {{ season.current_week }} of {{ season.schedule | length }} up next.</p>
     {% else %}
     <p class="muted">Check back after Week 4 &mdash; too few games played so far for a meaningful playoff picture. See the <a href="/season">Season</a> page to keep simulating weeks.</p>
@@ -170,9 +176,24 @@
   <p class="muted">Press "Sim Week" to begin the offseason: Staff Decisions, then your own contract re-signing window on the GM Desk, before free agency and the draft.</p>
   {% endif %}
   {% else %}
-  <p class="muted">Current round: {{ round_labels[bracket.current_round_name] }}. Press "Sim Week" on the <a href="/season">Season</a> page to simulate it.</p>
+  <p class="muted">Current round: {{ round_labels[bracket.current_round_name] }} &mdash; matchups below aren't played yet.</p>
+  <form method="post" action="/season/simulate-week" class="sim-week-form">
+    <input type="hidden" name="redirect_to" value="/playoffs">
+    <button type="submit">{{ sim_round_button_label }}</button>
+  </form>
   {% endif %}
 </div>
+
+{% if pending_round_name %}
+<!-- 2026-09-20 fix: regular season just finished, Wild Card not played
+     yet -- real, final seeding (build_wild_card_round() against the now-
+     final standings) shown for DISPLAY ONLY. Simulating it is the
+     explicit button above, not a side effect of loading this page. -->
+<div class="card">
+  <h3>{{ round_labels[pending_round_name] }} Round <span class="muted" style="font-weight: 400; font-size: 0.85rem;">&mdash; not yet played</span></h3>
+  {{ full_tree(pending_afc_rounds, pending_nfc_rounds) }}
+</div>
+{% endif %}
 
 {% if preview %}
 <!-- 2026-09-11 follow-up: Brian flagged the in-season preview didn't
