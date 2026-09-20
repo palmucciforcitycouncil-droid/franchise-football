@@ -841,7 +841,15 @@
     .headlines-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 0.85rem; }
     .headlines-col-title { font-size: 0.78rem; margin: 0 0 0.25rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .headlines-list {
-      margin: 0; padding-left: 1.1rem; max-height: 108px; overflow-y: auto; font-size: 0.82rem;
+      /* 2026-09-20 fix (Brian's playtest report: "the headlines should
+         fit in the box and not require a scroll, unless it is for the
+         team injuries as that number is variable"). Headlines are
+         capped at TARGET_TOTAL=5 (headlines.py) -- a real, bounded
+         count, unlike Team Injuries' genuinely unbounded list (which
+         keeps its own scroll, .injuries-list below) -- so this grows to
+         fit its content instead of a fixed height that could clip a
+         wrapped long headline. */
+      margin: 0; padding-left: 1.1rem; font-size: 0.82rem;
     }
     .headlines-list li { margin-bottom: 0.3rem; line-height: 1.35; }
     @media (max-width: 700px) { .headlines-columns { grid-template-columns: 1fr; } }
