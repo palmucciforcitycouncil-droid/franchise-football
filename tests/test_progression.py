@@ -98,6 +98,19 @@ def test_apply_progression_ages_the_player_by_one():
     assert player.age == 26
 
 
+def test_apply_progression_increments_years_pro():
+    """A drafted rookie starts years_pro == 0 (draft.py); without this
+    increment he'd stay eligible for OROY/DROY forever (awards.py's
+    _rookie_keys filters on years_pro == 0)."""
+    player = _make_player(age=22)
+    player.years_pro = 0
+    result = progression.progress_player(player, touches=200, season_number=0, rng=RNG.with_seed(1))
+    progression.apply_progression(player, result)
+    assert player.years_pro == 1
+    progression.apply_progression(player, result)
+    assert player.years_pro == 2
+
+
 def test_apply_progression_clamps_attributes_to_0_99():
     player = _make_player(age=25, speed=98)
     # Force an extreme positive delta to prove the clamp, not just that

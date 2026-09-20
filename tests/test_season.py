@@ -694,6 +694,32 @@ def test_gm_desk_trade_ajax_submit_returns_a_verdict_and_records_acquisition():
         assert data["headline"] in trades.REJECTION_PHRASES
 
 
+def test_gm_desk_trade_preview_gives_no_reading_for_a_one_sided_offer():
+    """2026-09-19 fix (Brian's playtest report): asking for a player while
+    offering nothing used to compute a real likelihood/reaction off just
+    the populated side (an OR across give/give_picks/get/get_picks), which
+    could read "Likely 100%" for a proposal the submit route would refuse
+    outright. The preview must require something on BOTH sides before it
+    reads as anything but a neutral, unscored offer -- matching submit's
+    own "a trade needs something on each side" rule exactly."""
+    from app.core.db import get_session
+    from app.models.player import Player
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        buf_best = max(s.exec(select(Player).where(Player.team_abbr == "BUF")).all(), key=lambda p: p.overall_rating)
+
+    # User offers NOTHING, asks for BUF's best player.
+    resp = client.get("/gm-desk/trade/preview", params={"team_b": "BUF", "get": [buf_best.player_id]})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["likelihood"] is None
+    assert data["accepted"] is None
+    assert data["reaction"] is None
+
+
 def test_gm_desk_trade_counter_offer_route():
     from app.core.db import get_session
     from app.models.player import Player

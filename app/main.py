@@ -4037,7 +4037,13 @@ def gm_desk_trade_preview(team_b: str, give: list[str] = Query(default=[]), get:
     user_abbr = season.user_team_abbr
     if team_b not in TEAMS_BY_ABBR or team_b == user_abbr:
         raise HTTPException(422, "Invalid trade partner")
-    if not (give or give_picks or get or get_picks):
+    # A trade needs something on BOTH sides to mean anything -- submit
+    # already refuses a one-sided offer (gm_desk_trade() below), but this
+    # preview used to compute a real likelihood/reaction off just ONE side
+    # being populated (an OR across all four lists), so an empty "give"
+    # with a populated "get" could read "Likely 100%" for a proposal that
+    # gives up nothing at all (2026-09-19 fix, Brian's playtest report).
+    if not (give or give_picks) or not (get or get_picks):
         return {"reaction": None, "likelihood": None, "accepted": None, "reason": None,
                 "value_sent": 0, "value_received": 0}
 

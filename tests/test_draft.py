@@ -416,6 +416,30 @@ def test_simulated_drafts_keep_specialists_late_and_value_premium_positions(monk
     assert premium_total / (32 * len(classes)) >= 0.33
 
 
+def test_simulated_drafts_take_a_realistic_share_of_qbs_in_round_one(monkeypatch):
+    """2026-09-19 re-tune (Brian's playtest report): QB's POSITION_DRAFT_VALUE
+    used to tie it with EDGE/T/CB (8.0 each), which real-mock-draft
+    measurement showed got swamped by scouting noise -- only ~2.2 QBs/round1
+    on average (real NFL: ~3-5/round1, first QB usually top-10). Separating
+    QB's value (18.0) should land closer to the real range across many
+    classes, without ever forcing a QB pick a team doesn't need (need is
+    still only a bonus, never a filter -- see _choose_prospect's docstring)."""
+    qb_round1_counts = []
+    classes = [(seed, 30 + seed) for seed in range(20)]
+    for i, (league_seed, season_number) in enumerate(classes):
+        _mock_draft_environment(monkeypatch, counts_seed=i)
+        prospects = draft.generate_draft_class(league_seed, season_number)
+        by_index = {p.index: p for p in prospects}
+        result = draft.simulate_draft(prospects, _TEAMS_32, league_seed=league_seed, season_number=season_number)
+        round_one = [by_index[pk.prospect_index].position for pk in result.picks if pk.round == 1]
+        qb_round1_counts.append(round_one.count(Position.QB))
+    avg_qb_round1 = sum(qb_round1_counts) / len(qb_round1_counts)
+    # Generous band (real NFL varies ~1-8 in a given year too) -- this is a
+    # regression guard against the tuning silently drifting, not a tight
+    # calibration test.
+    assert 2.5 <= avg_qb_round1 <= 6.5, f"avg QBs/round1 across {len(classes)} classes: {avg_qb_round1}"
+
+
 def test_live_resolve_one_pick_obeys_the_same_specialist_rule(monkeypatch):
     _mock_draft_environment(monkeypatch)
     prospects = draft.generate_draft_class(2025, 1)

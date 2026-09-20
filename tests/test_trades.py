@@ -257,6 +257,30 @@ def test_counter_offer_recognizes_an_already_acceptable_deal(monkeypatch):
     assert counter.possible and counter.already_acceptable
 
 
+def test_is_depth_chart_starter_recognizes_multi_slot_positions(monkeypatch):
+    """2026-09-19 fix: _is_depth_chart_starter() used to only recognize
+    rank 0 at a position, silently misclassifying every WR2/WR3, RT/RG,
+    CB2, EDGE2, S2, LB2/3 (any position with _STARTERS_AT > 1) as bench
+    depth -- which let the trade AI give away a real starter (e.g. a
+    WR2) for nothing, skipping the starter retention floor entirely
+    (Brian's playtest report: an 88-OVR WR2 traded away for free)."""
+    from app.services import depth_chart_overrides
+    from app.services.depth_chart import _load_roster
+    from app.models.player import Position
+
+    # Force the rating-sort fallback (no saved override) regardless of
+    # what the real save's own override file currently holds.
+    monkeypatch.setattr(depth_chart_overrides, "get_order", lambda *a, **k: None)
+
+    wrs = sorted((p for p in _load_roster("KC") if p.position == Position.WR), key=lambda p: -p.overall_rating)
+    assert len(wrs) >= 4, "expected KC to carry at least 4 WRs (fixture assumption)"
+
+    assert trades._is_depth_chart_starter(wrs[0])   # WR1
+    assert trades._is_depth_chart_starter(wrs[1])   # WR2 -- the case that used to fail
+    assert trades._is_depth_chart_starter(wrs[2])   # WR3 (_STARTERS_AT[WR] == 3)
+    assert not trades._is_depth_chart_starter(wrs[3])  # WR4 -- real bench depth
+
+
 def test_a_starter_is_never_given_away_for_nothing_even_if_overpaid(monkeypatch):
     """Starter retention floor: an overpaid AI starter still costs at least
     one season of his market value (x need multiplier)."""

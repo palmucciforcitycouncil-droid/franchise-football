@@ -186,13 +186,16 @@ def _best_other_ovr_at_position(team_abbr: str, position: Position, exclude_play
 
 
 def _is_depth_chart_starter(player: Player) -> bool:
-    """Whether `player` is the REAL starter at his own exact position
-    slot -- the same resolved order (real user overrides included)
+    """Whether `player` holds one of his own position's real starter
+    slots -- the same resolved order (real user overrides included)
     roster_strength.py's own snap-share rating already reads, so "who's
-    the starter" here always agrees with the Roster/Depth Chart pages.
-    A team's OWN best player at a position is not automatically the
-    starter if the user has overridden the order -- this asks the real
-    resolved chart, not just "who has the highest OVR here."""
+    a starter" here always agrees with the Roster/Depth Chart pages.
+    Many positions start more than one player (`_STARTERS_AT` -- WR 3,
+    T/G/EDGE/CB/S/DT 2, LB 3); this used to only recognize rank 0, which
+    silently misclassified every WR2/WR3, RT/RG, CB2, EDGE2, S2, LB2/3
+    etc. as bench depth (2026-09-19 fix -- see giving_up_need_multiplier's
+    own docstring for why that mattered: a real starter wrongly flagged
+    as bench depth skipped the need-based value floor entirely)."""
     from app.services import depth_chart_overrides
 
     with get_session() as s:
@@ -200,7 +203,8 @@ def _is_depth_chart_starter(player: Player) -> bool:
             Player.team_abbr == player.team_abbr, Player.position == player.position,
         )))
     ordered = depth_chart_overrides.resolve_order(player.team_abbr, player.position.value, teammates)
-    return bool(ordered) and ordered[0].player_id == player.player_id
+    starter_slots = _STARTERS_AT.get(player.position, 1)
+    return any(o.player_id == player.player_id for o in ordered[:starter_slots])
 
 
 def _need_multiplier(gap: float) -> float:

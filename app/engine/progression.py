@@ -174,6 +174,12 @@ def apply_progression(player: Player, result: ProgressionResult) -> None:
     the actual DB write/commit is the caller's responsibility
     (season_rollover.py, which owns the DB session)."""
     player.age += result.age_delta
+    # years_pro is set to 0 at draft time (draft.py) and never incremented
+    # anywhere else -- without this, a player stays a permanent "rookie" for
+    # OROY/DROY eligibility (awards.py's _rookie_keys) no matter how many
+    # real seasons he's played. This is the one place every rostered
+    # player's annual offseason update already runs through.
+    player.years_pro += 1
     for attr, delta in result.attribute_deltas.items():
         current = getattr(player, attr)
         new_value = int(round(current + delta))

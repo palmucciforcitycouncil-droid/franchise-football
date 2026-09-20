@@ -455,7 +455,14 @@ def _needs_from_counts(counts: dict[str, int]) -> list[str]:
 # discount absorbs.
 # ---------------------------------------------------------------------------
 POSITION_DRAFT_VALUE: dict[Position, float] = {
-    Position.QB: 8.0, Position.EDGE: 6.0, Position.T: 6.0, Position.CB: 5.0,
+    # QB re-tuned 2026-09-19 (Brian's playtest report: "QBs are not being
+    # selected enough in the first round"). 8.0 tied QB too closely with
+    # EDGE/T/CB, so it got swamped by scouting noise (perceived_overall's
+    # Gaussian) and prospect-overall variance -- a real 20-mock-draft
+    # measurement at 8.0 found only ~2.2 QBs/round1 (real NFL: ~3-5) with
+    # the first QB sometimes falling out of round 1 entirely. 18.0 clearly
+    # separates QB from the other premium positions instead of tying them.
+    Position.QB: 18.0, Position.EDGE: 6.0, Position.T: 6.0, Position.CB: 5.0,
     Position.WR: 2.0, Position.DT: 2.0, Position.HB: 1.0, Position.S: 1.0, Position.G: 1.0, Position.C: 1.0,
     Position.TE: 0.0, Position.LB: 0.0, Position.FB: -4.0,
     Position.K: -25.0, Position.P: -25.0,
