@@ -141,7 +141,7 @@ MAX_ROSTER_SIZE = 53  # the real NFL active-roster limit (RosterTable.tsx's
 # own `handleSort` keys), GET-param + full-page-reload like Stats' M3
 # precedent -- not client JS state.
 ROSTER_SORT_KEYS = (
-    "num", "name", "pos", "age", "ovr", "pot", "spd", "str", "agi",
+    "num", "name", "pos", "age", "ovr", "delta", "pot", "spd", "str", "agi",
     "tpw", "tac", "cth", "tck", "awr", "sta", "inj", "mor", "ctr", "yrs", "dep",
 )
 
@@ -187,7 +187,7 @@ def _roster_injury_risk(p: Player) -> int:
     return 99 - p.durability
 
 
-def _roster_sort_value(p: Player, key: str, depth_slot: dict[str, str]):
+def _roster_sort_value(p: Player, key: str, depth_slot: dict[str, str], progression_deltas: dict[str, int] | None = None):
     return {
         "num": p.jersey_number, "name": p.full_name.lower(), "pos": p.position.value,
         "age": p.age, "ovr": p.overall_rating, "pot": p.potential, "spd": p.speed,
@@ -196,6 +196,7 @@ def _roster_sort_value(p: Player, key: str, depth_slot: dict[str, str]):
         "awr": p.awareness, "sta": p.stamina, "inj": _roster_injury_risk(p),
         "mor": p.morale, "ctr": p.salary, "yrs": p.years_pro,
         "dep": depth_slot.get(p.player_id, ""),
+        "delta": (progression_deltas or {}).get(p.player_id, 0),
     }.get(key, p.overall_rating)
 
 
@@ -438,6 +439,24 @@ def roster_view(
     # not fabricated. Empty for free agents (no depth chart concept).
     depth_slot: dict[str, str] = _slot_labels_from_groups(depth_chart_groups)
 
+    # Offseason progression +/- (Brian's playtest report: "there is
+    # nowhere that we show the offseason progression of players up or
+    # down... the team roster box at the bottom on show the + or - to
+    # the ratings, sortable"). offseason_recap_store's real before-
+    # snapshot (player_id -> (team_abbr, overall_rating), taken right
+    # before the last offseason's progression ran) already exists for
+    # exactly this purpose -- see its own docstring. Empty dict (every
+    # delta reads 0) before the franchise's first offseason.
+    progression_deltas: dict[str, int] = {}
+    _cur_season_num = season_state.get_season().season_number
+    if _cur_season_num > 0:
+        before_snapshot = offseason_recap_store.get_before_snapshot(_cur_season_num - 1)
+        if before_snapshot:
+            for p in players:
+                prior = before_snapshot.get(p.player_id)
+                if prior is not None:
+                    progression_deltas[p.player_id] = p.overall_rating - prior[1]
+
     # Real Filter panel (FilterPanel.tsx): position groups (QUOTA_GROUPS --
     # see that constant's own comment for why this reuses the quota
     # grouping instead of Figma's separate 10-group filter list), attribute
@@ -514,7 +533,7 @@ def roster_view(
     else:
         effective_sort = sort if sort in ROSTER_SORT_KEYS else None
         if effective_sort:
-            rows = sorted(filtered_players, key=lambda p: _roster_sort_value(p, effective_sort, depth_slot), reverse=(direction == "desc"))
+            rows = sorted(filtered_players, key=lambda p: _roster_sort_value(p, effective_sort, depth_slot, progression_deltas), reverse=(direction == "desc"))
         else:
             rows = filtered_players
 
@@ -664,7 +683,7 @@ def roster_view(
         {
             "teams": TEAMS, "team": team, "players": rows, "starters": starters,
             "view": view, "position_quotas": position_quotas, "depth_chart_groups": depth_chart_groups,
-            "stats_data": stats_data, "depth_slot": depth_slot,
+            "stats_data": stats_data, "depth_slot": depth_slot, "progression_deltas": progression_deltas,
             "total_roster_count": total_roster_count, "max_roster_size": MAX_ROSTER_SIZE,
             "quota_pill_links": quota_pill_links, "all_pill_link": all_pill_link,
             "position_filter": position, "sort_links": sort_links, "sort": effective_sort, "dir": direction,

@@ -285,6 +285,42 @@ def test_roster_page_has_roster_and_depth_chart_tabs_with_a_starter_legend():
     assert "FB/K/P orders are saved but not consumed" not in page
 
 
+def test_roster_page_shows_and_sorts_by_offseason_progression_delta():
+    """Brian's playtest report: nowhere shows offseason progression up/
+    down; the roster box should show +/- and be sortable. Real source:
+    offseason_recap_store's before-snapshot (player_id -> (team_abbr,
+    overall_rating), taken right before the last offseason's
+    progression ran)."""
+    from app.services import offseason_recap_store
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+    original_number = season.season_number
+    season.season_number = 1
+    try:
+        with get_session() as s:
+            kc_roster = list(s.exec(select(Player).where(Player.team_abbr == "KC")))
+        riser = max(kc_roster, key=lambda p: p.overall_rating)
+        faller = min(kc_roster, key=lambda p: p.overall_rating)
+        assert riser.player_id != faller.player_id
+        offseason_recap_store.save_before_snapshot(0, {
+            riser.player_id: ("KC", riser.overall_rating - 4),
+            faller.player_id: ("KC", faller.overall_rating + 3),
+        })
+
+        page = client.get("/roster?team_abbr=KC").text
+        assert "Δ OVR" in page
+        assert f'<span class="delta-up">+4</span>' in page
+        assert f'<span class="delta-down">-3</span>' in page
+
+        sorted_desc = client.get("/roster?team_abbr=KC&sort=delta&dir=desc").text
+        assert sorted_desc.index(riser.full_name) < sorted_desc.index(faller.full_name)
+    finally:
+        season.season_number = original_number
+        offseason_recap_store.clear_season(0)
+
+
 def test_depth_chart_move_redirect_reopens_the_depth_tab():
     season_state.reset_season()
     with get_session() as s:
