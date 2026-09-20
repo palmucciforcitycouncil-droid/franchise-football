@@ -166,8 +166,13 @@ def test_simulate_week_advances_and_updates_standings():
     season = season_state.get_season()
     total_wins = sum(r.wins for r in season.records.values())
     total_losses = sum(r.losses for r in season.records.values())
-    assert total_wins == 16  # one winner per game, 16 games in week 1
+    total_ties = sum(r.ties for r in season.records.values())
+    # 16 games in week 1: each one contributes either a win+a loss, or a
+    # tie credited to BOTH teams (season_state's own tie fix -- a genuine
+    # tied score is no longer forced to a phantom home win). total_ties
+    # counts both teams per tied game, hence // 2.
     assert total_wins == total_losses
+    assert total_wins + total_ties // 2 == 16
 
 
 def test_full_season_completes():
@@ -176,7 +181,9 @@ def test_full_season_completes():
     season = season_state.get_season()
     assert season.is_complete
     # 17 games per team (not N_WEEKS=18) -- each team has exactly one bye week.
-    total_games = sum(r.wins + r.losses for r in season.records.values())
+    # games_played (wins+losses+ties) rather than wins+losses alone -- a
+    # tied game is a real played game that credits neither a win nor a loss.
+    total_games = sum(r.games_played for r in season.records.values())
     assert total_games == len(TEAMS) * 17
 
 
@@ -185,7 +192,7 @@ def test_reset_clears_results():
     season_state.reset_season()
     season = season_state.get_season()
     assert season.current_week == 1
-    assert all(r.wins == 0 and r.losses == 0 for r in season.records.values())
+    assert all(r.wins == 0 and r.losses == 0 and r.ties == 0 for r in season.records.values())
 
 
 def test_save_load_round_trip_preserves_results_and_events():
@@ -282,8 +289,10 @@ def test_concurrent_simulate_week_calls_dont_corrupt_state():
     assert season.is_complete
     assert season.current_week == N_WEEKS + 1  # never past this, no matter how many extra calls raced in
     for r in season.records.values():
-        assert r.wins + r.losses == 17, f"{r.abbr} played {r.wins + r.losses} games, not the scheduled 17"
-    total_games = sum(r.wins + r.losses for r in season.records.values())
+        # games_played (wins+losses+ties), not wins+losses alone -- a tied
+        # game is a real played game that credits neither a win nor a loss.
+        assert r.games_played == 17, f"{r.abbr} played {r.games_played} games, not the scheduled 17"
+    total_games = sum(r.games_played for r in season.records.values())
     assert total_games == len(TEAMS) * 17
 
 
@@ -582,7 +591,11 @@ def test_gm_desk_trade_panel_shows_real_tradeable_picks():
 
 def test_gm_desk_cap_uses_the_reanchored_season_cap():
     """Brian: "Salary cap is still showing as $700M." Every cap figure on
-    GM Desk comes from contracts.salary_cap_for_season() -- $450M in 2026."""
+    GM Desk comes from contracts.salary_cap_for_season() -- the real
+    $301.2M in 2026 (folded back to the real NFL number 2026-09-19; see
+    contracts.py's own SALARY_CAP_2026 comment -- this was $450M between
+    2026-09-14 and 2026-09-19 as a deliberate, disclosed temporary
+    inflation)."""
     from app.config import season_year
     from app.engine import contracts
 
@@ -595,12 +608,13 @@ def test_gm_desk_cap_uses_the_reanchored_season_cap():
     season.season_number = 24
     try:
         assert season_year(season.season_number) == 2026
-        assert contracts.salary_cap_for_season(season.season_number) == 450_000_000
+        assert contracts.salary_cap_for_season(season.season_number) == 301_200_000
         resp = client.get("/gm-desk")
         assert resp.status_code == 200
-        assert '<div style="font-size: 1.4rem;" id="gm-cap">$450,000,000</div>' in resp.text
-        assert "Payroll" in resp.text and "of $450,000,000 cap" in resp.text
+        assert '<div style="font-size: 1.4rem;" id="gm-cap">$301,200,000</div>' in resp.text
+        assert "Payroll" in resp.text and "of $301,200,000 cap" in resp.text
         assert "$700,000,000" not in resp.text
+        assert "$450,000,000" not in resp.text
     finally:
         season.season_number = original_number
 

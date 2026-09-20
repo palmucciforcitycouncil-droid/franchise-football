@@ -93,6 +93,12 @@ class TeamSeasonResult:
     # which has no real bracket data to derive this from); the template
     # treats 0 as "unknown", not "4th".
     division_rank: int = 0
+    # Added 2026-09-19 alongside the regular-season ties fix
+    # (season_state.TeamRecord.ties): 0 for every archive written before
+    # ties existed (real NFL-history imports included -- a genuine tie
+    # simply never happened in this engine before now, so 0 there is the
+    # real number, not a placeholder).
+    ties: int = 0
 
 
 @dataclass
@@ -166,7 +172,7 @@ def _record_to_dict(record: SeasonRecord) -> dict:
 def _record_from_dict(d: dict) -> SeasonRecord:
     return SeasonRecord(
         season_number=d["season_number"],
-        team_results=[TeamSeasonResult(**{"division_rank": 0, **t}) for t in d["team_results"]],
+        team_results=[TeamSeasonResult(**{"division_rank": 0, "ties": 0, **t}) for t in d["team_results"]],
         champion_abbr=d.get("champion_abbr"),
         afc_seeds=d.get("afc_seeds"),
         nfc_seeds=d.get("nfc_seeds"),
@@ -239,6 +245,7 @@ def archive_season(season, path: Path | None = None) -> SeasonRecord:
             abbr=r.abbr, location=r.location, wins=r.wins, losses=r.losses,
             points_for=r.points_for, points_against=r.points_against, power_rating=r.power_rating,
             division_rank=division_rank_by_abbr.get(r.abbr, 0),
+            ties=getattr(r, "ties", 0),
         )
         for r in season.records.values()
     ]

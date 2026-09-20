@@ -289,15 +289,16 @@ def _break_tie(season, tied_group: list[str], step_factory) -> list[str]:
 
 def rank_teams(season, teams: list[str], step_factory) -> list[str]:
     """Full best-to-worst ranking of `teams` by real win%, breaking any
-    ties (equal wins AND losses) via the given tiebreak chain."""
-    groups: dict[tuple[int, int], list[str]] = {}
+    ties (equal wins AND losses AND ties) via the given tiebreak chain."""
+    groups: dict[tuple[int, int, int], list[str]] = {}
     for t in teams:
         rec = season.records[t]
-        groups.setdefault((rec.wins, rec.losses), []).append(t)
+        groups.setdefault((rec.wins, rec.losses, getattr(rec, "ties", 0)), []).append(t)
 
     def win_pct(key):
-        w, l = key
-        return w / (w + l) if (w + l) else 0.0
+        w, l, t = key
+        total = w + l + t
+        return (w + 0.5 * t) / total if total else 0.0
 
     ordered: list[str] = []
     for key in sorted(groups.keys(), key=lambda k: -win_pct(k)):

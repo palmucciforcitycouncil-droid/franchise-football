@@ -1630,6 +1630,7 @@ TEAM_STAT_CATEGORIES: list[dict] = [
         {"id": "division", "label": "Division"},
         {"id": "wins", "label": "Wins"},
         {"id": "losses", "label": "Losses"},
+        {"id": "ties", "label": "Ties"},
         {"id": "win_pct", "label": "Win %"},
         {"id": "points_for", "label": "Points For"},
         {"id": "points_against", "label": "Points Against"},
@@ -1662,11 +1663,11 @@ TEAM_STAT_CATEGORIES: list[dict] = [
         {"id": "team_punt_net_avg", "label": "Net Punt Average"},
     ]},
 ]
-TEAM_DEFAULT_COLUMNS = ["team_name", "conference", "division", "wins", "losses", "win_pct"]
+TEAM_DEFAULT_COLUMNS = ["team_name", "conference", "division", "wins", "losses", "ties", "win_pct"]
 TEAM_STAT_LABELS = {s["id"]: s["label"] for cat in TEAM_STAT_CATEGORIES for s in cat["stats"]}
 TEAM_PRESETS: dict[str, list[str]] = {
     "default": TEAM_DEFAULT_COLUMNS,
-    "record": ["team_name", "wins", "losses", "win_pct", "points_for", "points_against", "point_diff", "power_rating"],
+    "record": ["team_name", "wins", "losses", "ties", "win_pct", "points_for", "points_against", "point_diff", "power_rating"],
     "offense": ["team_name", "wins", "losses", "points_for", "off_yds", "team_pass_yds", "team_rush_yds"],
     "defense": ["team_name", "wins", "losses", "points_against", "def_yds_allowed", "team_sacks", "def_turnovers_forced"],
     "special-teams": ["team_name", "team_fg_pct", "team_punt_net_avg"],
@@ -1900,6 +1901,7 @@ def _stats_page_aggregates_uncached(season) -> tuple[list[dict], list[dict]]:
             "division": t.division,
             "wins": rec.wins,
             "losses": rec.losses,
+            "ties": rec.ties,
             "win_pct": round(rec.win_pct * 100, 1),
             "points_for": rec.points_for,
             "points_against": rec.points_against,
@@ -2619,7 +2621,7 @@ def _team_card_json(team_abbr: str) -> str:
     return json.dumps({
         "abbr": team_abbr, "name": team.location,
         "record": {
-            "wins": record.wins, "losses": record.losses,
+            "wins": record.wins, "losses": record.losses, "ties": record.ties,
             "pf": record.points_for, "pa": record.points_against,
             "power": round(record.power_rating),
         } if record else None,
@@ -2837,6 +2839,7 @@ def _team_history_for(team_abbr: str, full_history: list) -> list[dict]:
             "finish": _team_finish(rec, team_abbr),
             "wins": tr.wins,
             "losses": tr.losses,
+            "ties": getattr(tr, "ties", 0),
             "awards_won": awards_won,
         })
     return rows
@@ -3086,12 +3089,13 @@ def _coach_stat_rows(season, sort: str, direction: str, query: str = "") -> list
         record = season.records.get(coach.team_abbr)
         wins = record.wins if record else 0
         losses = record.losses if record else 0
+        ties = record.ties if record else 0
         rows.append({
             "coach": coach.full_name,
             "card": _coach_card_json(coach),
             "team": coach.team_abbr,
             "role": ROLE_TITLES[CoachRole(coach.role)],
-            "record": f"{wins}-{losses}",
+            "record": f"{wins}-{losses}-{ties}" if ties else f"{wins}-{losses}",
             "win_pct": round(record.win_pct, 3) if record else 0.0,
             "career": f"{coach.career_wins}-{coach.career_losses}",
             "career_wins": coach.career_wins,
@@ -4693,11 +4697,17 @@ def _season_summary(season_number: int) -> dict | None:
     records: dict[str, str] = {}
     archived = next((r for r in history_store.get_history() if r.season_number == season_number), None)
     if archived is not None:
-        records = {t.abbr: f"{t.wins}-{t.losses}" for t in archived.team_results}
+        records = {
+            t.abbr: (f"{t.wins}-{t.losses}-{t.ties}" if getattr(t, "ties", 0) else f"{t.wins}-{t.losses}")
+            for t in archived.team_results
+        }
     else:
         live = season_state.get_season()
         if live.season_number == season_number:
-            records = {abbr: f"{r.wins}-{r.losses}" for abbr, r in live.records.items()}
+            records = {
+                abbr: (f"{r.wins}-{r.losses}-{r.ties}" if r.ties else f"{r.wins}-{r.losses}")
+                for abbr, r in live.records.items()
+            }
 
     winners = []
     for key, label in (("mvp", "MVP"), ("opoy", "Offensive Player of the Year"), ("dpoy", "Defensive Player of the Year"),

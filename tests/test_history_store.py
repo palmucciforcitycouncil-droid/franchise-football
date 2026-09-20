@@ -40,6 +40,46 @@ def test_archive_season_round_trips_through_json(tmp_path):
     assert kc.losses == 5
 
 
+def test_archive_season_carries_ties_forward(tmp_path):
+    """Ties fix (2026-09-19): archive_season() must not silently drop a
+    team's real ties count when a season is permanently archived into
+    League History -- otherwise a franchise's own Team History box and
+    any future HOF era-summary would quietly lose tie games the moment
+    a season rolled over."""
+    path = tmp_path / "history.json"
+    season = _season(season_number=0)
+    season.records["KC"].wins = 12
+    season.records["KC"].losses = 3
+    season.records["KC"].ties = 2
+
+    history_store.archive_season(season, path=path)
+    history = history_store.get_history(path=path)
+    kc = next(t for t in history[0].team_results if t.abbr == "KC")
+    assert kc.ties == 2
+    assert kc.wins == 12 and kc.losses == 3
+
+
+def test_old_archived_history_without_ties_key_defaults_to_zero(tmp_path):
+    """An archive written before this fix has no "ties" key at all in its
+    team_results entries -- get_history() must still load it cleanly,
+    defaulting to 0 (real: no tie ever happened in this engine before
+    the ties field existed), not raise a TypeError on a missing kwarg."""
+    import json
+
+    path = tmp_path / "history.json"
+    season = _season(season_number=0)
+    history_store.archive_season(season, path=path)
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    for team_result in raw[0]["team_results"]:
+        assert "ties" in team_result  # sanity: freshly archived DOES include it
+        del team_result["ties"]  # simulate a pre-fix archive
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    history = history_store.get_history(path=path)
+    assert all(t.ties == 0 for t in history[0].team_results)
+
+
 def test_archive_season_captures_champion_and_seeds_when_playoffs_exist():
     def _run(tmp_path):
         path = tmp_path / "history.json"

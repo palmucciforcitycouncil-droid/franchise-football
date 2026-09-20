@@ -377,6 +377,7 @@ def team_summary(season, team_abbr: str) -> dict:
     return {
         "wins": record.wins,
         "losses": record.losses,
+        "ties": getattr(record, "ties", 0),
         "streak": streak,
         "power_rank": power_rank,
         "last3": list(reversed(recent[-3:])),

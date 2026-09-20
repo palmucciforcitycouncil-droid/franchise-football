@@ -104,7 +104,7 @@
 <div class="card">
   <h3>Standings</h3>
   <table>
-    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th><th>Power Ranking</th></tr></thead>
+    <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th><th>Pct</th><th>PF</th><th>PA</th><th>Diff</th><th>Power Ranking</th></tr></thead>
     <tbody>
       {% for r in standings %}
       <tr>
@@ -112,6 +112,7 @@
         <td>{{ r.location }} ({{ r.abbr }}){% if clinch_marks.get(r.abbr) %}<span class="clinch-mark" title="{{ 'Clinched first-round bye' if clinch_marks[r.abbr] == '*' else 'Clinched playoff spot' }}">{{ clinch_marks[r.abbr] }}</span>{% endif %}</td>
         <td>{{ r.wins }}</td>
         <td>{{ r.losses }}</td>
+        <td>{{ r.ties }}</td>
         <td>{{ "%.3f"|format(r.win_pct) }}</td>
         <td>{{ r.points_for }}</td>
         <td>{{ r.points_against }}</td>

@@ -54,14 +54,16 @@ class TeamRecord:
     location: str
     wins: int = 0
     losses: int = 0
+    ties: int = 0
     points_for: int = 0
     points_against: int = 0
     power_rating: float = power_rating.INITIAL_RATING  # GDD Sec 7.2 -- UI label "Power Ranking"
 
     @property
     def win_pct(self) -> float:
-        total = self.wins + self.losses
-        return self.wins / total if total else 0.0
+        # Standard NFL formula: a tie counts as half a win AND half a loss.
+        total = self.wins + self.losses + self.ties
+        return (self.wins + 0.5 * self.ties) / total if total else 0.0
 
     @property
     def point_diff(self) -> int:
@@ -69,7 +71,7 @@ class TeamRecord:
 
     @property
     def games_played(self) -> int:
-        return self.wins + self.losses
+        return self.wins + self.losses + self.ties
 
 
 @dataclass
@@ -513,7 +515,17 @@ def simulate_current_week() -> int:
 
             home_rec = season.records[game.home_abbr]
             away_rec = season.records[game.away_abbr]
-            if result.winner == "home":
+            # A genuine tied score is a real regular-season result (unlike
+            # the playoffs, which have no overtime model and intentionally
+            # send a tied score to the home team as their real tiebreak --
+            # see headlines.py's "playoff_tie" template). Checking the
+            # literal score here, rather than GameResult.winner (which is
+            # always forced to "home" on a tie -- see game_sim.py), is what
+            # makes this distinguishable from a real home win.
+            if result.home_score == result.away_score:
+                home_rec.ties += 1
+                away_rec.ties += 1
+            elif result.winner == "home":
                 home_rec.wins += 1
                 away_rec.losses += 1
             else:

@@ -56,23 +56,35 @@ class ClinchStatus:
         return ""
 
 
-def compute_clinches(wins: dict[str, int], remaining: dict[str, int]) -> dict[str, ClinchStatus]:
+def compute_clinches(
+    wins: dict[str, int], remaining: dict[str, int], ties: dict[str, int] | None = None,
+) -> dict[str, ClinchStatus]:
     """Pure core over plain dicts (every team in TEAMS must be present in
-    both): `wins` so far and regular-season games still to play."""
-    max_wins = {abbr: wins[abbr] + remaining[abbr] for abbr in wins}
+    both/all): `wins` so far, regular-season games still to play, and
+    (optional, defaults to 0 for every team) `ties` so far.
+
+    Compares teams on "standings points" (win=2, tie=1 -- the doubled-
+    integer form of the standard half-win-for-a-tie convention, avoiding
+    floats) rather than raw win counts: a team sitting on some ties has
+    real standings value those games earned it, and ignoring that could
+    understate a rival's true ceiling and hand out a false clinch mark --
+    the one thing this module's own docstring says must never happen."""
+    ties = ties or {abbr: 0 for abbr in wins}
+    points = {abbr: 2 * wins[abbr] + ties.get(abbr, 0) for abbr in wins}
+    max_points = {abbr: points[abbr] + 2 * remaining[abbr] for abbr in wins}
     by_conf_div: dict[tuple[str, str], list[str]] = {}
     for t in TEAMS:
         by_conf_div.setdefault((t.conference, t.division), []).append(t.abbr)
 
     out: dict[str, ClinchStatus] = {}
     for t in TEAMS:
-        abbr, floor = t.abbr, wins[t.abbr]
+        abbr, floor = t.abbr, points[t.abbr]
         conf_teams = [x.abbr for x in TEAMS if x.conference == t.conference and x.abbr != abbr]
 
         # A "threat" is any rival that can still finish level with or
         # above this team's worst case (losing out) -- see module docstring.
         def threats(teams: list[str]) -> int:
-            return sum(1 for x in teams if x != abbr and max_wins[x] >= floor)
+            return sum(1 for x in teams if x != abbr and max_points[x] >= floor)
 
         own_division = by_conf_div[(t.conference, t.division)]
         division = threats(own_division) == 0
@@ -127,24 +139,33 @@ def season_clinches(season) -> dict[str, ClinchStatus]:
                 out[abbr] = ClinchStatus(division=i < 4, berth=True, bye=i == 0)
         return {t.abbr: out.get(t.abbr, ClinchStatus()) for t in TEAMS}
     wins = {t.abbr: season.records[t.abbr].wins for t in TEAMS}
-    return compute_clinches(wins, remaining)
+    ties = {t.abbr: season.records[t.abbr].ties for t in TEAMS}
+    return compute_clinches(wins, remaining, ties)
 
 
 def clinches_before_week(season, week_num: int) -> dict[str, ClinchStatus]:
     """Clinch status as it stood BEFORE `week_num`'s games -- rebuilt from
-    the real per-game results of weeks 1..week_num-1 (literal scores are
-    not used for W/L: season_state credits a tied score to the home team,
-    and season.records is what the standings show, so this mirrors that
-    same convention via GameResult.winner)."""
+    the real per-game results of weeks 1..week_num-1. Ties are detected
+    from the literal score (home_score == away_score), the same
+    convention season_state's own week-sim loop uses -- NOT via
+    GameResult.winner, which is always forced to "home" on a tie (see
+    game_sim.py) and would silently credit a phantom home win here,
+    disagreeing with season.records."""
     wins = {t.abbr: 0 for t in TEAMS}
+    ties = {t.abbr: 0 for t in TEAMS}
     for week in season.schedule[: max(week_num - 1, 0)]:
         for g in week:
             if g.result is None:
                 continue
+            if g.result.home_score == g.result.away_score:
+                for abbr in (g.home_abbr, g.away_abbr):
+                    if abbr in ties:
+                        ties[abbr] += 1
+                continue
             winner = g.home_abbr if g.result.winner == "home" else g.away_abbr
             if winner in wins:
                 wins[winner] += 1
-    return compute_clinches(wins, _remaining_games(season, through_week=week_num - 1))
+    return compute_clinches(wins, _remaining_games(season, through_week=week_num - 1), ties)
 
 
 def clinch_marks(season) -> dict[str, str]:

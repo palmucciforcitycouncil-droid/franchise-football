@@ -129,7 +129,7 @@ def pick_trade_value(pick: PickRef, season) -> float:
     games played is unchanged."""
     from app.engine import draft
     record = season.records.get(pick.original_team_abbr) if getattr(season, "records", None) else None
-    games_played = (record.wins + record.losses) if record is not None else 0
+    games_played = record.games_played if record is not None else 0
     offset = pick.season_number - getattr(season, "season_number", pick.season_number)
     if offset >= FAR_FUTURE_PICK_OFFSET or (record is not None and games_played == 0):
         rank = LEAGUE_AVERAGE_PICK_RANK

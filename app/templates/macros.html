@@ -11,3 +11,9 @@
    (an empty sample -- e.g. no 3rd-and-long plays yet), never a fabricated
    0. Used throughout the Scouting Panel's real per-category splits. #}
 {% macro pct(value, suffix='%') %}{% if value is not none %}{{ value }}{{ suffix }}{% else %}N/A{% endif %}{% endmacro %}
+
+{# A W-L(-T) record string, same convention as headlines.py's own
+   _record_str(): the "-T" segment is omitted entirely when ties is 0,
+   since the overwhelming majority of weeks/records have no ties and
+   "12-4-0" everywhere would be visual noise. #}
+{% macro record_str(wins, losses, ties=0) %}{{ wins }}-{{ losses }}{% if ties %}-{{ ties }}{% endif %}{% endmacro %}

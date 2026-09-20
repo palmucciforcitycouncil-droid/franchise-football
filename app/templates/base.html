@@ -1,3 +1,4 @@
+{% from "macros.html" import record_str %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -999,7 +1000,7 @@
       <div>
         <div class="team-name">{{ team_link(hc.user_team.abbr, hc.user_team.location + ' (' + hc.user_team.abbr + ')') }}</div>
         <div class="team-meta">
-          Record: {{ hc.user_record.wins }}-{{ hc.user_record.losses }}
+          Record: {{ record_str(hc.user_record.wins, hc.user_record.losses, hc.user_record.ties) }}
           &middot; {{ hc.user_team.conference }} {{ hc.user_team.division }}
           {% if hc.user_rank_ordinal %}&middot; Power Rank: {{ hc.user_rank_ordinal }}{% endif %}
         </div>
@@ -1995,10 +1996,11 @@
         tcAbbrEl.textContent = card.abbr;
         tcNameEl.textContent = card.name;
         var rec = card.record;
-        tcRecordEl.textContent = rec ? (rec.wins + '-' + rec.losses) : '0-0';
+        function recordStr(r) { return r.wins + '-' + r.losses + (r.ties ? '-' + r.ties : ''); }
+        tcRecordEl.textContent = rec ? recordStr(rec) : '0-0';
 
         tcRecordPanel.innerHTML = rec
-          ? '<div class="pc-row"><span class="pc-row-label">Record</span><span>' + rec.wins + '-' + rec.losses + '</span></div>' +
+          ? '<div class="pc-row"><span class="pc-row-label">Record</span><span>' + recordStr(rec) + '</span></div>' +
             '<div class="pc-row"><span class="pc-row-label">Points For</span><span>' + rec.pf + '</span></div>' +
             '<div class="pc-row"><span class="pc-row-label">Points Against</span><span>' + rec.pa + '</span></div>' +
             '<div class="pc-row"><span class="pc-row-label">Point Diff</span><span>' + (rec.pf - rec.pa >= 0 ? '+' : '') + (rec.pf - rec.pa) + '</span></div>' +

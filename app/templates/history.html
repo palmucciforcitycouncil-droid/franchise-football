@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import record_str %}
 {% block title %}History — Franchise Football{% endblock %}
 {% block content %}
 <div class="card">
@@ -31,7 +32,7 @@
         <div class="team-history-row">
           <div class="team-history-top">
             <strong>{{ season_year(row.season_number) }}</strong>
-            <span class="muted">{{ row.wins }}-{{ row.losses }}</span>
+            <span class="muted">{{ record_str(row.wins, row.losses, row.ties) }}</span>
           </div>
           <div class="team-history-finish{% if 'Champion' in row.finish %} gold{% endif %}">{{ row.finish }}</div>
           <div class="muted" style="font-size: 0.78rem;">Power Rank: {% if row.power_rank %}#{{ row.power_rank }} of 32{% else %}not tracked for this season{% endif %}</div>

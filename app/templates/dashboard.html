@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import pct %}
+{% from "macros.html" import pct, record_str %}
 {% block title %}Dashboard — Franchise Football{% endblock %}
 {% block content %}
 <!-- Headlines (ROADMAP.md Sec2c item 2 -> Sec4e/R9, built 2026-09-12):
@@ -82,7 +82,7 @@
           {% for r in records %}
           <tr class="{% if r.abbr == season.user_team_abbr %}starter{% endif %}">
             <td>{{ team_link(r.abbr, r.location + ' (' + r.abbr + ')') }}{% if clinch_marks.get(r.abbr) %}<span class="clinch-mark" title="{{ 'Clinched first-round bye' if clinch_marks[r.abbr] == '*' else 'Clinched playoff spot' }}">{{ clinch_marks[r.abbr] }}</span>{% endif %}</td>
-            <td>{{ r.wins }}-{{ r.losses }}</td>
+            <td>{{ record_str(r.wins, r.losses, r.ties) }}</td>
             <td>{{ r.points_for }}</td>
             <td>{{ r.points_against }}</td>
             <td>{{ r | power_score | round | int }}</td>
@@ -257,7 +257,7 @@
     {% if scouting %}
     <div class="scouting-opponent">{{ scouting.is_home_game and "vs" or "@" }} {{ team_link(scouting.opponent_team.abbr, scouting.opponent_team.location + ' (' + scouting.opponent_team.abbr + ')') }}</div>
     <p class="muted">
-      Record: {{ scouting.summary.wins }}-{{ scouting.summary.losses }}
+      Record: {{ record_str(scouting.summary.wins, scouting.summary.losses, scouting.summary.ties) }}
       {%- if scouting.summary.streak != "-" %} &middot; {{ scouting.summary.streak }}{% endif %}
       {%- if scouting.summary.power_rank %} &middot; Power Rank: {{ scouting.summary.power_rank }}{% endif %}
       {%- if scouting.weather %} &middot; {{ scouting.weather.summary() }}{% endif %}
@@ -509,7 +509,7 @@
           <tr class="{% if pr.record.abbr == season.user_team_abbr %}starter{% endif %}">
             <td>{{ pr.rank }}</td>
             <td>{{ team_link(pr.record.abbr, pr.record.location + ' (' + pr.record.abbr + ')') }}</td>
-            <td>{{ pr.record.wins }}-{{ pr.record.losses }}</td>
+            <td>{{ record_str(pr.record.wins, pr.record.losses, pr.record.ties) }}</td>
             <td>{{ pr.record.points_for }}</td>
             <td>{{ pr.record.points_against }}</td>
             <td>{{ pr.record | power_score | round | int }}</td>
