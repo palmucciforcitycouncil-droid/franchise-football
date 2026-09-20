@@ -48,8 +48,7 @@ from app.services import coach_store
 
 # career counter prefixes, by role (GDD Sec 7.9.1's rollup field names).
 _ROLE_PREFIX = {
-    CoachRole.HC: "hc", CoachRole.OC: "oc", CoachRole.DC: "dc",
-    CoachRole.ST: "st", CoachRole.AC: "ac",
+    CoachRole.HC: "hc", CoachRole.OC: "oc", CoachRole.DC: "dc", CoachRole.AC: "ac",
 }
 
 

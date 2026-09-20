@@ -155,6 +155,14 @@ def simulate_game(
     home_def_starters = get_defensive_starters(home.abbr)
     away_off_starters = get_offensive_starters(away.abbr)
     away_def_starters = get_defensive_starters(away.abbr)
+    # R16 Sec 6: Focus Area's real job now -- a this-game boost to
+    # whichever position group(s) each team's staff is currently focused
+    # on, applied to DETACHED copies of the real starters (never the
+    # DB-backed Player rows) so it can never persist. A team with no
+    # coaches, or nobody focused anywhere real, gets back the exact
+    # starters it was given.
+    home_off_starters, home_def_starters = coaching.apply_focus_boosts(home.abbr, home_off_starters, home_def_starters)
+    away_off_starters, away_def_starters = coaching.apply_focus_boosts(away.abbr, away_off_starters, away_def_starters)
     ctx_home_offense = build_matchup_context(home_off_starters, away_def_starters, home_ep_multiplier)
     ctx_away_offense = build_matchup_context(away_off_starters, home_def_starters, away_ep_multiplier)
 

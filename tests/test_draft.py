@@ -462,10 +462,6 @@ def test_needs_are_relative_to_typical_depth_not_raw_count():
     assert draft._needs_from_counts({**_REALISTIC_COUNTS, "QB": 1})[0] == "QB"
 
 
-def test_fullbacks_count_toward_the_rb_group():
-    assert draft._group_for(Position.FB) == "RB"
-
-
 def test_projected_rounds_follow_draft_value_and_never_project_a_specialist_early():
     prospects = draft.generate_draft_class(2025, 1)
     proj = draft.projected_rounds(prospects)

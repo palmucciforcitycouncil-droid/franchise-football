@@ -72,7 +72,16 @@ def find_next_opponent(season, team_abbr: str) -> tuple[str, bool] | None:
     """Scans forward from season.current_week (skipping over a bye week
     if team_abbr doesn't play that week) for team_abbr's next unplayed
     game. Returns (opponent_abbr, team_is_home), or None if the season
-    is over or team_abbr has no games left."""
+    is over or team_abbr has no games left.
+
+    Playoff games live entirely in season.playoffs.rounds -- a separate
+    structure never appended to season.schedule -- so once the regular
+    season is done, this falls through to the bracket's current round
+    (rounds[-1], the round that still needs simulating; every prior
+    round is fully resolved before a new one is appended). Returns None
+    for a team on a bye this round or already eliminated -- neither has
+    a confirmed next opponent yet -- as well as once the bracket itself
+    is complete."""
     for week in season.schedule[season.current_week - 1:]:
         for g in week:
             if g.result is not None:
@@ -81,6 +90,15 @@ def find_next_opponent(season, team_abbr: str) -> tuple[str, bool] | None:
                 return g.away_abbr, True
             if g.away_abbr == team_abbr:
                 return g.home_abbr, False
+    bracket = season.playoffs
+    if bracket is not None and not bracket.is_complete:
+        for matchup in bracket.rounds[-1]:
+            if matchup.result is not None:
+                continue
+            if matchup.home_abbr == team_abbr:
+                return matchup.away_abbr, True
+            if matchup.away_abbr == team_abbr:
+                return matchup.home_abbr, False
     return None
 
 

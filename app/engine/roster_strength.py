@@ -110,7 +110,6 @@ IRON_MAN_MAX_DEPTH = 2
 _DECAY_MAX_DEPTH: dict[Position, tuple[float, int]] = {
     Position.QB: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
     Position.HB: (rotation.RB_DECAY, rotation.RB_MAX_DEPTH),
-    Position.FB: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),
     Position.WR: (rotation.WR_DECAY, rotation.WR_MAX_DEPTH),
     Position.TE: (rotation.TE_DECAY, rotation.TE_MAX_DEPTH),
     Position.T: (IRON_MAN_DECAY, IRON_MAN_MAX_DEPTH),

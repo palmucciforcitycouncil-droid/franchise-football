@@ -1778,7 +1778,7 @@ No reseeding on routine server start; no destructive deletes unless a dedicated 
 
 \- Players: first\_name, last\_name, position, age, attributes{…}, salary\_aav, contract\_years
 
-\- Coaches: first\_name, last\_name, role (HC | OC | DC | ST | AC), specialty (AC-only), scheme\_tendencies{run\_pass, aggression, pace} -- role list reconciled 2026-09-11 to match 7.7.2.1's canonical enum (this line previously said "STC" and omitted AC, an earlier-draft inconsistency)
+\- Coaches: first\_name, last\_name, role (HC | OC | DC | AC), specialty (AC-only), scheme\_tendencies{run\_pass, aggression, pace} -- role list reconciled 2026-09-11 to match 7.7.2.1's canonical enum (this line previously said "STC" and omitted AC, an earlier-draft inconsistency); ST (Special Teams Coordinator) removed as its own role 2026-09-15 (R16) -- every real ST coach is now an AC with specialty "Special Teams," see 7.7.2.1a
 
 \- Roster: team\_id, player\_id, depth\_slot
 
@@ -7800,7 +7800,7 @@ Policy: All ratings below are active in MVP and may be referenced by OVR and the
 
 \- \*\*coach\_id (int), team\_id (int | null if FA)\*\*
 
-\- \*\*role (enum: HC | OC | DC | ST | AC)\*\* -- ST (Special Teams Coordinator) added 2026-09-11 as its own role, split out of the original AC catch-all, per the real seed doc (every team's staff directory lists a distinct Special Teams Coordinator, same organizational tier as OC/DC). See \*\*7.7.2.1a\*\* for how every other title in the real seed collapses into AC.
+\- \*\*role (enum: HC | OC | DC | AC)\*\* -- ST (Special Teams Coordinator) was added 2026-09-11 as its own role, split out of the original AC catch-all, per the real seed doc; removed again 2026-09-15 (R16, docs/R16\_COACH\_POSITION\_IMPACT\_SPECIFICATION.md) -- every real Special Teams Coordinator is now an AC with specialty "Special Teams," a real org-chart demotion, not a firing. See \*\*7.7.2.1a\*\* for how every other title in the real seed collapses into AC.
 
 \- \*\*specialty (str | null, AC-only)\*\* -- free-text position-group/focus tag for AC-role coaches (e.g. "Quarterbacks", "Running Backs", "Offensive Line", "Secondary"), added alongside ST. Null for HC/OC/DC/ST (their role already says what they do). See \*\*7.7.2.1a\*\*.
 
@@ -7832,9 +7832,9 @@ The real seed (see 3.6.1) lists far more titles per team than the 5-value role e
 
 \- \*\*Defensive Coordinator\*\* -\\> role = DC.
 
-\- \*\*Special Teams Coordinator\*\* -\\> role = ST (the coordinator only -- not their assistants, see below).
+\- \*\*Special Teams Coordinator\*\* -\\> role = AC, specialty = "Special Teams" (changed 2026-09-15, R16 -- was its own ST role from 2026-09-11 through R16; removed as a coordinator-tier role, the real ST Coordinator becomes an AC instead, distinct from the lower "Special Teams (Assistant)" title below).
 
-\- \*\*Everything else\*\* -\\> role = AC, with \`specialty\` set to the real listed title/position group (e.g. "Quarterbacks", "Passing Game", "Running Backs", "Wide Receivers", "Tight Ends", "Offensive Line", "Defensive Line", "Linebackers", "Secondary"). This explicitly includes \*\*Assistant Special Teams Coach / Assistant Special Teams Coordinator\*\* (specialty = "Special Teams (Assistant)") and \*\*Assistant Quarterbacks Coach\*\* (specialty = "Quarterbacks (Assistant)") -- both stay AC even though they sit on the ST/QB coordinator's staff, per Brian's explicit instruction, not promoted to ST/OC.
+\- \*\*Everything else\*\* -\\> role = AC, with \`specialty\` set to the real listed title/position group (e.g. "Quarterbacks", "Passing Game", "Running Backs", "Wide Receivers", "Tight Ends", "Offensive Line", "Defensive Line", "Linebackers", "Secondary", "Special Teams"). This explicitly includes \*\*Assistant Special Teams Coach / Assistant Special Teams Coordinator\*\* (specialty = "Special Teams (Assistant)") and \*\*Assistant Quarterbacks Coach\*\* (specialty = "Quarterbacks (Assistant)") -- both stay AC, distinct from their coordinator's own "Special Teams"/plain specialty, not merged into it.
 
 \- \*\*Dual-titled entries\*\* (e.g. a position coach who's also "Assistant Head Coach"): role = AC, specialty = the primary functional position-group title only -- decided 2026-09-11 (e.g. BUF's real "Linebackers Coach / Assistant Head Coach" becomes role=AC, specialty="Linebackers"). The secondary "Assistant Head Coach" tag is dropped entirely, not stored as a second field.
 
@@ -9831,7 +9831,7 @@ Events in Tier 3 are scanned only if headline list has fewer than 4 items. Rank 
 Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts with an earlier section, **this appendix wins** (earlier sections were not all rewritten line by line).
 
 ### S.1 Positions (supersedes Sec 3.1's Madden-granular scheme)
-- Position codes: QB, HB, FB, WR, TE, **T, G**, C, **EDGE**, DT, **LB**, CB, **S**, K, P. No left/right, inside/outside or free/strong distinction anywhere (LT/RT→T, LG/RG→G, LE/RE→EDGE, LOLB/MLB/ROLB→LB, FS/SS→S). `app.models.player.normalize_position()` maps legacy codes; every DB is migrated automatically when opened (`app/core/db.py _migrate_schema`).
+- Position codes: QB, HB, WR, TE, **T, G**, C, **EDGE**, DT, **LB**, CB, **S**, K, P. No left/right, inside/outside or free/strong distinction anywhere (LT/RT→T, LG/RG→G, LE/RE→EDGE, LOLB/MLB/ROLB→LB, FS/SS→S). `app.models.player.normalize_position()` maps legacy codes; every DB is migrated automatically when opened (`app/core/db.py _migrate_schema`). **2026-09-20 (Appendix U):** FB removed entirely -- HB is the only running-back position; `normalize_position()` folds any legacy/imported FB into HB.
 - Starters per position: WR 3, T 2, G 2, C 1, EDGE 2, DT 2, LB 3, CB 2, S 2, others 1. Sec 6.6.2's zone blocking still has left/right sides: the 1st starter at T/G/EDGE plays the left side, the 2nd the right.
 - Roster requirements (single table, `free_agency.ROSTER_REQUIREMENTS`): QB2 HB2 WR5 TE2 T3 G3 C2 EDGE3 DT3 LB4 CB4 S3 K1 P1.
 
@@ -9859,7 +9859,7 @@ Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts 
 - **Player retirement** (`app/engine/retirement.py`) runs when the re-signing window closes; it never drops a team below requirements when no replacement exists.
 
 ### S.6 Draft
-- AI pick score = perceived OVR + positional value (QB +8; EDGE, T +6; CB +5; WR, DT +2; HB, S, G, C +1; TE, LB 0; FB −4; K, P −25) + need bonus (+5/+3/+2 for the three thinnest groups vs. typical depth). K/P never before round 5, max 2 per round.
+- AI pick score = perceived OVR + positional value (QB +8; EDGE, T +6; CB +5; WR, DT +2; HB, S, G, C +1; TE, LB 0; K, P −25) + need bonus (+5/+3/+2 for the three thinnest groups vs. typical depth). K/P never before round 5, max 2 per round.
 - Draft page follows Figma `DraftPageV2.tsx`: compact Team Needs chips; used picks show "F. Lastname (POS)"; full sortable ratings table with POT after OVR; client-side filters/sort; in-place updates (no page jumps).
 - Drafted players record acquisition type/season/round/pick.
 
@@ -9888,11 +9888,37 @@ Source: Brian's "Sept 14 2026 FF game fixes" doc. Where this appendix conflicts 
 ### S.11 Known gaps (not built)
 - Acquisition history for players rostered before the franchise began is blank (to back-fill later).
 
+
+## Appendix T. September 15-16, 2026: Practice Squad, 53-Man Roster & IR (implemented, R16)
+
+*Implementation status: fully built and tested (see ROADMAP.md §4m and `docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md` for the complete 21-decision spec and build order). This supersedes any earlier reference elsewhere in this document to `MAX_ROSTER_SIZE = 53` being display-only — the cap is real and enforced now.*
+
+### T.1 Roster statuses
+Every `Player` carries a real `roster_status`: `ACTIVE` (counts toward the 53), `PRACTICE_SQUAD` (16 slots, cap-counted per decision #3 but not a shortfall/depth-chart body), `IR` (doesn't count toward the 53; real 4-simulated-week minimum stay tied to the existing injury system's `Injury.placed_on_ir` field), or `ELEVATED` (a practice-squad player made depth-chart-eligible for one week only, auto-reverting after that week's games). A real imported roster (54-72 players) hits a one-time, position-need-aware cut to 53 the first time it's found over the limit — each `ROSTER_REQUIREMENTS` position minimum is filled from that position's own best players first, then the rest of the 53 by best-overall; overflow goes to the practice squad (best-rated first, up to 16), and anyone still left over is released outright to the free-agent pool.
+
+### T.2 The two roster gates
+Before a season's first game, an over-53 user roster routes to the Roster page with a "Trim Your Roster" banner (Release/Send-to-PS enough players); a user roster that's at/under 53 but short of a position minimum instead routes to GM Desk with a "Roster Holes" banner (sign free agents, or Auto-Fill). These are two separate, mutually exclusive gates — a team can't be shown both in the same visit.
+
+### T.3 Practice squad mechanics
+Release, Send to PS, and Promote to 53 are available both inline on the Roster page's active-roster/PS/IR tables and on the Player Card modal, for the user's own team only (AI teams manage all of this autonomously). A dedicated "Auto-Fill Practice Squad" action signs the best available free agents into open PS slots at the flat league-minimum salary (a 1-year deal) — separate from the existing active-roster Auto-Fill, which prices at real market value.
+
+### T.4 Injured Reserve
+"Place on IR" is enabled only for a player with a current injury already flagged IR-eligible (`weeks_out >= 4` at the moment of injury — no new threshold). Reactivation (to either the active 53 or back to the practice squad, the user's own choice) requires 4 simulated weeks on IR. AI teams auto-place any of their own players who cross the same threshold; the user's own team gets a manual button instead (this feature's usual "manual for the user, autonomous for AI" split).
+
+### T.5 Poaching
+Modeled on the real CBA rule. Each week the user (and each AI team) protects up to 4 of their 16 practice-squad players; any unprotected PS player is poachable straight onto another team's active 53 (never their own practice squad), with a 3-simulated-week roster lock on the poaching team and a matching lock if the original team pre-empts the poach by promoting him to their own 53 first. Released early during that lock, a poached player reverts to his original team's practice squad rather than hitting free agency. AI teams poach opportunistically (a real upgrade at their own weakest active position group, reusing `roster_strength.py`'s rating math) only when they have an open 53 slot. If an AI team wants to poach one of the user's own unprotected PS players, Sim Week pauses on a real decision screen (let it happen, or block by promoting him first) before that week's games simulate. The user has their own anytime "Browse Practice Squads" surface to poach from any other team.
+
+### T.6 Game-day elevation
+The user can elevate any of their own practice-squad players to depth-chart eligibility for the current week only, unlimited times per game/season (a deliberate simplification of the real NFL's 2-per-game/3-per-season caps) — no AI equivalent. An elevated player automatically reverts to the practice squad once that week's games are simulated, and never counts toward the 53-man cap while elevated.
+
+### T.7 Trades
+Practice-squad players are not tradeable — trades only ever involve active-53 and IR players, same as before this feature. Payroll/cap-space math for a trade still includes every player regardless of roster status (practice-squad and IR salaries count against the cap throughout).
+
 ---
 
-## Appendix T. September 19, 2026 Game Fixes (implemented)
+## Appendix U. September 19, 2026 Game Fixes (implemented)
 
-### T.1 One-time real-dollar salary cap rescale (supersedes S.2's $450M cap)
+### U.1 One-time real-dollar salary cap rescale (supersedes S.2's $450M cap)
 
 Brian confirmed a real one-time data fix after being shown the numbers below -- the $450M/$301.2M split cap (S.2) was a deliberate but temporary call, not a long-term answer, and a 3-season isolated simulation showed it doesn't self-correct (20-25 of 32 teams stayed over the real $301.2M cap every season, no downward trend).
 
@@ -9906,7 +9932,7 @@ Brian confirmed a real one-time data fix after being shown the numbers below -- 
 
 **Known, disclosed gap:** a re-signed player (GM Desk extension, `main.py`'s `gm_desk_offer` ACCEPT) gets a real-scale salary written but keeps his ORIGINAL `acquisition_type` by design (see `free_agency.mark_free_agent_acquisition`'s own docstring) -- so a legacy player re-signed before this migration ever ran would show `acquisition_type IS NULL` and take one more 20% cut here even though his current salary was already real. Real production data checked 2026-09-19 shows this edge case's population is small (the entire real-scale population across the checked saves was a handful of Free Agent/Trade rows out of ~2000 players each), so the realistic blast radius is a few players getting a one-time, non-repeating haircut -- flagged, not silently assumed away. See `app/core/db.py`'s own migration comment for the full reasoning.
 
-### T.2 One-time coach reputation re-tiering (2026-09-20 playtest fix)
+### U.2 One-time coach reputation re-tiering (2026-09-20 playtest fix)
 
 Brian's playtest report: "The coach ratings need to be reviewed, as assistant coaches have 90 OVR ratings while HC have 60. The ratings should start out tiered with HC's being generally higher than OC/DC and theirs being generally higher than Assistants. Otherwise 24 yo assistants with no coaching experience will end up hired as HCs." Same category of decision as T.1: a real, one-time rescale of already-imported coaches, not just a forward-only generator fix.
 
@@ -9919,3 +9945,10 @@ Brian's playtest report: "The coach ratings need to be reviewed, as assistant co
 **Result (measured against a copy of the real DB, never the original):** HC reputation range 84-99 (median 92), COORD 55-76 (median 66), AC 35-58 (median 47) -- fully separated HC/COORD, a 3-point light overlap at COORD/AC, matching the real salary data's own shape. `app/engine/coaching.py`'s `LeagueBaseline` (which measures rather than assumes "average" for penalty/dev multipliers) self-recalibrates to the new distribution automatically -- no separate tuning change needed.
 
 **Related display-bug fixes shipped alongside:** (1) `staff.html`'s Fill Vacancy panel showed a generic "Score" column that is actually a composite hire-worthiness metric (`interim_promotion_score()`/`hiring_merit()`), not `coach.overall` -- now labeled "Fit Score" (`candidate_table(..., score_label="Fit Score")`) so it stops implying it's the same number as the Coach Card's OVR (the AC/"Hire Assistant" table's "OVR" label was already correct -- that one genuinely shows `candidate.overall` -- and is unchanged). This, not a computation bug, was Brian's "the coach position box is showing a different overall rating than the find coach box for the same coach" report. (2) Confirmed `internal_candidates()` (`app/engine/coach_replacement.py`) already correctly lists a team's own OC/DC/ST for an HC vacancy on the Fill Vacancy panel (existing test `test_internal_hc_candidates_prefer_coordinators_over_assistants`). **Disclosed follow-up, not fixed here:** the separate Find Coaches search box (`coach_store.search()`) filters by exact `role=HC`, so it never surfaces a team's own coordinators when searching "HC" -- likely the other reading of the same report. A quick filter tweak would need to know which team's vacancy is being searched for (the search box is a general league-wide tool, not vacancy-scoped) without misleadingly relabeling a coordinator's real title as "HC" in the results table; that's a small UX design question left for Brian rather than guessed at here.
+
+### U.3 Fullback removed from the game (2026-09-20, Brian's ask)
+
+Raised during the same session's coaching-boost design discussion: Offensive Gameplan's focus-boost system has no way to actually affect FB, since this engine's sim never tracked FB as a distinct starter slot anywhere (`OffensiveStarters` has no FB field) -- boosting an FB's attributes would always have been a real no-op regardless of what the coaching system did. Brian's call: rather than build FB support into the sim engine, remove FB from the game entirely -- HB is the only running-back position.
+
+**The fix:** `Position.FB` removed from `app.models.player.Position` (Sec S.1). `LEGACY_POSITION_MAP` gains `"FB": "HB"`, so `normalize_position()` and `app/core/db.py::_migrate_schema()`'s existing position-unification UPDATE loop (Sec S.1) fold any FB player already in a real save -- or re-imported from the Madden roster source, which still lists real fullbacks -- onto HB automatically, the same way every other retired position code here already gets migrated; no separate one-off migration needed. `scripts/import_players.py`'s `POSITION_ID_MAP` maps Madden's own `"FB"` Position ID onto `"HB"` for the same reason. Every engine table keyed by `Position` that had an `FB` entry (`position_groups.POSITION_TO_GROUP`, `draft.POSITION_DRAFT_VALUE` and its now-dead `_group_for` FB special-case, `progression.PEAK_WINDOWS`, `roster_strength._DECAY_MAX_DEPTH`, `trades._NEED_EXCLUDED`) had that entry removed rather than left dangling. Raw historical roster/report data (`data/raw/rosters/*.csv`, `data/reports/player_totals.csv`) is left untouched, same as always -- real historical data, normalized on import, not hand-edited.
+

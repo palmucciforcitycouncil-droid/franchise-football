@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "macros.html" import player_link %}
+{% block title %}Browse Practice Squads — Franchise Football{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top: 0;">Browse Practice Squads</h2>
+  <p class="muted">
+    Every other team's unprotected practice-squad player, league-wide. Poaching signs him straight to
+    your active 53 (never your own PS) — he's guaranteed 3 weeks of salary there, and locked to your 53
+    for those same 3 simulated weeks. Your own roster: {{ user_active_count }}/{{ max_roster_size }} active.
+    {% if not has_room %}<strong>You need an open 53 slot before you can poach anyone.</strong>{% endif %}
+  </p>
+  {% if players %}
+  <div class="gm-compact-scroll">
+  <table class="gm-compact">
+    <thead>
+      <tr><th>Player</th><th>Pos</th><th>OVR</th><th>Age</th><th>Team</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in players %}
+      <tr data-card='{{ p | player_card_json }}'>
+        <td>{{ player_link(p) }}</td>
+        <td>{{ p.position.value }}</td>
+        <td>{{ p.overall_rating }}</td>
+        <td>{{ p.age }}</td>
+        <td>{{ p.team_abbr }}</td>
+        <td>
+          {% if has_room %}
+          <form method="post" action="/practice-squad-market/{{ p.team_abbr }}/{{ p.player_id }}/poach" data-keep-scroll
+                onsubmit="return confirm('Poach {{ p.full_name }} from {{ p.team_abbr }} onto your active 53?');">
+            <button type="submit" class="roster-action-btn">Poach</button>
+          </form>
+          {% else %}
+          <span class="muted">&mdash;</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No unprotected practice-squad players available right now.</p>
+  {% endif %}
+</div>
+{% endblock %}

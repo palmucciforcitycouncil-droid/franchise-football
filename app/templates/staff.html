@@ -10,11 +10,12 @@
   summary and the trait-effects panel, then a coordinator row, then the
   assistants, then Find Coaches.
 
-  Focus Area (R13, docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md) is real: a
-  per-coach dropdown, editable for the user's own team only, posting to
-  /staff/{team_abbr}/{coach_id}/focus. AI teams' assistants are reassigned
-  autonomously every offseason instead (app/services/coach_ai.py's
-  run_focus_autonomy()) -- shown read-only for them.
+  Focus Area (R16, docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md) is
+  real: a per-coach dropdown, editable for the user's own team only,
+  posting to /staff/{team_abbr}/{coach_id}/focus, with each role's OWN
+  menu (focus_options_for()). AI teams get reassigned autonomously every
+  offseason instead (app/services/coach_ai.py's run_focus_autonomy())
+  -- shown read-only for them.
 
   2026-09-14 (Brian's fixes doc): Coach Salary vs. the staff salary cap
   beside the team picker; Extend Contract opens the shared slider
@@ -113,7 +114,7 @@
   <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" style="margin-top: 6px;" data-keep-scroll>
     <label for="focus-{{ entry.coach.coach_id }}" class="pc-row-label">Focus Area</label>
     <select name="focus_area" id="focus-{{ entry.coach.coach_id }}" onchange="this.form.submit()">
-      {% for fa in focus_areas %}
+      {% for fa in entry.focus_options %}
       <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
       {% endfor %}
     </select>
@@ -219,10 +220,11 @@
   <h3>Assistant Coaches ({{ assistants | length }} of {{ max_assistants }})</h3>
   <p class="muted" style="font-size: 0.85rem;">
     Every assistant's specialty is the real position-group title from the seed directory
-    (GDD &sect;7.7.2.1a). Focus Area (R13) decides which bucket their ratings actually feed
-    into &mdash; not every assistant contributes to player development anymore, only the ones
-    focused there. {% if is_user_team %}Editable below.{% else %}AI teams' assistants are
-    reassigned autonomously every offseason based on real team need
+    (GDD &sect;7.7.2.1a) &mdash; it can drift over a career if their ratings shift toward a
+    different group (R16). Focus Area decides which position group their ratings actually
+    boost, in-game and over the season &mdash; not every assistant contributes to player
+    development anymore, only the ones focused there. {% if is_user_team %}Editable below.
+    {% else %}AI teams' coaches are reassigned autonomously every offseason based on real team need
     (app/services/coach_ai.py's run_focus_autonomy()).{% endif %}
   </p>
   <div class="table-wrap">
@@ -243,7 +245,7 @@
             {% if is_user_team %}
             <form method="post" action="/staff/{{ team_abbr }}/{{ entry.coach.coach_id }}/focus" data-keep-scroll>
               <select name="focus_area" onchange="this.form.submit()">
-                {% for fa in focus_areas %}
+                {% for fa in entry.focus_options %}
                 <option value="{{ fa }}" {% if fa == entry.coach.focus_area %}selected{% endif %}>{{ fa }}</option>
                 {% endfor %}
               </select>
@@ -388,7 +390,10 @@
     Hire/Fire/Promote and Extend Contract are available for your own team &mdash; use the Fire
     button on any coach box to open a seat, then hire straight from these search results (when a
     candidate is eligible for your open seat) or from the Fill Vacancy panel below it. Every
-    hire and extension must fit the staff salary cap.
+    hire and extension must fit the staff salary cap. Every AI team runs the identical
+    firing-probability/replacement math autonomously every offseason, and lightly in-season.
+    Not built: coach salary negotiation at hiring time (disclosed out of scope, same as the
+    player Hiring Merit search's flat scheme-fit/org-philosophy terms).
   </p>
 </div>
 

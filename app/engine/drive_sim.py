@@ -41,8 +41,15 @@ MAX_PLAYS_PER_DRIVE = 20  # safety valve against pathological loops
 # Converts pressure_prob (whether the pocket actually broke down) into a
 # real sack -- calibrated against a full simulated season's real team-
 # sack-per-game rate vs. real NFL's ~2.4-2.6, not guessed. See
-# _resolve_pass's own comment at the call site (HANDOFF.md item 36).
-SACK_CONVERSION_RATE = 0.15
+# _resolve_pass's own comment at the call site (HANDOFF.md item 36). Was
+# 0.15; re-calibrated up after the sim-realism volume investigation's
+# pass-volume fix (tuning.py's mix.pass, rating.py's pace_drives()) cut
+# total dropbacks by ~25-30% -- sacks/dropback held steady, so sacks/game
+# had dropped along with it (measured 1.45, below the real band) until
+# this went back up to compensate. Re-verify against
+# tests/test_stat_realism.py's Poisson sack-rate check after any further
+# pass-volume tuning; the two are coupled.
+SACK_CONVERSION_RATE = 0.26
 
 # Defensive TD (GDD Sec 6.7.2) -- a takeaway's real, small chance of an
 # immediate score. Deliberately scope-narrow (ROADMAP.md M1): no open-
@@ -87,7 +94,7 @@ def _pass_probability(
     and stacks with the gameplan rather than replacing it: the staff is
     the team's season-long identity, the gameplan is this week's
     adjustment on top of it."""
-    base = PARAMS["mix"]["pass"]  # 0.56 league-average target
+    base = PARAMS["mix"]["pass"]  # nominal target -- see tuning.py's mix.pass comment for why it's not the realized rate
 
     if down == 2:
         if distance >= 8:
@@ -105,9 +112,27 @@ def _pass_probability(
     if is_two_minute:
         base += 0.15 if trailing else -0.20  # urgency vs. milking the clock
 
-    base += matchup_adjustment
-    base += offense_pass_bias(gameplan, in_red_zone=field_pos >= 80)
-    base += coaching.offense_pass_bias(staff, in_red_zone=field_pos >= 80)
+    # matchup_adjustment, the gameplan's bias, and the staff's bias are
+    # each individually reasonable, but nothing stopped them from stacking
+    # with EACH OTHER (and, on top of that, with an already-elevated
+    # situational base -- e.g. 3rd-and-8+ during a trailing two-minute
+    # drill) unboundedly -- part of what the sim-realism volume
+    # investigation found inflating pass attempts well past real full-
+    # season rates. The overall per-play clamp below is too permissive to
+    # catch this on its own, since a single play landing at the 0.92
+    # ceiling looks fine in isolation; it's entire SITUATIONS (a down/
+    # distance bucket, under an aggressive gameplan/staff) getting pinned
+    # there on nearly every snap that inflates a season's totals. Capped
+    # separately from the situational/game-state base above, at a band
+    # wide enough that "Very Aggressive" + a red zone offense style's full
+    # intended effect (up to 0.30) still comes through unblunted in
+    # isolation -- only genuine stacking gets capped.
+    extra = max(-0.30, min(0.30,
+        matchup_adjustment
+        + offense_pass_bias(gameplan, in_red_zone=field_pos >= 80)
+        + coaching.offense_pass_bias(staff, in_red_zone=field_pos >= 80)
+    ))
+    base += extra
 
     return max(0.1, min(0.92, base))
 
@@ -521,16 +546,20 @@ def _decide_fourth_down(
 
     `offense_staff` is the real coaching staff's own contribution
     (app/engine/coaching.py): GDD Sec 7.7.2.2's offensive_aggression
-    slider on the go-for-it chance, and the special-teams coordinator's
-    special_teams_focus on how far out this staff will try a field goal.
-    This finally fills the hook simulate_drive()'s own docstring flagged
-    -- `aggression` was described there as "a coaching-tendency proxy
-    until a real Coach entity exists"; the proxy stays as the
-    ratings-derived floor, with the real staff adding to it."""
-    # GDD Sec 7.7.2.2: special_teams_focus "affects ... average FG try
-    # distances". A focused ST staff will try from a few yards further out.
-    fg_range_bonus = coaching.fg_range_bonus(offense_staff)
-    in_fg_range = pos >= 62 - fg_range_bonus  # roughly a <=55-yard attempt
+    slider on the go-for-it chance. This finally fills the hook
+    simulate_drive()'s own docstring flagged -- `aggression` was
+    described there as "a coaching-tendency proxy until a real Coach
+    entity exists"; the proxy stays as the ratings-derived floor, with
+    the real staff adding to it.
+
+    R16 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 8): Special
+    Teams focus no longer widens FG-attempt range as a DECISION bias --
+    it boosts the kicker's own attributes instead (app/engine/coaching.py's
+    apply_focus_boosts(), consumed via the real kicker rating already
+    read elsewhere in this module's _attempt_field_goal()/_kicker_
+    adjusted_prob()), so this decision point no longer takes a staff
+    input at all."""
+    in_fg_range = pos >= 62  # roughly a <=55-yard attempt
     short_yardage = distance <= 2
 
     go_chance = (P.fourth_down_boost + 0.05 * (aggression - 0.5)

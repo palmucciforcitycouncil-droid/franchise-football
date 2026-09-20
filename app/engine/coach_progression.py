@@ -66,7 +66,6 @@ POSITIONAL_MODIFIER: dict[CoachRole, float] = {
     CoachRole.HC: 1.0,
     CoachRole.OC: 0.8,
     CoachRole.DC: 0.8,
-    CoachRole.ST: 0.5,
     CoachRole.AC: 0.4,
 }
 
@@ -93,10 +92,12 @@ class TeamRanks:
 
 # rating name -> which TeamRanks field drives it (Sec 8.2.2's "relevant
 # categories"). Every pairing here is a real, computed league rank.
+# R16: player_dev_offense/player_dev_defense are REMOVED from this table
+# -- they're now computed averages of the 8 granular ratings (app/models/
+# coach.py), not stored fields, and those 8 ratings have their OWN real
+# movement mechanism below (_position_rating_deltas()), not this one.
 RATING_SOURCES: dict[str, str] = {
     "discipline": "penalty_rank",
-    "player_dev_offense": "points_for_rank",
-    "player_dev_defense": "points_against_rank",
     "motivation_chemistry": "win_pct_rank",
     "red_zone_offense": "red_zone_offense_rank",
     "red_zone_defense": "red_zone_defense_rank",
@@ -118,10 +119,96 @@ class CoachProgressionResult:
     retired: bool = False
 
 
-def progress_coach(coach: Coach, ranks: TeamRanks, season_number: int, league_seed: int) -> CoachProgressionResult:
+# R16 Sec 1/2 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md): the 8
+# granular position-group ratings, keyed to whichever side of the ball
+# they're on -- there's no real per-unit rank for e.g. "OL play" alone
+# in this engine (coach_hiring.py's own JSS formulas already disclose
+# the same gap for OC/DC scoring), so each group's outcome modifier
+# reuses the real, already-computed offense/defense-wide rank, same
+# "closest real substitute" precedent as everywhere else in this module.
+_POSITION_RATING_SIDE: dict[str, str] = {
+    "qb_coaching": "offense", "rb_coaching": "offense", "wr_coaching": "offense", "ol_coaching": "offense",
+    "dl_coaching": "defense", "lb_coaching": "defense", "secondary_coaching": "defense",
+}
+# Reputation and the 8 granular ratings [tune]: this project's own
+# documented growth constants, separate from Sec 8.2.2's GDD-given
+# ANNUAL_CAP (which governs discipline/motivation_chemistry/etc. only).
+REPUTATION_ANNUAL_CAP = 4.0
+REPUTATION_TITLE_BONUS = 3.0        # a conference title this season
+REPUTATION_SUPER_BOWL_BONUS = 6.0   # a Super Bowl win this season
+POSITION_RATING_ANNUAL_CAP = 4.0
+# How much of a group's total seasonal accumulator points converts into
+# real rating growth -- [tune], a real disclosed starting point.
+ACCUMULATOR_TO_RATING_SCALE = 0.03
+
+
+def _position_rating_deltas(coach: Coach, ranks: TeamRanks, modifier: float,
+                             accumulator_totals: dict[str, float] | None) -> dict[str, float]:
+    """R16 Sec 2: the 8 granular ratings' own progression -- base weekly
+    practice (this season's real accumulated Focus Area investment,
+    app/services/coach_focus_accumulator.py) plus a real unit/team
+    outcome modifier, both scaled by organizational tier (`modifier`,
+    the SAME POSITIONAL_MODIFIER used for every other rating here --
+    Brian's "proportional to the level of coach they are," clarified in
+    planning to mean the coach's OWN progression speed by role tier)."""
+    deltas: dict[str, float] = {}
+    accumulator_totals = accumulator_totals or {}
+    from app.models.coach import FOCUS_POSITION_GROUPS
+    # Which position groups THIS coach could plausibly have been
+    # investing in, from their own available focus menu -- e.g. an OC
+    # only ever accrues qb/rb/wr/ol_coaching practice, never dl_coaching.
+    from app.models.coach import focus_options_for
+    own_groups: set[str] = set()
+    for option in focus_options_for(coach):
+        for group in FOCUS_POSITION_GROUPS.get(option, []):
+            own_groups.add(group)
+    group_to_rating = {
+        "QB": "qb_coaching", "RB": "rb_coaching", "WR": "wr_coaching", "TE": "wr_coaching",
+        "OL": "ol_coaching", "DL": "dl_coaching", "LB": "lb_coaching",
+        "CB": "secondary_coaching", "S": "secondary_coaching", "K": "st_coaching", "P": "st_coaching",
+    }
+    for rating, side in _POSITION_RATING_SIDE.items():
+        rank = ranks.points_for_rank if side == "offense" else ranks.points_against_rank
+        outcome = perf_score(rank) * VOLATILITY if rank is not None else 0.0
+        practice = sum(accumulator_totals.get(g, 0.0) for g, r in group_to_rating.items()
+                       if r == rating and g in own_groups) * ACCUMULATOR_TO_RATING_SCALE
+        delta = (outcome + practice) * modifier
+        deltas[rating] = max(-POSITION_RATING_ANNUAL_CAP, min(POSITION_RATING_ANNUAL_CAP, delta))
+    return deltas
+
+
+def _reputation_delta(ranks: TeamRanks, achievement: str | None, modifier: float) -> float:
+    """R16 Sec 1: reputation is now earned, not frozen at import -- a
+    continuous nudge from this season's real win-pct rank (same
+    perf_score(rank) shape as every other rating here) plus a real,
+    discrete bonus for a conference title or Super Bowl won THIS season
+    (`achievement`, from coach_hiring.best_achievement() -- real,
+    already-computed, not a new signal)."""
+    outcome = perf_score(ranks.win_pct_rank) * VOLATILITY if ranks.win_pct_rank is not None else 0.0
+    bonus = 0.0
+    if achievement == "super_bowl":
+        bonus = REPUTATION_SUPER_BOWL_BONUS
+    elif achievement == "conference_title":
+        bonus = REPUTATION_TITLE_BONUS
+    delta = (outcome * modifier) + bonus
+    return max(-REPUTATION_ANNUAL_CAP, min(REPUTATION_ANNUAL_CAP + bonus, delta))
+
+
+def progress_coach(coach: Coach, ranks: TeamRanks, season_number: int, league_seed: int,
+                    accumulator_totals: dict[str, float] | None = None,
+                    achievement: str | None = None) -> CoachProgressionResult:
     """Pure computation -- does not mutate `coach`. Mirrors
     app/engine/progression.py's progress_player/apply_progression split
-    so the arithmetic is testable without a database."""
+    so the arithmetic is testable without a database.
+
+    `accumulator_totals` (this season's real per-position-group Focus
+    Area investment, app/services/coach_focus_accumulator.py) and
+    `achievement` (this season's real playoff outcome bucket, e.g.
+    "super_bowl"/"conference_title"/None, from coach_hiring.best_
+    achievement()) are optional -- omitting them (the pre-R16 call
+    shape) simply skips the R16 granular-rating/reputation movement
+    below, so an isolated test of the ORIGINAL Sec 8.2.2 ratings still
+    works unchanged."""
     modifier = POSITIONAL_MODIFIER[CoachRole(coach.role)]
     deltas: dict[str, float] = {}
     for rating, source in RATING_SOURCES.items():
@@ -130,6 +217,10 @@ def progress_coach(coach: Coach, ranks: TeamRanks, season_number: int, league_se
             continue
         delta = perf_score(rank) * VOLATILITY * modifier
         deltas[rating] = max(-ANNUAL_CAP, min(ANNUAL_CAP, delta))
+
+    if accumulator_totals is not None or achievement is not None:
+        deltas.update(_position_rating_deltas(coach, ranks, modifier, accumulator_totals))
+        deltas["reputation"] = _reputation_delta(ranks, achievement, modifier)
 
     new_age = coach.age + 1
     retired = False
@@ -155,6 +246,104 @@ def apply_coach_progression(coach: Coach, result: CoachProgressionResult) -> Non
     if result.retired:
         coach.retired = True
         coach.team_abbr = None  # a retired coach vacates their seat
+
+
+# R16 Sec 3: the 8 granular ratings, for the Coaching Tree drift below.
+_POSITION_RATINGS = (
+    "qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching",
+    "dl_coaching", "lb_coaching", "secondary_coaching", "st_coaching",
+)
+# How far a coach drifts toward their lineage source each offseason --
+# [tune], a real disclosed starting point for the post-build playtest.
+COACHING_TREE_DRIFT = 0.05
+
+
+def _drift_toward(coach: Coach, source: Coach, fraction: float) -> None:
+    for rating in _POSITION_RATINGS:
+        current = getattr(coach, rating)
+        target = getattr(source, rating)
+        setattr(coach, rating, max(0, min(99, int(round(current + (target - current) * fraction)))))
+
+
+def apply_coaching_tree_drift(staff: list[Coach]) -> None:
+    """R16 Sec 3, "the Coaching Tree" -- a real, marketed feature: every
+    OC/DC's 8 ratings drift toward their team's HC's; every AC's drift
+    toward their ALIGNED coordinator's (OC if offense-side, DC if
+    defense-side, per Coach.primary_side -- a real, rating-based signal,
+    not a specialty-text lookup, so it can never disagree with the
+    numbers driving everything else). A Special-Teams-side AC drifts
+    directly toward the HC (no ST coordinator exists to align with).
+    Mutates in place; called once per team, AFTER that team's own
+    progress_coach()/apply_coach_progression() pass so drift moves
+    against this season's ALREADY-updated ratings, not last season's."""
+    head = next((c for c in staff if CoachRole(c.role) is CoachRole.HC), None)
+    if head is None:
+        return
+    oc = next((c for c in staff if CoachRole(c.role) is CoachRole.OC), None)
+    dc = next((c for c in staff if CoachRole(c.role) is CoachRole.DC), None)
+
+    for coach in staff:
+        role = CoachRole(coach.role)
+        if role in (CoachRole.OC, CoachRole.DC):
+            _drift_toward(coach, head, COACHING_TREE_DRIFT)
+        elif role is CoachRole.AC:
+            side = coach.primary_side
+            source = oc if side == "Offense" else dc if side == "Defense" else head
+            if source is not None:
+                _drift_toward(coach, source, COACHING_TREE_DRIFT)
+
+
+# A real margin, not a hair-trigger -- [tune]: how much higher a
+# DIFFERENT group's rating needs to be than the current specialty's own
+# group before relabeling, so noise doesn't flip a title back and forth
+# season to season.
+SPECIALTY_RELABEL_MARGIN = 8.0
+
+# specialty group -> the position-group key it maps to (Sec 5's own
+# FOCUS_POSITION_GROUPS shares this shape) -- only REAL, relabel-able
+# position specialties are covered; a generic/unmapped specialty (e.g.
+# "Passing Game") is left alone rather than guessed at.
+_SPECIALTY_GROUP: dict[str, str] = {
+    "Quarterbacks": "QB", "Quarterbacks (Assistant)": "QB",
+    "Running Backs": "RB", "Wide Receivers": "WR", "Tight Ends": "TE",
+    "Offensive Line": "OL", "Offensive Line (Assistant)": "OL",
+    "Defensive Line": "DL", "Linebackers": "LB",
+    "Secondary": "CB", "Safeties": "CB", "Cornerbacks": "CB",
+    "Special Teams": "K", "Special Teams (Assistant)": "K",
+}
+_GROUP_SPECIALTY = {
+    "QB": "Quarterbacks", "RB": "Running Backs", "WR": "Wide Receivers", "TE": "Tight Ends",
+    "OL": "Offensive Line", "DL": "Defensive Line", "LB": "Linebackers", "CB": "Secondary", "K": "Special Teams",
+}
+_GROUP_RATING = {
+    "QB": "qb_coaching", "RB": "rb_coaching", "WR": "wr_coaching", "TE": "wr_coaching",
+    "OL": "ol_coaching", "DL": "dl_coaching", "LB": "lb_coaching", "CB": "secondary_coaching", "K": "st_coaching",
+}
+
+
+def relabel_specialty_if_needed(coach: Coach) -> str | None:
+    """R16 Sec 1: "specialty can change" -- if a DIFFERENT group's
+    rating now clearly beats the coach's CURRENT specialty's own group
+    rating (by SPECIALTY_RELABEL_MARGIN, so a real career shift, not
+    noise), relabel them. AC only (HC/OC/DC's role already says what
+    they do); a coach whose specialty doesn't map to a known group
+    (e.g. "Passing Game") is left alone. Mutates `coach.specialty` in
+    place; returns the new specialty if it changed, else None."""
+    if CoachRole(coach.role) is not CoachRole.AC:
+        return None
+    current_group = _SPECIALTY_GROUP.get(coach.specialty or "")
+    if current_group is None:
+        return None
+    current_rating = getattr(coach, _GROUP_RATING[current_group])
+    best_group, best_rating = current_group, current_rating
+    for group, rating_attr in _GROUP_RATING.items():
+        value = getattr(coach, rating_attr)
+        if value > best_rating:
+            best_group, best_rating = group, value
+    if best_group != current_group and best_rating - current_rating >= SPECIALTY_RELABEL_MARGIN:
+        coach.specialty = _GROUP_SPECIALTY[best_group]
+        return coach.specialty
+    return None
 
 
 def _rank_map(values: dict[str, float], reverse: bool) -> dict[str, int]:

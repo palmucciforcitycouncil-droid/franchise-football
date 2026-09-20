@@ -10,6 +10,7 @@ from app.main import app
 from app.services import (
     season_state, save_service, gameplan_store, history_store, power_rank_history,
     award_race_history, headlines_history, draft_class_store, draft_board_store, draft_progress_store,
+    roster_prep,
 )
 from app.engine.schedule import generate_season_schedule, N_WEEKS
 from app.data.teams import TEAMS
@@ -137,8 +138,17 @@ def test_schedule_generation_reliable_across_many_seeds():
     _try_place_attempt) has internal randomness and isn't guaranteed to
     succeed on a given attempt -- it retries with different seeds until
     one works. This checks that it actually does converge, and stays
-    fast, across a spread of league seeds and season numbers, not just
-    the one or two used in the other tests above."""
+    reasonably fast, across a spread of league seeds and season numbers,
+    not just the one or two used in the other tests above.
+
+    Budget widened 30 -> 60s: _try_place_attempt's repair pass was
+    upgraded from a one-level Kempe-chain swap to an arbitrary-depth
+    relocation search (ensure_free()), fixing real game sets that used
+    to deterministically exhaust all 2000 random-seed attempts and
+    crash a season rollover outright. A real (measured) cost increase
+    to ~30-32s for these 24 combinations, worth paying for actual
+    convergence -- see schedule.py's own module docstring/commit for
+    the full account."""
     import time
 
     t0 = time.time()
@@ -149,7 +159,7 @@ def test_schedule_generation_reliable_across_many_seeds():
             total = sum(len(week) for week in schedule)
             assert total == 272
     elapsed = time.time() - t0
-    assert elapsed < 30, f"schedule generation took {elapsed:.1f}s for 24 combinations -- too slow"
+    assert elapsed < 60, f"schedule generation took {elapsed:.1f}s for 24 combinations -- too slow"
 
 
 def test_season_page_loads():
@@ -167,12 +177,17 @@ def test_simulate_week_advances_and_updates_standings():
     total_wins = sum(r.wins for r in season.records.values())
     total_losses = sum(r.losses for r in season.records.values())
     total_ties = sum(r.ties for r in season.records.values())
-    # 16 games in week 1: each one contributes either a win+a loss, or a
-    # tie credited to BOTH teams (season_state's own tie fix -- a genuine
-    # tied score is no longer forced to a phantom home win). total_ties
-    # counts both teams per tied game, hence // 2.
+    # Bye-week timing isn't constrained to a fixed window (see
+    # app/engine/schedule.py's module docstring), so week 1 doesn't
+    # always have all 32 teams playing -- assert against the actual
+    # game count rather than assuming a fixed 16. Each game contributes
+    # either a win+a loss, or a tie credited to BOTH teams (season_
+    # state's own tie fix -- a genuine tied score is no longer forced to
+    # a phantom home win); total_ties counts both teams per tied game,
+    # hence // 2.
+    games_in_week_1 = len(season.schedule[0])
     assert total_wins == total_losses
-    assert total_wins + total_ties // 2 == 16
+    assert total_wins + total_ties // 2 == games_in_week_1
 
 
 def test_full_season_completes():
@@ -390,6 +405,11 @@ def test_sim_week_button_returns_to_the_page_it_was_clicked_from():
     doesn't lose your place -- confirms the redirect actually goes back
     to redirect_to, not always to /season."""
     season_state.set_user_team("KC")
+    # R16 Sec 8: a real import carries 54-72 players per team -- KC needs
+    # the same one-time, position-need-aware trim to 53 a fresh-load AI
+    # team gets automatically, or the over-53 gate fires here instead of
+    # the flow this test checks.
+    roster_prep.auto_cut_team_to_limits("KC")
     resp = client.post("/season/simulate-week", data={"redirect_to": "/roster"}, follow_redirects=False)
     assert resp.status_code == 303
     assert resp.headers["location"] == "/roster"
@@ -775,6 +795,56 @@ def test_gm_desk_trade_route_accepts_a_pick_for_pick_swap():
         assert draft_pick_store.owner_of(buf_pick.season_number, buf_pick.round, buf_pick.original_team_abbr) == "KC"
 
 
+def test_trade_side_excludes_practice_squad_players():
+    """R16 Sec 4.1/decision #15: PS players aren't tradeable -- only
+    active-53 and IR are, same as before this feature."""
+    from app.core.db import get_session
+    from app.models.player import Player, RosterStatus
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        kc_roster = list(s.exec(select(Player).where(Player.team_abbr == "KC")))
+    ps_player = kc_roster[0]
+    ir_player = kc_roster[1]
+    with get_session() as s:
+        p = s.get(Player, ps_player.player_id)
+        p.roster_status = RosterStatus.PRACTICE_SQUAD
+        s.add(p)
+        p2 = s.get(Player, ir_player.player_id)
+        p2.roster_status = RosterStatus.IR
+        s.add(p2)
+        s.commit()
+
+    side_html = client.get("/gm-desk/trade/side", params={"team": "KC"}).json()["html"]
+    assert ps_player.player_id not in side_html  # PS is excluded from the tradeable list
+    assert ir_player.player_id in side_html      # IR stays tradeable, same as before R16
+
+
+def test_gm_desk_trade_route_rejects_offering_a_practice_squad_player():
+    from app.core.db import get_session
+    from app.models.player import Player, RosterStatus
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        kc = list(s.exec(select(Player).where(Player.team_abbr == "KC")))
+        buf_best = max(s.exec(select(Player).where(Player.team_abbr == "BUF")), key=lambda p: p.overall_rating)
+    ps_player = kc[0]
+    with get_session() as s:
+        p = s.get(Player, ps_player.player_id)
+        p.roster_status = RosterStatus.PRACTICE_SQUAD
+        s.add(p)
+        s.commit()
+
+    resp = client.post("/gm-desk/trade", data={
+        "team_b": "BUF", "give": [ps_player.player_id], "get": [buf_best.player_id],
+    })
+    assert resp.status_code == 422
+
+
 def test_gm_desk_trade_route_rejects_a_pick_not_owned_by_the_offering_team():
     from app.services import draft_pick_store
 
@@ -1091,6 +1161,9 @@ def test_simulate_next_preseason_round_plays_exactly_one_round_at_a_time():
 
 def test_simulate_week_route_plays_preseason_rounds_before_the_regular_season():
     season_state.set_user_team("KC")
+    # R16 Sec 8: see test_sim_week_button_returns_to_the_page_it_was_clicked_from's
+    # own comment -- KC's real 62-man import needs the same one-time trim.
+    roster_prep.auto_cut_team_to_limits("KC")
     for expected_round in (1, 2, 3, 4):
         resp = client.post("/season/simulate-week", data={"redirect_to": "/season"}, follow_redirects=False)
         assert resp.status_code == 303

@@ -18,7 +18,7 @@ from __future__ import annotations
 from app.models.player import Position
 
 POSITION_TO_GROUP: dict[Position, str] = {
-    Position.QB: "QB", Position.HB: "RB", Position.FB: "RB",
+    Position.QB: "QB", Position.HB: "RB",
     Position.WR: "WR", Position.TE: "TE",
     Position.T: "T", Position.G: "G", Position.C: "C",
     Position.EDGE: "EDGE", Position.DT: "DT",

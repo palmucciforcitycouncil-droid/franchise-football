@@ -403,6 +403,44 @@ def test_playoffs_page_renders_before_and_after_the_bracket_exists():
     assert season_state.get_season().playoffs is not None
 
 
+@pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
+def test_playoffs_page_gives_a_real_sim_button_instead_of_pointing_elsewhere():
+    """Original real playtester report (predates this fix): a bye week in
+    the playoffs' first round made the Weekly Gameplan box (which only
+    lives on /dashboard) seem to stop working, because this page used to
+    tell the player to go simulate on /season, which has no Gameplan box
+    either -- Sim Week clicks bounced between /season and /playoffs with
+    nothing ever routing back to Dashboard.
+
+    2026-09-20 fix (a separate, later playtest report: "is simming week
+    18 also simulating week 1 of the playoffs?") replaced the ENTIRE
+    navigate-elsewhere workaround: GET /playoffs used to silently call
+    simulate_playoff_round() as a side effect of the page load once the
+    regular season finished (`season.playoffs is None` -> auto-sim on
+    the very next view) -- so this page never needed a Sim button before
+    because loading it WAS the sim action, which is exactly the bug that
+    fix removed. Now the page shows the real, correctly-seeded but
+    unplayed Wild Card matchups with an explicit "Sim Wild Card Round"
+    button right here -- which also fully closes the original bye-week
+    navigation complaint from a different angle: there's no more need to
+    bounce to Dashboard at all, the working Sim control is right on this
+    page."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    season_state.reset_season()
+    from app.engine.schedule import N_WEEKS
+    for _ in range(N_WEEKS):
+        season_state.simulate_current_week()
+
+    resp = client.get("/playoffs")  # no longer auto-simulates the WC round
+    assert resp.status_code == 200
+    assert season_state.get_season().playoffs is None
+    assert "Sim Wild Card Round" in resp.text
+    assert '<form method="post" action="/season/simulate-week"' in resp.text
+
+
 def test_playoffs_view_tabs_render_real_bracket_hunt_and_standings():
     """GDD Sec 10.4.6: Full Bracket / AFC / NFC / Super Bowl tab views
     (item 32-equivalent redesign) -- each tab's real data (In The Hunt,

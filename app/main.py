@@ -55,8 +55,8 @@ from app.engine import coach_contracts
 from app.services import negotiation_store
 from app.services.depth_chart import clear_starters_cache
 from app.core.db import get_session
-from app.models.player import Player, Position
-from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT, FOCUS_AREAS
+from app.models.player import Player, Position, RosterStatus
+from app.models.coach import Coach, CoachRole, ROLE_TITLES, APPOINTMENT_PERMANENT, focus_options_for
 from sqlmodel import select
 
 app = FastAPI(title="Franchise Football")
@@ -132,10 +132,11 @@ FA_DEFENSE_GROUPS = {"EDGE", "DT", "LB", "CB", "S"}
 # QUOTA_GROUPS/_QUOTA_GROUP_FOR_POSITION instead. Finer-grained than
 # Figma's filter panel, not a regression.
 
-MAX_ROSTER_SIZE = 53  # the real NFL active-roster limit (RosterTable.tsx's
-                       # own hardcoded constant) -- not fabricated per-team
-                       # data, just an unenforced real-world number this
-                       # engine doesn't cap rosters against yet.
+# R16: MAX_ROSTER_SIZE moved to app/engine/free_agency.py (now genuinely
+# ENFORCED, not just a display constant) -- kept as a local alias so
+# every existing reference below doesn't need touching.
+MAX_ROSTER_SIZE = free_agency.MAX_ROSTER_SIZE
+PRACTICE_SQUAD_SIZE = free_agency.PRACTICE_SQUAD_SIZE
 
 # Column ids sortable via the Roster table's header links (RosterTable.tsx's
 # own `handleSort` keys), GET-param + full-page-reload like Stats' M3
@@ -285,7 +286,13 @@ def _depth_slot_across_teams(team_abbrs: set[str]) -> dict[str, str]:
     labels: dict[str, str] = {}
     with get_session() as s:
         for abbr in team_abbrs:
-            team_players = list(s.exec(select(Player).where(Player.team_abbr == abbr)))
+            # R16 Sec 9: a PS/IR player is never depth-chart-eligible --
+            # same ACTIVE(+ELEVATED)-only filter every other depth-chart
+            # call site in this file applies.
+            team_players = list(s.exec(select(Player).where(
+                Player.team_abbr == abbr,
+                Player.roster_status.in_([RosterStatus.ACTIVE, RosterStatus.ELEVATED]),
+            )))
             labels.update(_slot_labels_from_groups(_depth_chart_groups_for_team(abbr, team_players)))
     return labels
 
@@ -303,7 +310,7 @@ def _fa_stat_line_summary(row: dict) -> str:
         if row["pass_td"]:
             parts.append(f"{row['pass_td']} TD")
         return ", ".join(parts)
-    if pos in ("HB", "FB") and row["rush_att"]:
+    if pos == "HB" and row["rush_att"]:
         parts = [f"{row['rush_att']} Car", f"{row['rush_yds']} Yds"]
         if row["rush_td"]:
             parts.append(f"{row['rush_td']} TD")
@@ -345,7 +352,7 @@ def roster_view(
     find_rookie: bool = False,
     find_sort: str = "ovr", find_dir: str = "desc",
     fa_offer_result: str | None = None, fa_offer_player: str | None = None,
-    roster_gate: bool = False, autofilled: str | None = None,
+    over_roster_gate: bool = False,
 ):
     """Real player data (2,365 players across 32 teams, plus 71 free
     agents) has existed since the roster import but was only ever
@@ -404,8 +411,22 @@ def roster_view(
         else:
             players = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
 
+    # R16 Sec 10: the main table stays the ACTIVE roster (everything below
+    # -- depth chart, starters, quotas, shortfall -- is unchanged logic,
+    # just fed the active-only list); Practice Squad and IR get their own
+    # boxes from the same query, not a second DB round trip. Meaningless
+    # for the FA pseudo-team (a free agent has no real roster_status).
+    ps_players: list[Player] = []
+    ir_players: list[Player] = []
+    if team_abbr != "FA":
+        ps_players = [p for p in players if p.roster_status == RosterStatus.PRACTICE_SQUAD]
+        ir_players = [p for p in players if p.roster_status == RosterStatus.IR]
+        players = [p for p in players if p.roster_status in (RosterStatus.ACTIVE, RosterStatus.ELEVATED)]
+
     position_rank = {pos: i for i, pos in enumerate(Position)}
     players.sort(key=lambda p: (position_rank[p.position], -p.overall_rating))
+    ps_players.sort(key=lambda p: (position_rank[p.position], -p.overall_rating))
+    ir_players.sort(key=lambda p: (position_rank[p.position], -p.overall_rating))
 
     # Depth chart groups (reusing depth_chart_view's logic)
     depth_chart_groups = _depth_chart_groups_for_team(team_abbr, players) if team_abbr != "FA" else []
@@ -431,9 +452,9 @@ def roster_view(
     # Team Quota badges: counted by the fixed generic grouping (see
     # _QUOTA_GROUP_FOR_POSITION's docstring for the bug this replaces).
     total_roster_count = len(players)
-    # Holes are per POSITION (HB and FB share the RB pill), so a pill is
-    # only "met" when its count clears the group minimum AND none of its
-    # positions is individually short -- the same test the gate applies.
+    # Holes are per POSITION, so a pill is only "met" when its count
+    # clears the group minimum AND none of its positions is individually
+    # short -- the same test the gate applies.
     position_holes = free_agency.roster_shortfall(players) if team_abbr != "FA" else {}
     position_quotas = {
         grp: {"current": sum(1 for p in players if _QUOTA_GROUP_FOR_POSITION[p.position] == grp),
@@ -444,17 +465,15 @@ def roster_view(
     for quota in position_quotas.values():
         quota["short"] = quota["short"] or quota["current"] < quota["min"]
 
-    # Preseason roster gate banner (Brian's ask, 2026-09-14): shown on the
-    # user's own team whenever the season hasn't played a game yet and the
-    # roster is short, or right after the gate/Auto-Fill sent them here.
+    # Over-53 roster gate banner (R16 Sec 10/decision #18): /roster is now
+    # the TRIM side of the two-gate split -- the shortfall banner moved to
+    # GM Desk (see gm_desk_view()), since signing happens there, not here.
     gate_season = season_state.get_season()
-    roster_gate_banner = None
-    if team_abbr == gate_season.user_team_abbr and (roster_gate or (position_holes and season_state.season_not_started(gate_season))):
-        roster_gate_banner = {
-            "holes": roster_prep.holes_summary(position_holes),
-            "autofilled": _int_or_none(autofilled),
-            "can_sim": season_state.season_not_started(gate_season),
-        }
+    over_roster_banner = None
+    if team_abbr == gate_season.user_team_abbr and (
+        over_roster_gate or (total_roster_count > MAX_ROSTER_SIZE and season_state.season_not_started(gate_season))
+    ):
+        over_roster_banner = {"over_by": total_roster_count - MAX_ROSTER_SIZE}
 
     # Depth slot label per player ("QB1", "QB2", ...) -- RosterTable.tsx's
     # DEP column, real (each group's already-resolved starter order),
@@ -691,6 +710,13 @@ def roster_view(
             "view": view, "position_quotas": position_quotas, "depth_chart_groups": depth_chart_groups,
             "stats_data": stats_data, "depth_slot": depth_slot, "progression_deltas": progression_deltas,
             "total_roster_count": total_roster_count, "max_roster_size": MAX_ROSTER_SIZE,
+            # R16 Sec 10: the two new boxes -- ps_players/ir_players are
+            # the same real Player rows the main table uses, just the
+            # PRACTICE_SQUAD/IR-status subset computed above.
+            "ps_players": ps_players, "ir_players": ir_players,
+            "practice_squad_size": PRACTICE_SQUAD_SIZE,
+            "current_week": gate_season.current_week,
+            "is_user_team": team_abbr == gate_season.user_team_abbr,
             "quota_pill_links": quota_pill_links, "all_pill_link": all_pill_link,
             "position_filter": position, "sort_links": sort_links, "sort": effective_sort, "dir": direction,
             "filter_groups": QUOTA_GROUPS,
@@ -711,14 +737,20 @@ def roster_view(
             "find_sort_columns": ROSTER_SORT_COLUMN_LABELS,
             "all_positions": list(Position),
             "fa_offer_result": fa_offer_result, "fa_offer_player": fa_offer_player,
-            "roster_gate_banner": roster_gate_banner, "last_starters": last_starters,
+            "over_roster_banner": over_roster_banner, "last_starters": last_starters,
         },
     )
 
 
 def _roster_by_position(team_abbr: str) -> dict[Position, list[Player]]:
+    # R16 Sec 9: feeds the manual depth-chart move and auto-fill actions
+    # -- a PS/IR player must never be selectable there, same ACTIVE(+
+    # ELEVATED)-only filter every other depth-chart call site applies.
     with get_session() as s:
-        players = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+        players = list(s.exec(select(Player).where(
+            Player.team_abbr == team_abbr,
+            Player.roster_status.in_([RosterStatus.ACTIVE, RosterStatus.ELEVATED]),
+        )))
     by_position: dict[Position, list[Player]] = {}
     for p in players:
         by_position.setdefault(p.position, []).append(p)
@@ -1012,7 +1044,7 @@ def _coach_card_json(coach: Coach) -> str:
         })
 
     titles_by_role = []
-    for r, label in (("hc", "HC"), ("oc", "OC"), ("dc", "DC"), ("st", "ST"), ("ac", "AC")):
+    for r, label in (("hc", "HC"), ("oc", "OC"), ("dc", "DC"), ("ac", "AC")):
         afc = getattr(coach, f"{r}_afc_championships")
         nfc = getattr(coach, f"{r}_nfc_championships")
         sb = getattr(coach, f"{r}_super_bowl_wins")
@@ -1024,8 +1056,8 @@ def _coach_card_json(coach: Coach) -> str:
     # title is won); the count is the larger of that and the Sec 7.9 career
     # counter, so a title credited before dated honors existed still counts.
     coach_rows = honors_store.coach_awards(coach.coach_id)
-    afc_total = sum(getattr(coach, f"{r}_afc_championships") for r in ("hc", "oc", "dc", "st", "ac"))
-    nfc_total = sum(getattr(coach, f"{r}_nfc_championships") for r in ("hc", "oc", "dc", "st", "ac"))
+    afc_total = sum(getattr(coach, f"{r}_afc_championships") for r in ("hc", "oc", "dc", "ac"))
+    nfc_total = sum(getattr(coach, f"{r}_nfc_championships") for r in ("hc", "oc", "dc", "ac"))
     honors = []
     for award, counter in (("Super Bowl Champion", coach.super_bowl_wins), ("AFC Champion", afc_total),
                            ("NFC Champion", nfc_total), ("Coach of the Year", coach.coach_awards)):
@@ -1061,6 +1093,11 @@ def _coach_card_json(coach: Coach) -> str:
         "defensive_profile": coach.defensive_profile,
         "job_security": f"{coach.job_security_score:.0f}",
         "focus_area": coach.focus_area,
+        # R16 Sec 1: a quick-glance "what is this coach really best at"
+        # tag, purely from their own ratings (see Coach.primary_side's
+        # own docstring) -- the 8 granular ratings themselves render via
+        # rating_groups below.
+        "primary_side": coach.primary_side,
         "appointment_type": coach.appointment_type,
         "background": coach.background,
         # An unemployed coach has no salary of his own (pool candidates are
@@ -1081,12 +1118,21 @@ def _coach_card_json(coach: Coach) -> str:
         "season_history": history_rows,
         "rating_groups": [
             {"heading": "Performance & Management (Sec 7.7.2.3)", "rows": [
-                ["Player Dev (Off)", coach.player_dev_offense],
-                ["Player Dev (Def)", coach.player_dev_defense],
                 ["Discipline", coach.discipline],
                 ["Motivation / Chemistry", coach.motivation_chemistry],
                 ["Red Zone Offense", coach.red_zone_offense],
                 ["Red Zone Defense", coach.red_zone_defense],
+            ]},
+            # R16 Sec 1: the 8 granular position-group coaching ratings,
+            # replacing the old broad Player Dev (Off)/(Def) pair (now
+            # computed averages of these, not stored fields) -- this is
+            # what a coach's Focus Area default and the Coaching Tree
+            # actually read.
+            {"heading": "Position-Group Coaching (R16)", "rows": [
+                ["QB", coach.qb_coaching], ["Running Backs", coach.rb_coaching],
+                ["Receivers (WR/TE)", coach.wr_coaching], ["Offensive Line", coach.ol_coaching],
+                ["Defensive Line", coach.dl_coaching], ["Linebackers", coach.lb_coaching],
+                ["Secondary", coach.secondary_coaching], ["Special Teams", coach.st_coaching],
             ]},
             {"heading": "Strategic Tendencies (Sec 7.7.2.2)", "rows": [
                 ["Pass Tendency", coach.run_pass_tendency],
@@ -2585,6 +2631,14 @@ def _player_card_json(p: Player) -> str:
         # for free agents (team is None), computed for everyone anyway
         # since it's cheap and harmless.
         "expected_salary": round(contracts.expected_market_value(p, season.season_number)),
+        # R16 Sec 10/decision #20: drives openCard()'s rosterActionsHtml()
+        # -- the Player Card's own Release/Send to PS/Promote to 53
+        # buttons, same three actions as the Roster page's inline row
+        # buttons, gated the same way (card.team === USER_TEAM_ABBR).
+        "roster_status": p.roster_status.value,
+        "ir_reactivate_eligible": (
+            p.roster_status == RosterStatus.IR and season.current_week - (p.ir_placed_week or 0) >= 4
+        ),
     })
 
 
@@ -3055,52 +3109,95 @@ def hof_view_redirect(pos: str = "all", q: str = ""):
 # - "Background" / "Attitude" / "Style" (source fields). No real source
 #   and no sim consumer; the real scheme-profile tags cover the same
 #   ground with something the engine actually reads.
-STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST]
+STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC]
 
 
 def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
     """GDD Sec 9.2.5.1's "Trait Effects Matrix", built from the REAL
-    biases this staff feeds into the sim (app/engine/coaching.py), so
-    the panel shows what the staff is actually doing this season rather
-    than a static description of what a coach could theoretically do.
-    Each row is (label, value, which engine system consumes it).
+    numbers this staff feeds into the sim, so the panel shows what the
+    staff is actually doing right now rather than a static description
+    of what a coach could theoretically do. Each row is (label, value,
+    which engine system consumes it).
 
-    R13: injury_risk_multiplier and the Scouting readout follow the exact
-    same "prove it's doing something" precedent as every row above --
-    added here rather than a second panel."""
-    from app.engine import draft as draft_engine
+    R16 split this into two real halves (docs/R16_COACH_POSITION_IMPACT_
+    SPECIFICATION.md Sec 8): the play-calling rows below are driven by
+    ROLE (an OC's/DC's own tendencies, independent of anyone's Focus
+    Area -- app/engine/coaching.py's build_staff_effect()); the
+    position-group rows are Focus Area's real job now -- this week's
+    active this-game boost per group (compounded across every coach
+    focused there) and this season's accumulated development total per
+    group, so changing a coach's focus and resubmitting visibly moves
+    the relevant row (review's own ask: "easily see... moving")."""
+    from app.engine import coaching, draft as draft_engine
+    from app.services import coach_store, coach_focus_accumulator
 
     def pct(x):
         return f"{x * 100:+.1f}%"
 
+    season = season_state.get_season()
+    staff = coach_store.staff_for(team_abbr)
+    baselines = coaching.league_baseline_by_tier()
+    this_week_boosts = coaching._team_group_boosts(staff, baselines) if staff else {}
+    season_totals = coach_focus_accumulator.totals_for(season.season_number, team_abbr)
+
+    # 2026-09-20 fix (Brian's playtest report: "it needs to be very clear
+    # to the user what is driving that negative"): a group's boost can
+    # never be self-explanatory from the number alone -- it's whichever
+    # coach(es) are focused there, each compared against their OWN
+    # role-tier's real average (league_baseline_by_tier(), not one
+    # pooled number). Built once per group actually shown below.
+    def _boost_explanation(group: str) -> str:
+        from app.models.coach import tier_key, CoachRole as _Role, FOCUS_RATING_WEIGHTS as _WEIGHTS
+        parts = []
+        for coach in staff:
+            if group not in coaching.FOCUS_POSITION_GROUPS.get(coach.focus_area, []):
+                continue
+            weights = _WEIGHTS.get(coach.focus_area)
+            if not weights:
+                continue
+            baseline = baselines.get(tier_key(_Role(coach.role)))
+            total_w = sum(w for _, w in weights)
+            rating = sum(getattr(coach, r) * w for r, w in weights) / total_w
+            center = sum(getattr(baseline, r) * w for r, w in weights) / total_w if baseline else rating
+            parts.append(f"{coach.full_name} {rating:.0f} vs. {tier_key(_Role(coach.role))} avg {center:.0f}")
+        return "; ".join(parts) if parts else "no coach currently focused here"
+
+    rows = [
+        ("Pass/run mix", pct(effect.pass_bias), "Play-calling by role (OC), Sec 6.6.1"),
+        ("Red-zone pass lean", pct(effect.rz_pass_bias), "Play-calling by role (OC), inside the 20"),
+        ("4th-down aggression", pct(effect.fourth_down_bias), "4th-down decision by role (OC), Sec 6.6.4"),
+        ("Two-point tendency", pct(effect.two_point_bias), "PAT vs. 2-pt by role (OC), Sec 6.8"),
+        ("Blitz rate", pct(effect.blitz_bias), "Defensive call by role (DC), Sec 6.6.3"),
+        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "Coverage call by role (DC), league default 40%"),
+        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "Penalty system -- HC discipline, Sec 7.7.4"),
+        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "Strength & Conditioning focus -> injury system"),
+        ("Stamina recovery", f"{effect.stamina_recovery_multiplier:.2f}x", "Strength & Conditioning focus -> fatigue/rotation"),
+    ]
+    for group in ("QB", "RB", "WR", "TE", "OL", "DL", "LB", "CB", "S", "K", "P"):
+        boost = this_week_boosts.get(group, 0.0)
+        season_pts = season_totals.get(group, 0.0)
+        if boost == 0.0 and season_pts == 0.0:
+            continue
+        rows.append((
+            f"{group} this-game boost", f"{boost:+.1f} pts",
+            f"Focus Area -> {group} player attributes, this game only ({_boost_explanation(group)})",
+        ))
+        rows.append((
+            f"{group} season development", f"{season_pts:.1f} pts accumulated",
+            f"Focus Area -> {group} progression at rollover",
+        ))
+
     scouting_strength = draft_engine.team_scouting_strength(team_abbr)
     scouting_reduction = scouting_strength / (scouting_strength + draft_engine.SCOUTING_STRENGTH_K)
-
-    # 2026-09-15: captions name the coach RATING that drives each row
-    # (visible on that coach's own card) instead of the engine/GDD
-    # citation -- "make sure everything here is logical to coach
-    # ratings," Brian's ask -- so a player can trace a number back to a
-    # rating they can see, not an internal section reference.
-    return [
-        ("Pass/run mix", pct(effect.pass_bias), "From your offensive staff's Run/Pass Tendency"),
-        ("Red-zone pass lean", pct(effect.rz_pass_bias), "From your offensive staff's Red Zone Pass Lean"),
-        ("4th-down aggression", pct(effect.fourth_down_bias), "From your offensive staff's Offensive Aggression"),
-        ("Two-point tendency", pct(effect.two_point_bias), "From your offensive staff's Two-Point Tendency"),
-        ("Blitz rate", pct(effect.blitz_bias), "From your defensive staff's Blitz Rate"),
-        ("Man coverage", f"{(effect.man_coverage_prob or 0.40) * 100:.0f}%", "From your defensive staff's Coverage Mix (league default 40% man)"),
-        ("Penalty rate", f"{effect.penalty_rate_multiplier:.2f}x", "From your Head Coach's Discipline"),
-        ("FG attempt range", f"{effect.fg_range_bonus:+.1f} yds", "From your staff's Special Teams Focus"),
-        ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "From your offensive staff's Player Development rating"),
-        ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "From your defensive staff's Player Development rating"),
-        ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "From staff focused on Training (Motivation/Chemistry)"),
-        # 2026-09-20 (Brian's playtest report: "isn't everything past zero
-        # meaningless?"): the bare "-47%" read as an unexplained number --
-        # it's how much smaller draft-evaluation error is than the
-        # league-default noise, i.e. a bigger cut is MORE accurate
-        # scouting, not less. Said in the value itself rather than only
-        # in a caption a player might not read.
-        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}% error (more accurate)", "From staff focused on Scouting"),
-    ]
+    # 2026-09-20 (Brian's playtest report: "isn't everything past zero
+    # meaningless?"): the bare "-47%" read as an unexplained number --
+    # it's how much smaller draft-evaluation error is than the
+    # league-default noise, i.e. a bigger cut is MORE accurate scouting,
+    # not less. Said in the value itself rather than only in a caption a
+    # player might not read.
+    rows.append(("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}% error (more accurate)",
+                 "Scouting focus -> draft pick decisions"))
+    return rows
 
 
 # Stats page Coach tab (GDD Sec 7.6's Coach stat catalog / Figma
@@ -3272,6 +3369,12 @@ def _coach_negotiate_opts(coach: Coach, team_abbr: str, season_number: int) -> s
         "expectedValue": market, "defaultAav": coach.salary_aav or market,
         "defaultYears": coach_contracts.DEFAULT_CONTRACT_YEARS[CoachRole(coach.role)],
         "maxYears": COACH_EXTENSION_MAX_YEARS, "hideGuaranteed": True, "reactionLabel": "Coach Reaction",
+        # Sec 11's "Extend Contract" is additive real-world extension
+        # semantics (a "3-year extension" adds 3 to whatever's left, it
+        # doesn't reset the deal) -- unlike a player free-agent signing's
+        # "Contract Length", which IS the whole new term. Distinct label
+        # so the user isn't guessing which behavior they're getting.
+        "yearsLabel": "Additional Years",
     })
 
 
@@ -3312,6 +3415,9 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
             "title": ROLE_TITLES[r],
             "coach": holder,
             "card": _coach_card_json(holder) if holder else None,
+            # R16: each role's OWN focus menu (app/models/coach.py's
+            # FOCUS_OPTIONS_BY_ROLE), not one shared global list.
+            "focus_options": focus_options_for(holder) if holder else [],
             # R3d Sec 11: the Fill Vacancy candidate list only ever
             # computed for the user's own team's own vacant seat --
             # every AI team's vacancy is filled autonomously the same
@@ -3329,7 +3435,8 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
     positions[1:] = sorted(positions[1:], key=lambda e: 0 if e["coach"] is None else 1)
     assistant_rows = [
         {"coach": c, "card": _coach_card_json(c), "contract_status": _contract_status(c),
-         "negotiate": _coach_negotiate_opts(c, team_abbr, season.season_number) if is_user_team else None}
+         "negotiate": _coach_negotiate_opts(c, team_abbr, season.season_number) if is_user_team else None,
+         "focus_options": focus_options_for(c)}
         for c in by_role.get(CoachRole.AC, [])
     ]
     # Brian's 2026-09-14 fixes doc: at most MAX_ASSISTANTS; the Hire
@@ -3394,20 +3501,26 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
         "staff_error": staff_error,
         "staff_error_role": staff_error_role,
         "effect_rows": _staff_effect_rows(effect, team_abbr),
-        "focus_areas": FOCUS_AREAS,
         "search_results": search_results,
         "q": q,
         "role": role,
         "available": available,
         "role_options": [(r.value, ROLE_TITLES[r]) for r in
-                          (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.ST, CoachRole.AC)],
+                          (CoachRole.HC, CoachRole.OC, CoachRole.DC, CoachRole.AC)],
         "free_agent_count": len(coach_store.free_agents()),
         "is_user_team": is_user_team,
         "owner_pressure": round(owner_pressure_store.pressure_for(team_abbr)),
-        # HC/OC/DC/ST only -- these are the coach_box() cards, one seat
-        # each; AC firing (2026-09-15) is a per-row button in the
-        # assistants table instead, since there's more than one AC.
-        "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value, CoachRole.ST.value],
+        # HC/OC/DC only (R16 removed ST) -- these are the coach_box()
+        # cards, one seat each; AC firing (2026-09-15) is a per-row
+        # button in the assistants table instead, since there's more
+        # than one AC.
+        "fireable_roles": [CoachRole.HC.value, CoachRole.OC.value, CoachRole.DC.value],
+        # Never populated by any route -- staff_extend_coach() returns
+        # JSON for the fetch()-driven Negotiation modal instead (Brian's
+        # 2026-09-14 "page jumps to the top" fix), so this template
+        # block is currently dead. Kept at None rather than wired up,
+        # to avoid inventing a second, redundant feedback path.
+        "extend_feedback": None,
     })
 
 
@@ -3514,25 +3627,24 @@ def _cap_hits_sort_value(p: Player, key: str):
 
 @app.post("/staff/{team_abbr}/{coach_id}/focus")
 def staff_set_focus_area(request: Request, team_abbr: str, coach_id: str, focus_area: str = Form(...)):
-    """R13 (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md Sec 6): the real
-    Focus Area dropdown -- user's own team only (AI teams' assistants are
+    """R16 (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md Sec 4): the
+    real Focus Area dropdown -- user's own team only (AI teams get
     reassigned autonomously every offseason instead, coach_ai.run_focus_
-    autonomy()). Any coach on the roster can be reassigned, not just
-    assistants -- the HC/OC/DC/ST can all freely pick, same rule as
-    everyone else (Sec 2's settled decision)."""
+    autonomy()). Every role can freely pick from ITS OWN menu
+    (focus_options_for()) -- not a shared global list anymore."""
     from app.engine import coaching
-    from app.models.coach import FOCUS_AREAS, Coach as CoachModel
+    from app.models.coach import Coach as CoachModel, focus_options_for as _focus_options_for
 
     season = season_state.get_season()
     if season.user_team_abbr != team_abbr:
         raise HTTPException(404, "Not your team")
-    if focus_area not in FOCUS_AREAS:
-        raise HTTPException(422, "Invalid focus area")
 
     with get_session() as s:
         coach = s.get(CoachModel, coach_id)
         if coach is None or coach.team_abbr != team_abbr:
             raise HTTPException(404, "No such coach on this team")
+        if focus_area not in _focus_options_for(coach):
+            raise HTTPException(422, "Invalid focus area for this coach's role")
         coach.focus_area = focus_area
         s.add(coach)
         s.commit()
@@ -3624,7 +3736,11 @@ def staff_extend_coach(request: Request, team_abbr: str, coach_id: str,
         with get_session() as s:
             row = s.get(CoachModel, coach_id)
             row.salary_aav = aav
-            row.contract_years = years
+            # Sec 11's "Extend Contract" is additive, real-world extension
+            # semantics -- a "1-year extension" on a coach with 4 years
+            # left means 5 total, not a reset to 1 (a real, reported bug:
+            # this used to overwrite contract_years outright).
+            row.contract_years = row.contract_years + years
             s.add(row)
             s.commit()
         coach_store.clear_cache()
@@ -3637,7 +3753,8 @@ def staff_extend_coach(request: Request, team_abbr: str, coach_id: str,
 def gm_desk_view(request: Request, offer_result: str | None = None, offer_player: str | None = None,
                   counter_aav: str | None = None, counter_years: str | None = None,
                   team_b: str | None = None, trade_result: str | None = None,
-                  cap_sort: str | None = None, cap_dir: str = "desc", acquire: str | None = None):
+                  cap_sort: str | None = None, cap_dir: str = "desc", acquire: str | None = None,
+                  roster_gate: bool = False, autofilled: str | None = None):
     """GDD Sec 10.4.4 / R4a (GDD Sec 8.3) / R4c (GDD Sec 8.5): real Cap
     Summary, Re-sign flow, and a real Propose Trade panel -- players AND
     real draft picks (current season + the next two, app/services/
@@ -3660,6 +3777,19 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
 
     cap = round(contracts.salary_cap_for_season(season.season_number))
     cap_space = round(contracts.team_cap_space(roster, season.season_number))
+
+    # R16 Sec 10/decision #18: the roster-shortfall gate now lands here
+    # (signing happens on GM Desk), not on /roster (which is for
+    # trimming an over-53 roster instead) -- see
+    # _preseason_roster_gate_redirect()'s own docstring for the split.
+    roster_gate_banner = None
+    position_holes = roster_prep.team_holes(user_abbr)
+    if roster_gate or (position_holes and season_state.season_not_started(season)):
+        roster_gate_banner = {
+            "holes": roster_prep.holes_summary(position_holes),
+            "autofilled": _int_or_none(autofilled),
+            "can_sim": season_state.season_not_started(season),
+        }
 
     effective_cap_sort = cap_sort if cap_sort in CAP_HITS_SORT_KEYS else "ctr"
     cap_direction = cap_dir if cap_dir in ("asc", "desc") else "desc"
@@ -3754,6 +3884,7 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         "offense_groups": TRADE_BLOCK_OFFENSE, "defense_groups": TRADE_BLOCK_DEFENSE,
         "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
         "position_group": lambda p: POSITION_TO_GROUP[p.position],
+        "roster_gate_banner": roster_gate_banner,
     })
 
 
@@ -3786,10 +3917,18 @@ def _trade_side_context(season, team_abbr: str, roster: list[Player] | None = No
     profile = None
     if team_abbr != season.user_team_abbr:
         profile = trades.team_trade_profile(team_abbr, season)
+    # R16 Sec 4.1/decision #15: practice-squad players are not tradeable
+    # -- only active-53 and IR players ever were (same as before this
+    # feature). ELEVATED excluded too (he's fundamentally still a PS
+    # player for the week, not really on the 53). `payroll` right below
+    # deliberately stays on the FULL `roster` param, unfiltered -- PS/IR
+    # salaries still count against the cap (decision #3/#12); only the
+    # tradeable-assets LIST changes here.
+    tradeable = [p for p in roster if p.roster_status not in (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED)]
     return {
         "abbr": team_abbr, "info": TEAMS_BY_ABBR[team_abbr],
         "side": "give" if team_abbr == season.user_team_abbr else "get",
-        "players": sorted(roster, key=lambda p: -p.overall_rating),
+        "players": sorted(tradeable, key=lambda p: -p.overall_rating),
         "picks": picks,
         "payroll": round(sum(p.salary for p in roster)), "cap": round(cap),
         "profile": profile,
@@ -3824,6 +3963,14 @@ def _resolve_trade_proposal(user_abbr: str, team_b: str, give, get, give_picks, 
             raise HTTPException(404, "One of your offered players wasn't found on your roster")
         if any(p is None or p.team_abbr != team_b for p in get_players):
             raise HTTPException(404, "One of the requested players wasn't found on that roster")
+        # R16 Sec 4.1/decision #15: practice-squad players are not
+        # tradeable (only active-53 and IR are) -- _trade_side_context()
+        # already excludes them from what the UI ever offers, but a real
+        # submit re-checks server-side too, same defense-in-depth every
+        # other strict-mode check here already applies.
+        untradeable_statuses = (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED)
+        if any(p.roster_status in untradeable_statuses for p in give_players + get_players):
+            raise HTTPException(422, "A practice-squad player can't be traded")
     give_players = [p for p in give_players if p is not None and p.team_abbr == user_abbr]
     get_players = [p for p in get_players if p is not None and p.team_abbr == team_b]
     return give_players, get_players, give_pick_refs, get_pick_refs
@@ -4562,8 +4709,12 @@ def draft_view(
     total_roster_count = 0
     if user_abbr:
         with get_session() as s:
+            # R16 Sec 9: this embedded table mirrors roster_view()'s own
+            # active-only quota/shortfall math -- a PS/IR player must not
+            # count toward the 53 or a position minimum here either.
             roster = sorted(
-                s.exec(select(Player).where(Player.team_abbr == user_abbr)).all(),
+                s.exec(select(Player).where(
+                    Player.team_abbr == user_abbr, Player.roster_status == RosterStatus.ACTIVE)).all(),
                 key=lambda p: (p.position.value, -p.overall_rating),
             )
         depth_chart_groups = _depth_chart_groups_for_team(user_abbr, roster)
@@ -5213,6 +5364,18 @@ def season_simulate_week(redirect_to: str | None = Form(None)):
         season_state.simulate_next_preseason_round()
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
     if not season.is_complete:
+        # R16 Sec 5.2: weekly poaching evaluation runs before this week's
+        # games -- if an AI team decided to poach one of the user's own
+        # unprotected PS players, that's a pending decision gating the
+        # rest of Sim Week (same "stop and ask" shape as the preseason
+        # roster gate above), not something to resolve silently.
+        pending_poach = roster_prep.run_weekly_poaching(season)
+        if pending_poach is not None:
+            from app.services import save_service
+            save_service.save_season(season)
+            save_manager.sync_active_save_summary()
+            params = urlencode({"redirect_to": redirect_to}) if redirect_to else ""
+            return RedirectResponse(url=f"/poaching-alert?{params}" if params else "/poaching-alert", status_code=303)
         season_state.simulate_current_week()
         return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
     if season.playoffs is None or not season.playoffs.is_complete:
@@ -5237,16 +5400,25 @@ def season_simulate_preseason():
 
 
 def _preseason_roster_gate_redirect(season) -> RedirectResponse | None:
-    """Brian's ask, 2026-09-14: before the season's first game (preseason
-    round 1, or Week 1 for a season that never plays preseason), a user
-    whose roster is short of free_agency.ROSTER_REQUIREMENTS is sent to
-    /roster instead, where the Roster Holes banner lists what's missing
-    and offers Auto-Fill. None = clear to simulate."""
+    """Brian's ask, 2026-09-14, extended by R16 Sec 10/decision #18: two
+    real gates now, not one, checked in this order:
+
+    1. Over the 53-man active limit (R16) -- sent to /roster to trim
+       (Release/Send-to-PS), since GM Desk is about SIGNING, not cutting.
+    2. Short of free_agency.ROSTER_REQUIREMENTS (active-only, R16 Sec 9)
+       -- sent to GM Desk instead of Roster (changed from the original
+       2026-09-14 gate, which sent this case to /roster too) since
+       signing happens there.
+
+    None = clear to simulate."""
     if season.user_team_abbr is None or not season_state.season_not_started(season):
         return None
-    if not roster_prep.team_holes(season.user_team_abbr):
-        return None
-    return RedirectResponse(url=f"/roster?team_abbr={season.user_team_abbr}&roster_gate=1", status_code=303)
+    active_count = roster_prep.active_roster_count(season.user_team_abbr)
+    if active_count > free_agency.MAX_ROSTER_SIZE:
+        return RedirectResponse(url=f"/roster?team_abbr={season.user_team_abbr}&over_roster_gate=1", status_code=303)
+    if roster_prep.team_holes(season.user_team_abbr):
+        return RedirectResponse(url=f"/gm-desk?roster_gate=1", status_code=303)
+    return None
 
 
 @app.post("/roster/auto-fill-holes")
@@ -5254,13 +5426,322 @@ def roster_auto_fill_holes():
     """The Roster Holes banner's AUTO-FILL ROSTER button: the user's team
     signs free agents into every hole first (same AI logic every team
     uses), then every AI team fills its holes and re-sorts its depth
-    chart -- see roster_prep.auto_fill_user_roster()."""
+    chart -- see roster_prep.auto_fill_user_roster(). R16 Sec 10/decision
+    #18: redirects back to GM Desk now (that's where this banner lives),
+    not /roster (which handles the SEPARATE over-53 trim gate)."""
     season = season_state.get_season()
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
     signed = roster_prep.auto_fill_user_roster(season.league_seed, season.season_number, season.user_team_abbr)
-    params = urlencode({"team_abbr": season.user_team_abbr, "roster_gate": "1", "autofilled": len(signed)})
-    return RedirectResponse(url=f"/roster?{params}", status_code=303)
+    params = urlencode({"roster_gate": "1", "autofilled": len(signed)})
+    return RedirectResponse(url=f"/gm-desk?{params}", status_code=303)
+
+
+@app.post("/roster/auto-fill-practice-squad")
+def roster_auto_fill_practice_squad():
+    """R16 Sec 4.3/decision #19: the Practice Squad box's own Auto-Fill
+    button -- same shared-pool signing pattern as the active-roster
+    Auto-Fill, but at the flat PS minimum into open PS slots (free_
+    agency.fill_practice_squad_gaps()), user's team only (an AI team's PS
+    fill runs automatically as part of roster_prep.prepare_ai_rosters(),
+    Sec 8)."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    user_abbr = season.user_team_abbr
+    with get_session() as s:
+        roster = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
+        pool = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
+        signed = free_agency.fill_practice_squad_gaps(user_abbr, roster, pool, season.season_number)
+        for p in signed:
+            s.add(p)
+        s.commit()
+    return RedirectResponse(url=f"/roster?team_abbr={user_abbr}", status_code=303)
+
+
+def _user_owned_player_or_404(season, team_abbr: str, player_id: str) -> Player:
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    with get_session() as s:
+        player = s.get(Player, player_id)
+    if player is None or player.team_abbr != team_abbr:
+        raise HTTPException(404, "No such player on this team")
+    return player
+
+
+@app.post("/roster/{team_abbr}/{player_id}/release")
+def roster_release_player(team_abbr: str, player_id: str):
+    """R16 Sec 4.2/decision #14: straight to the free-agent pool, no
+    waiver-priority system -- immediately signable by anyone, including
+    the team that just released him. User's own team only (an AI team's
+    releases happen via its own autonomous cut logic, Sec 8); the
+    Roster page/Player Card button both confirm before POSTing, same
+    convention as Fire/Delete Save.
+
+    R16 Sec 5.1.5: EXCEPT a still-locked poached-in player -- releasing
+    him before his 3-game lock expires reverts him to his ORIGINAL
+    team's practice squad instead, not the free-agent pool (closes the
+    "poach him, immediately cut him loose" loophole that would otherwise
+    let a team dodge the guaranteed-salary/lock rule entirely)."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if (player.poached_from_team_abbr and player.roster_lock_until_week
+                and season.current_week <= player.roster_lock_until_week):
+            player.team_abbr = player.poached_from_team_abbr
+            player.roster_status = RosterStatus.PRACTICE_SQUAD
+            player.salary = round(contracts.veteran_minimum(0, season.season_number))
+            player.contract_years_remaining = 1
+            player.roster_lock_until_week = None
+            player.poached_from_team_abbr = None
+            player.ps_protected = False
+            s.add(player)
+            s.commit()
+            clear_starters_cache()
+            return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+        player.team_abbr = None
+        player.roster_status = RosterStatus.ACTIVE
+        player.roster_lock_until_week = None
+        player.poached_from_team_abbr = None
+        player.ps_protected = False
+        player.ir_placed_week = None
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/{player_id}/place-on-ir")
+def roster_place_on_ir(team_abbr: str, player_id: str):
+    """R16 Sec 7: the user's manual equivalent of the AI's auto-IR
+    (roster_prep.auto_place_ai_players_on_ir) -- only enabled for a
+    player with a CURRENT Injury row where placed_on_ir is already True
+    (computed at injury-generation time, weeks_out >= 4 -- no new
+    threshold check needed here). ACTIVE or PRACTICE_SQUAD -> IR; a
+    no-op if already on IR. Doesn't touch salary/contract (unlike
+    Send to PS) -- an injured player's deal is untouched by injury,
+    same as today's existing (pre-R16) injury system."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    injury = injury_store.injury_for_player(player_id)
+    if injury is None or not injury.placed_on_ir:
+        raise HTTPException(409, "This player doesn't have a qualifying injury for IR")
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player.roster_status == RosterStatus.IR:
+            return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+        player.roster_status = RosterStatus.IR
+        player.ir_placed_week = season.current_week
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/{player_id}/elevate")
+def roster_elevate_player(team_abbr: str, player_id: str):
+    """R16 Sec 6/decision #9: any PRACTICE_SQUAD player -> ELEVATED for
+    the current week's sim -- same depth-chart eligibility as ACTIVE
+    (app/services/depth_chart.py's own _load_roster() already includes
+    ELEVATED), auto-reverting to PRACTICE_SQUAD right after that week's
+    games simulate (roster_prep.revert_elevated_players(), called from
+    season_state.simulate_current_week()). Manual, user's team only, no
+    per-game/per-season limit -- deliberately simpler than the real
+    NFL's 2-per-game/3-per-season caps. Doesn't touch the 53-man cap
+    check at all (active_roster_count() counts ACTIVE only, not
+    ELEVATED) -- the whole point is squeezing value from a cap-limited
+    roster, not another way onto the real 53."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player.roster_status != RosterStatus.PRACTICE_SQUAD:
+            raise HTTPException(409, "Only a practice-squad player can be elevated")
+        player.roster_status = RosterStatus.ELEVATED
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/{player_id}/send-to-ps")
+def roster_send_to_practice_squad(team_abbr: str, player_id: str):
+    """R16 Sec 4.2: ACTIVE (or IR) -> PRACTICE_SQUAD, salary drops to the
+    flat PS minimum and the contract resets to 1 year (decision #10) --
+    a no-op on someone already on the PS. Blocked if the PS is already
+    full (16, decision #1). An IR player is subject to the same Sec 7
+    4-simulated-week minimum stay as reactivating straight to the active
+    53 -- moving to PS is still "coming off IR," not a way around the
+    minimum-stay rule. A poached-in or defensively-block-promoted player
+    is equally locked to the active 53 for Sec 5.1's own 3-game window
+    (decision #17) -- otherwise "promote for a week, restash" would
+    dodge the whole rule this field exists to close."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player.roster_status == RosterStatus.PRACTICE_SQUAD:
+            return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+        if player.roster_status == RosterStatus.IR and season.current_week - (player.ir_placed_week or 0) < 4:
+            raise HTTPException(409, "Not yet eligible to come off IR -- needs 4 simulated weeks")
+        if player.roster_lock_until_week and season.current_week <= player.roster_lock_until_week:
+            raise HTTPException(409, f"Locked to the active roster through week {player.roster_lock_until_week}")
+        ps_count = len(s.exec(select(Player).where(
+            Player.team_abbr == team_abbr, Player.roster_status == RosterStatus.PRACTICE_SQUAD)).all())
+        if ps_count >= free_agency.PRACTICE_SQUAD_SIZE:
+            raise HTTPException(409, "Practice squad is already full (16)")
+        player.roster_status = RosterStatus.PRACTICE_SQUAD
+        player.salary = round(contracts.veteran_minimum(0, season.season_number))
+        player.contract_years_remaining = 1
+        player.ir_placed_week = None
+        player.roster_lock_until_week = None
+        player.poached_from_team_abbr = None
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/{player_id}/promote-to-53")
+def roster_promote_to_active(team_abbr: str, player_id: str):
+    """R16 Sec 4.2: PRACTICE_SQUAD (or IR, reactivation) -> ACTIVE.
+    Blocked if the 53 is already full -- the user has to cut someone
+    first (Sec 4.1's own enforcement point). IR reactivation additionally
+    requires `current_week - ir_placed_week >= 4` (Sec 7); a promotion
+    that's actually blocking a poach sets the same 3-game lock a poach
+    itself would (Sec 5.1.7) -- handled by the poaching routes
+    themselves, not this general-purpose one."""
+    season = season_state.get_season()
+    _user_owned_player_or_404(season, team_abbr, player_id)
+    with get_session() as s:
+        player = s.get(Player, player_id)
+        if player.roster_status == RosterStatus.ACTIVE:
+            return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+        if player.roster_status == RosterStatus.IR and season.current_week - (player.ir_placed_week or 0) < 4:
+            raise HTTPException(409, "Not yet eligible to come off IR -- needs 4 simulated weeks")
+        active_count = len(s.exec(select(Player).where(
+            Player.team_abbr == team_abbr, Player.roster_status == RosterStatus.ACTIVE)).all())
+        if active_count >= free_agency.MAX_ROSTER_SIZE:
+            raise HTTPException(409, "Active roster is already full (53) -- cut someone first")
+        player.roster_status = RosterStatus.ACTIVE
+        player.ir_placed_week = None
+        s.add(player)
+        s.commit()
+    clear_starters_cache()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.post("/roster/{team_abbr}/protect-ps")
+def roster_protect_ps(team_abbr: str, protected: list[str] = Form(default=[])):
+    """R16 Sec 5.1.1/decision #16: the user's own weekly protection pick
+    -- up to 4 of their 16 PS slots. Carries over by default (nothing
+    resets it week to week); this route only fires when the user
+    actively changes their picks. An AI team's own equivalent
+    (auto_protect_ai_ps) recomputes fresh every week instead, since it
+    has no "leave it alone" convenience to preserve."""
+    season = season_state.get_season()
+    if season.user_team_abbr != team_abbr:
+        raise HTTPException(404, "Not your team")
+    if len(protected) > 4:
+        raise HTTPException(422, "You can protect at most 4 practice squad players")
+    protected_set = set(protected)
+    with get_session() as s:
+        ps = list(s.exec(select(Player).where(
+            Player.team_abbr == team_abbr, Player.roster_status == RosterStatus.PRACTICE_SQUAD)))
+        for p in ps:
+            want = p.player_id in protected_set
+            if p.ps_protected != want:
+                p.ps_protected = want
+                s.add(p)
+        s.commit()
+    return RedirectResponse(url=f"/roster?team_abbr={team_abbr}", status_code=303)
+
+
+@app.get("/poaching-alert", response_class=HTMLResponse)
+def poaching_alert_view(request: Request, redirect_to: str | None = None):
+    """R16 Sec 5.2: the weekly gate's own screen -- an AI team wants to
+    sign one of the user's unprotected PS players. Two choices: let it
+    happen, or block by promoting him to the user's own 53 (which itself
+    carries the same 3-game lock, Sec 5.1.7). No pending decision (the
+    common case, or it was already resolved) just sends the player back
+    on to wherever Sim Week would otherwise have taken them."""
+    season = season_state.get_season()
+    if season.pending_poach is None:
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    pending = season.pending_poach
+    poacher = TEAMS_BY_ABBR.get(pending["to_team"])
+    return templates.TemplateResponse(request, "poaching_alert.html", {
+        "pending": pending,
+        "poacher_name": poacher.location if poacher else pending["to_team"],
+        "redirect_to": redirect_to,
+    })
+
+
+@app.post("/poaching-alert/resolve")
+def poaching_alert_resolve(action: str = Form(...), redirect_to: str | None = Form(None)):
+    season = season_state.get_season()
+    pending = season.pending_poach
+    if pending is None:
+        return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+    if action == "allow":
+        roster_prep.execute_poach(pending["player_id"], pending["to_team"], pending["week"])
+    elif action == "block":
+        roster_prep.block_poach(pending["player_id"], pending["week"])
+    else:
+        raise HTTPException(422, "Invalid action")
+    season.pending_poach = None
+    clear_starters_cache()
+    from app.services import save_service
+    save_service.save_season(season)
+    save_manager.sync_active_save_summary()
+    return RedirectResponse(url=_safe_internal_redirect(redirect_to, "/season"), status_code=303)
+
+
+@app.get("/practice-squad-market", response_class=HTMLResponse)
+def practice_squad_market_view(request: Request):
+    """R16 Sec 5.1.8/decision #21: the user's own anytime poaching
+    surface -- every OTHER team's unprotected PS player, league-wide,
+    same "one sortable table" convention Staff's Find Coaches already
+    established. Own team's PS is excluded (nothing to poach from
+    yourself)."""
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        return RedirectResponse(url="/team-select", status_code=303)
+    user_abbr = season.user_team_abbr
+    with get_session() as s:
+        ps_players = list(s.exec(select(Player).where(Player.roster_status == RosterStatus.PRACTICE_SQUAD)))
+    eligible = sorted(
+        (p for p in ps_players if p.team_abbr != user_abbr and not p.ps_protected),
+        key=lambda p: -p.overall_rating,
+    )
+    user_active = roster_prep.active_roster_count(user_abbr)
+    return templates.TemplateResponse(request, "practice_squad_market.html", {
+        "players": eligible, "user_team_abbr": user_abbr,
+        "user_active_count": user_active, "max_roster_size": free_agency.MAX_ROSTER_SIZE,
+        "has_room": user_active < free_agency.MAX_ROSTER_SIZE,
+    })
+
+
+@app.post("/practice-squad-market/{team_abbr}/{player_id}/poach")
+def practice_squad_market_poach(team_abbr: str, player_id: str):
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    user_abbr = season.user_team_abbr
+    if team_abbr == user_abbr:
+        raise HTTPException(422, "Can't poach your own practice squad")
+    with get_session() as s:
+        player = s.get(Player, player_id)
+    if player is None or player.team_abbr != team_abbr or player.roster_status != RosterStatus.PRACTICE_SQUAD:
+        raise HTTPException(404, "That player is no longer available to poach")
+    if player.ps_protected:
+        raise HTTPException(409, f"{player.full_name} is protected this week")
+    if roster_prep.active_roster_count(user_abbr) >= free_agency.MAX_ROSTER_SIZE:
+        raise HTTPException(409, "Your active roster is already full (53) -- cut someone first")
+    roster_prep.execute_poach(player_id, user_abbr, season.current_week)
+    clear_starters_cache()
+    return RedirectResponse(url="/practice-squad-market", status_code=303)
 
 
 @app.post("/season/reset")

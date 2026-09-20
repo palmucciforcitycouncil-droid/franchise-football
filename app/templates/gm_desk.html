@@ -32,7 +32,29 @@
 
   /* Propose Trade box's own CSS now lives in _trade_box.html, the shared
      partial both this page and the Draft page include (2026-09-15). */
+
+  .roster-gate-short { border-left: 4px solid #f87171; }
+  .roster-gate-ready { border-left: 4px solid #4ade80; }
 </style>
+
+{% if roster_gate_banner %}
+<!-- R16 Sec 10/decision #18: the roster-shortfall gate now lands here
+     instead of /roster -- see _preseason_roster_gate_redirect()'s
+     docstring in main.py for the over-53-vs-shortfall split. -->
+<div class="card roster-gate {% if roster_gate_banner.holes %}roster-gate-short{% else %}roster-gate-ready{% endif %}" id="roster-gate">
+  {% if roster_gate_banner.holes %}
+  <h3 style="margin-top: 0;">Roster Holes</h3>
+  <p>You need: <strong>{{ roster_gate_banner.holes }}</strong> to meet minimum requirements before the preseason can begin.</p>
+  <p class="muted">Sign free agents yourself from Top Free Agents on the Roster page, or Auto-Fill: your front office signs the best affordable free agent into every hole (the same logic AI teams use), then every other team fixes its own roster and depth chart.</p>
+  <form method="post" action="/roster/auto-fill-holes" class="sim-week-form">
+    <button type="submit">AUTO-FILL ROSTER</button>
+  </form>
+  {% else %}
+  <h3 style="margin-top: 0;">Roster Ready</h3>
+  <p>{% if roster_gate_banner.autofilled %}Signed {{ roster_gate_banner.autofilled }} free agent{{ '' if roster_gate_banner.autofilled == 1 else 's' }}. {% endif %}Your roster meets every minimum requirement{% if roster_gate_banner.can_sim %} &mdash; you're clear to sim the preseason{% endif %}.</p>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="card">
   <h2>GM Desk — {{ user_info.location }} ({{ user_info.abbr }})</h2>

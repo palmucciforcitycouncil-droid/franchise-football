@@ -61,6 +61,10 @@ def _migrate_schema(engine) -> None:
             if column not in existing:
                 conn.exec_driver_sql(f"ALTER TABLE player ADD COLUMN {column} {ddl}")
                 conn.commit()
+        for column, ddl in _PLAYER_COLUMNS_ADDED_2026_09_15:
+            if column not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE player ADD COLUMN {column} {ddl}")
+                conn.commit()
         if "legacy_salary_rescaled" not in existing:
             # One-time real-dollar cap rescale (Brian's ask, 2026-09-19) --
             # see app/engine/contracts.py's SALARY_CAP_2026 comment for the
@@ -131,88 +135,126 @@ def _migrate_schema(engine) -> None:
         if coach_cols and "focus_area" not in coach_cols:
             conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN focus_area TEXT NOT NULL DEFAULT 'Development'")
             conn.commit()
-        if coach_cols and "reputation_retiered" not in coach_cols:
-            # One-time real-dollar reputation re-tiering (Brian's ask,
-            # 2026-09-20 playtest: "assistant coaches have 90 OVR ratings
-            # while HC have 60... 24 yo assistants with no coaching
-            # experience will end up hired as HCs"). Root cause: the
-            # ORIGINAL reputation_from_salary() (scripts/import_coaches.py)
-            # mapped each role tier's salary percentile onto the SAME
-            # shared 40-99 band independently, so the highest-paid
-            # assistant landed at the same ~99 reputation as the
-            # highest-paid head coach despite an assistant's real $800K
-            # salary ceiling being a fraction of a head coach's real $4M
-            # floor. Fixed going forward by app/models/coach.py's
-            # REPUTATION_TIER_BAND + reputation_from_tier_percentile()
-            # (real, tier-specific bands derived from GDD Appendix S.2's
-            # 2026 salary ranges) -- this block re-scores every coach
-            # ALREADY imported before that fix existed, using the exact
-            # same formula, same idempotency pattern as
-            # legacy_salary_rescaled above: guarded by this column's own
-            # existence, so a second app boot against an already-migrated
-            # file sees the column present and skips straight past --
-            # reputations can never be silently re-tiered twice.
-            #
-            # Deliberately NOT a random re-roll (see legacy_salary_rescaled
-            # above for the same principle applied to player salaries): a
-            # specific real coach's six 0-99 performance ratings
-            # (player_dev_offense/defense, discipline, motivation_
-            # chemistry, red_zone_offense/defense) are SHIFTED by the same
-            # delta their reputation moves by, not redrawn from a fresh
-            # RNG -- so a coach who was, say, a strong developer with weak
-            # discipline keeps that same relative shape, just correctly
-            # leveled for their real tier, instead of becoming an
-            # unrecognizable new coach. Clamped to the model's documented
-            # 0-99 performance range (app/models/coach.py) after the shift.
-            #
-            # Scope: only real-seeded coaches (pool_tier IS NULL) are
-            # touched -- R3d's Tier 3 candidate pool
-            # (scripts/seed_coach_pool.py) already draws reputation from
-            # its OWN real, already-tiered per-role bands independent of
-            # salary_aav (which is 0 for every pool candidate; including
-            # them here would corrupt the real coaches' own percentile
-            # population with a cluster of zeros). Every real-seeded
-            # coach is touched regardless of current team_abbr (a
-            # since-fired coach who's now a free agent still carries their
-            # real last salary_aav, the same real anchor a currently
-            # employed peer has -- excluding them would leave stale,
-            # mis-tiered ratings on exactly the free-agent pool a fired
-            # HC's replacement search draws from).
+        for column in _COACH_COLUMNS_ADDED_2026_09_15:
+            if coach_cols and column not in coach_cols:
+                conn.exec_driver_sql(f"ALTER TABLE coach ADD COLUMN {column} INTEGER DEFAULT 50")
+                conn.commit()
+        # R16 ST role removal (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md
+        # Sec 9): every existing 'ST' row becomes an AC with a "Special
+        # Teams" specialty -- a real org-chart demotion, not a firing, so
+        # their salary/contract/tenure are all left untouched. Idempotent
+        # (a no-op once no ST rows remain); CoachRole itself no longer HAS
+        # an ST member, so leaving a stale row unmigrated isn't just
+        # cosmetic -- SQLAlchemy raises a LookupError deserializing ANY
+        # query that touches it. This can leave a team at 5 ACs (one over
+        # MAX_ASSISTANTS) right after migration -- same "grandfathered
+        # over the new cap until it naturally resolves" precedent as the
+        # 53-man roster cap's own migration (nothing forces a fire here).
+        if coach_cols:
             conn.exec_driver_sql(
-                "ALTER TABLE coach ADD COLUMN reputation_retiered INTEGER NOT NULL DEFAULT 0"
-            )
+                "UPDATE coach SET role = 'AC', specialty = 'Special Teams' WHERE role = 'ST'")
+            conn.commit()
+        # R16 renamed 3 of the R13-era focus_area string values (the
+        # taxonomy redesign kept the underlying concept but not always
+        # the label) -- an existing coach's stored value otherwise keeps
+        # the pre-R16 string forever, which is invisible in the UI (it's
+        # just displayed as-is) but breaks anything that compares against
+        # the current FOCUS_* constants by value, e.g. "is this HC
+        # currently on their fixed role default." Idempotent, same
+        # LEGACY_POSITION_MAP-style UPDATE pattern as position
+        # unification below.
+        if coach_cols:
+            for old, new in _LEGACY_FOCUS_AREA_MAP.items():
+                conn.exec_driver_sql("UPDATE coach SET focus_area = ? WHERE focus_area = ?", (new, old))
+            conn.commit()
+        # One-time coach reputation re-tiering (GDD Appendix U.2, Brian's
+        # 2026-09-20 playtest fix: "assistant coaches have 90 OVR ratings
+        # while HC have 60"). `reputation_from_tier_percentile()`
+        # (app/models/coach.py) fixed GENERATION going forward, but never
+        # retroactively touched a coach already sitting in the DB with
+        # the old shared-band reputation -- this block is that retroactive
+        # pass, described in Appendix U.2 but never actually landed in
+        # this file (dropped, in error, as "redundant" during the R16
+        # merge -- confirmed live 2026-09-20: real HC reputations still
+        # ranged 53-99, well below the documented 84-99 floor). Column-
+        # existence guard, same idempotency pattern as
+        # legacy_salary_rescaled above -- can only ever run once per DB
+        # file. Deliberately excludes pool_tier candidates (R3d's Tier
+        # 2/3 pool, `pool_tier IS NOT NULL`), which already draw from
+        # their own independent bands (scripts/seed_coach_pool.py) and
+        # were never subject to the old shared-band bug.
+        if coach_cols and "reputation_retiered" not in coach_cols:
+            conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN reputation_retiered INTEGER NOT NULL DEFAULT 0")
             conn.commit()
             from app.models.coach import CoachRole, tier_key, reputation_from_tier_percentile
-
             rows = conn.exec_driver_sql(
-                "SELECT coach_id, role, salary_aav, reputation, player_dev_offense, "
-                "player_dev_defense, discipline, motivation_chemistry, red_zone_offense, "
-                "red_zone_defense FROM coach WHERE pool_tier IS NULL"
+                "SELECT coach_id, role, salary_aav, reputation, discipline, motivation_chemistry, "
+                "red_zone_offense, red_zone_defense FROM coach WHERE pool_tier IS NULL"
             ).fetchall()
-
             tier_salaries: dict[str, list[int]] = {}
-            for row in rows:
-                tier = tier_key(CoachRole(row[1]))
-                tier_salaries.setdefault(tier, []).append(row[2])
-
-            # perf order matches the SELECT above: player_dev_offense,
-            # player_dev_defense, discipline, motivation_chemistry,
-            # red_zone_offense, red_zone_defense.
-            for coach_id, role, salary, old_reputation, *perf in rows:
+            for _cid, role, salary, *_rest in rows:
+                tier_salaries.setdefault(tier_key(CoachRole(role)), []).append(salary)
+            for coach_id, role, salary, reputation, discipline, motivation, rzo, rzd in rows:
                 tier = tier_key(CoachRole(role))
                 salaries = tier_salaries[tier]
                 pct = sum(1 for s in salaries if s <= salary) / len(salaries)
                 new_reputation = reputation_from_tier_percentile(pct, tier)
-                delta = new_reputation - old_reputation
-                new_perf = [max(0, min(99, v + delta)) for v in perf]
+                delta = new_reputation - reputation
                 conn.exec_driver_sql(
-                    "UPDATE coach SET reputation = ?, "
-                    "player_dev_offense = ?, player_dev_defense = ?, discipline = ?, "
-                    "motivation_chemistry = ?, red_zone_offense = ?, red_zone_defense = ?, "
-                    "reputation_retiered = 1 WHERE coach_id = ?",
-                    (new_reputation, *new_perf, coach_id),
+                    "UPDATE coach SET reputation = ?, discipline = ?, motivation_chemistry = ?, "
+                    "red_zone_offense = ?, red_zone_defense = ?, reputation_retiered = 1 WHERE coach_id = ?",
+                    (new_reputation,
+                     max(0, min(99, discipline + delta)), max(0, min(99, motivation + delta)),
+                     max(0, min(99, rzo + delta)), max(0, min(99, rzd + delta)),
+                     coach_id),
                 )
             conn.commit()
+        # One-time backfill of the 8 granular position-group coaching
+        # ratings (R16, docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md
+        # Sec 1) for every coach that predates _COACH_COLUMNS_ADDED_
+        # 2026_09_15 above -- that ALTER TABLE gives every existing row
+        # the plain schema default of 50 with no backfill, which silently
+        # makes app/engine/coaching.py's whole Focus Area this-game-boost
+        # system a complete no-op for any coach imported before these
+        # columns existed (confirmed live 2026-09-20: every coach in a
+        # fresh checkout sat at exactly 50 on all 8). A coach with all 8
+        # still exactly 50 is the idempotency signal -- a real gaussian
+        # draw landing on that exact integer 8 times in a row is
+        # vanishingly unlikely, so no separate marker column is needed,
+        # and this naturally becomes a no-op once a coach has been
+        # touched (by this block, by a fresh import, or by R3d's pool
+        # seeding). Runs AFTER the reputation re-tiering block above so
+        # it centers on the CORRECTED reputation, not the old one.
+        # Reuses the real generation formula's shape (reputation-
+        # anchored draw, off-specialty/off-side penalty) from
+        # scripts/import_coaches.py's _rating_penalty_for()/_draw()
+        # rather than inventing new logic, under this migration's own
+        # seed namespace -- a disclosed, reasonable simplification, not a
+        # byte-for-byte replay of each coach's original import-time RNG
+        # sequence (which would also need that coach's now-unstored
+        # intermediate draws to reproduce exactly).
+        if coach_cols:
+            stale_rows = conn.exec_driver_sql(
+                "SELECT coach_id, role, specialty, reputation FROM coach WHERE "
+                "qb_coaching = 50 AND rb_coaching = 50 AND wr_coaching = 50 AND ol_coaching = 50 "
+                "AND dl_coaching = 50 AND lb_coaching = 50 AND secondary_coaching = 50 AND st_coaching = 50"
+            ).fetchall()
+            if stale_rows:
+                from app.engine.rng import RNG, stable_seed
+                from app.models.coach import CoachRole
+                from app.config import get_league_seed
+                from scripts.import_coaches import _rating_penalty_for, _ALL_GROUP_RATINGS, _draw
+                league_seed = get_league_seed()
+                for coach_id, role, specialty, reputation in stale_rows:
+                    rng = RNG.with_seed(stable_seed("coach_group_ratings_backfill", league_seed, coach_id))
+                    penalty = _rating_penalty_for(CoachRole(role), specialty)
+                    values = [_draw(rng, reputation - penalty.get(attr, 0.0), 8, 20, 99) for attr in _ALL_GROUP_RATINGS]
+                    conn.exec_driver_sql(
+                        "UPDATE coach SET qb_coaching=?, rb_coaching=?, wr_coaching=?, ol_coaching=?, "
+                        "dl_coaching=?, lb_coaching=?, secondary_coaching=?, st_coaching=? WHERE coach_id=?",
+                        (*values, coach_id),
+                    )
+                conn.commit()
         # 2026-09-14 position unification: idempotent -- a no-op once no
         # legacy left/right codes remain. SQLModel stores the Enum NAME,
         # which equals the value for every Position member.
@@ -230,6 +272,44 @@ _PLAYER_COLUMNS_ADDED_2026_09_14: list[tuple[str, str]] = [
     ("acquisition_pick", "INTEGER"),
     ("acquisition_team", "TEXT"),
 ]
+
+# R16 (docs/R16_PRACTICE_SQUAD_ROSTER_IR_SPECIFICATION.md Sec 3.1) --
+# every existing player defaults to ACTIVE, deliberately: every
+# currently-oversized team (54-72 real players, nothing ever enforced
+# the 53-man cap before this) hits the new over-53 gate on next load.
+_PLAYER_COLUMNS_ADDED_2026_09_15: list[tuple[str, str]] = [
+    ("roster_status", "TEXT NOT NULL DEFAULT 'ACTIVE'"),
+    ("roster_lock_until_week", "INTEGER"),
+    ("poached_from_team_abbr", "TEXT"),
+    ("ps_protected", "INTEGER NOT NULL DEFAULT 0"),
+    ("ir_placed_week", "INTEGER"),
+]
+
+# R16 Coaching Overhaul (docs/R16_COACH_POSITION_IMPACT_SPECIFICATION.md
+# Sec 1) -- the 8 granular position-group coaching ratings replacing the
+# old flat player_dev_offense/defense split (now computed properties, not
+# stored columns -- see app/models/coach.py). Every existing coach
+# defaults to a neutral 50, same convention as every other rating here.
+# This was missing from the original commit that introduced these
+# columns (ceea89b5), which only ever ran against a freshly created
+# table -- any pre-existing coach table silently kept the old schema and
+# every Coach query failed with "no such column," caught by coach_store's
+# own OperationalError-tolerant has_coaches()/all_coaches() and
+# misreported as "no coaches imported."
+_COACH_COLUMNS_ADDED_2026_09_15: list[str] = [
+    "qb_coaching", "rb_coaching", "wr_coaching", "ol_coaching",
+    "dl_coaching", "lb_coaching", "secondary_coaching", "st_coaching",
+]
+
+# R16's Focus Area taxonomy redesign renamed these 3 string values (see
+# app/models/coach.py's FOCUS_* constants); everything else kept its
+# R13-era label unchanged.
+_LEGACY_FOCUS_AREA_MAP: dict[str, str] = {
+    "OF Gameplan": "Offensive Gameplan",
+    "DF Gameplan": "Defensive Gameplan",
+    "Special Teams Work": "Special Teams",
+    "Training": "Strength & Conditioning",
+}
 
 
 def get_session() -> Session:

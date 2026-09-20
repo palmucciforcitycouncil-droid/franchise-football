@@ -17,8 +17,9 @@ from app.core.db import get_session
 from app.data.teams import TEAMS
 from app.engine import draft, free_agency
 from app.main import app
-from app.models.player import Player, Position
-from app.services import roster_prep, season_state, undrafted_pool
+from app.models.injury import Injury, InjurySeverity, InjuryType
+from app.models.player import Player, Position, RosterStatus
+from app.services import injury_store, roster_prep, season_state, undrafted_pool
 
 client = TestClient(app)
 
@@ -111,6 +112,22 @@ def _release_all(team_abbr: str, position: Position) -> int:
     return len(rows)
 
 
+def _trim_active_to(team_abbr: str, target: int) -> None:
+    """Releases this team's worst-rated players (any position) down to
+    exactly `target` active bodies -- used to simulate "the user already
+    trimmed to 53 (or below)" without going through auto_cut_team_to_
+    limits()'s own blunt rating-only cut, which can itself create a
+    position hole (R16 Sec 8, see prepare_ai_rosters()'s own docstring
+    for the real LV/Center bug this exact behavior caused)."""
+    with get_session() as s:
+        roster = list(s.exec(select(Player).where(Player.team_abbr == team_abbr)))
+        roster.sort(key=lambda p: p.overall_rating)
+        for p in roster[: max(0, len(roster) - target)]:
+            p.team_abbr = None
+            s.add(p)
+        s.commit()
+
+
 def _delete_free_agents(position: Position) -> None:
     with get_session() as s:
         for p in s.exec(select(Player).where(Player.team_abbr == None, Player.position == position)):  # noqa: E711
@@ -172,20 +189,30 @@ def test_auto_fill_user_roster_fills_user_first_then_the_league():
     assert all(p.acquisition_type in ("Free Agent", "Undrafted FA") for p in tes)
 
 
-def test_preseason_gate_redirects_to_roster_then_auto_fill_unblocks_it():
+def test_preseason_gate_redirects_to_gm_desk_then_auto_fill_unblocks_it():
+    """R16 Sec 10/decision #18: the shortfall gate now lands on GM Desk
+    (signing happens there), not /roster (which is for trimming an
+    over-53 roster instead) -- see _preseason_roster_gate_redirect()."""
     season = season_state.reset_season()
     season_state.set_user_team("KC")
     _release_all("KC", Position.EDGE)
+    # A real import carries 54-72 players per team -- releasing 6 EDGEs
+    # alone still leaves KC over 53, which would trip the OTHER gate
+    # first (decision #18's own stated order). Trim to 50 (leaving room
+    # for the 3 EDGE signings Auto-Fill is about to make) so this test
+    # exercises the shortfall gate in isolation, without landing back on
+    # the over-53 gate the moment the shortfall is fixed.
+    _trim_active_to("KC", 50)
 
     resp = client.post("/season/simulate-week", follow_redirects=False)
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/roster?team_abbr=KC&roster_gate=1")
+    assert resp.headers["location"].startswith("/gm-desk?roster_gate=1")
     assert season_state.get_season().preseason_rounds_played == 0
 
     resp = client.post("/season/simulate-preseason", follow_redirects=False)
-    assert resp.headers["location"].startswith("/roster?")
+    assert resp.headers["location"].startswith("/gm-desk?")
 
-    page = client.get("/roster?team_abbr=KC&roster_gate=1").text
+    page = client.get("/gm-desk?roster_gate=1").text
     assert "Roster Holes" in page and "3 EDGE" in page and "AUTO-FILL ROSTER" in page
 
     resp = client.post("/roster/auto-fill-holes", follow_redirects=False)
@@ -328,3 +355,101 @@ def test_depth_chart_move_redirect_reopens_the_depth_tab():
     resp = client.post(f"/depth-chart/KC/QB/move", data={"player_id": qbs[-1].player_id, "direction": "up"},
                        follow_redirects=False)
     assert resp.status_code == 303 and resp.headers["location"].endswith("#depth-chart")
+
+
+# --- R16 Step 3: Injured Reserve ---------------------------------------
+
+def _give_injury(player_id: str, team_abbr: str, weeks_out: int, season_number: int = 24, week_injured: int = 1) -> None:
+    injury_store.save_injuries([Injury(
+        injury_id=f"{player_id}_{season_number}_{week_injured}", player_id=player_id, team_abbr=team_abbr,
+        season_number=season_number, week_injured=week_injured,
+        injury_type=InjuryType.KNEE, severity=InjurySeverity.MAJOR if weeks_out >= 4 else InjurySeverity.MINOR,
+        weeks_out=weeks_out, placed_on_ir=(weeks_out >= 4), is_active=True,
+    )])
+
+
+def test_place_on_ir_requires_a_qualifying_injury_then_moves_the_player():
+    season = season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        qb = list(s.exec(select(Player).where(Player.team_abbr == "KC", Player.position == Position.QB)))[0]
+
+    resp = client.post(f"/roster/KC/{qb.player_id}/place-on-ir")
+    assert resp.status_code == 409  # no injury at all yet
+
+    _give_injury(qb.player_id, "KC", weeks_out=2)  # real, but not IR-eligible
+    resp = client.post(f"/roster/KC/{qb.player_id}/place-on-ir")
+    assert resp.status_code == 409
+
+    _give_injury(qb.player_id, "KC", weeks_out=6)  # now IR-eligible
+    resp = client.post(f"/roster/KC/{qb.player_id}/place-on-ir", follow_redirects=False)
+    assert resp.status_code == 303
+    with get_session() as s:
+        moved = s.get(Player, qb.player_id)
+    assert moved.roster_status == RosterStatus.IR
+    assert moved.ir_placed_week == season.current_week
+
+
+def test_ir_reactivation_blocked_before_four_weeks_then_allowed_both_ways():
+    season = season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        # The starter (highest-rated), so trimming the roster below can
+        # never accidentally release the very player this test tracks.
+        qb = max(s.exec(select(Player).where(Player.team_abbr == "KC", Player.position == Position.QB)),
+                  key=lambda p: p.overall_rating)
+    # A real import carries 54-72 players -- trim well below 53 first so
+    # the OTHER "active roster is already full" 409 (promote-to-53's own,
+    # unrelated check) can't mask the IR-eligibility gate this test cares
+    # about.
+    _trim_active_to("KC", 40)
+    _give_injury(qb.player_id, "KC", weeks_out=8)
+    client.post(f"/roster/KC/{qb.player_id}/place-on-ir")
+
+    # Not yet eligible: 0, 1, 3 weeks elapsed.
+    for elapsed in (0, 1, 3):
+        season.current_week = 1 + elapsed
+        assert client.post(f"/roster/KC/{qb.player_id}/promote-to-53").status_code == 409
+        assert client.post(f"/roster/KC/{qb.player_id}/send-to-ps").status_code == 409
+
+    # Exactly 4 weeks: eligible for the active 53.
+    season.current_week = 5
+    resp = client.post(f"/roster/KC/{qb.player_id}/promote-to-53", follow_redirects=False)
+    assert resp.status_code == 303
+    with get_session() as s:
+        assert s.get(Player, qb.player_id).roster_status == RosterStatus.ACTIVE
+
+    # Same 4-week floor applies to the PS path too (a fresh IR stint) --
+    # resolve the first injury first so this player has only ONE active
+    # injury at a time, same real invariant the game itself maintains.
+    injury_store.resolve_all_active()
+    _give_injury(qb.player_id, "KC", weeks_out=8, week_injured=5)
+    client.post(f"/roster/KC/{qb.player_id}/place-on-ir")
+    season.current_week = 5 + 3
+    assert client.post(f"/roster/KC/{qb.player_id}/send-to-ps").status_code == 409
+    season.current_week = 5 + 4
+    resp = client.post(f"/roster/KC/{qb.player_id}/send-to-ps", follow_redirects=False)
+    assert resp.status_code == 303
+    with get_session() as s:
+        assert s.get(Player, qb.player_id).roster_status == RosterStatus.PRACTICE_SQUAD
+
+
+def test_auto_place_ai_players_on_ir_skips_the_user_team():
+    season_state.reset_season()
+    with get_session() as s:
+        kc_qb = list(s.exec(select(Player).where(Player.team_abbr == "KC", Player.position == Position.QB)))[0]
+        buf_qb = list(s.exec(select(Player).where(Player.team_abbr == "BUF", Player.position == Position.QB)))[0]
+
+    ir_injury = Injury(injury_id="kc_ir_test", player_id=kc_qb.player_id, team_abbr="KC",
+                        season_number=24, week_injured=3, injury_type=InjuryType.KNEE,
+                        severity=InjurySeverity.MAJOR, weeks_out=8, placed_on_ir=True, is_active=True)
+    user_ir_injury = Injury(injury_id="buf_ir_test", player_id=buf_qb.player_id, team_abbr="BUF",
+                             season_number=24, week_injured=3, injury_type=InjuryType.KNEE,
+                             severity=InjurySeverity.MAJOR, weeks_out=8, placed_on_ir=True, is_active=True)
+
+    moved = roster_prep.auto_place_ai_players_on_ir([ir_injury, user_ir_injury], user_team_abbr="BUF", week_num=3)
+    assert moved == [kc_qb.full_name]
+    with get_session() as s:
+        assert s.get(Player, kc_qb.player_id).roster_status == RosterStatus.IR
+        assert s.get(Player, kc_qb.player_id).ir_placed_week == 3
+        assert s.get(Player, buf_qb.player_id).roster_status == RosterStatus.ACTIVE  # the user's own team untouched

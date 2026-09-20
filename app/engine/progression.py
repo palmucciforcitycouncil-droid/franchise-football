@@ -49,7 +49,6 @@ from app.models.player import Player, Position
 PEAK_WINDOWS: dict[Position, tuple[int, int]] = {
     Position.QB: (28, 31),
     Position.HB: (24, 26),
-    Position.FB: (25, 28),
     Position.WR: (26, 29),
     Position.TE: (26, 29),
     Position.T: (27, 30), Position.G: (27, 30), Position.C: (27, 30),

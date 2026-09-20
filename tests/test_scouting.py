@@ -18,6 +18,7 @@ from app.services.season_state import Season, WeekGame, TeamRecord
 from app.engine.game_state import GameResult, PlayEvent
 from app.engine.game_sim import TeamTotals
 from app.engine import scouting
+from app.engine.playoffs import PlayoffBracket, PlayoffMatchup
 from app.services import save_service, history_store
 
 # The end-to-end test below calls season_state.reset_season()/
@@ -86,6 +87,56 @@ def test_find_next_opponent_skips_a_bye_week():
 def test_find_next_opponent_none_when_season_is_over():
     schedule = [[_played_game("KC", "BUF", 20, 17)]]
     season = _season(schedule, current_week=2)
+    assert scouting.find_next_opponent(season, "KC") is None
+
+
+# --- find_next_opponent during the playoffs (playoff games live in
+# season.playoffs.rounds, never season.schedule) ----------------------------
+
+def test_find_next_opponent_finds_the_current_playoff_matchup():
+    """Regular season is done (season.schedule fully played) -- the next
+    opponent must come from the playoff bracket instead."""
+    schedule = [[_played_game("KC", "BUF", 20, 17)]]
+    season = _season(schedule, current_week=2)
+    season.playoffs = PlayoffBracket(
+        afc_seeds=["KC", "BUF"], nfc_seeds=[],
+        rounds=[[
+            PlayoffMatchup(round_name="WC", conference="AFC", home_abbr="KC", away_abbr="BUF",
+                            home_seed=1, away_seed=2),
+        ]],
+    )
+    opponent, is_home = scouting.find_next_opponent(season, "KC")
+    assert opponent == "BUF"
+    assert is_home is True
+
+
+def test_find_next_opponent_none_for_a_team_on_a_playoff_bye():
+    schedule = [[_played_game("KC", "BUF", 20, 17)]]
+    season = _season(schedule, current_week=2)
+    season.playoffs = PlayoffBracket(
+        afc_seeds=["KC", "BUF"], nfc_seeds=[],
+        rounds=[[
+            # KC has the bye this round -- not in any matchup.
+            PlayoffMatchup(round_name="WC", conference="AFC", home_abbr="BUF", away_abbr="DEN",
+                            home_seed=2, away_seed=7),
+        ]],
+    )
+    assert scouting.find_next_opponent(season, "KC") is None
+
+
+def test_find_next_opponent_none_once_the_bracket_is_complete():
+    schedule = [[_played_game("KC", "BUF", 20, 17)]]
+    season = _season(schedule, current_week=2)
+    sb_result = GameResult(home_score=24, away_score=20, winner="home", events=[], plays=[])
+    sb_result.home_totals = _totals()
+    sb_result.away_totals = _totals()
+    season.playoffs = PlayoffBracket(
+        afc_seeds=["KC"], nfc_seeds=["BUF"],
+        rounds=[[
+            PlayoffMatchup(round_name="SB", conference=None, home_abbr="KC", away_abbr="BUF",
+                            home_seed=1, away_seed=1, result=sb_result),
+        ]],
+    )
     assert scouting.find_next_opponent(season, "KC") is None
 
 

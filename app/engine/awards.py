@@ -401,7 +401,7 @@ def mvp_from_candidates(offensive_candidates: list[AwardCandidate], win_pct_by_a
 
 def _known_non_defensive_position_keys() -> set[tuple[str, str]]:
     """(team_abbr, full_name) for every real, live-rostered player whose
-    actual position is NOT a genuine defensive one (QB/HB/FB/WR/TE/OL/K/P).
+    actual position is NOT a genuine defensive one (QB/HB/WR/TE/OL/K/P).
     R2b's real special-teams tackle credit (app/engine/special_teams.py's
     _coverage_tackler) picks a kickoff/punt-return tackler from the
     KICKING/PUNTING team's own WR depth (a real-world "gunner" is most

@@ -395,9 +395,9 @@ _STARTERS_AT: dict[Position, int] = {
     Position.WR: 3, Position.DT: 2, Position.CB: 2,
     Position.T: 2, Position.G: 2, Position.EDGE: 2, Position.LB: 3, Position.S: 2,
 }
-# FB/K/P aren't listed as trade "needs" -- plenty of real teams carry no FB
-# and nobody trades for a backup kicker; they're still valued normally.
-_NEED_EXCLUDED = {Position.FB, Position.K, Position.P}
+# K/P aren't listed as trade "needs" -- nobody trades for a backup
+# kicker; they're still valued normally.
+_NEED_EXCLUDED = {Position.K, Position.P}
 
 REJECTION_PHRASES = ("Rejected", "No way", "Not happening", "No thank you", "Pass", "Not interested")
 ACCEPT_LIKELY = 70     # likelihood >= this is an ACCEPT (green)

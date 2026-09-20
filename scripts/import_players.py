@@ -80,8 +80,10 @@ DEFAULT_SOURCE = Path(__file__).resolve().parent.parent / "data" / "raw" / "rost
 # Madden 26's Position ID -> this project's Position enum. LS (long
 # snapper) has no equivalent here (Position enum has no LS) and is
 # skipped, same as an unmapped position always has been in this importer.
+# FB maps onto HB -- fullbacks were removed from the game 2026-09-20
+# (Brian's ask); HB is the only running-back position now.
 POSITION_ID_MAP: dict[str, str] = {
-    "QB": "QB", "HB": "HB", "FB": "FB", "WR": "WR", "TE": "TE",
+    "QB": "QB", "HB": "HB", "FB": "HB", "WR": "WR", "TE": "TE",
     "LT": "T", "LG": "G", "C": "C", "RG": "G", "RT": "T",
     "LEDG": "EDGE", "REDG": "EDGE", "DT": "DT",
     "WILL": "LB", "MIKE": "LB", "SAM": "LB",

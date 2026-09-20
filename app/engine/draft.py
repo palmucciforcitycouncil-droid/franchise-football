@@ -72,7 +72,7 @@ the full account):
 - **Position groups collapse to this engine's real granular Position
   enum** (spec's "OL"/"DL"/"LB"/"S" groups map onto 5/3/3/2 real Madden-
   style positions respectively; "RB" maps onto HB only -- fullbacks
-  aren't drafted, a disclosed simplification, not an oversight).
+  were removed from the game entirely 2026-09-20, Brian's ask).
 """
 from __future__ import annotations
 
@@ -239,11 +239,6 @@ def _qb_class_strength(league_seed: int, season_number: int) -> str:
 
 
 def _group_for(position: Position) -> str:
-    # FB isn't in GROUP_POSITIONS (fullbacks aren't generated as prospects,
-    # see module docstring), but real rostered FBs still have to count
-    # toward a team's RB group -- they used to fall through to "OL".
-    if position == Position.FB:
-        return "RB"
     for group, positions in GROUP_POSITIONS.items():
         if position in positions:
             return group
@@ -464,7 +459,7 @@ POSITION_DRAFT_VALUE: dict[Position, float] = {
     # separates QB from the other premium positions instead of tying them.
     Position.QB: 18.0, Position.EDGE: 6.0, Position.T: 6.0, Position.CB: 5.0,
     Position.WR: 2.0, Position.DT: 2.0, Position.HB: 1.0, Position.S: 1.0, Position.G: 1.0, Position.C: 1.0,
-    Position.TE: 0.0, Position.LB: 0.0, Position.FB: -4.0,
+    Position.TE: 0.0, Position.LB: 0.0,
     Position.K: -25.0, Position.P: -25.0,
 }
 SPECIALIST_POSITIONS = (Position.K, Position.P)
@@ -538,15 +533,19 @@ MAX_SCOUTING_NOISE = 12.0   # stddev, overall_rating units -- nobody focused on 
 MIN_SCOUTING_NOISE = 3.0    # stddev floor -- scouting uncertainty never fully disappears
 SCOUTING_STRENGTH_K = 40.0  # saturating-curve constant: strength / (strength + K) -> noise-reduction fraction
 
+# Role-tier weight for Scouting -- reuses app/models/coach.py's own
+# tier_key() grouping (HC / COORD / AC, the same tiers coach_contracts.py
+# negotiates salary within) rather than inventing a second scheme. R13
+# originally shared literal weight constants with coaching.py's now-
+# retired focus-gated play-calling blend (R16 removed that mechanism
+# entirely); Scouting's own tiering is unrelated to play-calling and
+# keeps the same real HC > coordinator > assistant shape independently.
+_SCOUTING_TIER_WEIGHT = {"HC": 0.4, "COORD": 0.6, "AC": 0.3}
+
+
 def _scouting_role_weight(role: CoachRole) -> float:
-    """Role-tier weight, reusing coaching.py's own R13 three-tier scheme
-    (HC > coordinator > assistant) rather than inventing a second one."""
-    from app.engine import coaching
-    if role is CoachRole.HC:
-        return coaching.HC_TIER_WEIGHT
-    if role is CoachRole.AC:
-        return coaching.ASSISTANT_TIER_WEIGHT
-    return coaching.COORDINATOR_TIER_WEIGHT
+    from app.models.coach import tier_key
+    return _SCOUTING_TIER_WEIGHT[tier_key(role)]
 
 
 def team_scouting_strength(team_abbr: str) -> float:

@@ -245,7 +245,6 @@ def test_coordinator_jss_weights_have_no_direct_team_win_term():
     OC without mechanically touching the DC's or HC's own terms."""
     assert "win" not in coach_hiring.OC_WEIGHTS
     assert "win" not in coach_hiring.DC_WEIGHTS
-    assert "win" not in coach_hiring.ST_WEIGHTS
     assert "win" in coach_hiring.HC_WEIGHTS
 
 
@@ -341,7 +340,7 @@ def test_internal_hc_candidates_prefer_coordinators_over_assistants():
         pytest.skip("KC has no HC in this database")
     candidates = coach_replacement.internal_candidates("KC", CoachRole.HC, hc.coach_id)
     roles = [CoachRole(c.role) for c in candidates]
-    coordinator_positions = [i for i, r in enumerate(roles) if r in (CoachRole.OC, CoachRole.DC, CoachRole.ST)]
+    coordinator_positions = [i for i, r in enumerate(roles) if r in (CoachRole.OC, CoachRole.DC)]
     ac_positions = [i for i, r in enumerate(roles) if r is CoachRole.AC]
     if coordinator_positions and ac_positions:
         assert max(coordinator_positions) < min(ac_positions)
@@ -445,20 +444,26 @@ def test_evaluate_team_leaves_staff_alone_when_probability_never_rolls_true(monk
 # R13 Sec 7: AI Focus Autonomy (docs/R13_COACH_FOCUS_AREA_SPECIFICATION.md)
 # --------------------------------------------------------------------
 
-def test_run_focus_autonomy_only_moves_assistants_never_coordinators():
-    """R13 Sec 7: HC/OC/DC/ST stay pinned to their natural lane forever --
-    only ASSISTANT coaches are ever reassigned by this pass."""
+def test_run_focus_autonomy_can_reassign_any_role_not_just_assistants():
+    """R16 Sec 10 (supersedes R13 Sec 7's "only ASSISTANT coaches are ever
+    reassigned"): scope was deliberately expanded to every role -- HC,
+    OC, DC, AND AC -- "the AI should be making the best decisions they
+    can for their team," not just its assistants (app/services/
+    coach_ai.py's own run_focus_autonomy() docstring). Confirms real
+    non-AC reassignments happen somewhere across the whole league (a
+    seeded weighted-random draw, not guaranteed for any ONE coach, but
+    near-certain across hundreds of coaches with several teams pushed
+    into a real rebuilding signal)."""
     if not coach_store.has_coaches():
         pytest.skip("no coaches imported")
     season = season_state.reset_season()
     for abbr in season.records:
-        season.records[abbr].wins, season.records[abbr].losses = 8, 9
-    before = {c.coach_id: c.focus_area for c in coach_store.staff_for("KC")
-              if CoachRole(c.role) is not CoachRole.AC}
-    coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
-    after = {c.coach_id: c.focus_area for c in coach_store.staff_for("KC")
-             if CoachRole(c.role) is not CoachRole.AC}
-    assert before == after
+        season.records[abbr].wins, season.records[abbr].losses = 3, 14  # real rebuilding signal, league-wide
+    log = coach_ai.run_focus_autonomy(season, exclude_team_abbr=None)
+    reassigned_ids = {entry.split(":")[1] for entry in log}
+    role_by_id = {c.coach_id: CoachRole(c.role) for c in coach_store.all_coaches()}
+    non_ac_reassignments = [cid for cid in reassigned_ids if role_by_id.get(cid) is not CoachRole.AC]
+    assert non_ac_reassignments, "expected at least one HC/OC/DC to be reassigned league-wide under R16's expanded scope"
 
 
 def test_run_focus_autonomy_excludes_the_users_own_team():

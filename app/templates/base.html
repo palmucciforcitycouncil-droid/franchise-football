@@ -379,6 +379,16 @@
       background: rgba(255, 255, 255, 0.03);
     }
     .pc-negotiate-btn { margin-top: 0.75rem; }
+    .pc-roster-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
+    .pc-roster-actions .pc-negotiate-btn { margin-top: 0; }
+    .pc-roster-action-danger { background: #b23b3b; border-color: #b23b3b; }
+    /* R16 Sec 10: inline row actions (Release/Send to PS/Promote/Place on
+       IR/Poach) -- global (not roster.html-scoped) since the Practice
+       Squad Market page uses the same buttons outside that page. */
+    .roster-actions { display: flex; gap: 0.35rem; flex-wrap: nowrap; }
+    .roster-actions form { margin: 0; }
+    .roster-action-btn { width: auto; padding: 0.15rem 0.55rem; font-size: 0.78rem; }
+    .roster-action-danger { background: #b23b3b; border-color: #b23b3b; }
     .pc-acquire-btn {
       display: inline-block; margin-top: 0.5rem; padding: 0.3rem 0.8rem;
       background: var(--gold); color: #1a1200; border: none; border-radius: 6px;
@@ -1271,7 +1281,7 @@
       <div class="pc-row"><span class="pc-row-label">Market Value</span><span id="neg-market-value"></span></div>
       <h4 style="margin: 1rem 0 0.5rem;">Your Offer</h4>
       <div class="neg-slider-row">
-        <div class="neg-slider-label"><span>Contract Length</span><span id="neg-years-value"></span></div>
+        <div class="neg-slider-label"><span id="neg-years-label">Contract Length</span><span id="neg-years-value"></span></div>
         <input type="range" id="neg-years" min="1" max="10" step="1">
       </div>
       <div class="neg-slider-row">
@@ -1471,6 +1481,7 @@
       var negMarketValueEl = document.getElementById('neg-market-value');
       var negYearsInput = document.getElementById('neg-years');
       var negYearsValueEl = document.getElementById('neg-years-value');
+      var negYearsLabelEl = document.getElementById('neg-years-label');
       var negAavInput = document.getElementById('neg-aav');
       var negAavValueEl = document.getElementById('neg-aav-value');
       var negGuaranteedInput = document.getElementById('neg-guaranteed-pct');
@@ -1608,6 +1619,7 @@
         // guaranteed-money slider, a 7-year max, "Coach Reaction".
         negGuaranteedRowEl.hidden = !!opts.hideGuaranteed;
         negYearsInput.max = opts.maxYears || 10;
+        negYearsLabelEl.textContent = opts.yearsLabel || 'Contract Length';
         negReactionLabelEl.textContent = opts.reactionLabel || 'Player Reaction';
         negMoodEl.textContent = '—';
         negMoodEl.className = '';
@@ -1793,7 +1805,8 @@
         return injuryRow(card) +
           bar('Overall', card.ovr) +
           '<div class="pc-row"><span class="pc-row-label">Potential</span><span>' + card.pot + '</span></div>' +
-          bar('Morale', card.morale) + bar('Stamina', card.stamina);
+          bar('Morale', card.morale) + bar('Stamina', card.stamina) +
+          rosterActionsHtml(card);
       }
 
       // Ratings tab picker (Brian's request): a real player can have a
@@ -1849,6 +1862,53 @@
         }
         return '<a class="pc-acquire-btn" href="/gm-desk?team_b=' + encodeURIComponent(card.team) +
           '&acquire=' + encodeURIComponent(card.player_id) + '">Acquire</a>';
+      }
+
+      // Escapes a value for safe embedding inside a double-quoted HTML
+      // attribute (a real player name can contain an apostrophe or, in
+      // theory, other markup-significant characters).
+      function escapeHtmlAttr(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      }
+
+      // R16 Sec 10/decision #20: the same Release/Send to PS/Promote to 53
+      // actions as the Roster page's inline row buttons, so either surface
+      // works -- only rendered for the user's own team's own player (an
+      // AI team's roster moves are autonomous, Sec 8). Real <form> POSTs,
+      // not fetch, same convention as Staff's Fire button -- a confirm()
+      // (wired via the delegated data-confirm submit listener below) then
+      // a normal navigation back to /roster.
+      function rosterActionsHtml(card) {
+        if (card.team !== USER_TEAM_ABBR || !card.roster_status) { return ''; }
+        var base = '/roster/' + encodeURIComponent(card.team) + '/' + encodeURIComponent(card.player_id) + '/';
+        function actionForm(action, label, danger, confirmMsg) {
+          return '<form method="post" action="' + base + action + '" style="display:inline;" data-confirm="' +
+            escapeHtmlAttr(confirmMsg) + '">' +
+            '<button type="submit" class="pc-negotiate-btn' + (danger ? ' pc-roster-action-danger' : '') + '">' + label + '</button></form>';
+        }
+        var buttons = '';
+        if (card.roster_status === 'ACTIVE') {
+          buttons += actionForm('send-to-ps', 'To PS', false, 'Send ' + card.name + ' to the practice squad?');
+        } else if (card.roster_status === 'PRACTICE_SQUAD') {
+          buttons += actionForm('promote-to-53', 'Promote to 53', false, 'Promote ' + card.name + ' to the active 53?');
+          buttons += actionForm('elevate', 'Elevate', false,
+            'Elevate ' + card.name + ' for this week only? He reverts to the practice squad automatically after this week\'s game(s).');
+        } else if (card.roster_status === 'IR' && card.ir_reactivate_eligible) {
+          // R16 Sec 7: "surfaced as an explicit user choice if both are
+          // open" -- reactivating off IR can land on the active 53 OR
+          // back on the practice squad, same two options the Roster
+          // page's IR box row offers.
+          buttons += actionForm('promote-to-53', 'Reactivate', false, 'Reactivate ' + card.name + ' to the active 53?');
+          buttons += actionForm('send-to-ps', 'To PS', false, 'Send ' + card.name + ' to the practice squad?');
+        }
+        // R16 Sec 7: Place on IR is offered alongside whichever of the
+        // above already applies -- a qualifying injury (weeks_out >= 4,
+        // injury.placed_on_ir) can hit an ACTIVE or PRACTICE_SQUAD player.
+        if (card.roster_status !== 'IR' && card.injury && card.injury.ir) {
+          buttons += actionForm('place-on-ir', 'Place on IR', false, 'Place ' + card.name + ' on IR?');
+        }
+        buttons += actionForm('release', 'Release', true, 'Release ' + card.name + '? He becomes an immediate free agent.');
+        return '<div class="pc-roster-actions">' + buttons + '</div>';
       }
 
       function openCard(card) {
@@ -1957,6 +2017,7 @@
           ccRow('Contract', card.contract_status) +
           ccRow('Role', card.title) +
           (card.specialty ? ccRow('Specialty', card.specialty) : '') +
+          ccRow('Primary Side', card.primary_side) +
           ccRow('Offensive Scheme', card.offensive_profile) +
           ccRow('Defensive Scheme', card.defensive_profile) +
           ccRow('Focus Area', card.focus_area) +
@@ -2113,6 +2174,18 @@
           if (panel) { panel.hidden = false; }
         });
       }
+
+      // R16 Sec 10: a generic confirm-before-submit for any innerHTML-
+      // injected <form data-confirm="..."> -- rosterActionsHtml()'s own
+      // Player Card buttons are the only current user, since every other
+      // confirm()-gated form in this app (Fire, Delete Save) is server-
+      // rendered with a plain inline onsubmit instead.
+      document.addEventListener('submit', function (e) {
+        var form = e.target.closest('form[data-confirm]');
+        if (form && !window.confirm(form.dataset.confirm)) {
+          e.preventDefault();
+        }
+      });
 
       document.addEventListener('click', function (e) {
         // Negotiation modal trigger (GM Desk re-sign, Free Agency sign,

@@ -11,10 +11,10 @@ depth_chart.py's _top() ahead of the rating-sort fallback.
 
 Only QB/HB/WR/TE/OL/DL/LB/CB/S positions are actually consumed by the
 engine (via OffensiveStarters/DefensiveStarters) -- an override for
-FB/K/P is stored the same way but has no engine consumer yet, since
-there's no FB usage or K/P starter slot wired up (see HANDOFF's
-"No dedicated kicker" gap). Storing it anyway costs nothing and means
-the depth chart UI doesn't need special-case logic per position.
+K/P is stored the same way but has no engine consumer yet, since
+there's no K/P starter slot wired up (see HANDOFF's "No dedicated
+kicker" gap). Storing it anyway costs nothing and means the depth
+chart UI doesn't need special-case logic per position.
 """
 from __future__ import annotations
 import functools

@@ -20,8 +20,19 @@ PARAMS: Dict[str, Any] = {
 
     # Play mix and aggression
     "mix": {
-        "run": 0.44,
-        "pass": 0.56,
+        "run": 0.51,
+        # Nominal league-average target read by drive_sim.py's
+        # _pass_probability -- NOT the realized rate, which the
+        # sim-realism volume investigation measured running well above
+        # this (a systematic ~+0.07 tilt from matchup_adjustment alone,
+        # even on 1st down where no situational bias applies, compounding
+        # further through every situational addition). Was 0.56; lowered
+        # to bring the realized rate back down near real NFL's ~56-59%
+        # league-wide split -- see rating.py's pace_drives() comment for
+        # the sibling total-plays-per-game fix, and re-verify against
+        # tests/test_stat_realism.py's pass-attempt/completion checks
+        # before changing this again.
+        "pass": 0.46,
     },
     "aggression": {
         "base": 0.50,     # 0..1, larger = more 4th-down tries / deeper shots
