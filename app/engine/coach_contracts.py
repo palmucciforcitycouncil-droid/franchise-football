@@ -73,7 +73,7 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
-from app.models.coach import Coach, CoachRole, tier_key
+from app.models.coach import Coach, CoachRole, tier_key, REPUTATION_TIER_BAND
 
 # This module's own documented choice (no GDD source): real-world-ish
 # tenure by organizational level, used both for a NEW hire's fresh deal
@@ -159,7 +159,14 @@ def market_value_for_role(coach: Coach, role: CoachRole, peers: list[Coach] | No
     if tier_overalls:
         pct = sum(1 for o in tier_overalls if o <= coach.overall) / len(tier_overalls)
     else:
-        pct = (coach.overall - 40) / 59.0
+        # No employed peers in this tier at all (e.g. pricing a pool
+        # candidate before any real hire exists there) -- fall back to
+        # this TIER's own real reputation band (2026-09-20 fix:
+        # REPUTATION_TIER_BAND, not the old universal 40-99 scale that
+        # `overall` no longer uses for every tier) instead of the
+        # generic 40-99 assumption.
+        lo, hi = REPUTATION_TIER_BAND[tier]
+        pct = (coach.overall - lo) / (hi - lo) if hi > lo else 0.5
     return _range_value(role, pct) * _growth(season_number)
 
 

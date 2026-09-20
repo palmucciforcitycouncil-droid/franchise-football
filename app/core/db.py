@@ -131,6 +131,88 @@ def _migrate_schema(engine) -> None:
         if coach_cols and "focus_area" not in coach_cols:
             conn.exec_driver_sql("ALTER TABLE coach ADD COLUMN focus_area TEXT NOT NULL DEFAULT 'Development'")
             conn.commit()
+        if coach_cols and "reputation_retiered" not in coach_cols:
+            # One-time real-dollar reputation re-tiering (Brian's ask,
+            # 2026-09-20 playtest: "assistant coaches have 90 OVR ratings
+            # while HC have 60... 24 yo assistants with no coaching
+            # experience will end up hired as HCs"). Root cause: the
+            # ORIGINAL reputation_from_salary() (scripts/import_coaches.py)
+            # mapped each role tier's salary percentile onto the SAME
+            # shared 40-99 band independently, so the highest-paid
+            # assistant landed at the same ~99 reputation as the
+            # highest-paid head coach despite an assistant's real $800K
+            # salary ceiling being a fraction of a head coach's real $4M
+            # floor. Fixed going forward by app/models/coach.py's
+            # REPUTATION_TIER_BAND + reputation_from_tier_percentile()
+            # (real, tier-specific bands derived from GDD Appendix S.2's
+            # 2026 salary ranges) -- this block re-scores every coach
+            # ALREADY imported before that fix existed, using the exact
+            # same formula, same idempotency pattern as
+            # legacy_salary_rescaled above: guarded by this column's own
+            # existence, so a second app boot against an already-migrated
+            # file sees the column present and skips straight past --
+            # reputations can never be silently re-tiered twice.
+            #
+            # Deliberately NOT a random re-roll (see legacy_salary_rescaled
+            # above for the same principle applied to player salaries): a
+            # specific real coach's six 0-99 performance ratings
+            # (player_dev_offense/defense, discipline, motivation_
+            # chemistry, red_zone_offense/defense) are SHIFTED by the same
+            # delta their reputation moves by, not redrawn from a fresh
+            # RNG -- so a coach who was, say, a strong developer with weak
+            # discipline keeps that same relative shape, just correctly
+            # leveled for their real tier, instead of becoming an
+            # unrecognizable new coach. Clamped to the model's documented
+            # 0-99 performance range (app/models/coach.py) after the shift.
+            #
+            # Scope: only real-seeded coaches (pool_tier IS NULL) are
+            # touched -- R3d's Tier 3 candidate pool
+            # (scripts/seed_coach_pool.py) already draws reputation from
+            # its OWN real, already-tiered per-role bands independent of
+            # salary_aav (which is 0 for every pool candidate; including
+            # them here would corrupt the real coaches' own percentile
+            # population with a cluster of zeros). Every real-seeded
+            # coach is touched regardless of current team_abbr (a
+            # since-fired coach who's now a free agent still carries their
+            # real last salary_aav, the same real anchor a currently
+            # employed peer has -- excluding them would leave stale,
+            # mis-tiered ratings on exactly the free-agent pool a fired
+            # HC's replacement search draws from).
+            conn.exec_driver_sql(
+                "ALTER TABLE coach ADD COLUMN reputation_retiered INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
+            from app.models.coach import CoachRole, tier_key, reputation_from_tier_percentile
+
+            rows = conn.exec_driver_sql(
+                "SELECT coach_id, role, salary_aav, reputation, player_dev_offense, "
+                "player_dev_defense, discipline, motivation_chemistry, red_zone_offense, "
+                "red_zone_defense FROM coach WHERE pool_tier IS NULL"
+            ).fetchall()
+
+            tier_salaries: dict[str, list[int]] = {}
+            for row in rows:
+                tier = tier_key(CoachRole(row[1]))
+                tier_salaries.setdefault(tier, []).append(row[2])
+
+            # perf order matches the SELECT above: player_dev_offense,
+            # player_dev_defense, discipline, motivation_chemistry,
+            # red_zone_offense, red_zone_defense.
+            for coach_id, role, salary, old_reputation, *perf in rows:
+                tier = tier_key(CoachRole(role))
+                salaries = tier_salaries[tier]
+                pct = sum(1 for s in salaries if s <= salary) / len(salaries)
+                new_reputation = reputation_from_tier_percentile(pct, tier)
+                delta = new_reputation - old_reputation
+                new_perf = [max(0, min(99, v + delta)) for v in perf]
+                conn.exec_driver_sql(
+                    "UPDATE coach SET reputation = ?, "
+                    "player_dev_offense = ?, player_dev_defense = ?, discipline = ?, "
+                    "motivation_chemistry = ?, red_zone_offense = ?, red_zone_defense = ?, "
+                    "reputation_retiered = 1 WHERE coach_id = ?",
+                    (new_reputation, *new_perf, coach_id),
+                )
+            conn.commit()
         # 2026-09-14 position unification: idempotent -- a no-op once no
         # legacy left/right codes remain. SQLModel stores the Enum NAME,
         # which equals the value for every Position member.

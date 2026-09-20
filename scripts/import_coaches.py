@@ -49,7 +49,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlmodel import select
 
 from app.core.db import init_db, get_session
-from app.models.coach import Coach, CoachRole, OFFENSIVE_PROFILES, DEFENSIVE_PROFILES, default_focus_area_for, tier_key
+from app.models.coach import (
+    Coach, CoachRole, OFFENSIVE_PROFILES, DEFENSIVE_PROFILES, default_focus_area_for, tier_key,
+    reputation_from_tier_percentile,
+)
 from app.data.team_name_map import NICKNAME_TO_ABBR
 from app.engine.rng import RNG, stable_seed
 from app.config import get_league_seed
@@ -196,20 +199,23 @@ def coach_id_for(entry: SeedEntry) -> str:
     return re.sub(r"[^a-z0-9_]", "", base.lower().replace(" ", "_").replace("'", "").replace(".", ""))
 
 
-def reputation_from_salary(salary: int, tier_salaries: list[int]) -> int:
-    """Percentile rank of `salary` within its tier, mapped onto 40-99.
+def reputation_from_salary(salary: int, tier_salaries: list[int], tier: str) -> int:
+    """Percentile rank of `salary` within its OWN role tier (`tier`, from
+    tier_key()), mapped onto THAT tier's own real band
+    (app/models/coach.py's REPUTATION_TIER_BAND) via
+    reputation_from_tier_percentile() -- see that function's docstring
+    for the full real-dollar derivation of why each tier gets its own
+    band instead of one shared 40-99 range (2026-09-20 fix: an
+    assistant's reputation could otherwise reach a head coach's).
 
-    The floor of 40 is deliberate: the lowest-paid assistant in the
-    league is still an NFL coach, and a 0 would read as "incompetent"
-    on the Staff page when the underlying real datum only says
-    "cheapest." Ties share the same percentile (the standard
-    "fraction at or below" definition), so the three coaches all at
-    $450K get identical reputations rather than an arbitrary order."""
+    Ties share the same percentile (the standard "fraction at or below"
+    definition), so the three coaches all at $450K get identical
+    reputations rather than an arbitrary order."""
     if not tier_salaries:
         return 50
     at_or_below = sum(1 for s in tier_salaries if s <= salary)
     pct = at_or_below / len(tier_salaries)
-    return int(round(40 + pct * 59))
+    return reputation_from_tier_percentile(pct, tier)
 
 
 def _draw(rng: RNG, center: float, spread: float, lo: int, hi: int) -> int:
@@ -346,7 +352,9 @@ def build_coaches(entries: list[SeedEntry], league_seed: int) -> list[Coach]:
             specialty=r.specialty,
             team_abbr=r.entry.team_abbr,
             salary_aav=r.entry.salary_aav,
-            reputation=reputation_from_salary(r.entry.salary_aav, tier_salaries[tier_key(r.role)]),
+            reputation=reputation_from_salary(
+                r.entry.salary_aav, tier_salaries[tier_key(r.role)], tier_key(r.role)
+            ),
             focus_area=default_focus_area_for(r.role, r.specialty),
         )
         _generate_profile(coach, league_seed)

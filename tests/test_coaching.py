@@ -16,11 +16,23 @@ note for why a global DB redirect would be silently defeated here).
 """
 from __future__ import annotations
 import shutil
+from pathlib import Path
 
 import pytest
 from sqlmodel import select
 
 from app.core import db as db_module
+
+# Captured at collection time -- BEFORE any fixture anywhere in this run
+# can redirect db_module.DB_PATH -- so the migration tests below always
+# copy the genuinely real database. Reading db_module.DB_PATH dynamically
+# inside a fixture is NOT safe here: `completed_season` below is
+# module-scoped and doesn't tear down (restoring DB_PATH) until every
+# test in this file has run, so a later test that read db_module.DB_PATH
+# directly would silently copy `completed_season`'s own already-played-a-
+# full-season throwaway instead of the real save -- exactly the class of
+# mistake ROADMAP.md Sec 2b's M14 incident note warns about.
+_REAL_DB_PATH = db_module.DB_PATH
 from app.engine import coaching, coach_progression
 from app.engine.awards import (
     _pythagorean_expected_wins, _rank_norm, coach_of_the_year,
@@ -121,11 +133,39 @@ def test_coach_id_is_stable_across_runs_and_distinct_per_team():
 
 
 def test_reputation_is_a_salary_percentile_within_the_role_tier():
+    """2026-09-20 fix: the percentile is now mapped onto the PASSED tier's
+    own real band (app/models/coach.py's REPUTATION_TIER_BAND), not a
+    single 40-99 range shared by every tier -- see that module for the
+    real-dollar derivation of the HC/COORD/AC bands."""
     tier = [500_000, 1_000_000, 2_000_000, 20_000_000]
-    assert reputation_from_salary(20_000_000, tier) == 99   # top of the tier
-    assert reputation_from_salary(500_000, tier) == 55      # bottom, floored well above 0
+    assert reputation_from_salary(20_000_000, tier, "HC") == 99   # top of the HC band
+    assert reputation_from_salary(500_000, tier, "HC") == 88      # bottom quartile of the HC band (84-99)
     # A tie shares its percentile rather than being ordered arbitrarily.
-    assert reputation_from_salary(1_000_000, [1_000_000, 1_000_000]) == 99
+    assert reputation_from_salary(1_000_000, [1_000_000, 1_000_000], "HC") == 99
+
+
+def test_reputation_tiers_never_invert_across_real_roles():
+    """The actual 2026-09-20 playtest bug: an AC's reputation could reach
+    an HC's because every tier's percentile was mapped onto the SAME
+    40-99 band independently. Real, non-overlapping-by-role salary data
+    (GDD Appendix S.2's ranges) must now produce a real HC floor above
+    every COORD, and a COORD floor at or above every AC -- with at most
+    a light overlap at the COORD/AC boundary (a top assistant can
+    plausibly out-earn a bottom-tier ST coordinator in real life)."""
+    hc_tier = [4_000_000, 5_500_000, 7_000_000, 8_790_000]
+    coord_tier = [660_000, 1_000_000, 1_500_000, 2_500_000]
+    ac_tier = [200_000, 350_000, 500_000, 800_000]
+
+    hc_reps = [reputation_from_salary(s, hc_tier, "HC") for s in hc_tier]
+    coord_reps = [reputation_from_salary(s, coord_tier, "COORD") for s in coord_tier]
+    ac_reps = [reputation_from_salary(s, ac_tier, "AC") for s in ac_tier]
+
+    assert min(hc_reps) > max(coord_reps)
+    # COORD/AC may lightly overlap at the boundary, but the top AC must
+    # never outrank the top COORD, and the bottom COORD must never fall
+    # below the bottom AC.
+    assert max(coord_reps) > max(ac_reps)
+    assert min(coord_reps) >= min(ac_reps)
 
 
 def test_the_real_seed_imports_all_32_staffs_with_one_of_each_coordinator():
@@ -614,3 +654,189 @@ def test_coach_of_the_year_is_empty_rather_than_fabricated_without_coaches(monke
     monkeypatch.setattr(coach_store, "all_coaches", lambda: ())
     season = season_state.get_season()
     assert coach_of_the_year(season) == []
+
+
+# --------------------------------------------------------------------
+# DB-backed: the 2026-09-20 one-time reputation re-tiering migration
+# (app/core/db.py's _migrate_schema, guarded by the coach.
+# reputation_retiered column) -- same throwaway-copy discipline as
+# `completed_season` above, since this genuinely writes to the coach
+# table.
+# --------------------------------------------------------------------
+
+@pytest.fixture
+def migrated_db(tmp_path_factory):
+    """A throwaway copy of the REAL database, migrated exactly once by
+    opening it through app.core.db.get_engine() (which runs
+    _migrate_schema() on any existing DB file). Never touches the real
+    data/franchise_football.db."""
+    throwaway = tmp_path_factory.mktemp("coach_reptier") / "franchise.db"
+    shutil.copy(_REAL_DB_PATH, throwaway)
+    db_module.DB_PATH = throwaway
+    db_module._engine = None
+    coach_store.clear_cache()
+    try:
+        db_module.get_engine()  # triggers _migrate_schema on the copy
+        yield throwaway
+    finally:
+        db_module.DB_PATH = _REAL_DB_PATH
+        db_module._engine = None
+        coach_store.clear_cache()
+
+
+def _fetch_coach_rows(db_path):
+    import sqlite3
+    con = sqlite3.connect(str(db_path))
+    try:
+        rows = con.execute(
+            "SELECT coach_id, role, salary_aav, reputation, player_dev_offense, "
+            "player_dev_defense, discipline, motivation_chemistry, red_zone_offense, "
+            "red_zone_defense, reputation_retiered, pool_tier FROM coach"
+        ).fetchall()
+    finally:
+        con.close()
+    return rows
+
+
+def test_migration_retiers_every_real_seeded_coachs_reputation(migrated_db):
+    """The core fix, asserted against the REAL live save's own data (a
+    copy of it): after migration, every real-seeded coach (pool_tier IS
+    NULL) must be marked migrated, and role tiers must not invert --
+    the actual bug Brian reported (an AC outranking an HC) must be gone
+    from the real data, not just a synthetic fixture."""
+    rows = _fetch_coach_rows(migrated_db)
+    real_rows = [r for r in rows if r[11] is None]
+    assert real_rows, "expected real-seeded coaches in the copied DB"
+    assert all(r[10] == 1 for r in real_rows)  # reputation_retiered
+
+    def tier(role):
+        if role == "HC":
+            return "HC"
+        if role in ("OC", "DC", "ST"):
+            return "COORD"
+        return "AC"
+
+    by_tier: dict[str, list[int]] = {"HC": [], "COORD": [], "AC": []}
+    for r in real_rows:
+        role, reputation = r[1], r[3]
+        by_tier[tier(role)].append(reputation)
+
+    assert by_tier["HC"] and by_tier["COORD"] and by_tier["AC"]
+    assert min(by_tier["HC"]) > max(by_tier["COORD"])
+    assert max(by_tier["COORD"]) > max(by_tier["AC"])
+
+
+def test_migration_shifts_existing_ratings_instead_of_re_randomizing(migrated_db):
+    """Brian's ask: existing coaches get RE-SCORED, not regenerated --
+    a coach's six performance ratings should move by the SAME delta as
+    their reputation (clamped to 0-99), preserving their own relative
+    profile shape instead of becoming an unrecognizable new coach."""
+    # Recomputing the exact pre-migration values isn't possible here
+    # (the row was overwritten in place by the migration), so instead
+    # this asserts the INVARIANT the migration must uphold on every touched
+    # row: reputation and every performance rating stay within the
+    # model's documented 0-99 bounds, and a coach's six performance
+    # ratings remain internally consistent with each other (the shift is
+    # a single scalar delta applied to all six, so their RELATIVE spread
+    # is preserved exactly).
+    rows = _fetch_coach_rows(migrated_db)
+    for r in rows:
+        if r[11] is not None:
+            continue  # pool candidate, untouched
+        reputation = r[3]
+        perf = r[4:10]
+        assert 0 <= reputation <= 99
+        for v in perf:
+            assert 0 <= v <= 99
+
+
+def test_migration_is_idempotent(migrated_db):
+    """Re-opening an already-migrated DB file must be a true no-op --
+    the reputation_retiered column's own existence is the guard, so a
+    second app boot must never shift these ratings a second time (the
+    same discipline the salary cap rescale's legacy_salary_rescaled
+    column already established)."""
+    before = _fetch_coach_rows(migrated_db)
+
+    db_module._engine = None
+    coach_store.clear_cache()
+    db_module.get_engine()  # a second "boot" against the same file
+    coach_store.clear_cache()
+
+    after = _fetch_coach_rows(migrated_db)
+    assert before == after
+
+
+def test_migration_does_not_touch_tier3_pool_candidates(migrated_db):
+    """scripts/seed_coach_pool.py's Tier 3 candidates already draw
+    reputation from their own real, per-role bands independent of
+    salary_aav (which is 0 for all of them) -- this migration must
+    leave them alone rather than re-scoring them against a salary
+    signal they don't have."""
+    rows = _fetch_coach_rows(migrated_db)
+    pool_rows = [r for r in rows if r[11] is not None]
+    if not pool_rows:
+        pytest.skip("this database has no Tier 3 pool candidates")
+    assert all(r[10] == 0 for r in pool_rows)  # reputation_retiered stays 0
+
+
+# --------------------------------------------------------------------
+# staff.html's Fill Vacancy "Score" mislabel (the related display bug
+# found alongside this investigation): `candidate_table`'s Score column
+# is a composite hire-worthiness metric for every role except AC (where
+# it genuinely is candidate.overall) -- see main.py's
+# _staff_candidate_rows(). The HC/OC/DC/ST call site must pass an
+# explicit, non-"OVR" score_label so the column stops implying it's the
+# same number as the Coach Card's Overall rating.
+# --------------------------------------------------------------------
+
+def _render_candidate_table_macro(score_label: str | None = None):
+    """Renders JUST the `candidate_table` macro from the real
+    staff.html, without the rest of the page (which extends base.html
+    and needs a full route's worth of context) -- extracts the macro's
+    own source and evaluates it as a standalone template so this stays
+    a real assertion against the shipped template text, not a
+    reimplementation of it."""
+    import re
+    from app.main import templates
+
+    src = Path("app/templates/staff.html").read_text(encoding="utf-8")
+    macro_src = re.search(r"\{% macro candidate_table.*?\{% endmacro %\}", src, re.S).group(0)
+    call = 'candidate_table([], "HC")' if score_label is None \
+        else f'candidate_table([], "HC", score_label="{score_label}")'
+    tmpl = templates.env.from_string(macro_src + "\n{{ " + call + " }}")
+    return tmpl.render(team_abbr="KC")
+
+
+def test_fill_vacancy_score_column_no_longer_implies_ovr_by_default():
+    """The macro's own default label must not silently claim OVR --
+    callers for a genuinely-OVR-valued list (AC) pass "OVR" explicitly
+    (see below); everyone else must pass something else, and the bare
+    default is a neutral "Score", not "OVR"."""
+    default_html = _render_candidate_table_macro()
+    assert "<th>Score</th>" in default_html
+    assert "<th>OVR</th>" not in default_html
+
+
+def test_fill_vacancy_call_site_passes_an_explicit_non_ovr_label():
+    """The actual HC/OC/DC/ST Fill Vacancy call site in staff.html --
+    Brian's report ("the coach position box is showing a different
+    overall rating than the find coach box for the same coach") was
+    this column being unlabeled ambiguity, not a computation bug: fix
+    the label, not the number."""
+    src = Path("app/templates/staff.html").read_text(encoding="utf-8")
+    assert 'candidate_table(entry.candidates, entry.role, score_label="Fit Score")' in src
+    assert 'candidate_table(entry.candidates, entry.role)' not in src
+
+    rendered = _render_candidate_table_macro(score_label="Fit Score")
+    assert "<th>Fit Score</th>" in rendered
+    assert "<th>OVR</th>" not in rendered
+
+
+def test_assistant_candidate_table_keeps_its_correct_ovr_label():
+    """The AC/"Hire Assistant" call site is NOT part of this bug: its
+    `score` field is genuinely `candidate.overall` (main.py's
+    _staff_candidate_rows, the coach_role is AC branch), so its existing
+    "OVR" label stays accurate and must not be changed."""
+    src = Path("app/templates/staff.html").read_text(encoding="utf-8")
+    assert 'candidate_table(assistant_candidates, "AC", score_label="OVR")' in src

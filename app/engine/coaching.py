@@ -121,14 +121,19 @@ class LeagueBaseline:
     This exists because of a real calibration bug caught during this
     system's first live verification. The quality ratings (discipline,
     player_dev_*) are generated centered on each coach's `reputation`,
-    and reputation is a salary PERCENTILE mapped onto 40-99 -- so its
-    league mean is ~70, not 50. Centering the penalty-rate and
-    development multipliers on a hardcoded 50 therefore gave *every*
-    team a below-1.0 penalty multiplier (~0.8x) and an above-1.0
-    development multiplier (~1.10x), quietly shifting league-wide
-    penalty and progression rates that tuning.py and
-    tests/test_stat_realism.py have calibrated -- a systematic bias, not
-    the per-team differentiation this system is for.
+    and reputation is a salary PERCENTILE mapped onto a real, tier-
+    specific band (app/models/coach.py's REPUTATION_TIER_BAND -- HC
+    84-99, COORD 55-76, AC 35-58 as of the 2026-09-20 re-tiering fix;
+    before that fix every tier shared one 40-99 band) -- so its league
+    mean is well above a flat 50 and varies by which tier dominates the
+    employed population (AC's 300 of ~433 real coaches pull it down
+    from where an HC-only mean would sit). Centering the penalty-rate
+    and development multipliers on a hardcoded 50 would therefore give
+    every team a systematically biased multiplier that drifts further
+    from 1.0 as the underlying reputation scale changes, quietly
+    shifting league-wide penalty and progression rates that tuning.py
+    and tests/test_stat_realism.py have calibrated -- a systematic
+    bias, not the per-team differentiation this system is for.
 
     Centering on the measured league mean instead makes the average
     team land on exactly 1.0 by construction, so a staff can only ever

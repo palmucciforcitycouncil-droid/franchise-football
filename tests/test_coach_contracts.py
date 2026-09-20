@@ -74,8 +74,19 @@ def test_market_value_only_compares_within_the_same_tier():
 
 def test_market_value_with_no_peers_uses_overall_on_the_rating_scale():
     """A pool candidate (salary_aav 0 at seed) must still get a real,
-    in-range market salary -- Brian's "$0/yr" report."""
-    coach = _coach(CoachRole.AC, salary_aav=0)
+    in-range market salary -- Brian's "$0/yr" report.
+
+    2026-09-20 fix: the no-peers fallback now reads `overall` against
+    THIS role's own real REPUTATION_TIER_BAND (AC 35-58), not the old
+    universal 40-99 scale -- so this test's `overall` must be a value
+    that's actually plausible for an AC post-fix (`_coach()`'s default
+    reputation/ratings of 70 is now ABOVE the entire AC band, which
+    isn't a realistic AC to begin with)."""
+    coach = _coach(
+        CoachRole.AC, salary_aav=0, reputation=45,
+        discipline=45, player_dev_offense=45, player_dev_defense=45,
+        motivation_chemistry=45, red_zone_offense=45, red_zone_defense=45,
+    )
     value = coach_contracts.coach_market_value(coach, peers=[])
     assert 200_000 < value < 800_000
 

@@ -92,6 +92,56 @@ def tier_key(role: CoachRole) -> str:
     return "AC"
 
 
+# GDD Appendix S.2's real 2026 coach salary ranges (HC $4-10M, OC/DC
+# $1-2.5M, ST $0.7-1.5M, AC $0.2-0.8M) already encode a real tiering
+# signal that the ORIGINAL reputation_from_salary() threw away by
+# mapping each role tier's percentile onto the SAME shared 40-99 band
+# independently -- 2026-09-20 playtest (Brian): "assistant coaches have
+# 90 OVR ratings while HC have 60... 24 yo assistants with no coaching
+# experience will end up hired as HCs." Confirmed on the real 433-coach
+# seed: AC median overall (78) was HIGHER than HC median (73), and AC's
+# max (99) matched HC's max, because the highest-paid assistant and the
+# highest-paid head coach both land near the 99th percentile of their
+# own tier regardless of the fact that an assistant's $800K salary
+# ceiling is a fraction of a head coach's $4M salary FLOOR.
+#
+# These bands are each tier's real floor/ceiling salary evaluated on a
+# LOG scale (compensation is log-normal, not linear -- anchoring
+# linearly collapses HC's $4-10M range to the top ~6 points of a 0-100
+# scale and crowds COORD/AC into the bottom ~15), against the full real
+# 2026 range ($200K AC floor -> $10M HC ceiling) mapped onto [35, 99]:
+#   HC    log([$4M,$10M])       -> rep [84, 99]
+#   COORD log([$0.7M,$2.5M])    -> rep [55, 76]   (ST's floor to OC/DC's ceiling)
+#   AC    log([$0.2M,$0.8M])    -> rep [35, 58]
+# HC and COORD never overlap (their real dollar ranges don't either).
+# COORD and AC overlap by 3 points (55-58) -- a real top-paid assistant
+# can plausibly out-earn a real bottom-tier ST coordinator, so a LITTLE
+# overlap there is the historically accurate outcome, not a bug (a
+# LITTLE overlap at a tier boundary is realistic; total separation
+# across the board would not be).
+REPUTATION_TIER_BAND: dict[str, tuple[int, int]] = {
+    "HC": (84, 99),
+    "COORD": (55, 76),
+    "AC": (35, 58),
+}
+
+
+def reputation_from_tier_percentile(pct: float, tier: str) -> int:
+    """`pct` (0.0-1.0): a coach's percentile rank of real salary within
+    their OWN role tier's real population (see tier_key()). Maps that
+    rank onto the TIER's own real band (REPUTATION_TIER_BAND) instead of
+    a single band shared across all tiers, so an AC's reputation can
+    never reach an HC's. Shared by scripts/import_coaches.py (fresh
+    generation, every new save/template rebuild) and app/core/db.py's
+    _migrate_schema() (the one-time rescale of coaches imported before
+    this fix existed) so both paths use the exact same formula rather
+    than two that could drift apart -- the same reason tier_key() itself
+    was promoted to this module."""
+    lo, hi = REPUTATION_TIER_BAND[tier]
+    pct = max(0.0, min(1.0, pct))
+    return int(round(lo + pct * (hi - lo)))
+
+
 # R3d (Coach Hiring/Firing/Promotion Market) appointment designations --
 # Sec 5 of docs/R3d_COACHING_SYSTEM_SPECIFICATION.md.
 APPOINTMENT_PERMANENT = "Permanent"

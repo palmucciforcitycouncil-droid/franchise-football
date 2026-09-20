@@ -30,6 +30,19 @@
 {% endif %}
 {% endmacro %}
 
+{#
+  `score_label` matters: `c.score` is NOT always coach.overall (OVR).
+  For an AC vacancy (main.py's _staff_candidate_rows, coach_role is AC)
+  it genuinely IS candidate.overall, so "OVR" is accurate there. For
+  every other role it's the composite hire-worthiness metric
+  (interim_promotion_score()/hiring_merit()) -- a different number from
+  the same coach's OVR shown elsewhere on this page (2026-09-20 fix:
+  this was the "coach position box shows a different overall rating
+  than the find coach box for the same coach" report -- the numbers
+  were never wrong, just unlabeled). Callers for a non-AC vacancy MUST
+  pass an explicit score_label (e.g. "Fit Score") rather than the
+  "Score" default so the column never implies it's OVR.
+#}
 {% macro candidate_table(candidates, role_value, score_label="Score") %}
 <div class="table-wrap">
   <table>
@@ -124,7 +137,7 @@
   <p class="coach-role">{{ entry.title }}</p>
   {{ staff_error_box(entry.role) }}
   {% if is_user_team and entry.candidates %}
-  {{ candidate_table(entry.candidates, entry.role) }}
+  {{ candidate_table(entry.candidates, entry.role, score_label="Fit Score") }}
   {% elif is_user_team %}
   <p class="muted">No willing candidates for this role right now.</p>
   {% else %}
