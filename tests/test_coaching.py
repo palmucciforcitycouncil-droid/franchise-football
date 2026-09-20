@@ -839,4 +839,4 @@ def test_assistant_candidate_table_keeps_its_correct_ovr_label():
     _staff_candidate_rows, the coach_role is AC branch), so its existing
     "OVR" label stays accurate and must not be changed."""
     src = Path("app/templates/staff.html").read_text(encoding="utf-8")
-    assert 'candidate_table(assistant_candidates, "AC", score_label="OVR")' in src
+    assert 'candidate_table(assistant_candidates, "AC", score_label="OVR"' in src

@@ -985,6 +985,12 @@
        already use, so a wide staff table scrolls inside its own card
        instead of scrolling the page body. */
     .table-wrap { overflow-x: auto; }
+    /* 2026-09-20 fix (Brian's playtest report: "when an assistant is
+       promoted and the hire assistant box shows up it is too big, there
+       should be a scroll within that area"). Scoped to just that one
+       candidate_table() call (wrap_class="table-wrap-y-scroll") -- other
+       callers (Fill Vacancy, etc.) keep their normal unbounded height. */
+    .table-wrap-y-scroll { max-height: 320px; overflow-y: auto; }
     /* Position Ranks (Dashboard) is both wide AND tall (32 rows), so the
        browser's native horizontal scrollbar -- rendered at the bottom
        edge of the scrolling box -- ends up below all 32 rows, off-screen

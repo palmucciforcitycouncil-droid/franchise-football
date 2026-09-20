@@ -43,8 +43,8 @@
   pass an explicit score_label (e.g. "Fit Score") rather than the
   "Score" default so the column never implies it's OVR.
 #}
-{% macro candidate_table(candidates, role_value, score_label="Score") %}
-<div class="table-wrap">
+{% macro candidate_table(candidates, role_value, score_label="Score", wrap_class="") %}
+<div class="table-wrap {{ wrap_class }}">
   <table>
     <thead><tr><th>Candidate</th><th>Source</th><th>{{ score_label }}</th><th>Salary</th><th></th></tr></thead>
     <tbody>
@@ -190,9 +190,16 @@
 
   <div class="card staff-span-2">
     <h3>Trait Effects</h3>
+    {# 2026-09-20 fix (Brian's playtest report: "remove the section
+       reference/descriptions in the trait effects box" -- the box read
+       cluttered with a caption under every single row). The caption
+       still exists (which coach rating drives this number) but as a
+       hover title instead of always-visible subtext, so the box is
+       Trait / Value like every other panel, with the trace-back still
+       one hover away for whoever wants it. #}
     {% for label, value, consumer in effect_rows %}
-    <div class="pc-row">
-      <span class="pc-row-label">{{ label }}<br><span style="font-size: 0.75rem; opacity: 0.7;">{{ consumer }}</span></span>
+    <div class="pc-row" title="{{ consumer }}">
+      <span class="pc-row-label">{{ label }}</span>
       <span>{{ value }}</span>
     </div>
     {% endfor %}
@@ -269,7 +276,7 @@
   {% if is_user_team and open_assistant_seats %}
   <h4 style="margin: 1rem 0 0.25rem;">Hire Assistant ({{ open_assistant_seats }} seat{% if open_assistant_seats != 1 %}s{% endif %} open)</h4>
   {% if assistant_candidates %}
-  {{ candidate_table(assistant_candidates, "AC", score_label="OVR") }}
+  {{ candidate_table(assistant_candidates, "AC", score_label="OVR", wrap_class="table-wrap-y-scroll") }}
   {% else %}
   <p class="muted">No assistant coaches are available right now.</p>
   {% endif %}

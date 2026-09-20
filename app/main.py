@@ -3068,7 +3068,13 @@ def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
         ("Player development (off)", f"{effect.dev_multiplier_offense:.2f}x", "From your offensive staff's Player Development rating"),
         ("Player development (def)", f"{effect.dev_multiplier_defense:.2f}x", "From your defensive staff's Player Development rating"),
         ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "From staff focused on Training (Motivation/Chemistry)"),
-        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}%", "From staff focused on Scouting"),
+        # 2026-09-20 (Brian's playtest report: "isn't everything past zero
+        # meaningless?"): the bare "-47%" read as an unexplained number --
+        # it's how much smaller draft-evaluation error is than the
+        # league-default noise, i.e. a bigger cut is MORE accurate
+        # scouting, not less. Said in the value itself rather than only
+        # in a caption a player might not read.
+        ("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}% error (more accurate)", "From staff focused on Scouting"),
     ]
 
 
