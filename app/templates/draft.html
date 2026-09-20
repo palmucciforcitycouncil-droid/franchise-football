@@ -50,6 +50,15 @@
   .dp-btn.pause { background: rgba(234, 179, 8, 0.2); color: #fde047; border-color: rgba(234, 179, 8, 0.5); }
   .dp-btn.resume { background: rgba(34, 197, 94, 0.2); color: #86efac; border-color: rgba(34, 197, 94, 0.5); }
   .dp-btn.block { width: 100%; }
+  /* 2026-09-20 fix (Brian's playtest report): Sim Pick / Sim to Next Pick /
+     End should read as the same "advance the game" action as the sticky
+     header's own Sim Week button -- same gold outline treatment, not the
+     solid .dp-btn.gold fill (which this page already uses for a
+     different, "primary confirm" meaning elsewhere). Values match
+     base.html's .sim-week-form button exactly (border/color var(--gold),
+     hover background rgba(212, 175, 55, 0.12)). */
+  .dp-btn.sim-gold { background: transparent; border-color: var(--gold); color: var(--gold); }
+  .dp-btn.sim-gold:hover { background: rgba(212, 175, 55, 0.12); color: var(--gold); }
   .dp-inline-form { display: inline; margin: 0; }
 
   /* Draft Results (left) */
@@ -290,9 +299,9 @@
         {% endif %}
         {% if mode == "live" and current_slot %}
         <div class="dp-sim-row">
-          <form method="post" action="/draft/sim-pick" class="dp-inline-form"><button type="submit" class="dp-btn block" {% if your_turn %}disabled{% endif %}>Sim Pick</button></form>
-          <form method="post" action="/draft/sim-to-next-pick" class="dp-inline-form" id="dp-sim-next-form"><button type="submit" class="dp-btn block" {% if your_turn %}disabled{% endif %}>Sim to Next Pick</button></form>
-          <form method="post" action="/draft/end" class="dp-inline-form span2" data-confirm="End the draft? Every remaining pick -- including your own -- will be auto-drafted."><button type="submit" class="dp-btn block">End (auto-draft the rest)</button></form>
+          <form method="post" action="/draft/sim-pick" class="dp-inline-form"><button type="submit" class="dp-btn block sim-gold" {% if your_turn %}disabled{% endif %}>Sim Pick</button></form>
+          <form method="post" action="/draft/sim-to-next-pick" class="dp-inline-form" id="dp-sim-next-form"><button type="submit" class="dp-btn block sim-gold" {% if your_turn %}disabled{% endif %}>Sim to Next Pick</button></form>
+          <form method="post" action="/draft/end" class="dp-inline-form span2" data-confirm="End the draft? Every remaining pick -- including your own -- will be auto-drafted."><button type="submit" class="dp-btn block sim-gold">End (auto-draft the rest)</button></form>
         </div>
         {% endif %}
       </div>

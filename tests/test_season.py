@@ -333,6 +333,14 @@ def test_dashboard_redirects_to_team_select_when_no_team_chosen():
     assert resp.headers["location"] == "/team-select"
 
 
+def test_landing_page_always_redirects_to_dashboard():
+    """Brian's playtest report: the landing page should always be the
+    dashboard, not the leftover dev single-game-sim page (index.html)."""
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/dashboard"
+
+
 def test_dashboard_shows_user_team_once_chosen():
     season_state.set_user_team("KC")
     resp = client.get("/dashboard", follow_redirects=True)

@@ -191,6 +191,15 @@
        or triple-digit numbers far apart from their own header label. */
     table.boxtable th:not(:first-child), table.boxtable td:not(:first-child) { text-align: right; width: 70px; }
     tr.starter td:first-child { color: var(--gold); font-weight: 600; }
+    /* 2026-09-20 fix (Brian's playtest report): offseason_recap.html used
+       to reuse tr.starter for "this is the user's own team" rows (Top
+       Teams/Improving Teams/etc.), which only ever highlighted the first
+       cell, not the row -- and collided in meaning with the Roster page's
+       REAL depth-chart starter striping, which is why it wasn't just
+       highlighted here directly. Renamed to its own class + a real
+       full-row treatment. */
+    tr.user-team-row { background: rgba(212, 175, 55, 0.08); }
+    tr.user-team-row td:first-child { color: var(--gold); font-weight: 600; }
     td.depth-actions { white-space: nowrap; text-align: right; }
     td.depth-actions form { display: inline-block; margin-left: 0.25rem; }
     td.depth-actions button { padding: 0.15rem 0.5rem; font-size: 0.85rem; }

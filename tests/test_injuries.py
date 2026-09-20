@@ -186,6 +186,41 @@ def test_reroll_at_the_same_player_season_week_upserts_not_duplicates(isolated_d
 
 
 # --------------------------------------------------------------------
+# Dashboard Team Injuries box -- DB-backed
+# --------------------------------------------------------------------
+
+def test_dashboard_injury_line_shows_weeks_out_when_really_out(isolated_db):
+    from app.main import _team_injuries_for_dashboard
+    with db_module.get_session() as s:
+        s.add(_player(Position.QB, 90, "qb_hurt", team_abbr="ZZ"))
+        s.commit()
+    injury_store.save_injuries([_make_injury(player_id="qb_hurt", team_abbr="ZZ", weeks_out=3)])
+
+    lines = _team_injuries_for_dashboard("ZZ")
+    assert len(lines) == 1
+    assert "3 wks" in lines[0]
+
+
+def test_dashboard_injury_line_reads_playing_limited_not_0_wks_during_rtp_taper(isolated_db):
+    """Brian's playtest report: "what does it mean when it says 0 weeks?"
+    weeks_out==0 means the player has entered RTP taper (Injury.is_out's
+    own docstring) -- he's active and playing again, just weakened, not
+    "out" for a nonsensical zero weeks."""
+    from app.main import _team_injuries_for_dashboard
+    with db_module.get_session() as s:
+        s.add(_player(Position.QB, 90, "qb_tapering", team_abbr="ZZ"))
+        s.commit()
+    injury_store.save_injuries([_make_injury(
+        player_id="qb_tapering", team_abbr="ZZ", weeks_out=0, rtp_penalty=0.1,
+    )])
+
+    lines = _team_injuries_for_dashboard("ZZ")
+    assert len(lines) == 1
+    assert "0 wk" not in lines[0]
+    assert "playing, limited" in lines[0]
+
+
+# --------------------------------------------------------------------
 # depth_chart.py's OUT-exclusion and backfill -- DB-backed
 # --------------------------------------------------------------------
 

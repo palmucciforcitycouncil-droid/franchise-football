@@ -76,7 +76,13 @@ def _resume_active_save() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"teams": TEAMS})
+    # Brian's playtest report: "The landing page should always be the
+    # dashboard." index.html was a leftover dev single-game-sim page from
+    # before Dashboard existed -- /dashboard already has the real redirect
+    # chain for every other state (no active save -> /saves, no team
+    # chosen -> /team-select), so just handing off to it covers those for
+    # free instead of duplicating that logic here.
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 FREE_AGENTS_TEAM = TeamInfo(abbr="FA", location="Free Agents", conference="", division="")
@@ -2482,9 +2488,18 @@ def _team_injuries_for_dashboard(team_abbr: str) -> list[str]:
         if p is None:
             continue
         initial = p.first_name[0] + "." if p.first_name else ""
-        weeks = f"{injury.weeks_out} wk" + ("s" if injury.weeks_out != 1 else "")
+        # weeks_out == 0 doesn't mean "back to full health this instant" --
+        # it means the player has entered RTP taper (injuries.py/Injury.
+        # is_out's own docstring): he's active and playing again, just at
+        # reduced effectiveness while rtp_penalty decays. "0 wks" read as
+        # a broken/meaningless number here (Brian's playtest report); say
+        # what's actually true instead.
+        if injury.is_out:
+            status = f"{injury.weeks_out} wk" + ("s" if injury.weeks_out != 1 else "")
+        else:
+            status = "playing, limited"
         lines.append(
-            f"{initial} {p.last_name} ({p.position.value}) — {weeks} — "
+            f"{initial} {p.last_name} ({p.position.value}) — {status} — "
             f"{injury.injury_type.value.title()} ({injury.severity.value.title()})"
         )
     return lines
