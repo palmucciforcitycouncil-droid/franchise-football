@@ -12,6 +12,7 @@ os.environ.setdefault("LEAGUE_SEED", "2025")
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import select
 
 from app.core.db import DB_PATH, get_session
 from app.engine import draft
@@ -67,6 +68,31 @@ def test_prospect_rating_columns_cover_every_generated_attribute():
     # durability is shown as INJ (99 - durability) and the throw-accuracy
     # splits also roll up into TAC -- both derived, same as the Roster page.
     assert set(draft.ALL_ATTR_FIELDS) - covered == {"durability"}
+
+
+def test_draft_page_your_roster_shows_offseason_progression_delta():
+    """Brian's playtest report ("the roster on the draft page should be
+    the same as on the roster page") -- the draft page's "Your Roster"
+    table is a deliberately separate, client-side-sorted component (see
+    draft.html's own comment on why), but it should still show the same
+    real data the Roster page's table shows, including the Δ OVR column
+    added there for the offseason-progression report."""
+    from app.services import offseason_recap_store
+
+    season, _next_number = _open_live_draft()
+    season.season_number = 1
+    try:
+        with get_session() as s:
+            kc_roster = list(s.exec(select(Player).where(Player.team_abbr == USER)))
+        riser = max(kc_roster, key=lambda p: p.overall_rating)
+        offseason_recap_store.save_before_snapshot(0, {riser.player_id: ("KC", riser.overall_rating - 5)})
+
+        client = TestClient(app_module().app)
+        html = client.get("/draft").text
+        assert 'data-sort="delta"' in html
+        assert '<span class="delta-up">+5</span>' in html
+    finally:
+        offseason_recap_store.clear_season(0)
 
 
 def test_used_team_pick_shows_the_drafted_player_and_rookie_gets_acquisition_fields():

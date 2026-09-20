@@ -544,7 +544,7 @@
         <thead>
           <tr>
             <th data-sort="name" data-type="text">Player</th>
-            {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
+            {% for cid, label in [('pos','Pos'), ('age','Age'), ('ovr','OVR'), ('delta','Δ OVR'), ('pot','POT'), ('spd','SPD'), ('str','STR'), ('agi','AGI'), ('tpw','TPW'), ('tac','TAC'), ('cth','CTH'), ('tck','TCK'), ('awr','AWR'), ('sta','STA'), ('inj','INJ'), ('mor','MOR'), ('ctr','Contract'), ('yrs','Yrs'), ('dep','Depth')] %}
             <th data-sort="{{ cid }}" {% if cid in ('pos', 'dep') %}data-type="text"{% endif %}>{{ label }}</th>
             {% endfor %}
           </tr>
@@ -557,6 +557,8 @@
             <td>{{ p.position.value }}</td>
             <td>{{ p.age }}</td>
             <td><span class="ovr-badge {% if ovr >= 90 %}tier-elite{% elif ovr >= 80 %}tier-good{% elif ovr >= 70 %}tier-avg{% else %}tier-low{% endif %}">{{ ovr }}</span></td>
+            {% set delta = progression_deltas.get(p.player_id, 0) %}
+            <td>{% if delta > 0 %}<span class="delta-up">+{{ delta }}</span>{% elif delta < 0 %}<span class="delta-down">{{ delta }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
             <td>{{ p.potential }}</td>
             <td>{{ p.speed }}</td>
             <td>{{ p.strength }}</td>

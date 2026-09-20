@@ -251,6 +251,28 @@ def _slot_labels_from_groups(groups: list[dict]) -> dict[str, str]:
     return labels
 
 
+def _progression_deltas_for(players: list[Player]) -> dict[str, int]:
+    """{player_id: overall_rating delta since the last offseason} for
+    whichever of `players` were on a roster then (Brian's playtest
+    report: nowhere shows offseason progression up/down). Real source:
+    offseason_recap_store's before-snapshot (player_id -> (team_abbr,
+    overall_rating), taken right before the last offseason's
+    progression ran) -- see that module's own docstring. Empty dict
+    (every delta reads 0) before the franchise's first offseason, or
+    for a player who wasn't rostered anywhere at that snapshot (e.g. a
+    rookie just drafted)."""
+    deltas: dict[str, int] = {}
+    cur_season_num = season_state.get_season().season_number
+    if cur_season_num > 0:
+        before_snapshot = offseason_recap_store.get_before_snapshot(cur_season_num - 1)
+        if before_snapshot:
+            for p in players:
+                prior = before_snapshot.get(p.player_id)
+                if prior is not None:
+                    deltas[p.player_id] = p.overall_rating - prior[1]
+    return deltas
+
+
 def _depth_slot_across_teams(team_abbrs: set[str]) -> dict[str, str]:
     """R11 (GDD Sec 11): Find Player's results can span every team in the
     league, unlike the main Roster table's single-team DEP column -- this
@@ -439,23 +461,7 @@ def roster_view(
     # not fabricated. Empty for free agents (no depth chart concept).
     depth_slot: dict[str, str] = _slot_labels_from_groups(depth_chart_groups)
 
-    # Offseason progression +/- (Brian's playtest report: "there is
-    # nowhere that we show the offseason progression of players up or
-    # down... the team roster box at the bottom on show the + or - to
-    # the ratings, sortable"). offseason_recap_store's real before-
-    # snapshot (player_id -> (team_abbr, overall_rating), taken right
-    # before the last offseason's progression ran) already exists for
-    # exactly this purpose -- see its own docstring. Empty dict (every
-    # delta reads 0) before the franchise's first offseason.
-    progression_deltas: dict[str, int] = {}
-    _cur_season_num = season_state.get_season().season_number
-    if _cur_season_num > 0:
-        before_snapshot = offseason_recap_store.get_before_snapshot(_cur_season_num - 1)
-        if before_snapshot:
-            for p in players:
-                prior = before_snapshot.get(p.player_id)
-                if prior is not None:
-                    progression_deltas[p.player_id] = p.overall_rating - prior[1]
+    progression_deltas = _progression_deltas_for(players)
 
     # Real Filter panel (FilterPanel.tsx): position groups (QUOTA_GROUPS --
     # see that constant's own comment for why this reuses the quota
@@ -4523,6 +4529,7 @@ def draft_view(
     # this function's own docstring).
     roster = []
     depth_slot: dict[str, str] = {}
+    progression_deltas: dict[str, int] = {}
     starters: set[str] = set()
     last_starters: set[str] = set()
     position_quotas: dict[str, dict] = {}
@@ -4535,6 +4542,7 @@ def draft_view(
             )
         depth_chart_groups = _depth_chart_groups_for_team(user_abbr, roster)
         depth_slot = _slot_labels_from_groups(depth_chart_groups)
+        progression_deltas = _progression_deltas_for(roster)
         depth_rank: dict[str, int] = {}
         for group in depth_chart_groups:
             for i, p in enumerate(group["players"]):
@@ -4591,7 +4599,7 @@ def draft_view(
         "board": _prospect_rows(board, projected, need_groups, set(board_indexes)),
         "top_prospects": _prospect_rows(top_prospects, projected, need_groups, set(board_indexes)),
         "roster": roster,
-        "depth_slot": depth_slot, "starters": starters, "last_starters": last_starters,
+        "depth_slot": depth_slot, "progression_deltas": progression_deltas, "starters": starters, "last_starters": last_starters,
         "position_quotas": position_quotas, "total_roster_count": total_roster_count,
         "max_roster_size": MAX_ROSTER_SIZE,
         "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
