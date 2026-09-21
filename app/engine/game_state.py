@@ -68,6 +68,10 @@ class GameResult:
     winner: TeamSide
     events: List[DriveEvent]
     plays: List[PlayEvent] = field(default_factory=list)
+    # 2026-09-20 (real overtime, GDD Sec 6.3): whether this game needed at
+    # least one OT period to decide. Informational only -- winner/scores
+    # above already reflect the real final result either way.
+    went_to_overtime: bool = False
 
 
 def quarter_scores(events: List[DriveEvent]) -> List[tuple]:

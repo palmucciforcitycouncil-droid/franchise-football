@@ -752,8 +752,13 @@ TEMPLATES: dict[str, list[str]] = {
         "{round} stunner: No. {w_seed} {winner_label} ousts No. {l_seed} {loser_label}, {w_score}-{l_score}.",
     ],
     "playoff_tie": [
-        # The engine has no overtime model (playoffs.py docstring): a tied
-        # score advances the home team. Said plainly rather than dressed up.
+        # 2026-09-20: real sudden-death OT (game_sim.py's
+        # _simulate_overtime_period, playoff=True keeps playing periods
+        # until someone wins) means a playoff game should never actually
+        # reach this template anymore -- kept only as a safety-net fallback
+        # for the vanishingly rare case OT_MAX_PLAYOFF_PERIODS is exhausted
+        # still tied, where the home team gets the tiebreak. Said plainly
+        # rather than dressed up.
         "{round}: {winner_label} advances past {loser_label} after a {w_score}-{l_score} deadlock.",
     ],
     "conference_title": [

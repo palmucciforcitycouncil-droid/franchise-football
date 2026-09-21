@@ -42,7 +42,7 @@ from enum import Enum
 from app.engine import contracts
 from app.engine.position_groups import POSITION_TO_GROUP
 from app.engine.rng import RNG, stable_seed
-from app.models.player import Player, Position
+from app.models.player import Player, Position, RosterStatus
 
 
 class RoleFit(float, Enum):
@@ -240,11 +240,20 @@ def run_ai_resign_decisions(players: list[Player], season_number: int, exclude_t
 def release_expired_contracts(players: list[Player]) -> int:
     """Sec 8.4's real trigger point: contract_years_remaining hit 0 at
     the season rollover that just decremented it. Mutates in place
-    (team_abbr = None); the caller commits. Returns the count released."""
+    (team_abbr = None); the caller commits. Returns the count released.
+
+    Also resets roster_status to ACTIVE (Brian's playtest report,
+    2026-09-20): a player released off PS/IR otherwise carries that
+    stale status into the free-agent pool -- the OTHER two release
+    paths (roster_release_player in main.py, the cut-to-53 overflow
+    release in roster_prep.py) already do this; this was the one gap,
+    and it's a real, common trigger (every offseason, league-wide), not
+    an edge case."""
     released = 0
     for p in players:
         if p.contract_years_remaining <= 0 and p.team_abbr is not None:
             p.team_abbr = None
+            p.roster_status = RosterStatus.ACTIVE
             released += 1
     return released
 

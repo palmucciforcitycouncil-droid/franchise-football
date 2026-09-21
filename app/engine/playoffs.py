@@ -28,14 +28,19 @@ Deliberate scope simplifications, documented rather than silently cut:
   LEAGUE_SEED (via app.engine.rng.stable_seed), not a true coin flip --
   keeps the whole bracket reproducible for a given seed, consistent
   with GDD Sec 1.3's determinism policy.
-- Playoff overtime: the GDD specifies full 15-minute overtime periods
-  (Sec 6, "Playoff Overtime"), which needs a real clock/quarter model
-  this engine doesn't have (see drive_sim.py's module docstring for the
-  same limitation in the regular season). A playoff game's winner is
-  decided the same way a regular-season game already is --
-  game_sim.simulate_game's `winner = "home" if h >= a else "away"` --
-  so a tied score (rare but possible) goes to the home team rather than
-  a simulated overtime period.
+- Playoff overtime: real as of 2026-09-20 (Brian's playtest report --
+  see game_sim.py's `_simulate_overtime_period`/`simulate_game`'s
+  `playoff` flag). "Period" is approximated as a bounded number of
+  drives rather than a real 15-minute clock (this engine has no clock
+  at all -- see drive_sim.py's own module docstring), but the sudden-
+  death RULE itself (first score wins outright unless it's a field
+  goal, which earns the other team exactly one answering possession) is
+  the real current NFL rule. A playoff game keeps playing additional
+  periods until the tie breaks -- it is never allowed to end tied,
+  except a vanishingly rare `OT_MAX_PLAYOFF_PERIODS` safety-valve
+  fallback (home gets the tiebreak then, same as before this fix,
+  purely to bound worst-case simulation time against a pathological RNG
+  run that in practice should never actually happen).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field

@@ -245,6 +245,38 @@ def test_season_awards_against_a_real_simulated_season_returns_sane_shapes():
 
 
 @needs_db
+def test_wr_te_pooled_candidates_show_their_real_individual_position():
+    """Brian's playtest report, 2026-09-20: the Awards page showed a
+    player's position as the literal pool label "WR/TE" -- WR and TE are
+    separate real positions for everything except coach focus grouping
+    (app/models/coach.py's FOCUS_RECEIVERS). Any live OPOY/MVP/ROY
+    candidate scored in the WR/TE stat pool must carry the player's own
+    real, specific position via player_position, never the bare pool
+    label and never blank."""
+    from app.services import season_state, save_service, history_store
+    from pathlib import Path
+
+    save_service.DEFAULT_SAVE_PATH = Path("data/saves/_test_wr_te_position_awards.json")
+    history_store.DEFAULT_PATH = Path("data/saves/_test_wr_te_position_history.json")
+    history_store.DEFAULT_PATH.unlink(missing_ok=True)
+    season_state.reset_season()
+    for _ in range(3):
+        season_state.simulate_current_week()
+    season = season_state.get_season()
+
+    candidates = awards._offensive_candidates(season)
+    # The "WR/TE" stat pool is really "anyone with a target this season"
+    # (offensive_candidates_from_stats' wr_pool has no position filter at
+    # all), so a receiving running back legitimately lands in it too --
+    # the real invariant is "never the ambiguous dual label, never blank",
+    # not "must be exactly WR or TE".
+    wr_te_candidates = [c for c in candidates if c.position == "WR/TE"]
+    assert wr_te_candidates, "expected at least one WR/TE-pooled candidate from 3 real simulated weeks"
+    for c in wr_te_candidates:
+        assert c.player_position and c.player_position != "WR/TE"
+
+
+@needs_db
 def test_roy_can_be_won_by_a_real_rookie_defender():
     """The gap this module's docstring used to flag (ROY was offense-only
     because DPOY's interception-only basis was too thin to fairly weigh

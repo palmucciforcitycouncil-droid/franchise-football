@@ -609,6 +609,71 @@ def test_simulate_game_threads_gameplan_to_the_right_side():
     assert sum(aggressive_pass_attempts) > sum(conservative_pass_attempts)
 
 
+# --------------------------------------------------------------------
+# Real sudden-death overtime (2026-09-20, Brian's playtest report:
+# "There can not be ties in the playoffs" / "There are still too many
+# ties" -- a real screenshot showed a 17-17 Divisional-round game and a
+# 20-20 Wild Card game both silently advancing the home team).
+# --------------------------------------------------------------------
+
+def test_playoff_games_never_end_in_a_tie():
+    """The hard rule this whole fix exists for: simulate_game(playoff=True)
+    must never return an equal score, across a real range of seeds (not
+    just one lucky/unlucky draw)."""
+    for seed in range(3000, 3080):
+        result = simulate_game(
+            RNG.with_seed(seed),
+            TeamSim(name="Kansas City", abbr="KC", ratings=AVG),
+            TeamSim(name="Buffalo", abbr="BUF", ratings=AVG),
+            playoff=True,
+        )
+        assert result.home_score != result.away_score, f"seed {seed} ended tied {result.home_score}-{result.away_score}"
+
+
+def test_a_playoff_game_that_needed_overtime_sets_the_flag_and_still_has_a_real_winner():
+    """Searches for a real seed where regulation alone ties (a genuine,
+    if less common, outcome for two evenly-matched teams) and confirms
+    OT actually ran and resolved it -- not just that no tie slipped
+    through by chance at the seeds tried."""
+    found = False
+    for seed in range(4000, 4300):
+        result = simulate_game(
+            RNG.with_seed(seed),
+            TeamSim(name="Kansas City", abbr="KC", ratings=AVG),
+            TeamSim(name="Buffalo", abbr="BUF", ratings=AVG),
+            playoff=True,
+        )
+        if result.went_to_overtime:
+            found = True
+            assert result.home_score != result.away_score
+            # At least one drive in the OT extension is real and present
+            # in the play-by-play, tagged distinctly from regulation.
+            assert any("(OT)" in e.desc for e in result.events)
+            break
+    assert found, "expected at least one of these 300 seeds to reach overtime"
+
+
+def test_a_regular_season_game_can_still_end_in_a_real_tie_after_one_ot_period():
+    """Real NFL rule, preserved on purpose: regular season gets exactly
+    ONE OT period, and can still end tied if that period doesn't resolve
+    it -- eliminating ties outright would overcorrect past real NFL
+    behavior, not just fix the playoff bug. Searches for a real seed
+    where this actually happens rather than asserting it never can."""
+    found_tie = False
+    for seed in range(5000, 5300):
+        result = simulate_game(
+            RNG.with_seed(seed),
+            TeamSim(name="Kansas City", abbr="KC", ratings=AVG),
+            TeamSim(name="Buffalo", abbr="BUF", ratings=AVG),
+            playoff=False,
+        )
+        if result.home_score == result.away_score:
+            found_tie = True
+            assert result.went_to_overtime
+            break
+    assert found_tie, "expected at least one of these 300 seeds to end tied after a single regular-season OT period"
+
+
 # --- R2b: punt touchbacks + real punt-return integration -------------------
 
 def test_punt_result_can_produce_a_real_touchback():

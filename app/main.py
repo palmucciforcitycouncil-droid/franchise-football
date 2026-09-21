@@ -4163,6 +4163,14 @@ def free_agency_offer(request: Request, player_id: str = Form(...), aav: int = F
             player.salary = aav
             player.contract_years_remaining = years
             player.guaranteed_money = guaranteed
+            # Brian's playtest report (2026-09-20): a signed free agent
+            # landed straight on the practice squad even with roster room.
+            # A free agent can carry a stale non-ACTIVE roster_status from
+            # whichever team last had them on PS/IR before their contract
+            # expired (release_expired_contracts() clears team_abbr but,
+            # unlike every other release path, never resets this) -- a
+            # fresh signing is always a real, active roster move.
+            player.roster_status = RosterStatus.ACTIVE
             free_agency.mark_free_agent_acquisition(
                 player, season_year(season.season_number), undrafted_pool.years_remaining(player_id) is not None,
             )
@@ -4318,6 +4326,14 @@ def gm_desk_trade_counter(team_b: str, give: list[str] = Query(default=[]), get:
         user_abbr, team_b, give, get, give_picks, get_picks, strict=False)
     with get_session() as s:
         user_roster = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
+    # Brian's playtest report (2026-09-20): the counter sometimes named a
+    # player the user couldn't actually add -- a real R16 regression
+    # (commit 16686a61) that excluded PS/ELEVATED players from the
+    # give-side roster grid and from strict trade validation, but never
+    # updated this candidate pool to match, so build_counter_offer() could
+    # still pick one of them. Same filter as _trade_side_context()'s
+    # `tradeable` above.
+    user_roster = [p for p in user_roster if p.roster_status not in (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED)]
     user_picks = [trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr)
                   for pk in draft_pick_store.tradeable_picks_owned_by(user_abbr, season.season_number)]
     counter = trades.build_counter_offer(

@@ -276,7 +276,8 @@ def set_user_team(team_abbr: str) -> Season:
         return season
 
 
-def _simulate_one_game(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple) -> GameResult:
+def _simulate_one_game(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple,
+                        playoff: bool = False) -> GameResult:
     """The real per-game simulation core shared by simulate_current_week
     (regular season), simulate_playoff_round (postseason), AND
     simulate_preseason (R10): real starters/ratings, the Score Fidelity
@@ -333,10 +334,11 @@ def _simulate_one_game(season: Season, home_abbr: str, away_abbr: str, week_for_
     weather = generate_weather(season.league_seed, season.season_number, week_for_parity, home_abbr)
 
     return simulate_game(rng, home, away, home_mult, away_mult, home_gameplan, away_gameplan,
-                          home_staff=home_staff, away_staff=away_staff, weather=weather)
+                          home_staff=home_staff, away_staff=away_staff, weather=weather, playoff=playoff)
 
 
-def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple) -> GameResult:
+def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_parity: int, seed_parts: tuple,
+                       playoff: bool = False) -> GameResult:
     """_simulate_one_game() plus the regular-season/playoff side effects:
     points_for/against and Power Rating updates. Deliberately does NOT
     touch TeamRecord.wins/losses -- those are a regular-season-only
@@ -345,7 +347,7 @@ def _simulate_matchup(season: Season, home_abbr: str, away_abbr: str, week_for_p
     home_rec = season.records[home_abbr]
     away_rec = season.records[away_abbr]
 
-    result = _simulate_one_game(season, home_abbr, away_abbr, week_for_parity, seed_parts)
+    result = _simulate_one_game(season, home_abbr, away_abbr, week_for_parity, seed_parts, playoff=playoff)
 
     home_rec.points_for += result.home_score
     home_rec.points_against += result.away_score
@@ -533,13 +535,16 @@ def simulate_current_week() -> int:
 
             home_rec = season.records[game.home_abbr]
             away_rec = season.records[game.away_abbr]
-            # A genuine tied score is a real regular-season result (unlike
-            # the playoffs, which have no overtime model and intentionally
-            # send a tied score to the home team as their real tiebreak --
-            # see headlines.py's "playoff_tie" template). Checking the
-            # literal score here, rather than GameResult.winner (which is
-            # always forced to "home" on a tie -- see game_sim.py), is what
-            # makes this distinguishable from a real home win.
+            # A genuine tied score is a real regular-season result: real
+            # sudden-death OT (2026-09-20, game_sim.py's
+            # _simulate_overtime_period) can still leave a regular-season
+            # game tied after its one real OT period, same as the real
+            # NFL -- playoff games get repeated OT periods instead and
+            # can never end tied (game_sim.simulate_game's `playoff`
+            # flag). Checking the literal score here, rather than
+            # GameResult.winner (which defaults to "home" on the very rare
+            # unresolved tie -- see game_sim.py), is what makes this
+            # distinguishable from a real home win.
             if result.home_score == result.away_score:
                 home_rec.ties += 1
                 away_rec.ties += 1
@@ -702,6 +707,7 @@ def simulate_playoff_round() -> str:
             matchup.result = _simulate_matchup(
                 season, matchup.home_abbr, matchup.away_abbr, pseudo_week,
                 (season.season_number, "playoffs", round_name, matchup.home_abbr, matchup.away_abbr),
+                playoff=True,
             )
 
         # GDD Sec 7.9.2: conference-title and Super Bowl credit is

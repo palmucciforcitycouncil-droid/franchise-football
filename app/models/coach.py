@@ -180,7 +180,9 @@ FOCUS_QB_PRESSURE = "QB Pressure"                      # DC, AC
 FOCUS_QB = "QB"                                        # OC, AC
 FOCUS_RECEIVERS = "Receivers"                          # OC, AC
 FOCUS_OL = "OL"                                        # OC, AC
+FOCUS_RUNNING_BACKS = "Running Backs"                  # OC, AC
 FOCUS_DL = "DL"                                        # AC only
+FOCUS_LINEBACKERS = "Linebackers"                      # AC only
 FOCUS_SECONDARY = "Secondary"                          # AC only
 FOCUS_SPECIAL_TEAMS = "Special Teams"                  # HC, AC (was "Special Teams Work")
 FOCUS_DEVELOPMENT = "Development"                      # every role
@@ -201,13 +203,14 @@ FOCUS_OPTIONS_BY_ROLE: dict[CoachRole, list[str]] = {
     ],
     CoachRole.OC: [
         FOCUS_OFFENSIVE_GAMEPLAN, FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME,
-        FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL,
+        FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL, FOCUS_RUNNING_BACKS,
         FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING,
     ],
     CoachRole.AC: [
         FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE,
         FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME,
-        FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL, FOCUS_DL, FOCUS_SECONDARY, FOCUS_SPECIAL_TEAMS,
+        FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL, FOCUS_RUNNING_BACKS,
+        FOCUS_DL, FOCUS_LINEBACKERS, FOCUS_SECONDARY, FOCUS_SPECIAL_TEAMS,
         FOCUS_DEVELOPMENT, FOCUS_SCOUTING, FOCUS_TRAINING,
     ],
 }
@@ -232,7 +235,9 @@ FOCUS_RATING_WEIGHTS: dict[str, list[tuple[str, float]]] = {
     FOCUS_QB: [("qb_coaching", 1.0)],
     FOCUS_RECEIVERS: [("wr_coaching", 1.0)],
     FOCUS_OL: [("ol_coaching", 1.0)],
+    FOCUS_RUNNING_BACKS: [("rb_coaching", 1.0)],
     FOCUS_DL: [("dl_coaching", 1.0)],
+    FOCUS_LINEBACKERS: [("lb_coaching", 1.0)],
     FOCUS_SECONDARY: [("secondary_coaching", 1.0)],
     FOCUS_SPECIAL_TEAMS: [("st_coaching", 1.0)],
 }
@@ -255,7 +260,9 @@ FOCUS_POSITION_GROUPS: dict[str, list[str]] = {
     FOCUS_QB: ["QB"],
     FOCUS_RECEIVERS: ["WR", "TE"],
     FOCUS_OL: ["OL"],
+    FOCUS_RUNNING_BACKS: ["RB"],
     FOCUS_DL: ["DL"],
+    FOCUS_LINEBACKERS: ["LB"],
     FOCUS_SECONDARY: ["CB", "S"],
     FOCUS_SPECIAL_TEAMS: ["K", "P"],
 }
@@ -267,7 +274,8 @@ FOCUS_BREADTH_MULTIPLIER: dict[str, float] = {
     FOCUS_OFFENSIVE_GAMEPLAN: 0.4, FOCUS_DEFENSIVE_GAMEPLAN: 0.4,
     FOCUS_RUNNING_GAME: 0.7, FOCUS_PASSING_GAME: 0.7, FOCUS_RUN_DEFENSE: 0.7,
     FOCUS_PASS_DEFENSE: 0.7, FOCUS_QB_PRESSURE: 0.7,
-    FOCUS_QB: 1.0, FOCUS_RECEIVERS: 1.0, FOCUS_OL: 1.0, FOCUS_DL: 1.0,
+    FOCUS_QB: 1.0, FOCUS_RECEIVERS: 1.0, FOCUS_OL: 1.0, FOCUS_RUNNING_BACKS: 1.0,
+    FOCUS_DL: 1.0, FOCUS_LINEBACKERS: 1.0,
     FOCUS_SECONDARY: 1.0, FOCUS_SPECIAL_TEAMS: 1.0,
 }
 

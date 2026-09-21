@@ -7,10 +7,14 @@ alone -- that's a real, intentional field with no third state), and
 season_state.py's week-sim loop only ever checked `result.winner`
 instead of comparing the literal score.
 
-The fix is scoped to REGULAR SEASON STANDINGS ONLY -- the playoffs have
-no overtime model and intentionally send a tied score to the home team
-as their real tiebreak (see headlines.py's own "playoff_tie" template
-and playoffs.py's module docstring), which these tests do not touch.
+The fix is scoped to REGULAR SEASON STANDINGS -- ties are a real,
+possible regular-season outcome (even after real OT, one period can
+still leave a game tied, same as the real NFL). Playoff games instead
+get real sudden-death OT that repeats until the tie breaks and can only
+end tied via a vanishingly rare safety-valve fallback (see game_sim.py's
+`_simulate_overtime_period`/`simulate_game`'s `playoff` flag,
+2026-09-20) -- not exercised by these tests, which only cover the
+regular-season standings bookkeeping.
 """
 import os
 os.environ.setdefault("LEAGUE_SEED", "2025")
@@ -70,7 +74,7 @@ def test_simulated_tie_increments_ties_not_wins_or_losses(monkeypatch):
     silently counted as a home win) is what this guards against."""
     season_state.reset_season()
 
-    def _forced_tie(season, home_abbr, away_abbr, week_for_parity, seed_parts):
+    def _forced_tie(season, home_abbr, away_abbr, week_for_parity, seed_parts, playoff=False):
         return _tied_result(17)
 
     monkeypatch.setattr(season_state, "_simulate_one_game", _forced_tie)
@@ -103,10 +107,10 @@ def test_simulated_mixed_week_only_ties_the_tied_games(monkeypatch):
 
     real_simulate = season_state._simulate_one_game
 
-    def _maybe_tie(season, home_abbr, away_abbr, week_for_parity, seed_parts):
+    def _maybe_tie(season, home_abbr, away_abbr, week_for_parity, seed_parts, playoff=False):
         if home_abbr == tied_home and away_abbr == tied_away:
             return _tied_result(20)
-        return real_simulate(season, home_abbr, away_abbr, week_for_parity, seed_parts)
+        return real_simulate(season, home_abbr, away_abbr, week_for_parity, seed_parts, playoff=playoff)
 
     monkeypatch.setattr(season_state, "_simulate_one_game", _maybe_tie)
     season_state.simulate_current_week()

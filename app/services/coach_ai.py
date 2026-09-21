@@ -15,8 +15,8 @@ from app.engine import coach_contracts, coach_hiring, coach_progression, coach_r
 from app.engine.rng import RNG, stable_seed
 from app.models.coach import (
     CoachRole, APPOINTMENT_PERMANENT, FOCUS_DEVELOPMENT, FOCUS_TRAINING, FOCUS_SCOUTING,
-    FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME, FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL,
-    FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE, FOCUS_DL, FOCUS_SECONDARY,
+    FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME, FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL, FOCUS_RUNNING_BACKS,
+    FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE, FOCUS_DL, FOCUS_LINEBACKERS, FOCUS_SECONDARY,
     default_focus_area_for, focus_options_for, _rating_for_focus,
 )
 from app.services import coach_store, owner_pressure_store
@@ -277,8 +277,8 @@ _POINTS_AGAINST_BOTTOM_THIRD_RANK = 22  # rank > this counts as a real defensive
 # defense_needs_help) fires, spreading equal weight across all of them
 # rather than fabricating a false-precision "which one exactly" signal
 # (no per-subcategory rank -- run vs. pass weakness -- exists cheaply).
-_OFFENSE_NEED_OPTIONS = (FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME, FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL)
-_DEFENSE_NEED_OPTIONS = (FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE, FOCUS_DL, FOCUS_SECONDARY)
+_OFFENSE_NEED_OPTIONS = (FOCUS_RUNNING_GAME, FOCUS_PASSING_GAME, FOCUS_QB, FOCUS_RECEIVERS, FOCUS_OL, FOCUS_RUNNING_BACKS)
+_DEFENSE_NEED_OPTIONS = (FOCUS_RUN_DEFENSE, FOCUS_PASS_DEFENSE, FOCUS_QB_PRESSURE, FOCUS_DL, FOCUS_LINEBACKERS, FOCUS_SECONDARY)
 # How much extra weight a coach's OWN best-rated available option gets --
 # "favor what they're good at" alongside team need. [tune].
 OWN_RATING_WEIGHT = 1.5

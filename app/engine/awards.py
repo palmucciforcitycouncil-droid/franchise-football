@@ -100,9 +100,22 @@ def _normalize(value: float, pool: list[float]) -> float:
 class AwardCandidate:
     name: str
     team_abbr: str
-    position: str  # "QB" | "RB" | "WR/TE" | "DEF"
+    position: str  # "QB" | "RB" | "WR/TE" | "DEF" -- the STAT-POOL a candidate is scored within, not necessarily a real individual position
     stat_line: str  # human-readable summary, e.g. "3,240 pass yds, 28 TD, 6 INT"
     score: float
+    # 2026-09-20 (Brian's playtest report): the pool label above reads on
+    # the Awards page as if it WERE the player's actual position, which is
+    # wrong for "WR/TE" (a real individual receiver is always one or the
+    # other, never both -- WR/TE is a coaching-focus grouping concept only,
+    # see app/models/coach.py's FOCUS_RECEIVERS) and imprecise for "DEF"
+    # (which pools every defensive position into one DPOY/DROY ballot).
+    # Populated with the player's real Position.value by whichever live
+    # caller has DB access (`_offensive_candidates`/`_defensive_candidates`
+    # below); left "" for the pure, DB-free *_candidates_from_stats()
+    # functions (real historical NFL data has no live Player row to look
+    # up). Templates show `player_position or position`, so a "" here
+    # falls back to the pool label exactly as before this fix.
+    player_position: str = ""
 
 
 @dataclass
@@ -293,10 +306,29 @@ def _rookie_keys(season) -> set[tuple[str, str]]:
     return {(p.team_abbr, p.full_name) for p in rookies}
 
 
+def _real_positions_by_key() -> dict[tuple[str, str], str]:
+    """(team_abbr, full_name) -> real Position.value for every live-
+    rostered player -- the one source of truth for "which specific
+    position is this candidate" (see AwardCandidate.player_position's own
+    docstring for why the pool label alone isn't good enough)."""
+    with get_session() as s:
+        return {(p.team_abbr, p.full_name): p.position.value
+                for p in s.exec(select(Player).where(Player.team_abbr != None))}  # noqa: E711
+
+
+def _with_real_positions(candidates: list[AwardCandidate]) -> list[AwardCandidate]:
+    if not candidates:
+        return candidates
+    real = _real_positions_by_key()
+    for c in candidates:
+        c.player_position = real.get((c.team_abbr, c.name), "")
+    return candidates
+
+
 def _offensive_candidates(season, rookies_only: bool = False) -> list[AwardCandidate]:
     passing, rushing, receiving = aggregate_season_stats(season)
     rookie_keys = _rookie_keys(season) if rookies_only else None
-    return offensive_candidates_from_stats(passing, rushing, receiving, rookie_keys)
+    return _with_real_positions(offensive_candidates_from_stats(passing, rushing, receiving, rookie_keys))
 
 
 def offensive_candidates_from_stats(passing: dict, rushing: dict, receiving: dict, rookie_keys: set | None = None) -> list[AwardCandidate]:
@@ -393,7 +425,8 @@ def mvp_from_candidates(offensive_candidates: list[AwardCandidate], win_pct_by_a
     real historical seasons need the identical formula, not a copy."""
     blended = [
         AwardCandidate(name=c.name, team_abbr=c.team_abbr, position=c.position, stat_line=c.stat_line,
-                        score=0.4 * win_pct_by_abbr.get(c.team_abbr, 0.0) + 0.6 * c.score)
+                        score=0.4 * win_pct_by_abbr.get(c.team_abbr, 0.0) + 0.6 * c.score,
+                        player_position=c.player_position)
         for c in offensive_candidates
     ]
     return sorted(blended, key=lambda c: -c.score)
@@ -447,7 +480,7 @@ def _defensive_candidates(season, rookies_only: bool = False) -> list[AwardCandi
     non_defenders = _known_non_defensive_position_keys()
     defense = {key: line for key, line in defense.items() if key not in non_defenders}
     rookie_keys = _rookie_keys(season) if rookies_only else None
-    return defensive_candidates_from_stats(defense, rookie_keys)
+    return _with_real_positions(defensive_candidates_from_stats(defense, rookie_keys))
 
 
 def defensive_candidates_from_stats(defense: dict, rookie_keys: set | None = None) -> list[AwardCandidate]:

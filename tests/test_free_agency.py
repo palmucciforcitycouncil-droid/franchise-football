@@ -124,6 +124,20 @@ def test_release_expired_contracts_is_a_noop_on_a_healthy_roster():
     assert roster[0].team_abbr == "ZZ"
 
 
+def test_release_expired_contracts_resets_a_practice_squad_players_status():
+    """Brian's playtest report, 2026-09-20: a free agent signed later
+    landed straight on the practice squad even with roster room. Root
+    cause -- a player released off PS (or IR) here kept that stale
+    roster_status once he became a free agent, unlike the other two
+    release paths (roster_release_player, the cut-to-53 overflow
+    release), which both already reset to ACTIVE."""
+    from app.models.player import RosterStatus
+    roster = [_player(Position.WR, 80, "wr1", team_abbr="ZZ", contract_years_remaining=0)]
+    roster[0].roster_status = RosterStatus.PRACTICE_SQUAD
+    free_agency.release_expired_contracts(roster)
+    assert roster[0].roster_status == RosterStatus.ACTIVE
+
+
 def test_fill_roster_gaps_signs_the_best_available_free_agent_at_an_empty_position():
     """The exact failure mode this function exists to prevent: a real
     IndexError crash when depth_chart.py unconditionally indexes an
