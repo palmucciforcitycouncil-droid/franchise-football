@@ -138,6 +138,35 @@ def test_release_expired_contracts_resets_a_practice_squad_players_status():
     assert roster[0].roster_status == RosterStatus.ACTIVE
 
 
+def test_fill_practice_squad_gaps_prefers_a_young_developing_player_over_an_old_high_ovr_one():
+    """Brian's playtest report, 2026-09-21: the practice squad was
+    getting filled with old, high-OVR players instead of young ones
+    still worth developing. An old veteran at his ceiling (high OVR, no
+    real upside) must lose out to a young prospect with real remaining
+    potential, even though the veteran currently grades out higher."""
+    old_veteran = _player(Position.WR, 78, "old_vet", age=33, team_abbr=None)
+    old_veteran.potential = 78  # no upside left -- already at his ceiling
+    young_prospect = _player(Position.WR, 60, "young_prospect", age=22, team_abbr=None)
+    young_prospect.potential = 82  # real real development room
+
+    signed = free_agency.fill_practice_squad_gaps("ZZ", [], [old_veteran, young_prospect], season_number=0)
+    assert [p.player_id for p in signed[:1]] == ["young_prospect"]
+
+
+def test_fill_practice_squad_gaps_falls_back_to_best_ovr_when_nobody_is_still_developing():
+    """A shallow pool where every free agent is already at (or past) his
+    ceiling must still fill real PS slots rather than leave them empty --
+    the upside gate is a preference, not a hard requirement."""
+    from app.models.player import RosterStatus
+    maxed_out = _player(Position.WR, 65, "maxed", age=30, team_abbr=None)
+    maxed_out.potential = 65
+
+    signed = free_agency.fill_practice_squad_gaps("ZZ", [], [maxed_out], season_number=0)
+    assert len(signed) == 1
+    assert signed[0].player_id == "maxed"
+    assert signed[0].roster_status == RosterStatus.PRACTICE_SQUAD
+
+
 def test_fill_roster_gaps_signs_the_best_available_free_agent_at_an_empty_position():
     """The exact failure mode this function exists to prevent: a real
     IndexError crash when depth_chart.py unconditionally indexes an

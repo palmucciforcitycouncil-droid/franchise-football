@@ -116,7 +116,7 @@
         <span class="boxscore-score {% if last_game.home_score > last_game.away_score %}winner{% endif %}">{{ last_game.home_score }}</span>
       </div>
       <div class="boxscore-meta">
-        <span class="muted">{% if last_game.is_preseason %}<span class="preseason-tag">Preseason</span> Round {{ last_game.week }}{% else %}Week {{ last_game.week }}{% endif %} &middot; Final</span>
+        <span class="muted">{% if last_game.is_preseason %}<span class="preseason-tag">Preseason</span> Round {{ last_game.week }}{% elif last_game.is_playoffs %}{{ last_game.week }} Round{% else %}Week {{ last_game.week }}{% endif %} &middot; Final</span>
       </div>
       <div class="boxscore-team">
         <span class="boxscore-score {% if last_game.away_score > last_game.home_score %}winner{% endif %}">{{ last_game.away_score }}</span>
@@ -254,6 +254,9 @@
        forecast added to the Overview tab (app/engine/weather.py). -->
   <div class="card">
     <h3>Scouting &mdash; Next Opponent</h3>
+    {% if is_bye_week %}
+    <p class="muted"><strong>Bye week</strong> &mdash; no game this week.{% if scouting %} Up next:{% endif %}</p>
+    {% endif %}
     {% if scouting %}
     <div class="scouting-opponent">{{ scouting.is_home_game and "vs" or "@" }} {{ team_link(scouting.opponent_team.abbr, scouting.opponent_team.location + ' (' + scouting.opponent_team.abbr + ')') }}</div>
     <p class="muted">

@@ -543,3 +543,30 @@ def test_playoff_bracket_survives_save_and_load():
     reloaded_matchup = reloaded.playoffs.rounds[0][0]
     assert reloaded_matchup.home_abbr == orig_matchup.home_abbr
     assert reloaded_matchup.result.home_score == orig_matchup.result.home_score
+
+
+@pytest.mark.skipif(not DB_EXISTS, reason="data/franchise_football.db not built -- run scripts/import_players.py")
+def test_dashboard_box_score_shows_a_played_playoff_game_not_a_stale_regular_season_one():
+    """Brian's playtest report, 2026-09-21: the Dashboard's Box Score
+    widget kept showing the team's last REGULAR-SEASON game all the way
+    through the playoffs -- season.current_week never advances once the
+    playoffs start, so the old week-scan logic kept re-finding the same
+    stale game. A team that just played a real Wild Card game must show
+    THAT game, not whatever they played in the final regular-season week."""
+    from app.main import _last_played_game_for
+
+    season_state.reset_season()
+    from app.engine.schedule import N_WEEKS
+    for _ in range(N_WEEKS):
+        season_state.simulate_current_week()
+    season_state.simulate_playoff_round()  # plays the real Wild Card round
+
+    season = season_state.get_season()
+    wc_matchup = season.playoffs.rounds[0][0]
+
+    last_game = _last_played_game_for(season, wc_matchup.home_abbr)
+    assert last_game is not None
+    assert last_game["is_playoffs"] is True
+    assert last_game["week"] == "Wild Card"
+    assert {last_game["home_abbr"], last_game["away_abbr"]} == {wc_matchup.home_abbr, wc_matchup.away_abbr}
+    assert last_game["box_url"] == f"/playoffs/game/WC/{wc_matchup.home_abbr}/{wc_matchup.away_abbr}"

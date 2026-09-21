@@ -330,6 +330,56 @@ def _fa_stat_line_summary(row: dict) -> str:
     return ""
 
 
+def _free_agents_box_context(fa_pos: str, fa_status: str) -> dict:
+    """Top Free Agents (TopFreeAgentsBox.tsx). fa_status:
+    ALL/OFF/DEF -- real free agents (no OVR floor or top-N cap anymore,
+      per Brian's ask -- the box scrolls instead), stat line always
+      blank (a free agent hasn't played a game this season, by
+      definition -- there's nothing to show).
+    SOON -- NOT free agents at all: rostered players league-wide whose
+      contract_years_remaining <= 1, i.e. who a GM should worry about
+      re-signing. This is the only reading of "soon to be a free agent"
+      that isn't degenerate on a box that already only lists free
+      agents (see ROADMAP.md R11's own note on this). These players
+      ARE playing, so their real current-season stat line is shown.
+
+    2026-09-21 (Brian's playtest report: "The free agent box needs to
+    be on both roster AND Gm desk"): pulled out of the Roster route so
+    GM Desk can build the exact same real data instead of a second,
+    potentially-drifting copy -- see macros.html's `free_agents_box`
+    for the matching shared template half."""
+    if fa_pos not in QUOTA_GROUPS and fa_pos != "All":
+        fa_pos = "All"
+    if fa_status not in ("ALL", "OFF", "DEF", "SOON"):
+        fa_status = "ALL"
+    with get_session() as s:
+        if fa_status == "SOON":
+            fa_rows = list(s.exec(select(Player).where(Player.team_abbr != None, Player.contract_years_remaining <= 1)))  # noqa: E711
+        else:
+            fa_rows = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
+    if fa_pos != "All":
+        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] == fa_pos]
+    if fa_status == "OFF":
+        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] in FA_OFFENSE_GROUPS]
+    elif fa_status == "DEF":
+        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] in FA_DEFENSE_GROUPS]
+    top_free_agents = sorted(fa_rows, key=lambda p: -p.overall_rating)
+    fa_stat_line: dict[str, str] = {}
+    if fa_status == "SOON" and top_free_agents:
+        season = season_state.get_season()
+        player_rows, _ = _stats_page_aggregates(season)
+        stats_by_key = {(r["player_name"], r["player_pos"]): r for r in player_rows}
+        for p in top_free_agents:
+            row = stats_by_key.get((p.full_name, p.position.value))
+            if row:
+                fa_stat_line[p.player_id] = _fa_stat_line_summary(row)
+    fa_pos_options = ["All"] + QUOTA_GROUPS
+    return {
+        "fa_pos": fa_pos, "fa_status": fa_status, "top_free_agents": top_free_agents,
+        "fa_stat_line": fa_stat_line, "fa_pos_options": fa_pos_options,
+    }
+
+
 @app.get("/roster", response_class=HTMLResponse)
 def roster_view(
     request: Request,
@@ -594,43 +644,9 @@ def roster_view(
         "min_cth": None, "max_cth": None, "min_tck": None, "max_tck": None, "rookie": None,
     })
 
-    # Top Free Agents (TopFreeAgentsBox.tsx). fa_status:
-    #   ALL/OFF/DEF -- real free agents (no OVR floor or top-N cap anymore,
-    #     per Brian's ask -- the box scrolls instead), stat line always
-    #     blank (a free agent hasn't played a game this season, by
-    #     definition -- there's nothing to show).
-    #   SOON -- NOT free agents at all: rostered players league-wide whose
-    #     contract_years_remaining <= 1, i.e. who a GM should worry about
-    #     re-signing. This is the only reading of "soon to be a free agent"
-    #     that isn't degenerate on a box that already only lists free
-    #     agents (see ROADMAP.md R11's own note on this). These players
-    #     ARE playing, so their real current-season stat line is shown.
-    if fa_pos not in QUOTA_GROUPS and fa_pos != "All":
-        fa_pos = "All"
-    if fa_status not in ("ALL", "OFF", "DEF", "SOON"):
-        fa_status = "ALL"
-    with get_session() as s:
-        if fa_status == "SOON":
-            fa_rows = list(s.exec(select(Player).where(Player.team_abbr != None, Player.contract_years_remaining <= 1)))  # noqa: E711
-        else:
-            fa_rows = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
-    if fa_pos != "All":
-        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] == fa_pos]
-    if fa_status == "OFF":
-        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] in FA_OFFENSE_GROUPS]
-    elif fa_status == "DEF":
-        fa_rows = [p for p in fa_rows if _QUOTA_GROUP_FOR_POSITION[p.position] in FA_DEFENSE_GROUPS]
-    top_free_agents = sorted(fa_rows, key=lambda p: -p.overall_rating)
-    fa_stat_line: dict[str, str] = {}
-    if fa_status == "SOON" and top_free_agents:
-        season = season_state.get_season()
-        player_rows, _ = _stats_page_aggregates(season)
-        stats_by_key = {(r["player_name"], r["player_pos"]): r for r in player_rows}
-        for p in top_free_agents:
-            row = stats_by_key.get((p.full_name, p.position.value))
-            if row:
-                fa_stat_line[p.player_id] = _fa_stat_line_summary(row)
-    fa_pos_options = ["All"] + QUOTA_GROUPS
+    fa_box = _free_agents_box_context(fa_pos, fa_status)
+    fa_pos, fa_status = fa_box["fa_pos"], fa_box["fa_status"]
+    top_free_agents, fa_stat_line, fa_pos_options = fa_box["top_free_agents"], fa_box["fa_stat_line"], fa_box["fa_pos_options"]
 
     # Find Player (FindPlayerBox.tsx): real league-wide name/position/team
     # search -- unlike Figma's own mock version, results reuse this
@@ -917,7 +933,52 @@ def _last_played_game_for(season, team_abbr: str) -> dict | None:
     makes for any other game. Also builds the OPPONENT's box score (M9
     only ever needed the user's own team's) so the redesigned box's
     scoreboard summary and Game Leaders mini-leaderboard can show both
-    teams, not just the user's."""
+    teams, not just the user's.
+
+    2026-09-21 (Brian's playtest report: "The playoff games are not
+    showing up on the dashboard... in the boxscore after the playoff
+    game is simed"): checks the playoff bracket FIRST, not the regular
+    season. `season.current_week` never advances once the playoffs
+    start (only simulate_current_week() bumps it; simulate_playoff_
+    round() doesn't), so the regular-season loop below kept re-finding
+    the same last regular-season game as "most recent" through every
+    playoff round, even well after a real playoff game had been played."""
+    if season.playoffs is not None:
+        for round_matchups in reversed(season.playoffs.rounds):
+            game = next(
+                (m for m in round_matchups
+                 if team_abbr in (m.home_abbr, m.away_abbr) and m.result is not None),
+                None,
+            )
+            if game is None:
+                continue
+            is_home = game.home_abbr == team_abbr
+            opponent_abbr = game.away_abbr if is_home else game.home_abbr
+            user_score = game.result.home_score if is_home else game.result.away_score
+            opp_score = game.result.away_score if is_home else game.result.home_score
+            box = build_box_score(game.result.plays, team_abbr)
+            opponent_box = build_box_score(game.result.plays, opponent_abbr)
+            return {
+                "week": ROUND_LABELS.get(game.round_name, game.round_name),
+                "opponent_abbr": opponent_abbr,
+                "is_home": is_home,
+                "home_abbr": game.home_abbr,
+                "away_abbr": game.away_abbr,
+                "home_score": user_score if is_home else opp_score,
+                "away_score": opp_score if is_home else user_score,
+                "won": (game.result.winner == "home") == is_home,
+                "user_score": user_score,
+                "opp_score": opp_score,
+                "box": box,
+                "defense": build_defensive_box_score(game.result.plays, team_abbr),
+                "user_leaders": _game_leaders(box),
+                "opponent_leaders": _game_leaders(opponent_box),
+                "plays": game.result.plays,
+                "quarters": quarter_scores(game.result.events),
+                "is_preseason": False,
+                "is_playoffs": True,
+                "box_url": f"/playoffs/game/{game.round_name}/{game.home_abbr}/{game.away_abbr}",
+            }
     for week_num in range(season.current_week - 1, 0, -1):
         game = next(
             (g for g in season.schedule[week_num - 1]
@@ -1403,6 +1464,22 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
     user_info = TEAMS_BY_ABBR[user_abbr]
     gameplan = gameplan_store.get_gameplan(user_abbr)
 
+    # 2026-09-21 (Brian's playtest report: "When the user team has a bye
+    # week, instead of just leaving the box score and scouting of the
+    # prior opponent, it should say bye week"): find_next_opponent()
+    # correctly skips a bye to find the real next opponent (its own
+    # docstring), but that real next game can be a week or more away --
+    # shown with no framing, it reads as if it were THIS week's matchup.
+    # This flags the current week specifically as a bye so the template
+    # can say so plainly instead of silently reusing scouting/box-score
+    # content that isn't about this week at all.
+    is_bye_week = (
+        not season.preseason_pending
+        and 1 <= season.current_week <= len(season.schedule)
+        and season.playoffs is None
+        and not any(user_abbr in (g.home_abbr, g.away_abbr) for g in season.schedule[season.current_week - 1])
+    )
+
     next_opponent = find_next_opponent(season, user_abbr)
     scouting = None
     if next_opponent is not None:
@@ -1514,6 +1591,7 @@ def dashboard_view(request: Request, pr_sort: str | None = None, pr_dir: str = "
             "user_info": user_info,
             "gameplan": gameplan,
             "scouting": scouting,
+            "is_bye_week": is_bye_week,
             "offensive_aggressiveness_options": OFFENSIVE_AGGRESSIVENESS,
             "defensive_aggressiveness_options": DEFENSIVE_AGGRESSIVENESS,
             "coverage_options": COVERAGE_SCHEMES,
@@ -3754,7 +3832,8 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
                   counter_aav: str | None = None, counter_years: str | None = None,
                   team_b: str | None = None, trade_result: str | None = None,
                   cap_sort: str | None = None, cap_dir: str = "desc", acquire: str | None = None,
-                  roster_gate: bool = False, autofilled: str | None = None):
+                  roster_gate: bool = False, autofilled: str | None = None,
+                  fa_pos: str = "All", fa_status: str = "ALL"):
     """GDD Sec 10.4.4 / R4a (GDD Sec 8.3) / R4c (GDD Sec 8.5): real Cap
     Summary, Re-sign flow, and a real Propose Trade panel -- players AND
     real draft picks (current season + the next two, app/services/
@@ -3867,6 +3946,11 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
     # position/name client-side, so the whole real list is useful.
     trade_block = sorted(trade_block_rows, key=lambda row: -row["value"])
 
+    # 2026-09-21 (Brian's playtest report): the same real Top Free Agents
+    # box the Roster page has, now here too -- GM Desk is exactly where a
+    # user is already looking to make a roster move.
+    fa_box = _free_agents_box_context(fa_pos, fa_status)
+
     return templates.TemplateResponse(request, "gm_desk.html", {
         "title": "GM Desk",
         "season": season, "user_info": TEAMS_BY_ABBR[user_abbr],
@@ -3885,6 +3969,8 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         "avg_throw_accuracy": _roster_avg_throw_accuracy, "injury_risk": _roster_injury_risk,
         "position_group": lambda p: POSITION_TO_GROUP[p.position],
         "roster_gate_banner": roster_gate_banner,
+        "top_free_agents": fa_box["top_free_agents"], "fa_pos": fa_box["fa_pos"], "fa_status": fa_box["fa_status"],
+        "fa_pos_options": fa_box["fa_pos_options"], "fa_stat_line": fa_box["fa_stat_line"],
     })
 
 

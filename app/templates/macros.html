@@ -17,3 +17,59 @@
    since the overwhelming majority of weeks/records have no ties and
    "12-4-0" everywhere would be visual noise. #}
 {% macro record_str(wins, losses, ties=0) %}{{ wins }}-{{ losses }}{% if ties %}-{{ ties }}{% endif %}{% endmacro %}
+
+{# 2026-09-21 (Brian's playtest report: "The free agent box needs to be
+   on both roster AND Gm desk. It isn't on gm desk currently"): the
+   Roster page's Top Free Agents box, pulled out into a shared macro so
+   GM Desk (a real place to be looking for a free agent to sign) can
+   render the exact same real filter/list, not a second copy that could
+   drift. `action`/`hidden_fields` are the only things that differ per
+   page -- the Roster page posts back to /roster with team_abbr/view
+   hidden along for the ride, GM Desk just posts back to /gm-desk with
+   nothing else needed. main.py's `_free_agents_box_context()` builds
+   the 5 data args identically for both routes. #}
+{% macro free_agents_box(top_free_agents, fa_pos, fa_status, fa_pos_options, fa_stat_line, action, hidden_fields={}) %}
+<div class="card" id="free-agents-box">
+  <h3 style="margin: 0 0 0.75rem;">{% if fa_status == 'SOON' %}Soon-to-be Free Agents{% else %}Top Free Agents{% endif %}</h3>
+  <form method="get" action="{{ action }}" data-preserve-scroll="free-agents-box">
+    {% for name, value in hidden_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <div class="row" style="margin-bottom: 0.75rem;">
+      <div>
+        <label for="fa_pos">Position</label>
+        <select name="fa_pos" id="fa_pos" onchange="this.form.submit()">
+          {% for pos in fa_pos_options %}
+          <option value="{{ pos }}" {% if fa_pos == pos %}selected{% endif %}>{{ pos }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="fa_status">Show</label>
+        <select name="fa_status" id="fa_status" onchange="this.form.submit()">
+          <option value="ALL" {% if fa_status == 'ALL' %}selected{% endif %}>All Free Agents</option>
+          <option value="OFF" {% if fa_status == 'OFF' %}selected{% endif %}>Offense</option>
+          <option value="DEF" {% if fa_status == 'DEF' %}selected{% endif %}>Defense</option>
+          <option value="SOON" {% if fa_status == 'SOON' %}selected{% endif %}>Soon to be FA (rostered, &le;1 yr left)</option>
+        </select>
+      </div>
+      <noscript><div><button type="submit">Apply</button></div></noscript>
+    </div>
+  </form>
+  {% if top_free_agents %}
+  <div class="dashboard-scroll">
+    {% for p in top_free_agents %}
+    <div class="fa-row" data-card='{{ p | player_card_json }}'>
+      <div class="fa-row-top"><span>#{{ loop.index }} {{ player_link(p) }}</span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
+      <div class="fa-row-bottom"><span>{{ p.position.value }} &middot; {% if fa_status == 'SOON' %}{{ p.team_abbr }} &middot; {% endif %}Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
+      {% if fa_status == 'SOON' %}
+      <div class="fa-row-bottom"><span class="muted">{{ fa_stat_line.get(p.player_id, '') or 'No stats yet this season' }}</span></div>
+      {% endif %}
+      <button type="button" class="row-detail-toggle" data-row-toggle>Details &#9660;</button>
+      <div class="row-detail-panel" data-show-contract-sought="1" hidden></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">{% if fa_status == 'SOON' %}No rostered players at {{ fa_pos }} are within a year of free agency.{% else %}No free agents at {{ fa_pos }}.{% endif %}</p>
+  {% endif %}
+</div>
+{% endmacro %}

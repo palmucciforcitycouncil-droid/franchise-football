@@ -904,6 +904,38 @@ def test_scouting_panel_shows_a_real_head_coach_not_the_placeholder():
     assert "Head Coach" in resp.text
 
 
+def test_dashboard_says_bye_week_instead_of_silently_showing_a_future_opponent():
+    """Brian's playtest report, 2026-09-21: on a bye week, the dashboard
+    just showed the scouting/box-score content it always shows, with
+    nothing marking the week as a bye -- find_next_opponent() correctly
+    skips the bye to find the real next opponent, but that opponent can
+    be a week or more away, and showing it with no framing reads as if
+    it were this week's game. Finds KC's real bye week for this seed and
+    confirms the dashboard says so plainly."""
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+    bye_week = next(
+        (i + 1 for i, week in enumerate(season.schedule)
+         if not any("KC" in (g.home_abbr, g.away_abbr) for g in week)),
+        None,
+    )
+    assert bye_week is not None, "sanity: KC should have exactly one real bye week"
+    season.current_week = bye_week
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Bye week" in resp.text
+
+
+def test_dashboard_does_not_say_bye_week_on_a_normal_game_week():
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Bye week" not in resp.text
+
+
 def test_simulate_current_week_records_a_power_rank_snapshot():
     """ROADMAP.md Sec2d-B item 10: the Dashboard's Power Rankings CHG
     column needs a real persisted snapshot to diff against -- confirms

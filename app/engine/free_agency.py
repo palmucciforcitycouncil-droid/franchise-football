@@ -298,6 +298,13 @@ ACQ_UNDRAFTED_FA = "Undrafted FA"
 MAX_ROSTER_SIZE = 53
 PRACTICE_SQUAD_SIZE = 16
 
+# 2026-09-21 (Brian's playtest report, see fill_practice_squad_gaps()):
+# how much real headroom (potential - overall_rating) a free agent needs
+# to count as still "developing," and therefore PS-eligible, rather than
+# a player who's already close to his ceiling. [tune] -- a real, chosen
+# gate, not derived from any GDD value (none exists for this).
+PS_MIN_UPSIDE = 5
+
 
 def roster_shortfall(roster: list[Player], requirements: dict[Position, int] | None = None) -> dict[Position, int]:
     """{position: how many more players `roster` needs}, only positions
@@ -396,10 +403,9 @@ def fill_roster_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list
 def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list[Player],
                               season_number: int) -> list[Player]:
     """R16 Sec 4.3: the practice-squad sibling to fill_roster_gaps() --
-    same "best-rated fit from the shared pool" selection, but targets
-    open PS slots (up to PRACTICE_SQUAD_SIZE) rather than a position
-    shortfall, and signs at the flat league minimum (decision #10:
-    veteran_minimum(0, ...) -- the SAME real minimum-salary floor
+    targets open PS slots (up to PRACTICE_SQUAD_SIZE) rather than a
+    position shortfall, and signs at the flat league minimum (decision
+    #10: veteran_minimum(0, ...) -- the SAME real minimum-salary floor
     fill_roster_gaps() already anchors to, at 0 years of service so
     it's flat regardless of the signee's real experience) instead of
     market value. No cap-juggling needed in practice (PS minimums are
@@ -407,11 +413,27 @@ def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_po
     decision #3/#12 -- a team already tight on cap space can still run
     out of room for practice-squad bodies, same as any other signing.
 
+    2026-09-21 (Brian's playtest report: "The practice squad shouldn't
+    be filled with players who are old with high OVRs. It should be
+    players who will sign for the league minimum... mostly younger
+    players fighting for a spot"): a real NFL practice squad is
+    developmental -- a proven veteran near his ceiling doesn't sign a
+    non-guaranteed minimum-salary PS deal, a young player still worth
+    developing does. Was picking pure best-current-OVR first, which
+    skewed toward exactly the wrong profile (an aging player who still
+    grades out fine today but has no real upside left). Now gated on
+    real remaining development room (Brian's own suggested design: the
+    OVR-vs-POT spread) -- PS_MIN_UPSIDE clears out anyone who's already
+    at or near their ceiling -- then ranked by POTENTIAL, not current
+    OVR, among what's left, youngest-first as the tiebreak. Falls back
+    to the old best-OVR-first pool only if literally nobody in the pool
+    clears the upside gate, so PS slots still get filled rather than
+    sitting empty in a shallow free-agent market.
+
     Removes each signee from `free_agent_pool` in place, same contract
-    as fill_roster_gaps(). Best-rated-first across ALL open positions
-    (not position-need-aware like the active-roster fill -- a practice
-    squad's whole point is organizational depth, not filling a specific
-    need)."""
+    as fill_roster_gaps(). Across ALL open positions (not position-need-
+    aware like the active-roster fill -- a practice squad's whole point
+    is organizational depth, not filling a specific need)."""
     from app.config import season_year
     from app.models.player import RosterStatus
 
@@ -420,7 +442,9 @@ def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_po
         return []
     cap_space = contracts.team_cap_space(roster, season_number)
     flat_salary = round(contracts.veteran_minimum(0, season_number))
-    pool = sorted(free_agent_pool, key=lambda p: (-p.overall_rating, p.player_id))
+    developing = [p for p in free_agent_pool if p.potential - p.overall_rating >= PS_MIN_UPSIDE]
+    candidates = developing if developing else free_agent_pool
+    pool = sorted(candidates, key=lambda p: (-p.potential, p.age, p.player_id))
     signed: list[Player] = []
     for choice in pool:
         if len(signed) >= open_slots:

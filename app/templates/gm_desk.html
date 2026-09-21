@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}GM Desk — Franchise Football{% endblock %}
 {% block content %}
-{% from "macros.html" import player_link %}
+{% from "macros.html" import player_link, free_agents_box %}
 
 <style>
   /* GM Desk page-local styles (rebuilt 2026-09-14). align-items:start on
@@ -153,6 +153,8 @@
     </div>
   </div>
 </div>
+
+{{ free_agents_box(top_free_agents, fa_pos, fa_status, fa_pos_options, fa_stat_line, "/gm-desk") }}
 
 <div class="card" id="trade-block-card">
   <div class="gm-card-head"><h3>Trade Block <span class="muted" style="font-size: 0.85rem;" id="tb-count">({{ trade_block | length }})</span></h3></div>

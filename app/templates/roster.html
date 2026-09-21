@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import player_link %}
+{% from "macros.html" import player_link, free_agents_box %}
 {% block title %}{% if team %}{{ team.location }} Roster{% else %}Roster{% endif %} — Franchise Football{% endblock %}
 {% block content %}
 {% if fa_offer_result %}
@@ -168,56 +168,7 @@
   </div>
   {% endif %}
 
-  <div class="card" id="free-agents-box">
-    <h3 style="margin: 0 0 0.75rem;">{% if fa_status == 'SOON' %}Soon-to-be Free Agents{% else %}Top Free Agents{% endif %}</h3>
-    <form method="get" action="/roster" data-preserve-scroll="free-agents-box">
-      <input type="hidden" name="team_abbr" value="{{ team.abbr }}">
-      <input type="hidden" name="view" value="{{ view }}">
-      <div class="row" style="margin-bottom: 0.75rem;">
-        <div>
-          <label for="fa_pos">Position</label>
-          <select name="fa_pos" id="fa_pos" onchange="this.form.submit()">
-            {% for pos in fa_pos_options %}
-            <option value="{{ pos }}" {% if fa_pos == pos %}selected{% endif %}>{{ pos }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="fa_status">Show</label>
-          <select name="fa_status" id="fa_status" onchange="this.form.submit()">
-            <option value="ALL" {% if fa_status == 'ALL' %}selected{% endif %}>All Free Agents</option>
-            <option value="OFF" {% if fa_status == 'OFF' %}selected{% endif %}>Offense</option>
-            <option value="DEF" {% if fa_status == 'DEF' %}selected{% endif %}>Defense</option>
-            <option value="SOON" {% if fa_status == 'SOON' %}selected{% endif %}>Soon to be FA (rostered, &le;1 yr left)</option>
-          </select>
-        </div>
-        <noscript><div><button type="submit">Apply</button></div></noscript>
-      </div>
-    </form>
-    {% if top_free_agents %}
-    <div class="dashboard-scroll">
-      {% for p in top_free_agents %}
-      <div class="fa-row" data-card='{{ p | player_card_json }}'>
-        <div class="fa-row-top"><span>#{{ loop.index }} {{ player_link(p) }}</span><span style="color: var(--gold);">OVR {{ p.overall_rating }}</span></div>
-        <div class="fa-row-bottom"><span>{{ p.position.value }} &middot; {% if fa_status == 'SOON' %}{{ p.team_abbr }} &middot; {% endif %}Age {{ p.age }}</span><span>POT {{ p.potential }}</span></div>
-        {% if fa_status == 'SOON' %}
-        <div class="fa-row-bottom"><span class="muted">{{ fa_stat_line.get(p.player_id, '') or 'No stats yet this season' }}</span></div>
-        {% endif %}
-        <!-- R11 (GDD Sec 11): shared tabbed detail view (Overview/Ratings/
-             Stats/Contract, reusing the Player Card's own tab markup/JS)
-             so a row can be inspected in place, not only via the full
-             modal. Free Agents rows get a 5th "Sought" tab (Contract
-             Sought), a Global MVP "Coming Soon" shell (Sec9.2.8) until a
-             real expected-salary/negotiation system exists (R4a). -->
-        <button type="button" class="row-detail-toggle" data-row-toggle>Details &#9660;</button>
-        <div class="row-detail-panel" data-show-contract-sought="1" hidden></div>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="muted">{% if fa_status == 'SOON' %}No rostered players at {{ fa_pos }} are within a year of free agency.{% else %}No free agents at {{ fa_pos }}.{% endif %}</p>
-    {% endif %}
-  </div>
+  {{ free_agents_box(top_free_agents, fa_pos, fa_status, fa_pos_options, fa_stat_line, "/roster", {"team_abbr": team.abbr, "view": view}) }}
 
   <div class="card" id="find-player-box">
     <h3>Find Player</h3>
