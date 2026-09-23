@@ -490,3 +490,45 @@ def test_ai_backfill_restores_four_assistants_and_respects_the_cap():
     coach_ai.backfill_assistants(season, exclude_team_abbr="KC")
     assert len(coach_store.assistants("BUF")) == coach_contracts.MAX_ASSISTANTS
     assert coach_contracts.team_staff_payroll("BUF") <= contracts.coach_salary_cap_for_season(season.season_number)
+
+
+def test_gm_desk_cap_ignores_expired_contracts_only_during_the_resign_stage():
+    """Brian's playtest report, 2026-09-21: during the expiring-contracts/
+    re-signing phase, players whose contracts have run out should not be
+    counted in the cap shown at that time (assume they're released), and
+    a re-signed player's salary should count again. Outside that one
+    stage an expired contract still counts fully."""
+    import re
+    from sqlmodel import select
+
+    from app.core.db import get_session
+    from app.models.player import Player
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    season = season_state.get_season()
+    with get_session() as s:
+        victim = max(s.exec(select(Player).where(Player.team_abbr == "KC")).all(), key=lambda p: p.salary)
+        victim.contract_years_remaining = 0
+        victim_id, victim_salary = victim.player_id, victim.salary
+        s.add(victim)
+        s.commit()
+
+    def committed() -> int:
+        html = client.get("/gm-desk").text
+        return int(re.search(r'id="gm-cap-used"[^>]*>\s*\$?([\d,]+)', html).group(1).replace(",", ""))
+
+    try:
+        normal = committed()  # regular stage: an expired contract still counts
+        season.offseason_stage = "resign"
+        during_resign = committed()
+        assert abs((normal - during_resign) - victim_salary) <= 1
+
+        with get_session() as s:  # re-sign him: a real contract length again
+            p = s.get(Player, victim_id)
+            p.contract_years_remaining = 1
+            s.add(p)
+            s.commit()
+        assert abs(committed() - normal) <= 1  # his salary counts again
+    finally:
+        season.offseason_stage = None

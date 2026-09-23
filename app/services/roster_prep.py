@@ -124,6 +124,56 @@ def ensure_free_agent_pool_depth(league_seed: int, season_number: int) -> dict[P
     return generated
 
 
+# 2026-09-23 (Brian's follow-up): every team should be able to carry 4-5
+# practice-squad prospects, so the pool guarantees this many PS-ELIGIBLE
+# free agents per team league-wide, and an AI team's own auto top-up
+# stops at this many (its cut-overflow veterans, if any, are extra).
+PS_PROSPECTS_PER_TEAM = 5
+
+
+def ensure_practice_squad_prospect_depth(league_seed: int, season_number: int) -> int:
+    """Tops the free-agent pool up to len(TEAMS) x PS_PROSPECTS_PER_TEAM
+    practice-squad-ELIGIBLE players (real upside -- free_agency.
+    PS_MIN_UPSIDE -- the exact gate fill_practice_squad_gaps() applies),
+    with generated young minimum-salary rookies
+    (draft.practice_squad_prospect_player). Needed because a fresh save's
+    entire free-agent pool is ~41 real veterans with no upside at all,
+    so without this the strict gate had nobody to sign; and
+    ensure_free_agent_pool_depth()'s own rookies only pass the gate ~60%
+    of the time. Deterministic (same id scheme/ordinals as the other
+    generated rookies) and idempotent -- a repeat call with the pool
+    already deep enough generates nothing. Positions are spread in
+    proportion to ROSTER_REQUIREMENTS (no K/P: real practice squads
+    almost never carry specialists). Returns how many were generated."""
+    from app.services import undrafted_pool
+
+    target = len(TEAMS) * PS_PROSPECTS_PER_TEAM
+    slots = [pos for pos, need in free_agency.ROSTER_REQUIREMENTS.items()
+             if pos not in (Position.K, Position.P) for _ in range(need)]
+    new_ids: list[str] = []
+    with get_session() as s:
+        rosters, pool = _rosters_and_pool(s)
+        eligible = sum(1 for p in pool if p.potential - p.overall_rating >= free_agency.PS_MIN_UPSIDE)
+        missing = target - eligible
+        if missing <= 0:
+            return 0
+        existing_ids = {p.player_id for p in pool} | {p.player_id for r in rosters.values() for p in r}
+        ordinals: dict[Position, int] = {}
+        for i in range(missing):
+            pos = slots[i % len(slots)]
+            if pos not in ordinals:
+                prefix = f"udfa_{season_number}_{pos.value}_"
+                ordinals[pos] = sum(1 for pid in existing_ids if pid.startswith(prefix))
+            player = draft.practice_squad_prospect_player(
+                pos, ordinals[pos], league_seed, season_number, free_agency.PS_MIN_UPSIDE)
+            ordinals[pos] += 1
+            s.add(player)
+            new_ids.append(player.player_id)
+        s.commit()
+    undrafted_pool.add_undrafted(new_ids)
+    return missing
+
+
 def _fill_teams(team_abbrs: list[str], season_number: int) -> dict[str, list[str]]:
     """fill_roster_gaps() for each team in order against ONE shared pool,
     one session, one commit. Returns {team_abbr: [signed player names]}."""
@@ -151,7 +201,8 @@ def _fill_teams(team_abbrs: list[str], season_number: int) -> dict[str, list[str
     return signed_by_team
 
 
-def _fill_practice_squads(team_abbrs: list[str], season_number: int) -> dict[str, list[str]]:
+def _fill_practice_squads(team_abbrs: list[str], season_number: int,
+                          target_size: int = free_agency.PRACTICE_SQUAD_SIZE) -> dict[str, list[str]]:
     """R16 Sec 4.3/Sec 8's own "run right after the existing active-
     roster fill" order -- the practice-squad sibling to _fill_teams(),
     same one-shared-pool/one-session/one-commit shape."""
@@ -160,7 +211,8 @@ def _fill_practice_squads(team_abbrs: list[str], season_number: int) -> dict[str
         rosters, pool = _rosters_and_pool(s)
         pool.sort(key=lambda p: p.player_id)
         for abbr in team_abbrs:
-            signed = free_agency.fill_practice_squad_gaps(abbr, rosters.get(abbr, []), pool, season_number)
+            signed = free_agency.fill_practice_squad_gaps(abbr, rosters.get(abbr, []), pool, season_number,
+                                                          target_size=target_size)
             if signed:
                 signed_by_team[abbr] = [p.full_name for p in signed]
                 for p in signed:
@@ -255,7 +307,11 @@ def prepare_ai_rosters(league_seed: int, season_number: int, user_team_abbr: str
         auto_cut_team_to_limits(abbr)
     ensure_free_agent_pool_depth(league_seed, season_number)
     signed = _fill_teams(ai_teams, season_number)
-    _fill_practice_squads(ai_teams, season_number)
+    # 2026-09-23: guaranteed young prospects to seed every PS from, then a
+    # per-team TARGET (not "fill to 16") so the first few teams in line
+    # can't drain the whole pool -- see ensure_practice_squad_prospect_depth().
+    ensure_practice_squad_prospect_depth(league_seed, season_number)
+    _fill_practice_squads(ai_teams, season_number, target_size=PS_PROSPECTS_PER_TEAM)
     # 2026-09-20 fix (Brian's playtest report: free agent pool showed
     # ZERO players at every position in a season-2 preseason). The FIRST
     # ensure_free_agent_pool_depth() call above only guarantees POOL_FLOOR
@@ -266,6 +322,7 @@ def prepare_ai_rosters(league_seed: int, season_number: int, user_team_abbr: str
     # consumer has had its turn is what actually keeps something real
     # behind for the user to browse.
     ensure_free_agent_pool_depth(league_seed, season_number)
+    ensure_practice_squad_prospect_depth(league_seed, season_number)  # same reason, for the user's own PS
 
     with get_session() as s:
         rosters: dict[str, dict[Position, list[Player]]] = {abbr: defaultdict(list) for abbr in ai_teams}

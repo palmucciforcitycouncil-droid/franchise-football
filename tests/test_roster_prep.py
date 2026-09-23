@@ -453,3 +453,102 @@ def test_auto_place_ai_players_on_ir_skips_the_user_team():
         assert s.get(Player, kc_qb.player_id).roster_status == RosterStatus.IR
         assert s.get(Player, kc_qb.player_id).ir_placed_week == 3
         assert s.get(Player, buf_qb.player_id).roster_status == RosterStatus.ACTIVE  # the user's own team untouched
+
+
+def _load_fresh_template_into_this_tests_db() -> None:
+    """Overwrites THIS test's own throwaway DB copy (conftest's
+    per-test `_isolate_db_path`, never the real file) with the pristine
+    template, i.e. exactly what a brand-new save starts from: its whole
+    free-agent pool is ~41 real veterans with no upside."""
+    import shutil
+    from pathlib import Path
+
+    import pytest
+    from app.core import db as db_module
+    from app.services import coach_store, depth_chart
+
+    template = Path("data/franchise_template.db")
+    if not template.exists():
+        pytest.skip("no franchise_template.db in this checkout")
+    if db_module._engine is not None:
+        db_module._engine.dispose()
+    db_module._engine = None
+    shutil.copy(template, db_module.DB_PATH)
+    coach_store.clear_cache()
+    depth_chart.clear_starters_cache()
+    injury_store.clear_cache()
+
+
+def test_ensure_practice_squad_prospect_depth_builds_a_pool_deep_enough_for_every_team():
+    """Brian's follow-up, 2026-09-23: "create a pool deep enough for all
+    teams to have 4-5 PS players... randomly generated to fall within our
+    specifications for PS players." From a fresh template (zero eligible
+    free agents) this must generate teams x PS_PROSPECTS_PER_TEAM
+    prospects that all clear the PS gate, then be a no-op on repeat."""
+    _load_fresh_template_into_this_tests_db()
+    with get_session() as s:
+        before = {p.player_id for p in s.exec(select(Player).where(Player.team_abbr == None))}  # noqa: E711
+
+    generated = roster_prep.ensure_practice_squad_prospect_depth(2025, 24)
+    with get_session() as s:
+        pool = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711
+    new = [p for p in pool if p.player_id not in before]
+    eligible = [p for p in pool if p.potential - p.overall_rating >= free_agency.PS_MIN_UPSIDE]
+
+    assert generated == len(new) == len(TEAMS) * roster_prep.PS_PROSPECTS_PER_TEAM
+    assert len(eligible) == generated  # the template's own veterans contributed none
+    assert all(22 <= p.age <= 24 for p in new)
+    assert all(p.position not in (Position.K, Position.P) for p in new)
+    assert len({p.position for p in new}) >= 10  # spread across the roster, not one position
+    assert roster_prep.ensure_practice_squad_prospect_depth(2025, 24) == 0  # idempotent
+
+
+def test_prepare_ai_rosters_seeds_ai_practice_squads_with_prospects_only():
+    """AI teams' automatic PS top-up must never pull a veteran at his
+    ceiling (the fresh-save bug), stop at PS_PROSPECTS_PER_TEAM per team
+    so the first teams in line can't drain the pool, and leave the pool
+    deep enough behind for the user's own Auto-Fill."""
+    _load_fresh_template_into_this_tests_db()
+    season_state.reset_season()
+    roster_prep.prepare_ai_rosters(2025, 24, user_team_abbr="KC")
+
+    with get_session() as s:
+        players = list(s.exec(select(Player)))
+    signed_to_ps = [p for p in players if p.team_abbr not in (None, "KC")
+                    and p.roster_status == RosterStatus.PRACTICE_SQUAD and p.acquisition_type == "Free Agent"]
+    assert signed_to_ps, "AI teams should have topped their practice squads up from the prospect pool"
+    assert all(p.potential - p.overall_rating >= free_agency.PS_MIN_UPSIDE for p in signed_to_ps)
+    per_team: dict[str, int] = {}
+    for p in signed_to_ps:
+        per_team[p.team_abbr] = per_team.get(p.team_abbr, 0) + 1
+    assert max(per_team.values()) <= roster_prep.PS_PROSPECTS_PER_TEAM
+    still_free_and_eligible = [p for p in players if p.team_abbr is None
+                               and p.potential - p.overall_rating >= free_agency.PS_MIN_UPSIDE]
+    assert len(still_free_and_eligible) >= len(TEAMS) * roster_prep.PS_PROSPECTS_PER_TEAM
+
+
+def test_auto_fill_ps_on_a_fresh_template_signs_prospects_not_the_star_veterans():
+    """Brian's follow-up, 2026-09-23: after the first practice-squad fix
+    shipped, a FRESH save's Auto-Fill PS still produced Bobby Wagner /
+    Tyreek Hill / Kevin Zeitler. A fresh save's free-agent pool is ~41
+    real veterans with no upside at all, so the (then) fallback fired
+    every time. Reproduces that exact starting point -- the pristine
+    template, on this test's own throwaway DB copy -- and clicks the
+    real route."""
+    _load_fresh_template_into_this_tests_db()
+    season_state.reset_season()
+    season_state.set_user_team("NE")
+    with get_session() as s:
+        assert not [p for p in s.exec(select(Player).where(Player.team_abbr == "NE"))
+                    if p.roster_status == RosterStatus.PRACTICE_SQUAD], "sanity: a fresh template starts with an empty PS"
+
+    resp = client.post("/roster/auto-fill-practice-squad", follow_redirects=False)
+    assert resp.status_code == 303
+
+    with get_session() as s:
+        ps = [p for p in s.exec(select(Player).where(Player.team_abbr == "NE"))
+              if p.roster_status == RosterStatus.PRACTICE_SQUAD]
+    assert ps, "the button should sign real prospects, not silently do nothing"
+    for p in ps:
+        assert p.potential - p.overall_rating >= free_agency.PS_MIN_UPSIDE, (p.full_name, p.age, p.overall_rating, p.potential)
+    assert not {p.full_name for p in ps} & {"Bobby Wagner", "Tyreek Hill", "Kevin Zeitler", "Joel Bitonio", "Joey Bosa"}

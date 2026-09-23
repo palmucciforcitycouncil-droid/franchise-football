@@ -979,3 +979,27 @@ def supplemental_udfa_player(position: Position, ordinal: int, league_seed: int,
     player = _prospect_to_player(prospect, league_seed, season_number, None, salary=salary, contract_years_remaining=1)
     player.player_id = supplemental_udfa_id(season_number, position, ordinal, league_seed)
     return player
+
+
+def practice_squad_prospect_player(position: Position, ordinal: int, league_seed: int, season_number: int,
+                                    min_upside: int) -> Player:
+    """A generated free-agent prospect that is GUARANTEED practice-squad
+    eligible (2026-09-23, Brian's follow-up: "create a pool deep enough
+    for all teams to have 4-5 PS players... randomly generated to fall
+    within our specifications for PS players").
+
+    Same pipeline, ID scheme, age (22-24), overall range and league-
+    minimum 1-year terms as supplemental_udfa_player() -- but that
+    generator's upside is a plain uniform(0, 12), so ~40% of its rookies
+    would fail free_agency.PS_MIN_UPSIDE's gate. Where the base draw
+    landed short of `min_upside`, potential is lifted to the floor plus a
+    small deterministic spread (so prospects don't all share one
+    identical gap). `min_upside` is a parameter, not an import, since
+    free_agency owns that constant and already imports from this module's
+    neighbors."""
+    player = supplemental_udfa_player(position, ordinal, league_seed, season_number)
+    floor = player.overall_rating + min_upside
+    if player.potential < floor:
+        rng = RNG.with_seed(stable_seed(league_seed, "ps_prospect", season_number, position.value, ordinal))
+        player.potential = min(99, floor + int(rng.uniform(0, 6)))
+    return player

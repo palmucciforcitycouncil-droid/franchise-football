@@ -153,18 +153,57 @@ def test_fill_practice_squad_gaps_prefers_a_young_developing_player_over_an_old_
     assert [p.player_id for p in signed[:1]] == ["young_prospect"]
 
 
-def test_fill_practice_squad_gaps_falls_back_to_best_ovr_when_nobody_is_still_developing():
-    """A shallow pool where every free agent is already at (or past) his
-    ceiling must still fill real PS slots rather than leave them empty --
-    the upside gate is a preference, not a hard requirement."""
-    from app.models.player import RosterStatus
+def test_fill_practice_squad_gaps_never_signs_a_veteran_at_his_ceiling_even_if_slots_stay_open():
+    """Brian's follow-up, 2026-09-23: the first version FELL BACK to the
+    whole pool when nobody had upside, and a fresh save's pool is only
+    real veterans -- so the practice squad was still Wagner/Hill/Zeitler.
+    The gate is now strict: an open slot beats an established veteran."""
+    star_vet = _player(Position.LB, 92, "star_vet", age=35, team_abbr=None)
+    star_vet.potential = 85
     maxed_out = _player(Position.WR, 65, "maxed", age=30, team_abbr=None)
     maxed_out.potential = 65
+    pool = [star_vet, maxed_out]
 
-    signed = free_agency.fill_practice_squad_gaps("ZZ", [], [maxed_out], season_number=0)
-    assert len(signed) == 1
-    assert signed[0].player_id == "maxed"
+    signed = free_agency.fill_practice_squad_gaps("ZZ", [], pool, season_number=0)
+    assert signed == []
+    assert len(pool) == 2  # nobody was taken out of the shared pool
+
+
+def test_fill_practice_squad_gaps_stops_at_target_size_counting_existing_ps_players():
+    """Brian's follow-up, 2026-09-23: AI teams top up to a per-team target
+    (4-5) rather than to the full 16, so a shared prospect pool can't be
+    drained by the first few teams in line."""
+    from app.models.player import RosterStatus
+    pool = []
+    for i in range(8):
+        p = _player(Position.WR, 50, f"prospect{i}", age=22, team_abbr=None)
+        p.potential = 66
+        pool.append(p)
+    assert len(free_agency.fill_practice_squad_gaps("ZZ", [], list(pool), season_number=0, target_size=5)) == 5
+
+    existing = []
+    for i in range(3):
+        e = _player(Position.G, 60, f"already{i}", team_abbr="ZZ")
+        e.roster_status = RosterStatus.PRACTICE_SQUAD
+        existing.append(e)
+    assert len(free_agency.fill_practice_squad_gaps("ZZ", existing, list(pool), season_number=0, target_size=5)) == 2
+
+
+def test_fill_practice_squad_gaps_fills_from_prospects_and_leaves_vets_when_both_exist():
+    from app.models.player import RosterStatus
+    vets = []
+    for i in range(3):
+        v = _player(Position.G, 88 - i, f"vet{i}", age=33, team_abbr=None)
+        v.potential = v.overall_rating
+        vets.append(v)
+    prospect = _player(Position.G, 55, "prospect", age=22, team_abbr=None)
+    prospect.potential = 70
+    pool = [*vets, prospect]
+
+    signed = free_agency.fill_practice_squad_gaps("ZZ", [], pool, season_number=0)
+    assert [p.player_id for p in signed] == ["prospect"]
     assert signed[0].roster_status == RosterStatus.PRACTICE_SQUAD
+    assert {p.player_id for p in pool} == {"vet0", "vet1", "vet2"}
 
 
 def test_fill_roster_gaps_signs_the_best_available_free_agent_at_an_empty_position():

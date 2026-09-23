@@ -3855,7 +3855,22 @@ def gm_desk_view(request: Request, offer_result: str | None = None, offer_player
         roster = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
 
     cap = round(contracts.salary_cap_for_season(season.season_number))
-    cap_space = round(contracts.team_cap_space(roster, season.season_number))
+    # 2026-09-21 (Brian's playtest report): during the resign offseason
+    # stage, a player whose contract has actually expired
+    # (contract_years_remaining <= 0 -- the ones in the Expiring
+    # Contracts table below) hasn't been kept yet -- real GM logic
+    # doesn't carry a cap hit for a walk-year player nobody's re-signed.
+    # The cap summary assumes they're released until the user actually
+    # re-signs them; a fresh contract's contract_years_remaining (>=1
+    # once signed) naturally brings them back into this sum on the next
+    # page load, no separate bookkeeping needed. Scoped strictly to the
+    # "resign" stage -- everywhere else (regular season, other offseason
+    # stages) an expired contract is just a normal, if overdue, roster
+    # state and must still count fully against the cap.
+    cap_roster = roster
+    if season.offseason_stage == "resign":
+        cap_roster = [p for p in roster if p.contract_years_remaining > 0]
+    cap_space = round(contracts.team_cap_space(cap_roster, season.season_number))
 
     # R16 Sec 10/decision #18: the roster-shortfall gate now lands here
     # (signing happens on GM Desk), not on /roster (which is for
@@ -5551,6 +5566,12 @@ def roster_auto_fill_practice_squad():
     if season.user_team_abbr is None:
         raise HTTPException(404, "No team chosen yet")
     user_abbr = season.user_team_abbr
+    # 2026-09-23 (Brian's follow-up: a fresh save's practice squad was
+    # still all veterans): a fresh save's free-agent pool is ~41 real
+    # veterans with no upside, so there was nobody young to prefer.
+    # Make sure the deterministic young prospects exist first -- the same
+    # top-up every AI team's fill already gets (prepare_ai_rosters()).
+    roster_prep.ensure_practice_squad_prospect_depth(season.league_seed, season.season_number)
     with get_session() as s:
         roster = list(s.exec(select(Player).where(Player.team_abbr == user_abbr)))
         pool = list(s.exec(select(Player).where(Player.team_abbr == None)))  # noqa: E711

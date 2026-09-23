@@ -401,7 +401,7 @@ def fill_roster_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list
 
 
 def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_pool: list[Player],
-                              season_number: int) -> list[Player]:
+                              season_number: int, target_size: int = PRACTICE_SQUAD_SIZE) -> list[Player]:
     """R16 Sec 4.3: the practice-squad sibling to fill_roster_gaps() --
     targets open PS slots (up to PRACTICE_SQUAD_SIZE) rather than a
     position shortfall, and signs at the flat league minimum (decision
@@ -425,10 +425,20 @@ def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_po
     real remaining development room (Brian's own suggested design: the
     OVR-vs-POT spread) -- PS_MIN_UPSIDE clears out anyone who's already
     at or near their ceiling -- then ranked by POTENTIAL, not current
-    OVR, among what's left, youngest-first as the tiebreak. Falls back
-    to the old best-OVR-first pool only if literally nobody in the pool
-    clears the upside gate, so PS slots still get filled rather than
-    sitting empty in a shallow free-agent market.
+    OVR, among what's left, youngest-first as the tiebreak. If nobody
+    clears the gate, a slot stays open rather than being filled by an
+    established veteran.
+
+    2026-09-23 (Brian's follow-up: the fix above shipped, yet a fresh
+    save's practice squad was STILL Bobby Wagner / Tyreek Hill / Kevin
+    Zeitler...): the first version fell back to the whole pool when
+    nobody cleared the upside gate -- and a fresh save's free-agent pool
+    is only ~41 real veterans, none with real upside, so the fallback
+    fired every time and reproduced the exact old behavior. There is no
+    fallback now: callers that want a full squad are responsible for
+    making sure young prospects exist in the pool first (see
+    roster_prep.ensure_free_agent_pool_depth(), which the user's
+    Auto-Fill PS route now calls before filling).
 
     Removes each signee from `free_agent_pool` in place, same contract
     as fill_roster_gaps(). Across ALL open positions (not position-need-
@@ -437,14 +447,13 @@ def fill_practice_squad_gaps(team_abbr: str, roster: list[Player], free_agent_po
     from app.config import season_year
     from app.models.player import RosterStatus
 
-    open_slots = PRACTICE_SQUAD_SIZE - sum(1 for p in roster if p.roster_status == RosterStatus.PRACTICE_SQUAD)
+    open_slots = min(target_size, PRACTICE_SQUAD_SIZE) - sum(1 for p in roster if p.roster_status == RosterStatus.PRACTICE_SQUAD)
     if open_slots <= 0:
         return []
     cap_space = contracts.team_cap_space(roster, season_number)
     flat_salary = round(contracts.veteran_minimum(0, season_number))
     developing = [p for p in free_agent_pool if p.potential - p.overall_rating >= PS_MIN_UPSIDE]
-    candidates = developing if developing else free_agent_pool
-    pool = sorted(candidates, key=lambda p: (-p.potential, p.age, p.player_id))
+    pool = sorted(developing, key=lambda p: (-p.potential, p.age, p.player_id))
     signed: list[Player] = []
     for choice in pool:
         if len(signed) >= open_slots:
