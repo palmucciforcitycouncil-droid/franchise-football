@@ -93,6 +93,7 @@
       <div class="trade-offer-actions">
         <button type="button" id="trade-submit-btn" {% if not trade_window_open %}disabled{% endif %}>Submit Offer</button>
         <button type="button" id="trade-counter-btn">Get Counter Offer</button>
+        <button type="button" id="trade-shop-btn" title="Add one of your players to the give side, then shop him for offers from every team">Shop Player</button>
         <button type="button" id="trade-clear-btn">Clear Offer</button>
       </div>
       <p class="muted trade-offer-note">Click a row to add or remove it; double-click a player for his Player Card. Future picks 3+ drafts out are valued at a league-average slot.</p>
@@ -408,6 +409,48 @@ document.addEventListener('DOMContentLoaded', function () {
     }).catch(function () {
       showVerdict('reject', 'Couldn\'t get a counter offer -- try again.');
     }).finally(function () { counterBtn.disabled = false; });
+  });
+
+
+  // "Shop Player": with exactly one of the user's players (and no picks) on
+  // the give side, ask every AI team what it would hand over for him;
+  // each offer is a button that loads that partner + package into the box.
+  var shopBtn = document.getElementById('trade-shop-btn');
+  shopBtn.addEventListener('click', function () {
+    var gives = offer.give;
+    if (gives.length !== 1 || gives[0].kind !== 'player') {
+      showVerdict('reject', 'Put exactly one of your players on the give side, then shop him.');
+      return;
+    }
+    shopBtn.disabled = true;
+    showVerdict('counter', 'Shopping ' + gives[0].label + '…');
+    fetch('/gm-desk/trade/shop?player=' + encodeURIComponent(gives[0].id)).then(function (r) {
+      if (!r.ok) { throw new Error('shop failed'); }
+      return r.json();
+    }).then(function (data) {
+      if (!data.offers.length) { showVerdict('reject', 'No team would give anything real for ' + data.player + ' right now.'); return; }
+      showVerdict('counter', 'Offers for ' + data.player, '');
+      var list = document.createElement('div');
+      list.className = 'shop-offers';
+      data.offers.forEach(function (o) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'shop-offer';
+        b.innerHTML = '<strong>' + esc(o.team) + '</strong> gives ' + esc(o.labels.join(', ')) + ' <small>(' + o.likelihood + '% -- ' + esc(o.mode_line) + ')</small>';
+        b.addEventListener('click', function () {
+          partnerSelect.value = o.team;
+          loadPartner(o.team).then(function () {
+            o.get.concat(o.get_picks).forEach(function (id) { var row = rowFor('get', id); if (row) { addAsset('get', row); } });
+            offerChanged();
+            scrollToTradeBox();
+          });
+        });
+        list.appendChild(b);
+      });
+      verdictEl.appendChild(list);
+    }).catch(function () {
+      showVerdict('reject', 'Couldn't shop that player -- try again.');
+    }).finally(function () { shopBtn.disabled = false; });
   });
 
   var preselectId = board.dataset.preselect;

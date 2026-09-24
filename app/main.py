@@ -3190,7 +3190,7 @@ def hof_view_redirect(pos: str = "all", q: str = ""):
 STAFF_ROLE_ORDER = [CoachRole.HC, CoachRole.OC, CoachRole.DC]
 
 
-def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
+def _staff_effect_rows(effect, team_abbr: str) -> tuple[list[tuple[str, str, str]], dict]:
     """GDD Sec 9.2.5.1's "Trait Effects Matrix", built from the REAL
     numbers this staff feeds into the sim, so the panel shows what the
     staff is actually doing right now rather than a static description
@@ -3251,6 +3251,7 @@ def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
         ("Injury rate", f"{effect.injury_risk_multiplier:.2f}x", "Strength & Conditioning focus -> injury system"),
         ("Stamina recovery", f"{effect.stamina_recovery_multiplier:.2f}x", "Strength & Conditioning focus -> fatigue/rotation"),
     ]
+    development: list[tuple[str, float, str]] = []
     for group in ("QB", "RB", "WR", "TE", "OL", "DL", "LB", "CB", "S", "K", "P"):
         boost = this_week_boosts.get(group, 0.0)
         season_pts = season_totals.get(group, 0.0)
@@ -3260,10 +3261,7 @@ def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
             f"{group} this-game boost", f"{boost:+.1f} pts",
             f"Focus Area -> {group} player attributes, this game only ({_boost_explanation(group)})",
         ))
-        rows.append((
-            f"{group} season development", f"{season_pts:.1f} pts accumulated",
-            f"Focus Area -> {group} progression at rollover",
-        ))
+        development.append((group, season_pts, f"Focus Area -> {group} progression at rollover"))
 
     scouting_strength = draft_engine.team_scouting_strength(team_abbr)
     scouting_reduction = scouting_strength / (scouting_strength + draft_engine.SCOUTING_STRENGTH_K)
@@ -3275,7 +3273,7 @@ def _staff_effect_rows(effect, team_abbr: str) -> list[tuple[str, str, str]]:
     # player might not read.
     rows.append(("Draft evaluation noise", f"-{scouting_reduction * 100:.0f}% error (more accurate)",
                  "Scouting focus -> draft pick decisions"))
-    return rows
+    return rows, {"total": sum(pts for _, pts, _ in development), "rows": development}
 
 
 # Stats page Coach tab (GDD Sec 7.6's Coach stat catalog / Figma
@@ -3560,6 +3558,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
         ]
 
     from app.services import owner_pressure_store
+    effect_rows, development = _staff_effect_rows(effect, team_abbr)
     return templates.TemplateResponse(request, "staff.html", {
         "season": season,
         "offseason_blockers": season_state.offseason_staff_blockers(season.user_team_abbr) if season.offseason_stage == "staff" else [],
@@ -3578,7 +3577,7 @@ def staff_view(request: Request, q: str = "", role: str = "", team: str = "", av
         "assistant_candidates": assistant_candidates,
         "staff_error": staff_error,
         "staff_error_role": staff_error_role,
-        "effect_rows": _staff_effect_rows(effect, team_abbr),
+        "effect_rows": effect_rows, "development": development,
         "search_results": search_results,
         "q": q,
         "role": role,
@@ -4449,6 +4448,49 @@ def gm_desk_trade_counter(team_b: str, give: list[str] = Query(default=[]), get:
     }
 
 
+@app.get("/gm-desk/trade/shop")
+def gm_desk_trade_shop(player: str):
+    """"Shop him": which AI teams would give real assets for one of the
+    user's players right now (trades.build_shop_offers()). Read-only --
+    the client loads a chosen offer into the trade box; nothing moves
+    until Submit."""
+    from app.services import draft_pick_store
+
+    season = season_state.get_season()
+    if season.user_team_abbr is None:
+        raise HTTPException(404, "No team chosen yet")
+    if not trades.is_trade_window_open(season.current_week):
+        raise HTTPException(422, f"Trade window is closed (deadline: week {trades.TRADE_DEADLINE_WEEK})")
+    user_abbr = season.user_team_abbr
+    with get_session() as s:
+        shopped = s.get(Player, player)
+        if (shopped is None or shopped.team_abbr != user_abbr
+                or shopped.roster_status in (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED)):
+            raise HTTPException(422, "That player isn't tradeable from your roster")
+        others = list(s.exec(select(Player).where(Player.team_abbr != None, Player.team_abbr != user_abbr)))  # noqa: E711
+    by_team: dict[str, list[Player]] = {}
+    for p in others:
+        if p.roster_status not in (RosterStatus.PRACTICE_SQUAD, RosterStatus.ELEVATED):
+            by_team.setdefault(p.team_abbr, []).append(p)
+    candidates = {}
+    for abbr in TEAMS_BY_ABBR:
+        if abbr == user_abbr:
+            continue
+        picks = [trades.PickRef(pk.season_number, pk.round, pk.original_team_abbr)
+                 for pk in draft_pick_store.tradeable_picks_owned_by(abbr, season.season_number)]
+        candidates[abbr] = (by_team.get(abbr, []), picks)
+    offers = trades.build_shop_offers(shopped, season, candidates)
+    return {
+        "player": shopped.full_name,
+        "offers": [{
+            "team": o.team_abbr, "team_name": TEAMS_BY_ABBR[o.team_abbr].name if hasattr(TEAMS_BY_ABBR[o.team_abbr], "name") else o.team_abbr,
+            "mode_line": o.mode_line, "labels": o.labels, "likelihood": o.likelihood,
+            "get": [p.player_id for p in o.give_players],
+            "get_picks": [f"{pk.season_number}_{pk.round}_{pk.original_team_abbr}" for pk in o.give_picks],
+        } for o in offers],
+    }
+
+
 @app.get("/gm-desk/player-card/{player_id}")
 def gm_desk_player_card(player_id: str):
     """The Player Card JSON blob for one player, on demand -- GM Desk's
@@ -4991,8 +5033,36 @@ def _draft_redirect_target(season_number_before: int) -> str:
     return "/draft"
 
 
+RECAP_ROSTER_SORT_KEYS = ("delta", "name", "pos", "age", "ovr", "pot")
+
+
+def _recap_roster_rows(before: dict, players: list[Player], sort: str, direction: str) -> list[dict]:
+    """The user's own roster as the recap's "how did everyone progress"
+    table (Brian's playtest report, 2026-09-21: "there should be a roster
+    box at the bottom so the user can see how players progressed").
+    `before` is offseason_recap_store's real pre-progression snapshot
+    ({player_id: (team, overall)}); a player with no entry in it (a
+    just-drafted or just-signed rookie) has no "before" to compare, so
+    he's marked NEW rather than shown a made-up delta of zero."""
+    rows = []
+    for p in players:
+        prior = before.get(p.player_id)
+        before_ovr = prior[1] if prior else None
+        rows.append({
+            "player_id": p.player_id, "name": p.full_name, "team_abbr": p.team_abbr,
+            "pos": p.position.value, "age": p.age, "ovr": p.overall_rating, "pot": p.potential,
+            "before": before_ovr, "delta": (p.overall_rating - before_ovr) if before_ovr is not None else 0,
+            "is_new": before_ovr is None,
+        })
+    key = sort if sort in RECAP_ROSTER_SORT_KEYS else "delta"
+    reverse = direction != "asc"
+    rows.sort(key=lambda r: (r["name"].lower() if key == "name" else r["pos"] if key == "pos" else r[key]), reverse=reverse)
+    return rows
+
+
 @app.get("/offseason/recap", response_class=HTMLResponse)
-def offseason_recap_view(request: Request, season_number: int | None = None):
+def offseason_recap_view(request: Request, season_number: int | None = None,
+                         sort: str = "delta", dir: str = "desc"):
     """Football-GM-style offseason summary (Brian's ask, 2026-09-13):
     Top/Improving/Declining Players, Top Rookies, Top/Improving/
     Declining Teams, Top Players on New Teams -- computed once, right
@@ -5029,10 +5099,31 @@ def offseason_recap_view(request: Request, season_number: int | None = None):
     def _has_page(n: int) -> bool:
         return n >= 0 and (offseason_recap_store.get_recap(n) is not None or honors_store.has_any_season_data(n))
 
+    # The roster box reads the user's CURRENT roster against that offseason's
+    # before-snapshot, so it's only honest for the offseason that just
+    # finished -- an older season's page would be comparing a roster that
+    # has since changed.
+    default_target = season.season_number if season.offseason_stage is not None else season.season_number - 1
+    roster_rows = None
+    if recap is not None and season.user_team_abbr and target_season == default_target:
+        before = offseason_recap_store.get_before_snapshot(target_season) or {}
+        with get_session() as s:
+            roster = list(s.exec(select(Player).where(Player.team_abbr == season.user_team_abbr)))
+        roster_rows = _recap_roster_rows(before, roster, sort, dir)
+    effective_sort = sort if sort in RECAP_ROSTER_SORT_KEYS else "delta"
+    direction = dir if dir in ("asc", "desc") else "desc"
+    roster_sort_links = {
+        key: f"/offseason/recap?season_number={target_season}&sort={key}&dir="
+             f"{'asc' if (effective_sort == key and direction == 'desc') else 'desc'}"
+        for key in RECAP_ROSTER_SORT_KEYS
+    }
+
     return templates.TemplateResponse(request, "offseason_recap.html", {
         "recap": recap, "summary": summary, "target_season": target_season, "user_abbr": season.user_team_abbr,
         "has_prior_recap": _has_page(target_season - 1),
         "has_next_recap": _has_page(target_season + 1),
+        "roster_rows": roster_rows, "roster_sort": effective_sort, "roster_dir": direction,
+        "roster_sort_links": roster_sort_links,
     })
 
 

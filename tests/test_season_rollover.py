@@ -459,3 +459,21 @@ def test_start_new_season_route_dispatches_correctly():
     assert resp.headers["location"] == "/offseason/recap"
     assert season_state.get_season().season_number == 1
     assert season_state.get_season().offseason_stage is None
+
+    # Recap roster box (Brian's playtest report, 2026-09-21: "there should
+    # be a roster box at the bottom so the user can see how players
+    # progressed"): the user's own roster, before -> after, sortable.
+    from sqlmodel import select
+    from app.core.db import get_session
+    from app.models.player import Player
+    from app.services import offseason_recap_store
+
+    season_state.set_user_team("KC")
+    page = client.get("/offseason/recap").text
+    assert 'id="recap-roster-box"' in page and "How Everyone Progressed" in page
+    before = offseason_recap_store.get_before_snapshot(0)
+    with get_session() as s:
+        kc = list(s.exec(select(Player).where(Player.team_abbr == "KC")))
+    moved = next(p for p in kc if p.player_id in before and before[p.player_id][1] != p.overall_rating)
+    assert f"{before[moved.player_id][1]} &rarr; {moved.overall_rating}" in page
+    assert 'id="recap-roster-box"' in client.get("/offseason/recap?season_number=0&sort=age&dir=asc").text

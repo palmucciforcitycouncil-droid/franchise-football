@@ -753,6 +753,71 @@ def build_counter_offer(
     return CounterOffer(True, False, add_players, add_picks, message=f"They'd do it if you add: {names}")
 
 
+SHOP_MAX_ASSETS = 3
+SHOP_CANDIDATES_PER_TEAM = 30   # most valuable affordable players priced per AI team (bounds per-asset DB reads)
+
+
+@dataclass(frozen=True)
+class ShopOffer:
+    team_abbr: str
+    mode_line: str
+    give_players: list = field(default_factory=list)   # Player rows the AI would send
+    give_picks: list = field(default_factory=list)     # PickRef the AI would send
+    labels: list = field(default_factory=list)
+    user_value: float = 0.0                            # plain base value of what the user would get
+    likelihood: int = 0
+
+
+def build_shop_offers(player: Player, season, ai_candidates: dict[str, tuple[list[Player], list[PickRef]]],
+                      limit: int = 8) -> list[ShopOffer]:
+    """"Shop him": for one of the user's players, what would each AI team
+    hand over for him right now? Per team, prices him as the AI's RECEIVED
+    asset (need multiplier + profile bonus), then greedily fills the most
+    valuable package (<= SHOP_MAX_ASSETS) of that team's own players/picks
+    whose AI-side value the deal still covers, and re-verifies it through
+    evaluate_trade() so every offer listed is one the AI would really
+    accept. `ai_candidates` maps team abbr -> (tradeable players, picks)
+    it could give up. Best offers (highest plain value to the user) first."""
+    season_number = season.season_number
+    depth = _league_depth()
+    offers: list[ShopOffer] = []
+    for abbr, (players, picks) in ai_candidates.items():
+        profile = team_trade_profile(abbr, season, depth)
+        target = asset_values([], [player], season_number, (), (), season, abbr, profile=profile)[0].value
+        if target <= 0:
+            continue
+        # Only players cheap enough to fit inside what he's worth to them are
+        # worth pricing (the base value is pure math; the per-asset need
+        # pricing below is the part that reads the DB).
+        affordable = ((player_trade_value(p, season_number), p) for p in players)
+        top = [p for v, p in sorted(((v, p) for v, p in affordable if 0 < v <= target * 1.5),
+                                    key=lambda t: t[0], reverse=True)[:SHOP_CANDIDATES_PER_TEAM]]
+        priced = asset_values(top, [], season_number, list(picks), (), season, abbr, profile=profile)
+        options = sorted((a for a in priced if a.base > 0 and a.value > 0), key=lambda a: a.base, reverse=True)
+        chosen: list[AssetValue] = []
+        total = 0.0
+        for a in options:
+            if len(chosen) >= SHOP_MAX_ASSETS:
+                break
+            if ai_accepts(total + a.value, target):
+                chosen.append(a)
+                total += a.value
+        if not chosen:
+            continue
+        by_id = {p.player_id: p for p in top}
+        by_id.update({_pick_id(pk): pk for pk in picks})
+        give_players = [by_id[a.asset_id] for a in chosen if a.kind == "player"]
+        give_picks = [by_id[a.asset_id] for a in chosen if a.kind == "pick"]
+        check = evaluate_trade(give_players, [player], season_number, give_picks, (), season=season, ai_team_abbr=abbr)
+        if not check.accepted:
+            continue
+        offers.append(ShopOffer(abbr, profile.mode_line, give_players, give_picks, [a.label for a in chosen],
+                                sum(a.base for a in chosen),
+                                acceptance_likelihood(check.value_sent, check.value_received)))
+    offers.sort(key=lambda o: o.user_value, reverse=True)
+    return offers[:limit]
+
+
 def execute_trade(team_a_abbr: str, team_a_players: list[Player],
                    team_b_abbr: str, team_b_players: list[Player],
                    team_a_picks: list[PickRef] = (), team_b_picks: list[PickRef] = (),

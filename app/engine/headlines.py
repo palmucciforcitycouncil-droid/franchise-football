@@ -574,6 +574,66 @@ def _detect_streak_events(season, week_num: int, user_team_abbr: str | None) -> 
 
 
 # ---------------------------------------------------------------------------
+# Awards race (user team's own players)
+# ---------------------------------------------------------------------------
+
+AWARD_RACE_LABELS = {
+    "mvp": "MVP", "opoy": "Offensive Player of the Year", "dpoy": "Defensive Player of the Year",
+    "oroy": "Offensive Rookie of the Year", "droy": "Defensive Rookie of the Year",
+}
+MAX_ENTERED_RACE_HEADLINES = 2   # per week -- early-season top-10s churn a lot
+
+
+def _detect_award_race_events(season, week_num: int, user_team_abbr: str | None) -> list[HeadlineEvent]:
+    """Brian's playtest report (2026-09-21): "Headlines for the team should
+    include news about players on the user's team if they are in the
+    running. It's news once they make the list, and then if they become
+    first on the list." Diffs this week's per-award top-10 snapshot
+    (award_race_history, recorded by season_state right before the
+    headlines are built) against last week's, for the USER'S players
+    only: a player newly on the list is one story, a player newly at #1
+    is a bigger one (and replaces the "entered" story for that same
+    player). No prior week (Week 1) means no diff -- otherwise the very
+    first top-10 would announce everyone at once."""
+    if not user_team_abbr or week_num <= 1:
+        return []
+    from app.services import award_race_history
+
+    now = award_race_history.get_week_awards(season.season_number, week_num)
+    prev = award_race_history.get_week_awards(season.season_number, week_num - 1)
+    if not now or not prev:
+        return []
+
+    took_lead: list[HeadlineEvent] = []
+    entered: list[HeadlineEvent] = []
+    for key, label in AWARD_RACE_LABELS.items():
+        prev_order = [(c["name"], c["team_abbr"]) for c in (prev.get(key) or [])]
+        for rank, cand in enumerate(now.get(key) or [], start=1):
+            if cand["team_abbr"] != user_team_abbr:
+                continue
+            ident = (cand["name"], cand["team_abbr"])
+            prev_rank = prev_order.index(ident) + 1 if ident in prev_order else None
+            values = {
+                "name": cand["name"], "team": _team_name(cand["team_abbr"]), "award": label, "rank": rank,
+                "pos": cand.get("player_position") or cand["position"], "stat_line": cand["stat_line"],
+            }
+            if rank == 1 and prev_rank != 1:
+                took_lead.append(HeadlineEvent(
+                    tier=1, category="award_race", magnitude=8.0, is_user_team=True,
+                    template_key="award_took_lead", values=values,
+                    event_key=f"award|{key}|lead|{cand['name']}|{week_num}",
+                ))
+            elif prev_rank is None:
+                entered.append(HeadlineEvent(
+                    tier=2, category="award_race", magnitude=max(0.0, 6.0 - 0.3 * rank), is_user_team=True,
+                    template_key="award_entered_race", values=values,
+                    event_key=f"award|{key}|enter|{cand['name']}|{week_num}",
+                ))
+    entered.sort(key=lambda e: e.values["rank"])
+    return took_lead + entered[:MAX_ENTERED_RACE_HEADLINES]
+
+
+# ---------------------------------------------------------------------------
 # Standout performers (playoffs)
 # ---------------------------------------------------------------------------
 
@@ -761,6 +821,16 @@ TEMPLATES: dict[str, list[str]] = {
         # rather than dressed up.
         "{round}: {winner_label} advances past {loser_label} after a {w_score}-{l_score} deadlock.",
     ],
+    "award_entered_race": [
+        "{name} ({pos}, {team}) enters the {award} race, now No. {rank} on the list.",
+        "Award watch: {name} ({pos}, {team}) cracks the {award} top 10 ({stat_line}).",
+        "{name} ({pos}, {team}) joins the {award} conversation.",
+    ],
+    "award_took_lead": [
+        "{name} ({pos}, {team}) takes over as the {award} front-runner.",
+        "New {award} favorite: {name} ({pos}, {team}), {stat_line}.",
+        "{name} ({pos}, {team}) moves to No. 1 in the {award} race.",
+    ],
     "conference_title": [
         "{winner_label} wins the {conference} Championship, beating {loser_label} {w_score}-{l_score}.",
         "{winner_label} is headed to the Super Bowl after topping {loser_label} {w_score}-{l_score}.",
@@ -851,6 +921,7 @@ def weekly_headlines(season, week_num: int, prior_standings: dict, injuries_this
     events += _detect_record_events(season, week_num, week_games, season.user_team_abbr)
     events += _detect_game_events(season, week_games, season.user_team_abbr)
     events += _detect_streak_events(season, week_num, season.user_team_abbr)
+    events += _detect_award_race_events(season, week_num, season.user_team_abbr)
     injury_events = _select_injuries(_detect_injury_events(injuries_this_week, season.user_team_abbr, starter_ids))
 
     selected = select_events(events, season.league_seed, season.season_number, week_num) + injury_events

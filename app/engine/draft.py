@@ -415,9 +415,17 @@ def _all_teams_group_counts() -> dict[str, dict[str, int]]:
 
     counts: dict[str, dict[str, int]] = {}
     with get_session() as s:
-        for p in s.exec(select(Player).where(Player.team_abbr.is_not(None))):
-            team_counts = counts.setdefault(p.team_abbr, {group: 0 for group in GROUP_POSITIONS})
-            team_counts[_group_for(p.position)] += 1
+        # 2026-09-21 (Brian's playtest report: "I'd like the draft to sim
+        # faster for the AI teams"): a profile of a full 7-round draft
+        # showed this ONE function was ~66% of the whole runtime -- the
+        # live draft calls it once per pick, and it was building a full
+        # Player ORM object for all ~2,070 rostered players (462k objects
+        # over a draft) just to count positions. Two columns is all it
+        # ever read.
+        for team_abbr, position in s.exec(
+                select(Player.team_abbr, Player.position).where(Player.team_abbr.is_not(None))):
+            team_counts = counts.setdefault(team_abbr, {group: 0 for group in GROUP_POSITIONS})
+            team_counts[_group_for(position)] += 1
     return counts
 
 

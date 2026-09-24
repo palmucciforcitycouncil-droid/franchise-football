@@ -10012,3 +10012,22 @@ Roster's Top Free Agents box is now a shared macro (`macros.html`'s `free_agents
 
 Brian's report: while re-signing, expiring players "should not be included in the salary cap... assume they are all being released... then as the player re-signs them the cap changes to include their salary." During `offseason_stage == "resign"` only, `gm_desk_view`'s Cap/Committed/Cap Space exclude players with `contract_years_remaining <= 0` (an expired contract); re-signing sets a real length, so the next load counts the salary again with no extra bookkeeping. **Judgment call, flagged to Brian:** the exclusion is the narrow "0 years left" group, not the wider `<= 1` group the Expiring Contracts *list* shows (a player with a real signed year left still counts). Everywhere outside that stage an expired contract still counts fully.
 
+### V.9 Coaching Staff: Trait Effects development dropdown and Find Coaches Ratings tab (2026-09-23)
+
+The per-group "season development" lines were crowding the Trait Effects list. They now collapse into one `Development` dropdown (native `<details>`, "N pts accumulated" in the summary, one row per position group inside); `_staff_effect_rows()` returns `(rows, development)`. The Find Coaches compare popup gained an Overview/Ratings tab pair: Ratings lists every granular rating group side by side (parsed from each row's existing `data-coach-card` JSON), the best value highlighted except in the "Tendencies" group, where higher isn't better.
+
+### V.10 Offseason Recap: "Your Roster: How Everyone Progressed" (2026-09-23)
+
+A sortable box on the recap listing every player on the user's roster with OVR before -> after, the change, age and POT (NEW for rookies), read off the recap's existing before-snapshot. Shown only for the newest recap season; sort state rides the query string and the box preserves scroll.
+
+### V.11 Headlines for the user's own award-race players (2026-09-23)
+
+`headlines._detect_award_race_events()` diffs this week's and last week's award-race top-10 snapshots for the user's players: taking the lead is a tier-1 headline, newly entering a race tier 2 (capped at `MAX_ENTERED_RACE_HEADLINES`). Week 1 / no prior snapshot emits nothing.
+
+### V.12 Draft AI sim speed (2026-09-23)
+
+Simulating a 223-pick draft went 25.2s -> 5.7s: team position-group counts are one column-only query instead of ORM hydration, and `draft_progress_store` caches the parsed JSON keyed by (path, mtime, size). Remaining cost is the per-pick DB write.
+
+### V.13 Trade box: "Shop Player" (2026-09-23)
+
+With exactly one of the user's players on the give side, **Shop Player** (`GET /gm-desk/trade/shop`, `trades.build_shop_offers()`) asks all 31 AI teams what they would give for him. Per team he is priced as a *received* asset (need multiplier + profile bonus); the team's candidate players (base value at most 1.5x his worth to them, top `SHOP_CANDIDATES_PER_TEAM` by base) and picks are priced as *sent* assets, and the most valuable package of up to `SHOP_MAX_ASSETS` (3) the deal still covers is built greedily and re-verified through `evaluate_trade()`. The top 8 offers, best first by plain value to the user, appear as buttons; clicking one loads that partner and package into the trade box (nothing moves until Submit). An overpaid player (negative trade value) draws no offers, by design.

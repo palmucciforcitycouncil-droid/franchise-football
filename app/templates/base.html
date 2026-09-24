@@ -276,6 +276,8 @@
       border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.75rem;
       font-weight: 600; text-align: center;
     }
+    .shop-offers { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .shop-offer { text-align: left; font-weight: normal; }
     .neg-result-message.accept { background: rgba(34, 197, 94, 0.14); color: #4ade80; }
     .neg-result-message.reject { background: rgba(239, 68, 68, 0.14); color: #f87171; }
     .neg-result-message.counter { background: rgba(212, 175, 55, 0.14); color: var(--gold); }
@@ -338,6 +340,19 @@
       background: var(--bg); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem;
     }
     .pc-row .pc-row-label { color: var(--muted); font-size: 0.88rem; }
+    /* Staff page Trait Effects: one collapsible Development row (native
+       <details>) instead of a per-position row for every group. */
+    details.trait-dev > summary { cursor: pointer; list-style: none; }
+    details.trait-dev > summary::-webkit-details-marker { display: none; }
+    details.trait-dev .trait-dev-arrow { display: inline-block; transition: transform 0.15s; color: var(--gold); }
+    details.trait-dev[open] .trait-dev-arrow { transform: rotate(180deg); }
+    details.trait-dev .trait-dev-row { padding-left: 1.1rem; }
+    /* Find Coaches compare popup: Overview/Ratings tabs + best-value highlight. */
+    .fc-tabs { display: flex; gap: 0.35rem; margin: 0.5rem 0; }
+    .fc-tab { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 0.15rem 0.8rem; cursor: pointer; }
+    .fc-tab.active { color: var(--gold); border-color: var(--gold); }
+    #fc-compare-ratings td.cmp-best { color: var(--gold); font-weight: 700; }
+    #fc-compare-ratings th.cmp-group { text-align: left; color: var(--gold); padding-top: 0.7rem; }
     .pc-bar-wrap {
       background: var(--bg); border-radius: 8px; padding: 0.7rem 0.9rem 0.85rem; margin-bottom: 0.6rem;
     }

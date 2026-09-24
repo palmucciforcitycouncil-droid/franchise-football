@@ -771,6 +771,34 @@ def test_gm_desk_trade_counter_offer_route():
         assert data["message"] == "A deal is not possible with those terms."
 
 
+def test_gm_desk_trade_shop_route_returns_offers_that_preview_as_accepted():
+    from app.engine import trades
+    from app.core.db import get_session
+    from app.models.player import Player
+    from sqlmodel import select
+
+    season_state.reset_season()
+    season_state.set_user_team("KC")
+    with get_session() as s:
+        # Most valuable, not highest-rated: an overpaid star has negative trade value and draws no offers.
+        best = max(s.exec(select(Player).where(Player.team_abbr == "KC")).all(),
+                   key=lambda p: trades.player_trade_value(p, 0))
+    resp = client.get("/gm-desk/trade/shop", params={"player": best.player_id})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["player"] == best.full_name
+    assert data["offers"], "a team's best player should draw at least one offer"
+    o = data["offers"][0]
+    assert o["team"] != "KC" and o["labels"] and (o["get"] or o["get_picks"])
+    follow = client.get("/gm-desk/trade/preview", params={
+        "team_b": o["team"], "give": [best.player_id], "get": o["get"], "get_picks": o["get_picks"]})
+    assert follow.json()["accepted"] is True
+    # A player who isn't on the user's roster can't be shopped.
+    with get_session() as s:
+        other = s.exec(select(Player).where(Player.team_abbr == "BUF")).first()
+    assert client.get("/gm-desk/trade/shop", params={"player": other.player_id}).status_code == 422
+
+
 def test_gm_desk_trade_route_accepts_a_pick_for_pick_swap():
     """A pick-for-pick trade (no players either side) really transfers
     ownership via app/services/draft_pick_store.py once accepted."""

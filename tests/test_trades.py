@@ -292,3 +292,28 @@ def test_a_starter_is_never_given_away_for_nothing_even_if_overpaid(monkeypatch)
     result = trades.evaluate_trade([star], [], 24, ai_team_abbr="BB")
     assert abs(result.value_sent - contracts.expected_market_value(star, 24)) < 1.0
     assert not result.accepted
+
+
+def test_shop_offers_are_accepted_deals_ranked_by_value_to_the_user(monkeypatch):
+    season = _flat_counter_env(monkeypatch)
+    monkeypatch.setattr(trades, "_league_depth", lambda: {})
+    shopped = _player(Position.WR, 90, "shop", salary=1_000_000, team_abbr="AA", contract_years_remaining=5)
+    rich = [_player(Position.QB, 80, "rq", salary=1_000_000, team_abbr="BB", contract_years_remaining=5),
+            _player(Position.CB, 70, "rc", salary=1_000_000, team_abbr="BB", contract_years_remaining=5)]
+    poor = [_player(Position.P, 50, "junk", salary=900_000, team_abbr="CC", contract_years_remaining=1)]
+    offers = trades.build_shop_offers(shopped, season, {"BB": (rich, []), "CC": (poor, [])})
+    assert offers and offers[0].team_abbr == "BB"
+    assert len(offers[0].give_players) <= trades.SHOP_MAX_ASSETS
+    for o in offers:
+        cands = rich if o.team_abbr == "BB" else poor
+        assert trades.evaluate_trade(o.give_players, [shopped], 1, o.give_picks, (), season=season,
+                                     ai_team_abbr=o.team_abbr).accepted
+        assert o.labels and o.likelihood >= trades.ACCEPT_LIKELY
+    assert [o.user_value for o in offers] == sorted((o.user_value for o in offers), reverse=True)
+
+
+def test_shop_offers_skip_a_team_with_nothing_worth_giving(monkeypatch):
+    season = _flat_counter_env(monkeypatch)
+    monkeypatch.setattr(trades, "_league_depth", lambda: {})
+    shopped = _player(Position.WR, 90, "shop", salary=1_000_000, team_abbr="AA", contract_years_remaining=5)
+    assert trades.build_shop_offers(shopped, season, {"BB": ([], [])}) == []

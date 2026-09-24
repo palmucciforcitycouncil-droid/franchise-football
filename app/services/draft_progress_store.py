@@ -22,15 +22,44 @@ from pathlib import Path
 DEFAULT_PATH = Path("data/saves/draft_progress.json")
 
 
+# 2026-09-21 (Brian's playtest report: "I'd like the draft to sim faster
+# for the AI teams"): every AI pick re-read and re-parsed this whole,
+# ever-growing file twice (once to look up the slot, once to record the
+# pick) -- ~40% of a full draft's remaining runtime after the roster-count
+# fix. The parsed dict is cached, keyed on the file's own identity (path,
+# mtime, size) exactly like honors_store's cache, so a save switch, a
+# test's redirected path, or any outside write is picked up on the very
+# next read with no explicit invalidation. Callers only ever READ what
+# get() returns; the writers below mutate the cached dict and _save()
+# immediately re-keys the cache to what it just wrote.
+_cache: dict = {"key": None, "data": None}
+
+
+def _file_key(p: Path):
+    try:
+        st = p.stat()
+    except FileNotFoundError:
+        return None
+    return (str(p), st.st_mtime_ns, st.st_size)
+
+
 def _load(path: Path | None) -> dict:
     p = path if path is not None else DEFAULT_PATH
-    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    key = _file_key(p)
+    if key is None:
+        _cache["key"], _cache["data"] = None, None
+        return {}
+    if _cache["key"] != key:
+        _cache["data"] = json.loads(p.read_text(encoding="utf-8"))
+        _cache["key"] = key
+    return _cache["data"]
 
 
 def _save(data: dict, path: Path | None) -> None:
     p = path if path is not None else DEFAULT_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    p.write_text(json.dumps(data), encoding="utf-8")  # compact: nobody reads this by hand, and it grows every pick
+    _cache["key"], _cache["data"] = _file_key(p), data
 
 
 def start(season_number: int, order: list[str], path: Path | None = None) -> dict:

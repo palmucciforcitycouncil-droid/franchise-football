@@ -204,6 +204,25 @@
       <span>{{ value }}</span>
     </div>
     {% endfor %}
+    {# 2026-09-21 (Brian's playtest report): every "<position> season
+       development" row used to sit in this list on its own, ten-plus
+       rows of noise. Now ONE Development row showing the team's overall
+       accumulated total; the arrow expands the per-position breakdown
+       and collapses it again. Native <details>, no script needed. #}
+    {% if development.rows %}
+    <details class="trait-dev">
+      <summary class="pc-row" title="Focus Area -> player progression at rollover, summed across every position group">
+        <span class="pc-row-label">Development <span class="trait-dev-arrow" aria-hidden="true">&#9662;</span></span>
+        <span>{{ "%.1f"|format(development.total) }} pts accumulated</span>
+      </summary>
+      {% for group, pts, consumer in development.rows %}
+      <div class="pc-row trait-dev-row" title="{{ consumer }}">
+        <span class="pc-row-label">{{ group }}</span>
+        <span>{{ "%.1f"|format(pts) }} pts</span>
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
   </div>
 </div>
 
@@ -378,8 +397,15 @@
       <h3 style="margin: 0;">Compare Coaches</h3>
       <button type="button" id="fc-compare-close" aria-label="Close">&times;</button>
     </div>
-    <div class="table-wrap">
+    <div class="fc-tabs" role="tablist">
+      <button type="button" class="fc-tab active" data-fc-tab="overview">Overview</button>
+      <button type="button" class="fc-tab" data-fc-tab="ratings">Ratings</button>
+    </div>
+    <div class="table-wrap" data-fc-panel="overview">
       <table id="fc-compare-table"><tbody></tbody></table>
+    </div>
+    <div class="table-wrap" data-fc-panel="ratings" hidden>
+      <table id="fc-compare-ratings"><tbody></tbody></table>
     </div>
   </dialog>
   {% elif q or role or available %}
@@ -468,9 +494,64 @@
       }).join('') + '</tr>';
     });
     tbody.innerHTML = html;
+    document.querySelector('#fc-compare-ratings tbody').innerHTML = buildRatings(rows);
+    showTab('overview');
     dialog.showModal();
   });
   closeBtn.addEventListener('click', function () { dialog.close(); });
+
+  // ---- Ratings tab (Brian's playtest report: "the compare popup box on the
+  // find coach box should have a tab for ratings"). Every candidate row
+  // already carries the full Coach Card JSON (data-coach-card), whose
+  // rating_groups are the exact rows the single-coach card's Ratings tab
+  // shows -- so this needs no new data, just a side-by-side layout with the
+  // best value in each row highlighted. Strategic Tendencies are styles,
+  // not quality (a higher blitz rate isn't "better"), so they're shown
+  // side by side but never highlighted. ----
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+  function valueRow(label, values, highlight) {
+    var nums = values.map(Number);
+    var max = Math.max.apply(null, nums);
+    var allEqual = nums.every(function (n) { return n === nums[0]; });
+    return '<tr><td class="muted">' + esc(label) + '</td>' + values.map(function (v, i) {
+      var best = highlight && !allEqual && nums[i] === max;
+      return '<td' + (best ? ' class="cmp-best"' : '') + '>' + esc(v) + '</td>';
+    }).join('') + '</tr>';
+  }
+  function buildRatings(rows) {
+    var cards = rows.map(function (r) {
+      var el = r.querySelector('[data-coach-card]');
+      try { return JSON.parse(el.dataset.coachCard); } catch (err) { return null; }
+    });
+    if (cards.some(function (c) { return !c; })) {
+      return '<tr><td class="muted">Ratings are unavailable for one of these coaches.</td></tr>';
+    }
+    var html = '<tr><th></th>' + cards.map(function (c) { return '<th>' + esc(c.name) + '</th>'; }).join('') + '</tr>';
+    html += valueRow('Overall', cards.map(function (c) { return c.overall; }), true);
+    html += valueRow('Reputation', cards.map(function (c) { return c.reputation; }), true);
+    cards[0].rating_groups.forEach(function (group, g) {
+      var highlight = group.heading.indexOf('Tendencies') === -1;
+      html += '<tr><th class="cmp-group" colspan="' + (cards.length + 1) + '">' + esc(group.heading) + '</th></tr>';
+      group.rows.forEach(function (row, i) {
+        html += valueRow(row[0], cards.map(function (c) {
+          var other = c.rating_groups[g] && c.rating_groups[g].rows[i];
+          return other ? other[1] : '';
+        }), highlight);
+      });
+    });
+    return html;
+  }
+  function showTab(name) {
+    dialog.querySelectorAll('[data-fc-tab]').forEach(function (b) { b.classList.toggle('active', b.dataset.fcTab === name); });
+    dialog.querySelectorAll('[data-fc-panel]').forEach(function (p) { p.hidden = p.dataset.fcPanel !== name; });
+  }
+  dialog.querySelectorAll('[data-fc-tab]').forEach(function (b) {
+    b.addEventListener('click', function () { showTab(b.dataset.fcTab); });
+  });
 })();
 </script>
 {% endblock %}

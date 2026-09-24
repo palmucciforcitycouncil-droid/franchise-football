@@ -296,3 +296,77 @@ def test_weekly_headlines_end_to_end_through_a_real_simulated_week():
         assert all(isinstance(line, str) and line for line in lines)
     finally:
         save_service.DEFAULT_SAVE_PATH = real_save
+
+
+# --- awards-race headlines for the user's own players ------------------------
+
+def _cand(name, team, position="WR/TE", player_position="WR", stat_line="80 rec yds, 1 TD"):
+    return {"name": name, "team_abbr": team, "position": position,
+            "player_position": player_position, "stat_line": stat_line, "score": 0.5}
+
+
+def _race_season(monkeypatch, prev, now):
+    """A stand-in for a Season (the detector only reads season_number) with
+    award_race_history's two weekly snapshots stubbed in."""
+    from types import SimpleNamespace
+    from app.services import award_race_history
+    monkeypatch.setattr(award_race_history, "get_week_awards",
+                        lambda sn, wk: {3: prev, 4: now}.get(wk))
+    return SimpleNamespace(season_number=7)
+
+
+def test_award_race_headline_when_a_user_player_newly_makes_the_list(monkeypatch):
+    """Brian's playtest report, 2026-09-21: it's news once a player on the
+    user's team makes the list."""
+    season = _race_season(
+        monkeypatch,
+        prev={"opoy": [_cand("Other Guy", "BUF")]},
+        now={"opoy": [_cand("Other Guy", "BUF"), _cand("Our Guy", "KC")]},
+    )
+    events = headlines._detect_award_race_events(season, 4, "KC")
+    assert [e.template_key for e in events] == ["award_entered_race"]
+    assert events[0].is_user_team and events[0].values["rank"] == 2
+    assert events[0].values["pos"] == "WR"  # the real position, never the "WR/TE" pool label
+
+
+def test_award_race_headline_when_a_user_player_takes_the_lead_replaces_the_entered_story(monkeypatch):
+    """...and bigger news when he becomes #1 -- one headline for that
+    player, not both an "entered" and a "took the lead"."""
+    season = _race_season(
+        monkeypatch,
+        prev={"mvp": [_cand("Other Guy", "BUF")]},
+        now={"mvp": [_cand("Our Guy", "KC"), _cand("Other Guy", "BUF")]},
+    )
+    events = headlines._detect_award_race_events(season, 4, "KC")
+    assert [e.template_key for e in events] == ["award_took_lead"]
+    assert events[0].tier == 1
+
+
+def test_award_race_headline_is_silent_for_unchanged_or_other_teams_players_and_week_one(monkeypatch):
+    unchanged = _race_season(
+        monkeypatch,
+        prev={"mvp": [_cand("Our Guy", "KC")], "opoy": [_cand("Our Guy", "KC"), _cand("Their Guy", "BUF")]},
+        now={"mvp": [_cand("Our Guy", "KC")], "opoy": [_cand("Our Guy", "KC"), _cand("Their Guy", "BUF"),
+                                                        _cand("New Rival", "BUF")]},
+    )
+    assert headlines._detect_award_race_events(unchanged, 4, "KC") == []  # nothing new for KC; a rival entering isn't ours
+    assert headlines._detect_award_race_events(unchanged, 1, "KC") == []  # no Week 1 flood
+    assert headlines._detect_award_race_events(unchanged, 4, None) == []
+
+
+def test_award_race_entered_headlines_are_capped_per_week(monkeypatch):
+    season = _race_season(
+        monkeypatch, prev={"opoy": [_cand("Rival", "BUF")]},
+        now={"opoy": [_cand("Rival", "BUF")] + [_cand(f"Ours {i}", "KC") for i in range(5)]},
+    )
+    events = headlines._detect_award_race_events(season, 4, "KC")
+    assert len(events) == headlines.MAX_ENTERED_RACE_HEADLINES
+    assert [e.values["rank"] for e in events] == [2, 3]  # the best-ranked ones
+
+
+def test_award_race_headlines_render_into_the_user_team_column(monkeypatch):
+    season = _race_season(monkeypatch, prev={"opoy": []}, now={"opoy": [_cand("Our Guy", "KC")]})
+    events = headlines._detect_award_race_events(season, 4, "KC")
+    league, user = headlines._render_events(events, 2025, 7, 4)
+    assert league == [] and len(user) == 1
+    assert "Our Guy" in user[0] and "KC" in user[0] and "Offensive Player of the Year" in user[0]

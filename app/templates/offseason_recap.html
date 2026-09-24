@@ -271,5 +271,38 @@
     {% else %}<p class="muted">Nobody notable changed teams.</p>{% endif %}
   </div>
 </div>
+
+{% if roster_rows %}
+<div class="card" id="recap-roster-box" style="margin-top: 16px;">
+  <h3>Your Roster: How Everyone Progressed</h3>
+  <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+    Overall before and after this offseason's progression, for everyone on your team now.
+    Players with no "before" (rookies and new signings) show NEW. Click a header to sort.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% for key, label in [('name', 'Player'), ('pos', 'Pos'), ('age', 'Age'), ('ovr', 'OVR'), ('delta', '+/-'), ('pot', 'POT')] %}
+          <th><a href="{{ roster_sort_links[key] }}" data-preserve-scroll="recap-roster-box" class="stats-sort-link {% if roster_sort == key %}active-sort{% endif %}">{{ label }}{% if roster_sort == key %}{% if roster_dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in roster_rows %}
+        <tr>
+          <td>{{ player_link_or_name(r.name, r.team_abbr) }}</td>
+          <td>{{ r.pos }}</td>
+          <td>{{ r.age }}</td>
+          <td>{% if r.is_new %}<span class="muted">NEW</span> {{ r.ovr }}{% else %}{{ r.before }} &rarr; {{ r.ovr }}{% endif %}</td>
+          <td>{% if r.is_new or r.delta == 0 %}<span class="muted">&mdash;</span>{% elif r.delta > 0 %}<span class="delta-up">+{{ r.delta }}</span>{% else %}<span class="delta-down">{{ r.delta }}</span>{% endif %}</td>
+          <td>{{ r.pot }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}
